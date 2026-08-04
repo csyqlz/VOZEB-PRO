@@ -12,23 +12,23 @@
   },
   "dependencies": {
     "@orama/orama": "^3.1.18",
-    "fumadocs-core": "16.9.3",
-    "fumadocs-mdx": "15.0.10",
-    "fumadocs-ui": "16.9.3",
-    "lucide-react": "^1.17.0",
+    "fumadocs-core": "16.14.0",
+    "fumadocs-mdx": "15.2.1",
+    "fumadocs-ui": "16.14.0",
+    "lucide-react": "^1.28.0",
     "next": "16.2.12",
-    "react": "^19.2.6",
-    "react-dom": "^19.2.6",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4.3.0",
+    "@tailwindcss/postcss": "^4.3.3",
     "@types/mdx": "^2.0.13",
-    "@types/node": "^25.9.1",
-    "@types/react": "^19.2.15",
-    "@types/react-dom": "^19.2.3",
+    "@types/node": "^26.1.2",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
     "postcss": "8.5.25",
-    "tailwindcss": "^4.3.0",
-    "typescript": "^6.0.3"
+    "tailwindcss": "^4.3.3",
+    "typescript": "^7.0.2"
   }
 }
