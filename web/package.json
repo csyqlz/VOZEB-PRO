@@ -64,7 +64,7 @@
         "@types/pg": "^8.20.3",
         "@types/react": "19.2.18",
         "@types/react-dom": "19.2.4",
-        "eslint": "9.39.2",
+        "eslint": "9.39.5",
         "eslint-config-next": "16.2.12",
         "jsonrepair": "^3.15.0",
         "postcss": "8.5.25",
