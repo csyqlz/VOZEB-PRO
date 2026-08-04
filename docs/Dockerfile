@@ -1,4 +1,4 @@
-FROM node:22-bookworm-slim AS docs-build
+FROM node:26-bookworm-slim AS docs-build
 
 WORKDIR /app
 RUN npm install --global pnpm@11.9.0
@@ -10,7 +10,7 @@ COPY CHANGELOG.md /CHANGELOG.md
 RUN pnpm run postinstall
 RUN pnpm run build
 
-FROM node:22-bookworm-slim
+FROM node:26-bookworm-slim
 
 WORKDIR /app
 ENV NODE_ENV=production
