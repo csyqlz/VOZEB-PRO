@@ -49,7 +49,7 @@
         "file-type": "^22.0.1",
         "jsjianyingdraft": "1.0.0",
         "lucide-react": "^1.28.0",
-        "motion": "^12.43.0",
+        "motion": "^13.1.0",
         "nanoid": "^6.0.0",
         "next": "16.2.12",
         "otpauth": "9.5.1",
