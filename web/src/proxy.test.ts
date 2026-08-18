@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
-import { proxy } from "./proxy";
+import { buildContentSecurityPolicy, buildDirectorDeskContentSecurityPolicy, proxy } from "./proxy";
 
 describe("application proxy security", () => {
     afterEach(() => vi.unstubAllEnvs());
@@ -28,6 +28,24 @@ describe("application proxy security", () => {
         expect(policy).toContain("connect-src 'self' https:");
         expect(policy).not.toMatch(/connect-src[^;]*http:/);
         expect(policy).toContain("upgrade-insecure-requests");
+    });
+});
+
+describe("content security policy", () => {
+    it("keeps regular application pages non-embeddable and nonce protected", () => {
+        const policy = buildContentSecurityPolicy("test-nonce");
+
+        expect(policy).toContain("script-src 'self' 'nonce-test-nonce' 'strict-dynamic'");
+        expect(policy).toContain("frame-ancestors 'none'");
+    });
+
+    it("allows only same-origin embedding and static scripts for the director desk", () => {
+        const policy = buildDirectorDeskContentSecurityPolicy();
+
+        expect(policy).toContain("script-src 'self' 'wasm-unsafe-eval'");
+        expect(policy).toContain("frame-ancestors 'self'");
+        expect(policy).not.toContain("'strict-dynamic'");
+        expect(policy).not.toContain("frame-ancestors 'none'");
     });
 });
 

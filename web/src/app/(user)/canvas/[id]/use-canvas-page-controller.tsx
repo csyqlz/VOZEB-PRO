@@ -6,6 +6,7 @@ import { useCanvasMediaActions } from "./use-canvas-media-actions";
 import { useCanvasPageState } from "./use-canvas-page-state";
 import { useCanvasPersistenceEffects } from "./use-canvas-persistence-effects";
 import { useCanvasTaskRuntime } from "./use-canvas-task-runtime";
+import { useCanvasDirectorActions } from "./use-canvas-director-actions";
 
 export function useCanvasPageController() {
     const state = useCanvasPageState();
@@ -14,7 +15,8 @@ export function useCanvasPageController() {
     const interactions = useCanvasInteractions({ state });
     const media = useCanvasMediaActions({ state, tasks, interactions });
     const generation = useCanvasGenerationActions({ state, tasks, interactions });
-    return { ...state, ...tasks, ...interactions, ...media, ...generation };
+    const director = useCanvasDirectorActions({ state });
+    return { ...state, ...tasks, ...interactions, ...media, ...generation, ...director };
 }
 
 export type CanvasPageController = ReturnType<typeof useCanvasPageController>;

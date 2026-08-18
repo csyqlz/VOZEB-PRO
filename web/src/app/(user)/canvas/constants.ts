@@ -24,6 +24,7 @@ export const NODE_DEFAULT_SIZE = {
     [CanvasNodeType.Brief]: { width: 380, height: 280, title: "创作简报" },
     [CanvasNodeType.Task]: { width: 340, height: 210, title: "Agent 任务" },
     [CanvasNodeType.BrandKit]: { width: 340, height: 240, title: "品牌规范" },
+    [CanvasNodeType.Director]: { width: 420, height: 260, title: "3D导演台" },
 } satisfies Record<CanvasNodeType, { width: number; height: number; title: string }>;
 
 const NODE_SPECS = {
@@ -54,6 +55,7 @@ const NODE_SPECS = {
     [CanvasNodeType.Brief]: { ...NODE_DEFAULT_SIZE[CanvasNodeType.Brief], metadata: { status: "idle" } },
     [CanvasNodeType.Task]: { ...NODE_DEFAULT_SIZE[CanvasNodeType.Task], metadata: { status: "idle", agentTaskStatus: "pending", agentTaskAttempts: 0 } },
     [CanvasNodeType.BrandKit]: { ...NODE_DEFAULT_SIZE[CanvasNodeType.BrandKit], metadata: { status: "idle" } },
+    [CanvasNodeType.Director]: { ...NODE_DEFAULT_SIZE[CanvasNodeType.Director], metadata: { status: "idle", directorCaptureCount: 0 } },
 } satisfies Record<CanvasNodeType, CanvasNodeSpec>;
 
 export function getNodeSpec(type: CanvasNodeType) {

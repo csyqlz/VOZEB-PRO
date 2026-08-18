@@ -1,0 +1,621 @@
+.camera-capture-section {
+  margin-top: auto;
+}
+
+.camera-capture-section > h3 {
+  height: 30px;
+  color: rgb(var(--text-rgb));
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 30px;
+}
+
+.camera-capture-tab,
+.camera-capture-overview {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  min-height: 0;
+  height: 100%;
+}
+
+.right-sidebar .right-inspector.camera-inspector-captures {
+  height: 100%;
+  overflow: hidden;
+}
+
+.camera-inspector-captures .right-inspector-content {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 92px;
+  bottom: 78px;
+  grid-template-rows: minmax(0, 1fr);
+  width: auto;
+  margin-top: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.camera-capture-tab {
+  height: 100%;
+}
+
+.camera-capture-overview {
+  grid-template-rows: minmax(0, 1fr);
+  gap: 0;
+}
+
+.camera-capture-overview-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  padding: 30px 0 20px 20px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.camera-capture-group {
+  display: grid;
+  gap: 12px;
+  width: var(--right-sidebar-content-width);
+  max-width: 100%;
+}
+
+.camera-capture-group > h3 {
+  margin: 0;
+  color: rgb(var(--text-rgb));
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+.camera-capture-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  width: var(--right-sidebar-content-width);
+  max-width: 100%;
+}
+
+.camera-capture-card {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.camera-capture-thumb-wrap {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #000000;
+}
+
+.camera-capture-thumb {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.camera-capture-actions {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: center;
+  gap: 0;
+  height: 30px;
+  padding: 0;
+  border-radius: 0 0 8px 8px;
+  background: rgb(0 0 0 / 0.72);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.16s ease;
+}
+
+.camera-capture-thumb-wrap:hover .camera-capture-actions,
+.camera-capture-thumb-wrap:focus-within .camera-capture-actions,
+.camera-capture-actions.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.camera-capture-action {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 30px;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  color: rgba(255, 255, 255, 0.82);
+  line-height: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.right-sidebar .right-inspector button.camera-capture-action {
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  color: rgb(255 255 255 / 0.82);
+  background: transparent;
+  box-shadow: none;
+  transform: none;
+}
+
+.camera-capture-action:hover,
+.camera-capture-action:focus-visible {
+  color: #ffffff;
+  background: rgb(255 255 255 / 0.08);
+}
+
+.right-sidebar .right-inspector button.camera-capture-action:hover,
+.right-sidebar .right-inspector button.camera-capture-action:focus-visible {
+  color: rgb(255 255 255);
+  background: rgb(255 255 255 / 0.08);
+}
+
+.camera-capture-action svg {
+  display: block;
+  width: 14px;
+  height: 14px;
+}
+
+.camera-capture-name {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 17px;
+  color: rgb(var(--text-muted-rgb));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.camera-capture-empty {
+  width: var(--right-sidebar-content-width);
+  max-width: 100%;
+  height: 100%;
+}
+
+.camera-capture-overview-footer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: grid;
+  grid-template-columns: 125px 125px;
+  justify-content: center;
+  align-items: start;
+  gap: 10px;
+  width: var(--right-sidebar-width);
+  height: 78px;
+  padding: 20px;
+  border-top: 1px solid rgb(var(--border-rgb) / 0.24);
+  background: rgb(var(--panel-rgb));
+}
+
+.camera-capture-current-button,
+.camera-capture-clear-all,
+.camera-capture-send-all {
+  display: inline-grid;
+  grid-auto-flow: column;
+  grid-auto-columns: max-content;
+  align-items: center;
+  place-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 125px;
+  min-width: 0;
+  height: 38px;
+  border: 1px solid rgb(var(--border-rgb) / 0.24);
+  border-radius: 8px;
+  padding: 0 12px;
+  color: rgb(var(--text-muted-rgb));
+  font-family: "PingFang SC", "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 17px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.camera-capture-current-button {
+  width: var(--right-sidebar-content-width);
+}
+
+.camera-capture-clear-all,
+.camera-capture-send-all {
+  width: 125px;
+}
+
+.camera-capture-current-button svg,
+.camera-capture-clear-all svg,
+.camera-capture-send-all svg {
+  display: block;
+  width: 14px;
+  height: 14px;
+}
+
+.right-sidebar .right-inspector button.camera-capture-current-button,
+.right-sidebar .right-inspector button.camera-capture-clear-all,
+.right-sidebar .right-inspector button.camera-capture-send-all {
+  border: 1px solid rgb(var(--border-rgb) / 0.24);
+  border-radius: 8px;
+  padding: 0 12px;
+  color: rgb(var(--text-muted-rgb));
+  background: transparent;
+  box-shadow: none;
+  transform: none;
+}
+
+.camera-capture-current-button:hover,
+.camera-capture-current-button:focus-visible {
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--surface-hover-rgb) / 0.72);
+}
+
+.camera-capture-clear-all:hover,
+.camera-capture-clear-all:focus-visible {
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--surface-hover-rgb) / 0.72);
+}
+
+.camera-capture-send-all:hover,
+.camera-capture-send-all:focus-visible {
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--surface-hover-rgb) / 0.72);
+}
+
+.right-sidebar .right-inspector button.camera-capture-current-button:hover,
+.right-sidebar .right-inspector button.camera-capture-current-button:focus-visible {
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--surface-hover-rgb) / 0.72);
+}
+
+.right-sidebar .right-inspector button.camera-capture-clear-all:hover,
+.right-sidebar .right-inspector button.camera-capture-clear-all:focus-visible {
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--surface-hover-rgb) / 0.72);
+}
+
+.right-sidebar .right-inspector button.camera-capture-send-all:hover,
+.right-sidebar .right-inspector button.camera-capture-send-all:focus-visible {
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--surface-hover-rgb) / 0.72);
+}
+
+.camera-capture-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(0 0 0 / 0.9);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.camera-capture-viewer-toolbar {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 10;
+}
+
+.camera-capture-viewer-tool {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid rgb(255 255 255 / 0.1);
+  border-radius: 8px;
+  padding: 0;
+  color: rgba(255, 255, 255, 0.9);
+  background: rgb(255 255 255 / 0.1);
+  box-shadow: none;
+  transition:
+    background-color 0.18s ease,
+    color 0.18s ease;
+}
+
+.right-inspector button.camera-capture-viewer-tool {
+  border: 1px solid rgb(255 255 255 / 0.1);
+  border-radius: 8px;
+  padding: 0;
+  color: rgb(255 255 255 / 0.9);
+  background: rgb(255 255 255 / 0.1);
+  box-shadow: none;
+  transform: none;
+}
+
+.camera-capture-viewer-tool:hover,
+.camera-capture-viewer-tool:focus-visible {
+  color: #ffffff;
+  background: rgb(255 255 255 / 0.2);
+}
+
+.right-inspector button.camera-capture-viewer-tool:hover,
+.right-inspector button.camera-capture-viewer-tool:focus-visible {
+  border: 1px solid rgb(255 255 255 / 0.1);
+  color: rgb(255 255 255);
+  background: rgb(255 255 255 / 0.2);
+}
+
+.camera-capture-viewer-stage {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+}
+
+.camera-capture-viewer-image {
+  display: block;
+  max-width: 80vw;
+  max-height: 80vh;
+  user-select: none;
+  -webkit-user-drag: none;
+  border-radius: 8px;
+  object-fit: contain;
+  background: #000000;
+  transform-origin: center center;
+  transition: transform 0.2s ease;
+}
+
+.camera-capture-viewer-image.is-zoomed {
+  cursor: grab;
+}
+
+.camera-capture-viewer-image.is-dragging {
+  cursor: grabbing;
+  transition: none;
+}
+
+.panorama-thumbnail-card {
+  position: relative;
+  width: var(--right-sidebar-content-width);
+  max-width: 100%;
+  height: 100px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #000000;
+}
+
+.panorama-thumbnail-card::after {
+  position: absolute;
+  inset: 0;
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0) 41%, rgba(0, 0, 0, 0.6) 100%);
+  content: "";
+  pointer-events: none;
+}
+
+.panorama-thumbnail-delete {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 999px;
+  padding: 0;
+  box-shadow: none;
+  color: rgba(255, 255, 255, 0.72);
+  line-height: 0;
+  background: rgba(0, 0, 0, 0.52);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(-2px);
+  transition:
+    opacity 0.16s ease,
+    visibility 0.16s ease,
+    transform 0.16s ease,
+    color 0.16s ease,
+    background-color 0.16s ease;
+}
+
+.right-inspector .panorama-thumbnail-delete {
+  border: 0;
+  border-radius: 999px;
+  padding: 0;
+  background: rgba(0, 0, 0, 0.52);
+}
+
+.panorama-thumbnail-delete svg {
+  display: block;
+  width: 14px;
+  height: 14px;
+  transform: translateY(-0.5px);
+}
+
+.panorama-thumbnail-card:hover .panorama-thumbnail-delete,
+.panorama-thumbnail-card:focus-within .panorama-thumbnail-delete {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.panorama-thumbnail-delete:hover {
+  color: #ffffff;
+  background: rgba(0, 0, 0, 0.68);
+}
+
+.right-inspector .panorama-thumbnail-delete:hover {
+  border: 0;
+  color: #ffffff;
+  background: rgba(0, 0, 0, 0.68);
+}
+
+.panorama-thumbnail-delete:active {
+  transform: none;
+}
+
+.right-inspector .panorama-thumbnail-delete:active {
+  transform: none;
+}
+
+.panorama-thumbnail-image {
+  display: block;
+  width: var(--right-sidebar-content-width);
+  max-width: 100%;
+  height: 100px;
+  border: 0;
+  border-radius: 8px;
+  object-fit: cover;
+  background: #000000;
+}
+
+.panorama-thumbnail-name {
+  position: absolute;
+  left: 12px;
+  bottom: 10px;
+  z-index: 1;
+  max-width: calc(100% - 24px);
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 17px;
+  color: rgba(255, 255, 255, 0.5);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.capture-status {
+  padding: 10px 12px;
+  border: 1px solid rgb(var(--accent-rgb) / 0.22);
+  border-radius: 12px;
+  color: rgb(var(--accent-rgb));
+  background: rgb(var(--accent-rgb) / 0.08);
+}
+
+.capture-list-placeholder {
+  padding: 12px;
+  border: 1px dashed rgb(var(--border-rgb) / 0.58);
+  border-radius: 12px;
+}
+
+.role-label {
+  padding: 6px 10px;
+  border-radius: 999px;
+  color: rgb(var(--text-rgb));
+  font-size: 12px;
+  white-space: nowrap;
+  background: rgb(var(--panel-rgb) / 0.92);
+  box-shadow: 0 10px 28px rgb(var(--overlay-rgb) / 0.24);
+}
+
+.viewport-error-card {
+  display: grid;
+  gap: 4px;
+  min-width: 220px;
+  padding: 12px 14px;
+  border: 1px solid rgb(255 200 87 / 0.42);
+  border-radius: 16px;
+  color: rgb(var(--text-rgb));
+  text-align: center;
+  background:
+    linear-gradient(180deg, rgb(255 200 87 / 0.16), transparent),
+    rgb(var(--panel-rgb) / 0.92);
+  box-shadow: 0 18px 42px rgb(var(--overlay-rgb) / 0.34);
+}
+
+.viewport-error-card strong {
+  color: #ffc857;
+}
+
+.viewport-error-card span {
+  color: rgb(var(--muted-rgb));
+  font-size: 12px;
+}
+
+@media (max-width: 1180px) {
+  .top-bar {
+    grid-template-columns: var(--left-sidebar-width) minmax(0, 1fr) var(--right-sidebar-width);
+  }
+
+  .director-shell-fullbleed {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .director-sidebar .panel-card {
+    padding-inline: 8px;
+  }
+
+  .object-list {
+    margin-inline: -8px;
+  }
+
+  .object-row {
+    padding-inline: 8px;
+  }
+}
+
+@media (max-width: 920px) {
+  .top-bar {
+    grid-template-columns: 1fr auto;
+  }
+
+  .top-bar-center {
+    justify-content: flex-end;
+  }
+
+  .director-desk-switcher {
+    margin-left: 10px;
+  }
+
+  .director-desk-select {
+    max-width: 150px;
+  }
+
+  .director-desk-create-button {
+    padding-inline: 9px;
+  }
+
+  .top-bar-actions {
+    display: none;
+  }
+
+  .director-shell-fullbleed {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .left-sidebar {
+    width: min(196px, 28vw);
+  }
+
+  .right-sidebar {
+    display: none;
+  }
+
+  .viewport-toolbar {
+    max-width: calc(100% - 32px);
+  }
+}

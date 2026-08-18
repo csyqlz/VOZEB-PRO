@@ -16,7 +16,7 @@ vi.mock("@/services/image-storage", async (importOriginal) => ({
     uploadImage: mocks.uploadImage,
 }));
 
-import { applyNodeConfigPatch, getGenerationCount, hydrateAssistantImages, hydrateCanvasImages, normalizeCanvasConfigNodeLayout, replaceCanvasNodeMediaMetadata } from "./canvas-page-utils";
+import { appendConnectionWithDirectorRules, applyNodeConfigPatch, getGenerationCount, hydrateAssistantImages, hydrateCanvasImages, normalizeCanvasConfigNodeLayout, normalizeConnection, replaceCanvasNodeMediaMetadata } from "./canvas-page-utils";
 
 describe("Canvas project hydration", () => {
     beforeEach(() => {
@@ -84,6 +84,26 @@ describe("Canvas config node layout", () => {
         expect(getGenerationCount("120")).toBe(120);
         expect(getGenerationCount("0")).toBe(1);
         expect(getGenerationCount("-2")).toBe(1);
+    });
+});
+
+describe("3D director desk connections", () => {
+    const image = imageNode("image", "image.webp");
+    const panorama = { ...imageNode("panorama", "panorama.webp"), type: CanvasNodeType.Panorama };
+    const director: CanvasNodeData = { id: "director", type: CanvasNodeType.Director, title: "3D导演台", position: { x: 0, y: 0 }, width: 420, height: 260 };
+    const text = textNode();
+
+    it("only accepts image inputs and image outputs", () => {
+        expect(normalizeConnection(image.id, director.id, [image, director], "source")).toEqual({ fromNodeId: image.id, toNodeId: director.id });
+        expect(normalizeConnection(panorama.id, director.id, [panorama, director], "source")).toEqual({ fromNodeId: panorama.id, toNodeId: director.id });
+        expect(normalizeConnection(director.id, image.id, [director, image], "source")).toEqual({ fromNodeId: director.id, toNodeId: image.id });
+        expect(normalizeConnection(text.id, director.id, [text, director], "source")).toBeNull();
+    });
+
+    it("keeps only the latest panorama input", () => {
+        const existing = { id: "old", fromNodeId: image.id, toNodeId: director.id };
+        const replacement = { id: "new", fromNodeId: panorama.id, toNodeId: director.id };
+        expect(appendConnectionWithDirectorRules([existing], replacement, [image, panorama, director])).toEqual([replacement]);
     });
 });
 

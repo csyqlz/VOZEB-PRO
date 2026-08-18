@@ -36,7 +36,7 @@ export type NodeContentRendererProps = {
 };
 
 export function NodeContent(props: NodeContentRendererProps) {
-    if (props.node.type === CanvasNodeType.Config && props.renderNodeContent) return props.renderNodeContent(props.node);
+    if ((props.node.type === CanvasNodeType.Config || props.node.type === CanvasNodeType.Director) && props.renderNodeContent) return props.renderNodeContent(props.node);
     if (props.isBatchRoot) return <ImageNodeContent {...props} />;
     if (props.node.metadata?.status === "loading") return <LoadingContent theme={props.theme} />;
     if (props.node.metadata?.status === "error") return <ErrorContent node={props.node} theme={props.theme} onRetry={props.onRetry} />;
@@ -57,7 +57,16 @@ export const nodeContentRenderers = {
     [CanvasNodeType.Brief]: BriefNodeContent,
     [CanvasNodeType.Task]: TaskNodeContent,
     [CanvasNodeType.BrandKit]: BrandKitNodeContent,
+    [CanvasNodeType.Director]: DirectorNodeContent,
 } satisfies Record<CanvasNodeType, (props: NodeContentRendererProps) => ReactNode>;
+
+function DirectorNodeContent({ theme }: NodeContentRendererProps) {
+    return (
+        <div className="flex h-full w-full items-center justify-center text-sm" style={{ color: theme.node.text }}>
+            3D导演台
+        </div>
+    );
+}
 
 export function BriefNodeContent({ node, theme }: NodeContentRendererProps) {
     const brief = node.metadata?.agentBrief;

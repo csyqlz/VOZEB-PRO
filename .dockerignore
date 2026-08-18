@@ -9,6 +9,9 @@ docs/.next
 docs/.source
 docs/node_modules
 docs/out
+director-desk/dist
+director-desk/node_modules
+director-desk/*.tsbuildinfo
 web/.next
 web/.data
 web/.e2e-artifacts

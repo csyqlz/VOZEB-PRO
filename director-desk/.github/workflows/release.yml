@@ -1,0 +1,79 @@
+name: 发布预构建导演台
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: 构建并发布静态资源
+    runs-on: ubuntu-latest
+    steps:
+      - name: 获取代码
+        uses: actions/checkout@v4
+
+      - name: 配置 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: 校验标签与包版本
+        shell: bash
+        run: |
+          package_version="$(node -p "require('./package.json').version")"
+          if [ "v${package_version}" != "${GITHUB_REF_NAME}" ]; then
+            echo "标签 ${GITHUB_REF_NAME} 与 package.json 版本 ${package_version} 不一致" >&2
+            exit 1
+          fi
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 运行测试
+        run: npm test
+
+      - name: 构建生产版本
+        run: npm run build
+
+      - name: 写入发布元数据
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { writeFileSync } from "node:fs";
+          import packageJson from "./package.json" with { type: "json" };
+
+          writeFileSync(
+            "dist/director-desk-release.json",
+            `${JSON.stringify({
+              name: "3d-director-desk",
+              version: packageJson.version,
+              protocol: "tauri-event-v1",
+            }, null, 2)}\n`,
+            "utf8",
+          );
+          NODE
+
+      - name: 打包并生成校验文件
+        shell: bash
+        run: |
+          artifact="director-desk-${GITHUB_REF_NAME}.tar.gz"
+          tar -czf "${artifact}" -C dist .
+          sha256sum "${artifact}" > "${artifact}.sha256"
+
+      - name: 创建 GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          artifact="director-desk-${GITHUB_REF_NAME}.tar.gz"
+          gh release create "${GITHUB_REF_NAME}" \
+            "${artifact}" \
+            "${artifact}.sha256" \
+            --verify-tag \
+            --generate-notes \
+            --title "3D Director Desk ${GITHUB_REF_NAME}"

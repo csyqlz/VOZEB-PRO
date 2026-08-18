@@ -1,5 +1,16 @@
 # syntax=docker/dockerfile:1.7
 
+FROM node:22-bookworm-slim AS director-build
+
+WORKDIR /app/director-desk
+ENV CI=1
+
+COPY director-desk/package.json director-desk/package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm npm ci
+
+COPY director-desk ./
+RUN npm run build
+
 FROM node:22-bookworm-slim AS web-build
 
 WORKDIR /app/web
@@ -21,6 +32,7 @@ RUN --mount=type=cache,target=/pnpm/store pnpm install --frozen-lockfile --store
 COPY VERSION /app/VERSION
 COPY CHANGELOG.md /app/CHANGELOG.md
 COPY web ./
+COPY --from=director-build /app/director-desk/dist ./public/director-desk
 RUN --mount=type=cache,target=/app/web/.next/cache pnpm run typecheck && NEXT_SKIP_BUILD_TYPECHECK=1 pnpm run build
 RUN set -eux; \
     mkdir -p /app/sharp-runtime/node_modules/.pnpm; \

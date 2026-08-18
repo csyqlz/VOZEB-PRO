@@ -1,0 +1,223 @@
+/* First-person shooting HUD */
+.pilot-hud {
+  position: absolute;
+  inset: 0;
+  z-index: 32;
+  pointer-events: none;
+}
+
+.pilot-status {
+  position: absolute;
+  top: 18px;
+  left: 50%;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 0 11px;
+  border: 1px solid rgb(74 222 128 / 0.28);
+  border-radius: 999px;
+  color: #86efac;
+  background: rgb(5 15 12 / 0.76);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.28);
+  font-size: 11px;
+  font-weight: 680;
+  transform: translateX(-50%);
+  backdrop-filter: blur(10px);
+}
+
+.pilot-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 10px currentColor;
+}
+
+.pilot-crosshair {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 34px;
+  height: 34px;
+  color: rgb(255 255 255 / 0.9);
+  transform: translate(-50%, -50%);
+  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.8));
+}
+
+.pilot-crosshair.is-pointing { color: #f7b955; }
+.pilot-crosshair.is-locked { color: #4ade80; }
+
+.pilot-crosshair-line,
+.pilot-crosshair-center {
+  position: absolute;
+  display: block;
+  background: currentColor;
+}
+
+.pilot-crosshair-line.is-top,
+.pilot-crosshair-line.is-bottom {
+  left: 16px;
+  width: 2px;
+  height: 8px;
+}
+
+.pilot-crosshair-line.is-top { top: 0; }
+.pilot-crosshair-line.is-bottom { bottom: 0; }
+
+.pilot-crosshair-line.is-left,
+.pilot-crosshair-line.is-right {
+  top: 16px;
+  width: 8px;
+  height: 2px;
+}
+
+.pilot-crosshair-line.is-left { left: 0; }
+.pilot-crosshair-line.is-right { right: 0; }
+
+.pilot-crosshair-center {
+  top: 15px;
+  left: 15px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+}
+
+.pilot-target-name {
+  position: absolute;
+  top: 43px;
+  left: 50%;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  width: max-content;
+  max-width: 220px;
+  padding: 6px 9px;
+  border: 1px solid currentColor;
+  border-radius: 7px;
+  color: inherit;
+  background: rgb(0 0 0 / 0.68);
+  font-size: 10px;
+  font-weight: 650;
+  transform: translateX(-50%);
+}
+
+.pilot-keyboard-help {
+  position: absolute;
+  right: calc(var(--right-sidebar-width) + 18px);
+  bottom: 22px;
+  display: flex;
+  gap: 6px;
+  padding: 7px;
+  border: 1px solid rgb(255 255 255 / 0.12);
+  border-radius: 10px;
+  color: rgb(255 255 255 / 0.68);
+  background: rgb(0 0 0 / 0.58);
+  backdrop-filter: blur(10px);
+}
+
+.director-shell.is-sidebars-collapsed .pilot-keyboard-help {
+  right: 18px;
+}
+
+.pilot-keyboard-help > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.pilot-keyboard-help kbd {
+  min-width: 24px;
+  padding: 3px 5px;
+  border: 1px solid rgb(255 255 255 / 0.18);
+  border-bottom-color: rgb(255 255 255 / 0.28);
+  border-radius: 5px;
+  color: #fff;
+  background: rgb(255 255 255 / 0.09);
+  font-family: inherit;
+  font-size: 9px;
+  text-align: center;
+}
+
+.pilot-hud-actions {
+  position: absolute;
+  bottom: 22px;
+  left: calc(var(--left-sidebar-width) + 18px);
+  display: flex;
+  gap: 7px;
+  pointer-events: auto;
+}
+
+.director-shell.is-sidebars-collapsed .pilot-hud-actions {
+  left: 18px;
+}
+
+.pilot-hud-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 9px;
+  font-size: 11px;
+  font-weight: 650;
+  backdrop-filter: blur(10px);
+}
+
+.pilot-hud-secondary {
+  border: 1px solid rgb(255 255 255 / 0.16);
+  color: rgb(255 255 255 / 0.76);
+  background: rgb(0 0 0 / 0.58);
+}
+
+.pilot-hud-primary {
+  border: 1px solid rgb(245 166 91 / 0.54);
+  color: #fff;
+  background: rgb(183 100 28 / 0.8);
+  box-shadow: 0 7px 20px rgb(0 0 0 / 0.24);
+}
+
+@media (max-width: 1260px) {
+  .motion-studio {
+    min-width: 620px;
+  }
+
+  .motion-studio-body {
+    grid-template-columns: 205px minmax(280px, 1fr) 210px;
+  }
+
+  .pilot-keyboard-help > span:nth-child(n + 4) {
+    display: none;
+  }
+}
+
+@media (max-width: 920px) {
+  .motion-studio {
+    right: 16px;
+    left: 16px;
+    min-width: 0;
+  }
+
+  .motion-studio-body {
+    grid-template-columns: 190px minmax(260px, 1fr);
+  }
+
+  .motion-settings-column {
+    display: none;
+  }
+
+  .motion-global-timeline {
+    grid-template-columns: 1fr;
+  }
+
+  .pilot-keyboard-help {
+    right: 16px;
+  }
+
+  .pilot-hud-actions {
+    left: 16px;
+  }
+}

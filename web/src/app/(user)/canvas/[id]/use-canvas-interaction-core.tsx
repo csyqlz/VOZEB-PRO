@@ -10,7 +10,7 @@ import { applyCanvasAgentOps, type CanvasAgentOp, type CanvasAgentSnapshot } fro
 import { buildCanvasResourceReferences, buildNodeMentionReferences } from "../utils/canvas-resource-references";
 
 import { PendingConnectionCreate, type CanvasCreatableNodeType, createCanvasNode } from "./canvas-page-elements";
-import { getGenerationCount, normalizeConnection } from "./canvas-page-utils";
+import { appendConnectionWithDirectorRules, getGenerationCount, normalizeConnection } from "./canvas-page-utils";
 
 import type { CanvasPageState } from "./use-canvas-page-state";
 
@@ -99,13 +99,13 @@ export function useCanvasInteractionCore({ state }: { state: CanvasPageState }) 
 
             const connection = normalizeConnection(current.nodeId, targetNodeId, nodesRef.current, current.handleType);
             if (!connection) {
-                message.warning("配置节点之间不能连接");
+                message.warning("这两个节点不能连接");
                 return;
             }
             const { fromNodeId, toNodeId } = connection;
             const exists = connectionsRef.current.some((conn) => conn.fromNodeId === fromNodeId && conn.toNodeId === toNodeId);
             if (!exists) {
-                setConnections((prev) => [...prev, { id: `conn-${Date.now()}`, fromNodeId, toNodeId }]);
+                setConnections((prev) => appendConnectionWithDirectorRules(prev, { id: `conn-${Date.now()}`, fromNodeId, toNodeId }, nodesRef.current));
             }
             setContextMenu(null);
         },
@@ -118,14 +118,14 @@ export function useCanvasInteractionCore({ state }: { state: CanvasPageState }) 
             const newNode = createCanvasNode(type, pending.position, metadata);
             const connection = normalizeConnection(pending.connection.nodeId, newNode.id, [...nodesRef.current, newNode], pending.connection.handleType);
             if (!connection) {
-                message.warning("配置节点之间不能连接");
+                message.warning("这两个节点不能连接");
                 return;
             }
             setNodes((prev) => [...prev, newNode]);
-            setConnections((prev) => [...prev, { id: nanoid(), ...connection }]);
+            setConnections((prev) => appendConnectionWithDirectorRules(prev, { id: nanoid(), ...connection }, [...nodesRef.current, newNode]));
             setSelectedNodeIds(new Set([newNode.id]));
             setSelectedConnectionId(null);
-            if (type !== CanvasNodeType.Text && type !== CanvasNodeType.Audio) setDialogNodeId(newNode.id);
+            if (type !== CanvasNodeType.Text && type !== CanvasNodeType.Audio && type !== CanvasNodeType.Director) setDialogNodeId(newNode.id);
             setPendingConnectionCreate(null);
         },
         [effectiveConfig.canvasImageCount, effectiveConfig.count, effectiveConfig.imageModel, effectiveConfig.model, effectiveConfig.size, message],

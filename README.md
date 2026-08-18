@@ -550,6 +550,8 @@ pnpm run build
 - [参与贡献](CONTRIBUTING.md)
 - [安全策略](SECURITY.md)
 - [AGPL-3.0](LICENSE)
+- [3D Director Desk integration and upstream attribution](director-desk/VOZEB-INTEGRATION.md)
+- [3D Director Desk MIT license](director-desk/LICENSE)
 - [贡献者协议](CLA.md)
 
 ## 社区交流

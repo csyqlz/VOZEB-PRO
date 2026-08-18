@@ -3,7 +3,8 @@ import { getTrustedProxyHops } from "@/lib/server/trusted-proxy";
 
 export function proxy(request: NextRequest) {
     const nonce = crypto.randomUUID().replaceAll("-", "");
-    const contentSecurityPolicy = buildContentSecurityPolicy(nonce);
+    const isDirectorDesk = request.nextUrl.pathname === "/director-desk" || request.nextUrl.pathname.startsWith("/director-desk/");
+    const contentSecurityPolicy = isDirectorDesk ? buildDirectorDeskContentSecurityPolicy() : buildContentSecurityPolicy(nonce);
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set("x-nonce", nonce);
     requestHeaders.set("content-security-policy", contentSecurityPolicy);
@@ -44,7 +45,7 @@ function securedJsonResponse(body: unknown, status: number, contentSecurityPolic
     return response;
 }
 
-function buildContentSecurityPolicy(nonce: string) {
+export function buildContentSecurityPolicy(nonce: string) {
     const isDev = process.env.NODE_ENV !== "production";
     return [
         "default-src 'self'",
@@ -60,6 +61,26 @@ function buildContentSecurityPolicy(nonce: string) {
         "base-uri 'self'",
         "form-action 'self'",
         "frame-ancestors 'none'",
+        ...(isDev ? [] : ["upgrade-insecure-requests"]),
+    ].join("; ");
+}
+
+export function buildDirectorDeskContentSecurityPolicy() {
+    const isDev = process.env.NODE_ENV !== "production";
+    return [
+        "default-src 'self'",
+        "script-src 'self' 'wasm-unsafe-eval'",
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data: blob: https:",
+        "media-src 'self' data: blob: https:",
+        "font-src 'self' data: https:",
+        `connect-src 'self' blob: https:${isDev ? " http: ws: wss:" : ""}`,
+        "worker-src 'self' blob:",
+        "frame-src 'self'",
+        "object-src 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+        "frame-ancestors 'self'",
         ...(isDev ? [] : ["upgrade-insecure-requests"]),
     ].join("; ");
 }

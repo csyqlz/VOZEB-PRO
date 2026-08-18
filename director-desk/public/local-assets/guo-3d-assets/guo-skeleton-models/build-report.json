@@ -1,0 +1,41 @@
+{
+  "generatedAt": "2026-06-09T15:50:09.389Z",
+  "packageId": "guo-skeleton-models",
+  "sourcePackageId": "guo-scene-presets-5000",
+  "operations": {
+    "linkedModels": 0,
+    "copiedModels": 0,
+    "existingModels": 37,
+    "linkedThumbnails": 0,
+    "copiedThumbnails": 0,
+    "existingThumbnails": 37
+  },
+  "counts": {
+    "models": 37,
+    "totalBytes": 36601612,
+    "totalThumbnailBytes": 265636,
+    "sourceCharacterModels": 37
+  },
+  "categories": [
+    {
+      "id": "all",
+      "label": "全部",
+      "count": 37
+    },
+    {
+      "id": "male",
+      "label": "男性",
+      "count": 17
+    },
+    {
+      "id": "female",
+      "label": "女性",
+      "count": 15
+    },
+    {
+      "id": "animal-creature",
+      "label": "动物/异形",
+      "count": 5
+    }
+  ]
+}

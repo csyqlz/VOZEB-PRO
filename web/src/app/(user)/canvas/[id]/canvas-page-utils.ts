@@ -286,11 +286,25 @@ export function normalizeConnection(firstNodeId: string, secondNodeId: string, n
     const first = nodes.find((node) => node.id === firstNodeId);
     const second = nodes.find((node) => node.id === secondNodeId);
     if (!first || !second || first.id === second.id) return null;
+    if (first.type === CanvasNodeType.Director || second.type === CanvasNodeType.Director) {
+        const directional = firstHandleType === "target" ? { fromNodeId: second.id, toNodeId: first.id } : { fromNodeId: first.id, toNodeId: second.id };
+        const from = nodes.find((node) => node.id === directional.fromNodeId);
+        const to = nodes.find((node) => node.id === directional.toNodeId);
+        if (isCanvasImageNodeType(from?.type) && to?.type === CanvasNodeType.Director) return directional;
+        if (from?.type === CanvasNodeType.Director && isCanvasImageNodeType(to?.type)) return directional;
+        return null;
+    }
     if (first.type === CanvasNodeType.Config && second.type === CanvasNodeType.Config) return null;
     if (second.type === CanvasNodeType.Config) return { fromNodeId: first.id, toNodeId: second.id };
     if (first.type === CanvasNodeType.Config && firstHandleType === "target") return { fromNodeId: second.id, toNodeId: first.id };
     if (first.type === CanvasNodeType.Config) return { fromNodeId: first.id, toNodeId: second.id };
     return { fromNodeId: first.id, toNodeId: second.id };
+}
+
+export function appendConnectionWithDirectorRules(connections: CanvasConnection[], connection: CanvasConnection, nodes: CanvasNodeData[]) {
+    const target = nodes.find((node) => node.id === connection.toNodeId);
+    if (target?.type !== CanvasNodeType.Director) return [...connections, connection];
+    return [...connections.filter((item) => item.toNodeId !== target.id), connection];
 }
 
 export function getInputSummary(inputs: NodeGenerationInput[]) {

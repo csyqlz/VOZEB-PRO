@@ -38,6 +38,11 @@ const imageRatios = [
     { value: "2:3", label: "2:3", width: 15, height: 23 },
     { value: "3:4", label: "3:4", width: 16, height: 21 },
     { value: "9:16", label: "9:16", width: 14, height: 24 },
+    { value: "2048x2048", label: "1:1（2K）", width: 18, height: 18 },
+    { value: "2048x1152", label: "16:9（2K）", width: 24, height: 14 },
+    { value: "1152x2048", label: "9:16（2K）", width: 14, height: 24 },
+    { value: "3840x2160", label: "16:9（4K）", width: 24, height: 14 },
+    { value: "2160x3840", label: "9:16（4K）", width: 14, height: 24 },
 ] as const;
 
 const videoRatios = [
@@ -242,11 +247,11 @@ function PreferencePanel({
     const selectedSize = capability === "image" ? preferences.image?.size || "auto" : preferences.video?.size || "auto";
     const selectedQuality = capability === "image" ? preferences.image?.quality || "auto" : preferences.video?.quality || "auto";
     const selectedCount = capability === "image" ? preferences.image?.count || 1 : preferences.video?.count || 1;
-    const [customEditorOpen, setCustomEditorOpen] = useState(Boolean(parseCustomDimensions(selectedSize)));
+    const [customEditorOpen, setCustomEditorOpen] = useState(Boolean(parseCustomDimensions(selectedSize)) && !isPresetMediaSize(capability, selectedSize));
     const [section, setSection] = useState<"canvas" | "output">("canvas");
 
     useEffect(() => {
-        setCustomEditorOpen(Boolean(parseCustomDimensions(selectedSize)));
+        setCustomEditorOpen(Boolean(parseCustomDimensions(selectedSize)) && !isPresetMediaSize(capability, selectedSize));
     }, [capability, selectedSize]);
 
     useEffect(() => {
@@ -308,9 +313,9 @@ function PreferencePanel({
                         <div className="grid min-w-0 gap-1.5">
                             <div className="flex items-center justify-between gap-3">
                                 <p className="text-[11px] font-medium text-[#7b8591] dark:text-[#98a2ae]">比例</p>
-                                <span className="text-[10px] text-[#a0a8b2] dark:text-[#707b88]">{selectedSize === "auto" ? "智能" : formatSizeLabel(selectedSize)}</span>
+                                <span className="text-[10px] text-[#a0a8b2] dark:text-[#707b88]">{selectedSize === "auto" ? "智能" : formatSizeLabel(selectedSize, capability)}</span>
                             </div>
-                            <div className="grid min-w-0 grid-cols-4 gap-1">
+                            <div className={cn("grid min-w-0 gap-1", capability === "image" ? "grid-cols-3" : "grid-cols-4")}>
                                 {ratios.map((ratio) => (
                                     <button
                                         key={ratio.value}
@@ -337,13 +342,13 @@ function PreferencePanel({
                                 type="button"
                                 className={cn(
                                     "inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-dashed px-2 text-[11px] transition",
-                                    customEditorOpen || parseCustomDimensions(selectedSize)
+                                    customEditorOpen || (parseCustomDimensions(selectedSize) && !isPresetMediaSize(capability, selectedSize))
                                         ? "border-[#9bbdce] bg-[#f2f8fb] font-medium text-[#315d78] dark:border-[#557f96] dark:bg-[#20333d] dark:text-[#a8c8dc]"
                                         : "border-[#d8dde2] text-[#687481] hover:border-[#b8c3cc] hover:bg-[#f7f8f9] hover:text-[#20242a] dark:border-[#414953] dark:text-[#a6afb9] dark:hover:bg-[#24282e] dark:hover:text-white",
                                 )}
                                 onClick={() => setCustomEditorOpen(true)}
                                 aria-label={`打开${capability === "image" ? "图片" : "视频"}自定义像素尺寸`}
-                                aria-pressed={customEditorOpen || Boolean(parseCustomDimensions(selectedSize))}
+                                aria-pressed={customEditorOpen || (Boolean(parseCustomDimensions(selectedSize)) && !isPresetMediaSize(capability, selectedSize))}
                             >
                                 <Maximize2 className="size-3.5" />
                                 自定义像素尺寸
@@ -564,7 +569,7 @@ function PreferenceSummaryIcon({ capability, preferences }: { capability: MediaC
     if (capability === "audio") return <AudioLines className="size-4" />;
     const size = capability === "image" ? preferences.image?.size : preferences.video?.size;
     const ratio = (capability === "image" ? imageRatios : videoRatios).find((item) => item.value === size);
-    const custom = parseCustomDimensions(size);
+    const custom = ratio ? null : parseCustomDimensions(size);
     if (custom) {
         return (
             <span className="grid size-4 place-items-center" aria-hidden="true">
@@ -586,7 +591,7 @@ export function generationPreferenceSummary(capability: MediaCapability, prefere
     const quality = capability === "image" ? preferences.image?.quality || "auto" : preferences.video?.quality || "auto";
     const count = capability === "image" ? preferences.image?.count || 1 : preferences.video?.count || 1;
     const countLabel = count > 1 ? ` · ${count}${capability === "image" ? "张" : "条"}` : "";
-    const sizeLabel = size === "auto" ? "智能比例" : formatSizeLabel(size);
+    const sizeLabel = size === "auto" ? "智能比例" : formatSizeLabel(size, capability);
     const qualityLabel = capability === "image" ? imageQualityOptions.find((item) => item.value === quality)?.label || quality : videoQualityLabel(quality);
     const referenceLabel = capability === "video" ? videoReferenceModeOptions.find((item) => item.value === (preferences.video?.referenceMode || "reference"))?.label : undefined;
     if (capability === "image") return size === "auto" && quality === "auto" ? `智能参数${countLabel}` : `${sizeLabel} · ${qualityLabel}${countLabel}`;
@@ -615,7 +620,14 @@ function normalizeDimension(value: string) {
     return Number.isSafeInteger(parsed) && parsed > 0 ? String(parsed) : "";
 }
 
-function formatSizeLabel(value: string) {
+function isPresetMediaSize(capability: MediaCapability, value: string) {
+    if (capability === "audio") return false;
+    return (capability === "image" ? imageRatios : videoRatios).some((item) => item.value === value);
+}
+
+function formatSizeLabel(value: string, capability: Extract<MediaCapability, "image" | "video">) {
+    const preset = (capability === "image" ? imageRatios : videoRatios).find((item) => item.value === value);
+    if (preset) return preset.label;
     const dimensions = parseCustomDimensions(value);
     return dimensions ? `${dimensions[0]}×${dimensions[1]}` : value;
 }

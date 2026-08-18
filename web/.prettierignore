@@ -19,3 +19,4 @@ pnpm-lock.yaml
 .e2e-data
 .e2e-artifacts
 playwright-report
+public/director-desk

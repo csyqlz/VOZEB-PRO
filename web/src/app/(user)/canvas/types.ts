@@ -21,6 +21,7 @@ export enum CanvasNodeType {
     Brief = "brief",
     Task = "task",
     BrandKit = "brand-kit",
+    Director = "director",
 }
 
 export function isCanvasImageNodeType(type: CanvasNodeType | null | undefined) {
@@ -131,6 +132,8 @@ export type CanvasNodeMetadata = {
     cameraControl?: CameraControlOptions;
     panoramaProjection?: "equirectangular";
     panoramaSourcePrompt?: string;
+    directorCaptureCount?: number;
+    directorProject?: unknown;
     references?: string[];
     naturalWidth?: number;
     naturalHeight?: number;

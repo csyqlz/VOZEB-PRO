@@ -1,0 +1,50 @@
+{
+  "name": "standalone-3d-director-desk",
+  "version": "0.3.1",
+  "description": "独立运行、可 iframe 引入的 3D 分镜导演台，用于场景摆位、机位预演和截图回传。",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "type": "module",
+  "keywords": [
+    "3d",
+    "director",
+    "threejs",
+    "react-three-fiber",
+    "vite",
+    "storyboard"
+  ],
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "test": "vitest run",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@react-three/drei": "^9.122.0",
+    "@react-three/fiber": "^8.17.14",
+    "@sparkjsdev/spark": "^2.1.0",
+    "camera-controls": "^2.9.0",
+    "lucide-react": "^0.469.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "three": "^0.184.0",
+    "zustand": "^5.0.3"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/node": "^26.1.1",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@types/three": "^0.184.1",
+    "@vitejs/plugin-react": "^4.6.0",
+    "jsdom": "^29.0.1",
+    "typescript": "~5.7.3",
+    "vite": "^6.1.0",
+    "vitest": "^4.1.2"
+  },
+  "private": true
+}

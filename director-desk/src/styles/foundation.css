@@ -1,0 +1,113 @@
+:root {
+  color-scheme: light;
+  --bg-rgb: 255 255 255;
+  --surface-rgb: 245 245 245;
+  --surface-hover-rgb: 235 235 235;
+  --panel-rgb: 255 255 255;
+  --field-rgb: 248 250 252;
+  --border-rgb: 224 224 224;
+  --text-rgb: 0 0 0;
+  --text-muted-rgb: 102 102 102;
+  --text-dim-rgb: 148 148 148;
+  --accent-rgb: 3 150 255;
+  --accent-hover-rgb: 37 99 235;
+  --overlay-rgb: 15 23 42;
+  --ui-shadow-panel: 0 14px 34px rgba(15, 23, 42, 0.18);
+  --left-sidebar-width: 196px;
+  --right-sidebar-width: 276px;
+  --left-sidebar-content-width: 180px;
+  --right-sidebar-content-width: 260px;
+  font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: rgb(var(--bg-rgb));
+  color: rgb(var(--text-rgb));
+}
+
+:root[data-theme="dark"],
+:root.dark {
+  color-scheme: dark;
+  --bg-rgb: 9 9 9;
+  --surface-rgb: 26 26 26;
+  --surface-hover-rgb: 34 34 34;
+  --panel-rgb: 26 26 26;
+  --field-rgb: 10 10 12;
+  --border-rgb: 42 42 42;
+  --text-rgb: 255 255 255;
+  --text-muted-rgb: 136 136 136;
+  --text-dim-rgb: 95 95 95;
+  --accent-rgb: 3 150 255;
+  --accent-hover-rgb: 96 165 250;
+  --overlay-rgb: 0 0 0;
+  --ui-shadow-panel: 0 14px 34px rgba(0, 0, 0, 0.38);
+}
+
+* {
+  box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--border-rgb) / 0.5) transparent;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  background: #090909;
+}
+
+body {
+  min-width: 0;
+  overflow: hidden;
+  background: rgb(var(--bg-rgb));
+  color: rgb(var(--text-rgb));
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+input,
+select,
+textarea {
+  color: inherit;
+}
+
+button:focus-visible {
+  outline: 2px solid rgb(var(--accent-rgb) / 0.78);
+  outline-offset: 1px;
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 1px solid rgb(var(--accent-rgb) / 0.78);
+  outline-offset: 1px;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--border-rgb) / 0.5);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--accent-rgb) / 0.4);
+}

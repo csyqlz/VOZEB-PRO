@@ -1,0 +1,228 @@
+.director-shell {
+  display: grid;
+  grid-template-columns: var(--left-sidebar-width) minmax(0, 1fr) var(--right-sidebar-width);
+  gap: 16px;
+  min-height: 0;
+  height: 100%;
+  padding: 16px 20px 20px;
+  overflow: hidden;
+}
+
+.director-shell-fullbleed {
+  position: relative;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  padding: 0;
+  background: rgb(var(--bg-rgb));
+}
+
+.director-shell-fullbleed.is-sidebars-collapsed {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.director-shell > * {
+  min-height: 0;
+}
+
+.director-shell-fullbleed.is-sidebars-collapsed > .left-sidebar,
+.director-shell-fullbleed.is-sidebars-collapsed > .right-sidebar {
+  display: none;
+}
+
+.left-sidebar,
+.right-sidebar,
+.director-sidebar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 25;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 0;
+  background: rgb(var(--panel-rgb) / 0.98);
+}
+
+.left-sidebar {
+  left: 0;
+  width: var(--left-sidebar-width);
+  background: rgb(var(--panel-rgb));
+  border-right: 1px solid rgb(var(--border-rgb) / 0.24);
+}
+
+.right-sidebar {
+  right: 0;
+  width: var(--right-sidebar-width);
+  overflow-x: hidden;
+  background: rgb(var(--panel-rgb));
+  border-left: 1px solid rgb(var(--border-rgb) / 0.24);
+}
+
+.viewport-column {
+  display: flex;
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  background: rgb(var(--field-rgb));
+}
+
+.canvas-frame {
+  position: relative;
+  display: block;
+  min-height: 0;
+  height: 100%;
+  width: 100%;
+}
+
+.director-canvas {
+  position: relative;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: rgb(var(--field-rgb));
+  box-shadow: none;
+}
+
+.director-canvas > div,
+.director-canvas canvas {
+  display: block;
+  width: 100% !important;
+  height: 100%;
+}
+
+.director-canvas canvas {
+  height: 100% !important;
+}
+
+.panel-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px;
+}
+
+.director-sidebar .panel-card {
+  border: 0;
+  border-bottom: 1px solid rgb(var(--border-rgb) / 0.42);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 20px 8px;
+}
+
+.director-sidebar .panel-card:last-child {
+  border-bottom: 0;
+}
+
+.panel-card h2,
+.panel-card h3,
+.panel-card h4,
+.panel-card p,
+.panel-card fieldset,
+.panel-card label,
+.panel-card section {
+  margin: 0;
+}
+
+.panel-card h2 {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.panel-card h3 {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.panel-card h4 {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgb(var(--text-muted-rgb));
+}
+
+.panel-card p,
+.panel-card label,
+.panel-card legend,
+.capture-status,
+.capture-list-placeholder {
+  color: rgb(var(--text-muted-rgb));
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.panel-card label {
+  display: grid;
+  gap: 8px;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.panel-header button {
+  padding-inline: 10px;
+}
+
+.tab-row {
+  width: fit-content;
+}
+
+.right-sidebar .panel-card {
+  gap: 20px;
+}
+
+.right-sidebar .panel-header {
+  min-height: 32px;
+}
+
+.right-sidebar .tab-row {
+  justify-content: center;
+  align-self: stretch;
+  width: calc(100% + 16px);
+  height: 45px;
+  margin: -10px -8px 0;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid rgb(var(--border-rgb) / 0.42);
+  border-radius: 0;
+  background: transparent;
+}
+
+.right-sidebar .tab-row button {
+  position: relative;
+  height: 45px;
+  border: 0;
+  border-radius: 0;
+  padding: 0 40px;
+  font-size: 12px;
+  font-weight: 600;
+  background: transparent;
+}
+
+.right-sidebar .tab-row button:hover {
+  background: transparent;
+}
+
+.right-sidebar .tab-row button[aria-pressed="true"] {
+  border-color: transparent;
+  background: transparent;
+}
+
+.right-sidebar .tab-row button[aria-pressed="true"]::after {
+  position: absolute;
+  left: 40px;
+  right: 40px;
+  bottom: 0;
+  height: 3px;
+  border-radius: 999px 999px 0 0;
+  background: rgb(var(--accent-rgb));
+  content: "";
+}

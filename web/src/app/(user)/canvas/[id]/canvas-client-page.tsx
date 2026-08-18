@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 
 import { Button, Modal } from "antd";
+import { Clapperboard, Maximize2 } from "lucide-react";
 import { imagePreviewUrl } from "@/lib/media-image-url";
 import { CanvasConfigComposer } from "../components/canvas-config-composer";
 import { CanvasConfigNodePanel } from "../components/canvas-config-node-panel";
@@ -20,7 +21,8 @@ import { CanvasNodeUpscaleDialog } from "../components/canvas-node-upscale-dialo
 import { CanvasToolbar } from "../components/canvas-toolbar";
 import { CanvasTopBar } from "../components/canvas-top-bar";
 import { CanvasZoomControls } from "../components/canvas-zoom-controls";
-import { CanvasNodeType, type Position } from "../types";
+import { DirectorDeskHost } from "../components/director-desk-host";
+import { CanvasNodeType, isCanvasImageNodeType, type Position } from "../types";
 
 const CanvasAssistantPanel = dynamic(() => import("../components/canvas-assistant-panel").then((mod) => mod.CanvasAssistantPanel), { ssr: false });
 import { CanvasRefreshShell, ConnectionCreateMenu, NodeCreateMenu } from "./canvas-page-elements";
@@ -256,6 +258,13 @@ function VozebProCanvasPage() {
         assistantOpen,
         openAgent,
         closeAgent,
+        directorNode,
+        directorPanorama,
+        openDirectorDesk,
+        closeDirectorDesk,
+        removeDirectorPanorama,
+        updateDirectorProject,
+        insertDirectorCaptures,
     } = controller;
     const hiddenCanvasNodeIds = useMemo(() => new Set(nodes.filter((node) => isHiddenBatchChild(node, nodes, collapsingBatchIds)).map((node) => node.id)), [collapsingBatchIds, nodes]);
     if (!projectLoaded) return <CanvasRefreshShell />;
@@ -370,21 +379,81 @@ function VozebProCanvasPage() {
                             />
                         )
                     }
-                    renderNode={(contentNode) => (
-                        <CanvasConfigNodePanel
-                            node={contentNode}
-                            isRunning={runningNodeId === contentNode.id}
-                            inputSummary={getInputSummary(configInputsById.get(contentNode.id) || [])}
-                            references={mentionReferencesByNodeId.get(contentNode.id) || []}
-                            onConfigChange={handleConfigNodeChange}
-                            onComposerToggle={() => setDialogNodeId((current) => (current === contentNode.id ? null : contentNode.id))}
-                            onStop={confirmStopGeneration}
-                            onGenerate={(nodeId) => {
-                                const target = nodesRef.current.find((item) => item.id === nodeId);
-                                void handleGenerateNode(nodeId, target?.metadata?.generationMode || "image", target?.metadata?.composerContent ?? target?.metadata?.prompt ?? "");
-                            }}
-                        />
-                    )}
+                    renderNode={(contentNode) => {
+                        if (contentNode.type === CanvasNodeType.Director) {
+                            const hasPanorama = connections.some((connection) => connection.toNodeId === contentNode.id && isCanvasImageNodeType(nodes.find((node) => node.id === connection.fromNodeId)?.type));
+                            return (
+                                <div className="flex h-full w-full flex-col overflow-hidden p-4" style={{ background: theme.node.fill, color: theme.node.text }}>
+                                    <div className="flex items-center justify-between gap-3">
+                                        <div className="flex min-w-0 items-center gap-2.5">
+                                            <Clapperboard className="size-5 shrink-0" style={{ color: theme.node.activeStroke }} />
+                                            <div className="min-w-0">
+                                                <div className="truncate text-sm font-semibold">3D导演台</div>
+                                                <div className="truncate text-[11px]" style={{ color: theme.node.muted }}>
+                                                    {hasPanorama ? "已接入画布背景" : "连接图片可作为场景背景"}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            className="grid size-9 shrink-0 place-items-center rounded-md border transition hover:scale-[1.03]"
+                                            style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }}
+                                            onClick={(event) => {
+                                                event.stopPropagation();
+                                                openDirectorDesk(contentNode);
+                                            }}
+                                            onMouseDown={(event) => event.stopPropagation()}
+                                            title="打开 3D 导演台"
+                                            aria-label="打开 3D 导演台"
+                                        >
+                                            <Maximize2 className="size-4" />
+                                        </button>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        className="group mt-4 min-h-0 flex-1 overflow-hidden rounded-md border text-left transition"
+                                        style={{ background: theme.canvas.background, borderColor: theme.node.stroke }}
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            openDirectorDesk(contentNode);
+                                        }}
+                                        onMouseDown={(event) => event.stopPropagation()}
+                                    >
+                                        <div className="relative h-full min-h-[120px] overflow-hidden">
+                                            <div className="absolute inset-x-0 bottom-0 h-px" style={{ background: theme.node.stroke }} />
+                                            <div className="absolute bottom-0 left-1/2 h-[85%] w-px -translate-x-1/2" style={{ background: theme.node.stroke }} />
+                                            <div className="absolute bottom-0 left-[24%] h-[70%] w-px -rotate-[24deg] origin-bottom" style={{ background: theme.node.stroke }} />
+                                            <div className="absolute bottom-0 right-[24%] h-[70%] w-px rotate-[24deg] origin-bottom" style={{ background: theme.node.stroke }} />
+                                            <div className="absolute inset-0 grid place-items-center">
+                                                <div className="flex items-center gap-2 text-xs font-medium transition group-hover:scale-[1.03]" style={{ color: theme.node.muted }}>
+                                                    <Maximize2 className="size-4" />
+                                                    进入导演台
+                                                </div>
+                                            </div>
+                                            <div className="absolute bottom-2 left-3 text-[10px]" style={{ color: theme.node.muted }}>
+                                                已回传 {contentNode.metadata?.directorCaptureCount || 0} 张镜头
+                                            </div>
+                                        </div>
+                                    </button>
+                                </div>
+                            );
+                        }
+                        return (
+                            <CanvasConfigNodePanel
+                                node={contentNode}
+                                isRunning={runningNodeId === contentNode.id}
+                                inputSummary={getInputSummary(configInputsById.get(contentNode.id) || [])}
+                                references={mentionReferencesByNodeId.get(contentNode.id) || []}
+                                onConfigChange={handleConfigNodeChange}
+                                onComposerToggle={() => setDialogNodeId((current) => (current === contentNode.id ? null : contentNode.id))}
+                                onStop={confirmStopGeneration}
+                                onGenerate={(nodeId) => {
+                                    const target = nodesRef.current.find((item) => item.id === nodeId);
+                                    void handleGenerateNode(nodeId, target?.metadata?.generationMode || "image", target?.metadata?.composerContent ?? target?.metadata?.prompt ?? "");
+                                }}
+                            />
+                        );
+                    }}
                     onNodesCommit={(updates) => {
                         const updatesById = new Map(updates.map((update) => [update.id, update]));
                         setNodes((current) =>
@@ -496,6 +565,7 @@ function VozebProCanvasPage() {
                     onAddPanorama={() => createNode(CanvasNodeType.Panorama)}
                     onAddVideo={() => createNode(CanvasNodeType.Video)}
                     onAddAudio={() => createNode(CanvasNodeType.Audio)}
+                    onAddDirector={() => createNode(CanvasNodeType.Director)}
                     onAddText={() => createNode(CanvasNodeType.Text)}
                     onAddConfig={() => createNode(CanvasNodeType.Config)}
                     onUndo={undoCanvas}
@@ -599,6 +669,17 @@ function VozebProCanvasPage() {
                 >
                     <p className="text-sm opacity-60">这会删除当前画布上的所有节点和连线。</p>
                 </Modal>
+
+                {directorNode ? (
+                    <DirectorDeskHost
+                        node={directorNode}
+                        panorama={directorPanorama}
+                        onClose={closeDirectorDesk}
+                        onPanoramaRemoved={removeDirectorPanorama}
+                        onCaptures={(captures) => insertDirectorCaptures(directorNode.id, captures)}
+                        onProjectChange={(project) => updateDirectorProject(directorNode.id, project)}
+                    />
+                ) : null}
             </section>
             {assistantMounted ? (
                 <CanvasAssistantPanel

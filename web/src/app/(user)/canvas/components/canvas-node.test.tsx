@@ -92,7 +92,7 @@ describe("CanvasNode image border", () => {
 });
 
 describe("CanvasNode task content", () => {
-    it("uses theme-owned surfaces and borders for all nine node types", () => {
+    it("uses theme-owned surfaces and borders for every node type", () => {
         const theme = canvasThemes.light;
 
         for (const type of Object.values(CanvasNodeType)) {
@@ -104,7 +104,7 @@ describe("CanvasNode task content", () => {
         }
     });
 
-    it.each(["light", "dark"] as const)("passes explicit %s theme colors into all nine node renderers", (themeName) => {
+    it.each(["light", "dark"] as const)("passes explicit %s theme colors into every node renderer", (themeName) => {
         const theme = canvasThemes[themeName];
 
         for (const type of Object.values(CanvasNodeType)) {

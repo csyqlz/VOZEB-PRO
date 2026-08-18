@@ -1,0 +1,943 @@
+{
+  "schema": "guo.director.skeletonModels",
+  "version": 2,
+  "packageId": "guo-skeleton-models",
+  "generatedAt": "2026-06-09T15:50:09.389Z",
+  "defaultModelId": "guo-skeleton-0040-muscular-male",
+  "pageSize": 24,
+  "counts": {
+    "models": 37,
+    "totalBytes": 36601612,
+    "totalThumbnailBytes": 265636,
+    "sourceCharacterModels": 37
+  },
+  "categories": [
+    {
+      "id": "all",
+      "label": "全部",
+      "count": 37
+    },
+    {
+      "id": "male",
+      "label": "男性",
+      "count": 17
+    },
+    {
+      "id": "female",
+      "label": "女性",
+      "count": 15
+    },
+    {
+      "id": "animal-creature",
+      "label": "动物/异形",
+      "count": 5
+    }
+  ],
+  "items": [
+    {
+      "id": "guo-skeleton-0024-anime-basic-male-a",
+      "modelNumber": 24,
+      "label": "动漫基础男性 A",
+      "category": "男性",
+      "categoryIds": [
+        "male"
+      ],
+      "tagIds": [
+        "stylized"
+      ],
+      "tags": [
+        "风格化"
+      ],
+      "modelUrl": "/guo-3d-assets/guo-skeleton-models/models/0024_anime-basic-male-a.fbx",
+      "thumbnailUrl": "/guo-3d-assets/guo-skeleton-models/thumbnails/0024_anime-basic-male-a.png",
+      "localModelPath": "models/0024_anime-basic-male-a.fbx",
+      "localThumbnailPath": "thumbnails/0024_anime-basic-male-a.png",
+      "format": "FBX",
+      "boneCount": 110,
+      "bytes": 971116,
+      "sceneCount": 2,
+      "sceneReferenceCount": 2,
+      "sha256": "898cad839fbb0f3c6d79e1d825f8bdeba4fb2fac92f4ac5e9063db56ca67dd9c"
+    },
+    {
+      "id": "guo-skeleton-0025-anime-basic-female-a",
+      "modelNumber": 25,
+      "label": "动漫基础女性 A",
+      "category": "女性",
+      "categoryIds": [
+        "female"
+      ],
+      "tagIds": [
+        "stylized"
+      ],
+      "tags": [
+        "风格化"
+      ],
+      "modelUrl": "/guo-3d-assets/guo-skeleton-models/models/0025_anime-basic-female-a.fbx",
+      "thumbnailUrl": "/guo-3d-assets/guo-skeleton-models/thumbnails/0025_anime-basic-female-a.png",
+      "localModelPath": "models/0025_anime-basic-female-a.fbx",
+      "localThumbnailPath": "thumbnails/0025_anime-basic-female-a.png",
+      "format": "FBX",
+      "boneCount": 110,
+      "bytes": 972700,
+      "sceneCount": 7,
+      "sceneReferenceCount": 7,
+      "sha256": "c9de6f90d5842748cd64d265daf16e10ed8fb5872c3ba02bcef4b570385e939a"
+    },
+    {
+      "id": "guo-skeleton-0026-anime-tall-female-a",
+      "modelNumber": 26,
+      "label": "动漫高挑女性 A",
+      "category": "女性",
+      "categoryIds": [
+        "female"
+      ],
+      "tagIds": [
+        "stylized"
+      ],
+      "tags": [
+        "风格化"
+      ],
+      "modelUrl": "/guo-3d-assets/guo-skeleton-models/models/0026_anime-tall-female-a.fbx",
+      "thumbnailUrl": "/guo-3d-assets/guo-skeleton-models/thumbnails/0026_anime-tall-female-a.png",
+      "localModelPath": "models/0026_anime-tall-female-a.fbx",
+      "localThumbnailPath": "thumbnails/0026_anime-tall-female-a.png",
+      "format": "FBX",
+      "boneCount": 110,
+      "bytes": 974652,
+      "sceneCount": 2,
+      "sceneReferenceCount": 2,
+      "sha256": "e816fb74d2d8e8f8a3ef1de75d2039ad9b9075175baa09eb0a3c68de90e0ff4f"
+    },
+    {
+      "id": "guo-skeleton-0029-male-bot-a",
+      "modelNumber": 29,
+      "label": "男性机器人 A",
+      "category": "男性",
+      "categoryIds": [
+        "male"
+      ],
+      "tagIds": [
+        "base",
+        "robot"
+      ],
+      "tags": [
+        "灰模",
+        "机器人"
+      ],
+      "modelUrl": "/guo-3d-assets/guo-skeleton-models/models/0029_male-bot-a.fbx",
+      "thumbnailUrl": "/guo-3d-assets/guo-skeleton-models/thumbnails/0029_male-bot-a.png",
+      "localModelPath": "models/0029_male-bot-a.fbx",
+      "localThumbnailPath": "thumbnails/0029_male-bot-a.png",
+      "format": "FBX",
+      "boneCount": 110,
+      "bytes": 2730604,
+      "sceneCount": 3,
+      "sceneReferenceCount": 3,
+      "sha256": "ded1b62a603ff1dd27be53c10e3b677f7db0687103d63636e22e0ed1b1a1bf70"
+    },
+    {
+      "id": "guo-skeleton-0030-female-bot-a",
+      "modelNumber": 30,
+      "label": "女性机器人 A",
+      "category": "女性",
+      "categoryIds": [
+        "female"
+      ],
+      "tagIds": [
+        "base",
+        "robot"
+      ],
+      "tags": [
+        "灰模",
+        "机器人"
+      ],
+      "modelUrl": "/guo-3d-assets/guo-skeleton-models/models/0030_female-bot-a.fbx",
+      "thumbnailUrl": "/guo-3d-assets/guo-skeleton-models/thumbnails/0030_female-bot-a.png",
+      "localModelPath": "models/0030_female-bot-a.fbx",
+      "localThumbnailPath": "thumbnails/0030_female-bot-a.png",
+      "format": "FBX",
+      "boneCount": 110,
+      "bytes": 2433964,
+      "sceneCount": 4,
+      "sceneReferenceCount": 4,
+      "sha256": "25cef13ebfb5b9ac2f5cd297542ce5b8f5f87810755decd9789384db16ee3b19"
+    },
+    {
+      "id": "guo-skeleton-0033-horse",
+      "modelNumber": 33,
+      "label": "马",
+      "category": "动物/异形",
+      "categoryIds": [
+        "animal-creature"
+      ],
+      "modelUrl": "/guo-3d-assets/guo-skeleton-models/models/0033_horse.fbx",
+      "thumbnailUrl": "/guo-3d-assets/guo-skeleton-models/thumbnails/0033_horse.png",
+      "localModelPath": "models/0033_horse.fbx",
+      "localThumbnailPath": "thumbnails/0033_horse.png",
+      "format": "FBX",
+      "boneCount": 36,
+      "bytes": 695372,
+      "sceneCount": 60,
+      "sceneReferenceCount": 64,
+      "sha256": "8e7b8d020be4d0244c11f7d5a1c0e37e304e15d41ce5c65757929e3a4e194d00"
+    },
+    {
+      "id": "guo-skeleton-0034-female-mermaid",
+      "modelNumber": 34,
+      "label": "女性美人鱼",
+      "category": "女性",
+      "categoryIds": [
+        "female"
+      ],
+      "tagIds": [
+        "creature"
+      ],
+      "tags": [
+        "异形"
+      ],
+      "modelUrl": "/guo-3d-assets/guo-skeleton-models/models/0034_female-mermaid.fbx",
+      "thumbnailUrl": "/guo-3d-assets/guo-skeleton-models/thumbnails/0034_female-mermaid.png",
+      "localModelPath": "models/0034_female-mermaid.fbx",
+      "localThumbnailPath": "thumbnails/0034_female-mermaid.png",
+      "format": "FBX",
+      "boneCount": 76,
+      "bytes": 836204,
+      "sceneCount": 83,
+      "sceneReferenceCount": 90,
+      "sha256": "79ece5b52bdc279e35f8e3f4e2304f918a3b2a9dd5bee806668fcbf5dc2250b1"
+    },
+    {
+      "id": "guo-skeleton-0035-male-mermaid",
+      "modelNumber": 35,
+      "label": "男性美人鱼",
+      "category": "男性",
+      "categoryIds": [
+        "male"
+      ],
+      "tagIds": [
+        "creature"
+      ],
+      "tags": [
+        "异形"
+      ],
+      "modelUrl": "/guo-3d-assets/guo-skeleton-models/models/0035_male-mermaid.fbx",
+      "thumbnailUrl": "/guo-3d-assets/guo-skeleton-models/thumbnails/0035_male-mermaid.png",
+      "localModelPath": "models/0035_male-mermaid.fbx",
+      "localThumbnailPath": "thumbnails/0035_male-mermaid.png",
+      "format": "FBX",
+      "boneCount": 76,
+      "bytes": 804844,
+      "sceneCount": 26,
+      "sceneReferenceCount": 26,
+      "sha256": "8d71cbbc3fbf5168a34be4d81fbb6ce28a2dfa20fe852ea757a9e92e3e7c7e52"
+    },
+    {
+      "id": "guo-skeleton-0036-werewolf",
+      "modelNumber": 36,
+      "label": "狼人",
+      "category": "动物/异形",
+      "categoryIds": [
+        "animal-creature"
+      ],
+      "modelUrl": "/guo-3d-assets/guo-skeleton-models/models/0036_werewolf.fbx",
+      "thumbnailUrl": "/guo-3d-assets/guo-skeleton-models/thumbnails/0036_werewolf.png",
+      "localModelPath": "models/0036_werewolf.fbx",
+      "localThumbnailPath": "thumbnails/0036_werewolf.png",
+      "format": "FBX",
+      "boneCount": 85,
+      "bytes": 1251132,
+      "sceneCount": 13,
+      "sceneReferenceCount": 13,
+      "sha256": "8e7424d5f5f5b4554d139bfc7713e568b5b7db0d4741cffec24a8f0ab1fce012"
+    },
+    {
+      "id": "guo-skeleton-0037-wolf",
+      "modelNumber": 37,
+      "label": "狼",
+      "category": "动物/异形",
+      "categoryIds": [
+        "animal-creature"
+      ],
+      "modelUrl": "/guo-3d-assets/guo-skeleton-models/models/0037_wolf.fbx",
+      "thumbnailUrl": "/guo-3d-assets/guo-skeleton-models/thumbnails/0037_wolf.png",
+      "localModelPath": "models/0037_wolf.fbx",
+      "localThumbnailPath": "thumbnails/0037_wolf.png",
+      "format": "FBX",
+      "boneCount": 33,
+      "bytes": 511916,
+      "sceneCount": 11,
+      "sceneReferenceCount": 12,
+      "sha256": "f8b4b854b89ce65135a9f7d61301cf7f58f388157e3318987eb810a592345070"
+    },
+    {
+      "id": "guo-skeleton-0038-male-skeleton",
+      "modelNumber": 38,
+      "label": "男性素体",
+      "category": "男性",
+      "categoryIds": [
+        "male"
+      ],
+      "tagIds": [
+        "base"
+      ],
+      "tags": [
+        "灰模"
+      ],
+      "modelUrl": "/guo-3d-assets/guo-skeleton-models/models/0038_male-skeleton.fbx",
+      "thumbnailUrl": "/guo-3d-assets/guo-skeleton-models/thumbnails/0038_male-skeleton.png",
+      "localModelPath": "models/0038_male-skeleton.fbx",
+      "localThumbnailPath": "thumbnails/0038_male-skeleton.png",
+      "format": "FBX",
+      "boneCount": 96,
+      "bytes": 937196,
+      "sceneCount": 20,
+      "sceneReferenceCount": 32,
+      "sha256": "a44f51b276a9ac7145ef6a6d414d97d70413f43f71994dad3e7041c8f9b3db76"
+    },
+    {
+      "id": "guo-skeleton-0039-anime-female",
+      "modelNumber": 39,
+      "label": "动漫女性",
+      "category": "女性",
+      "categoryIds": [
+        "female"
+      ],
+      "tagIds": [
+        "stylized"
+      ],
+      "tags": [
+        "风格化"
+      ],
+      "modelUrl": "/guo-3d-assets/guo-skeleton-models/models/0039_anime-female.fbx",
+      "thumbnailUrl": "/guo-3d-assets/guo-skeleton-models/thumbnails/0039_anime-female.png",
+      "localModelPath": "models/0039_anime-female.fbx",
+      "localThumbnailPath": "thumbnails/0039_anime-female.png",
+      "format": "FBX",
+      "boneCount": 96,
+      "bytes": 665004,
+      "sceneCount": 110,
+      "sceneReferenceCount": 125,
+      "sha256": "42bcf85701d32e6cb9bd1959384bccf622ca78644019f6b442ea5e5ff0d7089a"
+    },
+    {
+      "id": "guo-skeleton-0040-muscular-male",
+      "modelNumber": 40,
+      "label": "健壮男性",
+      "category": "男性",
+      "categoryIds": [
+        "male"
+      ],
+      "tagIds": [
+        "realistic"
+      ],
+      "tags": [
+        "写实"
+      ],
+      "modelUrl": "/guo-3d-assets/guo-skeleton-models/models/0040_muscular-male.fbx",
+      "thumbnailUrl": "/guo-3d-assets/guo-skeleton-models/thumbnails/0040_muscular-male.png",
+      "localModelPath": "models/0040_muscular-male.fbx",
+      "localThumbnailPath": "thumbnails/0040_muscular-male.png",
+      "format": "FBX",
+      "boneCount": 96,
+      "bytes": 957836,
+      "sceneCount": 90,
+      "sceneReferenceCount": 101,
+      "sha256": "2f6a53025352a3dd8e8bab18d554b6df9fa092d59d0a9e7651219aa06efd4ba0"
+    },
+    {
+      "id": "guo-skeleton-0041-teen-fit-female",
+      "modelNumber": 41,
+      "label": "青年女性",
+      "category": "女性",
+      "categoryIds": [
+        "female"
+      ],
+      "tagIds": [
+        "realistic"
+      ],
+      "tags": [
+        "写实"
+      ],
+      "modelUrl": "/guo-3d-assets/guo-skeleton-models/models/0041_teen-fit-female.fbx",
+      "thumbnailUrl": "/guo-3d-assets/guo-skeleton-models/thumbnails/0041_teen-fit-female.png",
+      "localModelPath": "models/0041_teen-fit-female.fbx",
+      "localThumbnailPath": "thumbnails/0041_teen-fit-female.png",
+      "format": "FBX",
+      "boneCount": 96,
+      "bytes": 913356,
+      "sceneCount": 2,
+      "sceneReferenceCount": 2,
+      "sha256": "c15e49f3901587d203c27eac66a0217ea37de6265824b92ed7ce7ac9f918f19d"
+    },
+    {
+      "id": "guo-skeleton-0042-teen-fit-male",
+      "modelNumber": 42,
+      "label": "青年男性",
+      "category": "男性",
+      "categoryIds": [
+        "male"
+      ],
+      "tagIds": [
+        "realistic"
+      ],
+      "tags": [
+        "写实"
+      ],
+      "modelUrl": "/guo-3d-assets/guo-skeleton-models/models/0042_teen-fit-male.fbx",
+      "thumbnailUrl": "/guo-3d-assets/guo-skeleton-models/thumbnails/0042_teen-fit-male.png",
+      "localModelPath": "models/0042_teen-fit-male.fbx",
+      "localThumbnailPath": "thumbnails/0042_teen-fit-male.png",
+      "format": "FBX",
+      "boneCount": 96,
+      "bytes": 946092,
+      "sceneCount": 2,
+      "sceneReferenceCount": 2,
+      "sha256": "1d86eb345a1e5729e3ed8c123eecc1ddfdddbbb76151b5d404c7703fdc4f4d2f"
+    },
+    {
+      "id": "guo-skeleton-0043-heavy-male",
+      "modelNumber": 43,
+      "label": "高壮男性",
+      "category": "男性",
+      "categoryIds": [
+        "male"
+      ],
+      "tagIds": [
+        "realistic"
+      ],
+      "tags": [
+        "写实"
+      ],
+      "modelUrl": "/guo-3d-assets/guo-skeleton-models/models/0043_heavy-male.fbx",
+      "thumbnailUrl": "/guo-3d-assets/guo-skeleton-models/thumbnails/0043_heavy-male.png",
+      "localModelPath": "models/0043_heavy-male.fbx",
+      "localThumbnailPath": "thumbnails/0043_heavy-male.png",
+      "format": "FBX",
+      "boneCount": 96,
+      "bytes": 860780,
+      "sceneCount": 28,
+      "sceneReferenceCount": 29,
+      "sha256": "c1ec4d095488d6b16a5e4ac22c637cc71b1e1530baae1d9636dfc27284afa813"
+    },
+    {
+      "id": "guo-skeleton-0044-muscular-female",
+      "modelNumber": 44,
+      "label": "肌肉女性",
+      "category": "女性",
+      "categoryIds": [
+        "female"
+      ],
+      "tagIds": [
+        "realistic"
+      ],
+      "tags": [
+        "写实"
+      ],
+      "modelUrl": "/guo-3d-assets/guo-skeleton-models/models/0044_muscular-female.fbx",
+      "thumbnailUrl": "/guo-3d-assets/guo-skeleton-models/thumbnails/0044_muscular-female.png",
+      "localModelPath": "models/0044_muscular-female.fbx",
+      "localThumbnailPath": "thumbnails/0044_muscular-female.png",
+      "format": "FBX",
+      "boneCount": 96,
+      "bytes": 895708,
+      "sceneCount": 20,
+      "sceneReferenceCount": 21,
+      "sha256": "39f3696278ec2cbc73d63f73546b00cfa3a9042ef24a456113759791678f4aa2"
+    },
+    {
+      "id": "guo-skeleton-0045-stocky-female",
+      "modelNumber": 45,
+      "label": "壮实女性",
+      "category": "女性",
+      "categoryIds": [
+        "female"
+      ],
+      "tagIds": [
+        "realistic"
+      ],
+      "tags": [
+        "写实"
+      ],
+      "modelUrl": "/guo-3d-assets/guo-skeleton-models/models/0045_stocky-female.fbx",
+      "thumbnailUrl": "/guo-3d-assets/guo-skeleton-models/thumbnails/0045_stocky-female.png",
+      "localModelPath": "models/0045_stocky-female.fbx",
+      "localThumbnailPath": "thumbnails/0045_stocky-female.png",
+      "format": "FBX",
+      "boneCount": 96,
+      "bytes": 909564,
+      "sceneCount": 19,
+      "sceneReferenceCount": 20,
+      "sha256": "564e47516f934eeba82a78fc84f490cd2cedc2aa4fdcc671464351f089dc0a86"
+    },
+    {
+      "id": "guo-skeleton-0046-stocky-male",
+      "modelNumber": 46,
+      "label": "壮实男性",
+      "category": "男性",
+      "categoryIds": [
+        "male"
+      ],
+      "tagIds": [
+        "realistic"
+      ],
+      "tags": [
+        "写实"
+      ],
+      "modelUrl": "/guo-3d-assets/guo-skeleton-models/models/0046_stocky-male.fbx",
+      "thumbnailUrl": "/guo-3d-assets/guo-skeleton-models/thumbnails/0046_stocky-male.png",
+      "localModelPath": "models/0046_stocky-male.fbx",
+      "localThumbnailPath": "thumbnails/0046_stocky-male.png",
+      "format": "FBX",
+      "boneCount": 96,
+      "bytes": 861116,
+      "sceneCount": 22,
+      "sceneReferenceCount": 28,
+      "sha256": "7b5103463e80a12fb608502e78a0188a0cbdbf588e0945ea4d3fb69bd69bf181"
+    },
+    {
+      "id": "guo-skeleton-0047-skinny-female",
+      "modelNumber": 47,
+      "label": "瘦型女性",
+      "category": "女性",
+      "categoryIds": [
+        "female"
+      ],
+      "tagIds": [
+        "realistic"
+      ],
+      "tags": [
+        "写实"
+      ],
+      "modelUrl": "/guo-3d-assets/guo-skeleton-models/models/0047_skinny-female.fbx",
+      "thumbnailUrl": "/guo-3d-assets/guo-skeleton-models/thumbnails/0047_skinny-female.png",
+      "localModelPath": "models/0047_skinny-female.fbx",
+      "localThumbnailPath": "thumbnails/0047_skinny-female.png",
+      "format": "FBX",
+      "boneCount": 96,
+      "bytes": 910844,
+      "sceneCount": 10,
+      "sceneReferenceCount": 10,
+      "sha256": "0f4c689ad1b535fa6c179b3c32279d7857c65b9dfb2c2b20cda30fe56b0d6022"
+    },
+    {
+      "id": "guo-skeleton-0048-realistic-female",
+      "modelNumber": 48,
+      "label": "写实女性",
+      "category": "女性",
+      "categoryIds": [
+        "female"
+      ],
+      "tagIds": [
+        "realistic"
+      ],
+      "tags": [
+        "写实"
+      ],
+      "modelUrl": "/guo-3d-assets/guo-skeleton-models/models/0048_realistic-female.fbx",
+      "thumbnailUrl": "/guo-3d-assets/guo-skeleton-models/thumbnails/0048_realistic-female.png",
+      "localModelPath": "models/0048_realistic-female.fbx",
+      "localThumbnailPath": "thumbnails/0048_realistic-female.png",
+      "format": "FBX",
+      "boneCount": 96,
+      "bytes": 1226316,
+      "sceneCount": 135,
+      "sceneReferenceCount": 150,
+      "sha256": "7dd06ed52ad172238ffce1500f9b79767c920d94538f21101810c7808cd575d5"
+    },
+    {
+      "id": "guo-skeleton-0049-skinny-male",
+      "modelNumber": 49,
+      "label": "瘦型男性",
+      "category": "男性",
+      "categoryIds": [
+        "male"
+      ],
+      "tagIds": [
+        "realistic"
+      ],
+      "tags": [
+        "写实"
+      ],
+      "modelUrl": "/guo-3d-assets/guo-skeleton-models/models/0049_skinny-male.fbx",
+      "thumbnailUrl": "/guo-3d-assets/guo-skeleton-models/thumbnails/0049_skinny-male.png",
+      "localModelPath": "models/0049_skinny-male.fbx",
+      "localThumbnailPath": "thumbnails/0049_skinny-male.png",
+      "format": "FBX",
+      "boneCount": 96,
+      "bytes": 948076,
+      "sceneCount": 39,
+      "sceneReferenceCount": 41,
+      "sha256": "7ca02deef7ea7cb6d751d39eca443b93975de141a20ec32676ad567f71a40a38"
+    },
+    {
+      "id": "guo-skeleton-0050-anime-child-girl",
+      "modelNumber": 50,
+      "label": "动漫女孩",
+      "category": "女性",
+      "categoryIds": [
+        "female"
+      ],
+      "tagIds": [
+        "stylized"
+      ],
+      "tags": [
+        "风格化"
+      ],
+      "modelUrl": "/guo-3d-assets/guo-skeleton-models/models/0050_anime-child-girl.fbx",
+      "thumbnailUrl": "/guo-3d-assets/guo-skeleton-models/thumbnails/0050_anime-child-girl.png",
+      "localModelPath": "models/0050_anime-child-girl.fbx",
+      "localThumbnailPath": "thumbnails/0050_anime-child-girl.png",
+      "format": "FBX",
+      "boneCount": 96,
+      "bytes": 519340,
+      "sceneCount": 8,
+      "sceneReferenceCount": 8,
+      "sha256": "21998e529be6218c83288d324abf704b97fdd06358a72bd003faf4a60d3dd08b"
+    },
+    {
+      "id": "guo-skeleton-0051-anime-child-boy",
+      "modelNumber": 51,
+      "label": "动漫男孩",
+      "category": "男性",
+      "categoryIds": [
+        "male"
+      ],
+      "tagIds": [
+        "stylized"
+      ],
+      "tags": [
+        "风格化"
+      ],
+      "modelUrl": "/guo-3d-assets/guo-skeleton-models/models/0051_anime-child-boy.fbx",
+      "thumbnailUrl": "/guo-3d-assets/guo-skeleton-models/thumbnails/0051_anime-child-boy.png",
+      "localModelPath": "models/0051_anime-child-boy.fbx",
+      "localThumbnailPath": "thumbnails/0051_anime-child-boy.png",
+      "format": "FBX",
+      "boneCount": 96,
+      "bytes": 648972,
+      "sceneCount": 1,
+      "sceneReferenceCount": 1,
+      "sha256": "ca5b3477d8889ff33753de374eac7cd532e2ca6561784caeeead9a1c774a4563"
+    },
+    {
+      "id": "guo-skeleton-0053-anime-curvy-female",
+      "modelNumber": 53,
+      "label": "动漫曲线女性",
+      "category": "女性",
+      "categoryIds": [
+        "female"
+      ],
+      "tagIds": [
+        "stylized"
+      ],
+      "tags": [
+        "风格化"
+      ],
+      "modelUrl": "/guo-3d-assets/guo-skeleton-models/models/0053_anime-curvy-female.fbx",
+      "thumbnailUrl": "/guo-3d-assets/guo-skeleton-models/thumbnails/0053_anime-curvy-female.png",
+      "localModelPath": "models/0053_anime-curvy-female.fbx",
+      "localThumbnailPath": "thumbnails/0053_anime-curvy-female.png",
+      "format": "FBX",
+      "boneCount": 96,
+      "bytes": 697180,
+      "sceneCount": 46,
+      "sceneReferenceCount": 46,
+      "sha256": "82f65cbb914dd3350fa948a961b264ea561e55ca0fba812e4ee4c6178e7876c7"
+    },
+    {
+      "id": "guo-skeleton-0054-anime-male",
+      "modelNumber": 54,
+      "label": "动漫基础男性 B",
+      "category": "男性",
+      "categoryIds": [
+        "male"
+      ],
+      "tagIds": [
+        "stylized"
+      ],
+      "tags": [
+        "风格化"
+      ],
+      "modelUrl": "/guo-3d-assets/guo-skeleton-models/models/0054_anime-male.fbx",
+      "thumbnailUrl": "/guo-3d-assets/guo-skeleton-models/thumbnails/0054_anime-male.png",
+      "localModelPath": "models/0054_anime-male.fbx",
+      "localThumbnailPath": "thumbnails/0054_anime-male.png",
+      "format": "FBX",
+      "boneCount": 96,
+      "bytes": 717756,
+      "sceneCount": 277,
+      "sceneReferenceCount": 310,
+      "sha256": "36514ab434c4e0e3b92646976558380861576846290ea5f6d40b64e77b4cc96d"
+    },
+    {
+      "id": "guo-skeleton-0055-basic-female",
+      "modelNumber": 55,
+      "label": "动漫基础女性 B",
+      "category": "女性",
+      "categoryIds": [
+        "female"
+      ],
+      "tagIds": [
+        "stylized"
+      ],
+      "tags": [
+        "风格化"
+      ],
+      "modelUrl": "/guo-3d-assets/guo-skeleton-models/models/0055_basic-female.fbx",
+      "thumbnailUrl": "/guo-3d-assets/guo-skeleton-models/thumbnails/0055_basic-female.png",
+      "localModelPath": "models/0055_basic-female.fbx",
+      "localThumbnailPath": "thumbnails/0055_basic-female.png",
+      "format": "FBX",
+      "boneCount": 96,
+      "bytes": 703372,
+      "sceneCount": 314,
+      "sceneReferenceCount": 356,
+      "sha256": "ca8e8f6cb2f3519595957e6ce0a8e5df7c6c7e3c11813bbffa727330c7cf8686"
+    },
+    {
+      "id": "guo-skeleton-0056-tall-female",
+      "modelNumber": 56,
+      "label": "动漫高挑女性 B",
+      "category": "女性",
+      "categoryIds": [
+        "female"
+      ],
+      "tagIds": [
+        "stylized"
+      ],
+      "tags": [
+        "风格化"
+      ],
+      "modelUrl": "/guo-3d-assets/guo-skeleton-models/models/0056_tall-female.fbx",
+      "thumbnailUrl": "/guo-3d-assets/guo-skeleton-models/thumbnails/0056_tall-female.png",
+      "localModelPath": "models/0056_tall-female.fbx",
+      "localThumbnailPath": "thumbnails/0056_tall-female.png",
+      "format": "FBX",
+      "boneCount": 96,
+      "bytes": 693324,
+      "sceneCount": 99,
+      "sceneReferenceCount": 104,
+      "sha256": "086ab8bccdc9fc3aa8716bc049fc753d5a5b5f6649f5445f94c1fc8a1cb2cf57"
+    },
+    {
+      "id": "guo-skeleton-0057-tall-male",
+      "modelNumber": 57,
+      "label": "动漫高挑男性",
+      "category": "男性",
+      "categoryIds": [
+        "male"
+      ],
+      "tagIds": [
+        "stylized"
+      ],
+      "tags": [
+        "风格化"
+      ],
+      "modelUrl": "/guo-3d-assets/guo-skeleton-models/models/0057_tall-male.fbx",
+      "thumbnailUrl": "/guo-3d-assets/guo-skeleton-models/thumbnails/0057_tall-male.png",
+      "localModelPath": "models/0057_tall-male.fbx",
+      "localThumbnailPath": "thumbnails/0057_tall-male.png",
+      "format": "FBX",
+      "boneCount": 96,
+      "bytes": 713740,
+      "sceneCount": 19,
+      "sceneReferenceCount": 21,
+      "sha256": "337b25100ba79c6bc8d2cb8adb6ebe0b68ef73fc86618bedfdc5889f160ab77b"
+    },
+    {
+      "id": "guo-skeleton-0058-skeleton",
+      "modelNumber": 58,
+      "label": "骷髅",
+      "category": "动物/异形",
+      "categoryIds": [
+        "animal-creature"
+      ],
+      "modelUrl": "/guo-3d-assets/guo-skeleton-models/models/0058_skeleton.fbx",
+      "thumbnailUrl": "/guo-3d-assets/guo-skeleton-models/thumbnails/0058_skeleton.png",
+      "localModelPath": "models/0058_skeleton.fbx",
+      "localThumbnailPath": "thumbnails/0058_skeleton.png",
+      "format": "FBX",
+      "boneCount": 96,
+      "bytes": 1112044,
+      "sceneCount": 53,
+      "sceneReferenceCount": 67,
+      "sha256": "9456a16da8ffdf1b5c6c3d5998434cdf0c3e0256b050aab0f3aef581e6515512"
+    },
+    {
+      "id": "guo-skeleton-0059-male-base",
+      "modelNumber": 59,
+      "label": "男性灰模",
+      "category": "男性",
+      "categoryIds": [
+        "male"
+      ],
+      "tagIds": [
+        "base"
+      ],
+      "tags": [
+        "灰模"
+      ],
+      "modelUrl": "/guo-3d-assets/guo-skeleton-models/models/0059_male-base.fbx",
+      "thumbnailUrl": "/guo-3d-assets/guo-skeleton-models/thumbnails/0059_male-base.png",
+      "localModelPath": "models/0059_male-base.fbx",
+      "localThumbnailPath": "thumbnails/0059_male-base.png",
+      "format": "FBX",
+      "boneCount": 96,
+      "bytes": 1477212,
+      "sceneCount": 1767,
+      "sceneReferenceCount": 1944,
+      "sha256": "fa177aa1bc2e59b4d30a9840515559fa332879d7669249e017810aceb7b804bf"
+    },
+    {
+      "id": "guo-skeleton-0060-female-base",
+      "modelNumber": 60,
+      "label": "女性灰模",
+      "category": "女性",
+      "categoryIds": [
+        "female"
+      ],
+      "tagIds": [
+        "base"
+      ],
+      "tags": [
+        "灰模"
+      ],
+      "modelUrl": "/guo-3d-assets/guo-skeleton-models/models/0060_female-base.fbx",
+      "thumbnailUrl": "/guo-3d-assets/guo-skeleton-models/thumbnails/0060_female-base.png",
+      "localModelPath": "models/0060_female-base.fbx",
+      "localThumbnailPath": "thumbnails/0060_female-base.png",
+      "format": "FBX",
+      "boneCount": 96,
+      "bytes": 1450716,
+      "sceneCount": 2155,
+      "sceneReferenceCount": 2369,
+      "sha256": "98e042028d059ebc2f4a2041d96445c0e4cf7ab517cfcfd2df984838407f60ac"
+    },
+    {
+      "id": "guo-skeleton-0061-chibi-male",
+      "modelNumber": 61,
+      "label": "Q版男性",
+      "category": "男性",
+      "categoryIds": [
+        "male"
+      ],
+      "tagIds": [
+        "stylized"
+      ],
+      "tags": [
+        "风格化"
+      ],
+      "modelUrl": "/guo-3d-assets/guo-skeleton-models/models/0061_chibi-male.fbx",
+      "thumbnailUrl": "/guo-3d-assets/guo-skeleton-models/thumbnails/0061_chibi-male.png",
+      "localModelPath": "models/0061_chibi-male.fbx",
+      "localThumbnailPath": "thumbnails/0061_chibi-male.png",
+      "format": "FBX",
+      "boneCount": 96,
+      "bytes": 527148,
+      "sceneCount": 83,
+      "sceneReferenceCount": 106,
+      "sha256": "416daba33c296f309545057e46c4fdd0e1b8387d058195dd828e9a97da24b9ea"
+    },
+    {
+      "id": "guo-skeleton-0062-alien-zombie",
+      "modelNumber": 62,
+      "label": "异形僵尸",
+      "category": "动物/异形",
+      "categoryIds": [
+        "animal-creature"
+      ],
+      "modelUrl": "/guo-3d-assets/guo-skeleton-models/models/0062_alien-zombie.fbx",
+      "thumbnailUrl": "/guo-3d-assets/guo-skeleton-models/thumbnails/0062_alien-zombie.png",
+      "localModelPath": "models/0062_alien-zombie.fbx",
+      "localThumbnailPath": "thumbnails/0062_alien-zombie.png",
+      "format": "FBX",
+      "boneCount": 96,
+      "bytes": 1178668,
+      "sceneCount": 20,
+      "sceneReferenceCount": 20,
+      "sha256": "cb7363d15b6baa596f75ad866bf42723799823b1033acf5566ff0b092806a6a1"
+    },
+    {
+      "id": "guo-skeleton-0063-male-frame-mannequin",
+      "modelNumber": 63,
+      "label": "男性线框素体",
+      "category": "男性",
+      "categoryIds": [
+        "male"
+      ],
+      "tagIds": [
+        "base"
+      ],
+      "tags": [
+        "灰模"
+      ],
+      "modelUrl": "/guo-3d-assets/guo-skeleton-models/models/0063_male-frame-mannequin.fbx",
+      "thumbnailUrl": "/guo-3d-assets/guo-skeleton-models/thumbnails/0063_male-frame-mannequin.png",
+      "localModelPath": "models/0063_male-frame-mannequin.fbx",
+      "localThumbnailPath": "thumbnails/0063_male-frame-mannequin.png",
+      "format": "FBX",
+      "boneCount": 96,
+      "bytes": 631788,
+      "sceneCount": 1,
+      "sceneReferenceCount": 1,
+      "sha256": "e52768d30a7d37b79f94efa3a73775a0c717bcfa128c6b4082b0c6936598d50b"
+    },
+    {
+      "id": "guo-skeleton-0064-blocky-bot",
+      "modelNumber": 64,
+      "label": "方块机器人",
+      "category": "男性",
+      "categoryIds": [
+        "male"
+      ],
+      "tagIds": [
+        "stylized",
+        "base",
+        "robot"
+      ],
+      "tags": [
+        "风格化",
+        "灰模",
+        "机器人"
+      ],
+      "modelUrl": "/guo-3d-assets/guo-skeleton-models/models/0064_blocky-bot.fbx",
+      "thumbnailUrl": "/guo-3d-assets/guo-skeleton-models/thumbnails/0064_blocky-bot.png",
+      "localModelPath": "models/0064_blocky-bot.fbx",
+      "localThumbnailPath": "thumbnails/0064_blocky-bot.png",
+      "format": "FBX",
+      "boneCount": 96,
+      "bytes": 903164,
+      "sceneCount": 1,
+      "sceneReferenceCount": 1,
+      "sha256": "dd309cd3590c8839f2db2342a23752697568f0d8673acf860dcd5e315fa21337"
+    },
+    {
+      "id": "guo-skeleton-0068-stylized-fit-male",
+      "modelNumber": 68,
+      "label": "风格化健壮男性",
+      "category": "男性",
+      "categoryIds": [
+        "male"
+      ],
+      "tagIds": [
+        "stylized",
+        "realistic"
+      ],
+      "tags": [
+        "风格化",
+        "写实"
+      ],
+      "modelUrl": "/guo-3d-assets/guo-skeleton-models/models/0068_stylized-fit-male.fbx",
+      "thumbnailUrl": "/guo-3d-assets/guo-skeleton-models/thumbnails/0068_stylized-fit-male.png",
+      "localModelPath": "models/0068_stylized-fit-male.fbx",
+      "localThumbnailPath": "thumbnails/0068_stylized-fit-male.png",
+      "format": "FBX",
+      "boneCount": 96,
+      "bytes": 1412796,
+      "sceneCount": 1,
+      "sceneReferenceCount": 1,
+      "sha256": "411af2079c7a19fe9de09ddfbc253b2d9d3d9062e6b261834c6a994062d32446"
+    }
+  ]
+}

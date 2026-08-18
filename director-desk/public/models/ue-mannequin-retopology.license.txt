@@ -1,0 +1,8 @@
+Model Information:
+* title:	UE Mannequin (Retopology)
+* source:	https://sketchfab.com/3d-models/ue-mannequin-retopology-5394d9f894374a2ab7c57a21929ce4c2
+* author:	William Luque (https://sketchfab.com/luquewilliam230)
+
+Model License:
+* license type:	SKETCHFAB Standard (https://sketchfab.com/licenses)
+* requirements:	Under basic restrictions, use worldwide, on all types of media, commercially or not, and in all types of derivative works

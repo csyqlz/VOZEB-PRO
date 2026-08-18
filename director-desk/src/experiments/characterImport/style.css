@@ -1,0 +1,67 @@
+:root {
+  color: #edf2f7;
+  background: #090c10;
+  font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-synthesis: none;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { min-height: 100%; margin: 0; }
+
+.character-import-smoke {
+  min-height: 100vh;
+  padding: 16px;
+  background: #090c10;
+}
+
+.character-import-smoke__header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 48px;
+  margin-bottom: 12px;
+}
+
+.character-import-smoke__header h1,
+.character-import-smoke__report h2 { margin: 0; letter-spacing: 0; }
+.character-import-smoke__header h1 { font-size: 18px; }
+.character-import-smoke__header p { margin: 4px 0 0; color: #8d99a8; font-size: 12px; }
+.character-import-smoke__header strong {
+  margin-left: auto;
+  padding: 7px 10px;
+  border: 1px solid #35404d;
+  border-radius: 4px;
+  background: #151b22;
+  font-size: 12px;
+}
+.character-import-smoke__header strong[data-state="passed"] { border-color: #2e7a56; color: #a8e8c4; }
+.character-import-smoke__header strong[data-state="failed"] { border-color: #8c4141; color: #ffb1b1; }
+
+.character-import-smoke__workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  min-height: calc(100vh - 92px);
+  border: 1px solid #27303a;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #101419;
+}
+
+.character-import-smoke__viewport { min-width: 0; min-height: 520px; }
+.character-import-smoke__viewport canvas { display: block; }
+.character-import-smoke__report { padding: 18px; border-left: 1px solid #27303a; background: #11161c; }
+.character-import-smoke__report h2 { font-size: 15px; }
+.character-import-smoke__report dl { margin: 16px 0; }
+.character-import-smoke__report dl div { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid #232c35; }
+.character-import-smoke__report dt { color: #8f9ba9; font-size: 12px; }
+.character-import-smoke__report dd { margin: 0; font-size: 12px; font-weight: 650; }
+.character-import-smoke__action { padding: 10px; border-radius: 4px; color: #b5e7c9; background: #14271d; font-size: 12px; }
+.character-import-smoke__report ul { padding-left: 18px; color: #e4bf83; font-size: 12px; line-height: 1.6; }
+.character-import-smoke__error { color: #ff9b9b; font-size: 12px; }
+.character-import-smoke__report footer { margin-top: 18px; color: #6f7c8b; font-size: 10px; line-height: 1.5; }
+
+@media (max-width: 760px) {
+  .character-import-smoke__workspace { grid-template-columns: 1fr; }
+  .character-import-smoke__viewport { min-height: 420px; }
+  .character-import-smoke__report { border-top: 1px solid #27303a; border-left: 0; }
+}

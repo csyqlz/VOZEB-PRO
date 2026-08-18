@@ -2,6 +2,8 @@
 .next-production/
 .next-*/
 out/
+web/public/director-desk/
+director-desk/dist/
 node_modules/
 .pnpm-store/
 /pnpm-lock.yaml

@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>3D 导演台二创接口自测</title>
+    <style>
+      body { margin: 0; padding: 24px; color: #e8edf5; background: #15171b; font: 14px/1.6 system-ui, sans-serif; }
+      h1 { margin: 0 0 16px; font-size: 20px; letter-spacing: 0; }
+      iframe { width: 100%; height: 420px; border: 1px solid #343a46; border-radius: 6px; background: #000; }
+      pre { min-height: 160px; padding: 16px; overflow: auto; border: 1px solid #343a46; border-radius: 6px; background: #0e1013; white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <h1>3D 导演台二创接口自测</h1>
+    <iframe id="director" title="二创接口测试导演台"></iframe>
+    <pre id="result" aria-live="polite">等待导演台就绪...</pre>
+    <script>
+      const director = document.querySelector("#director");
+      const result = document.querySelector("#result");
+      const origin = window.location.origin;
+      const responses = {};
+      let pluginSubmitted = false;
+      let finalizing = false;
+      let readyHandled = false;
+      let nextFrameIndex = 0;
+      const frameRequests = [
+        { requestId: "smoke-frame-first", position: "first", expectedProgress: 0 },
+        { requestId: "smoke-frame-current", position: "current", expectedProgress: 0.42 },
+        { requestId: "smoke-frame-last", position: "last", expectedProgress: 1 }
+      ];
+      const requiredRequestIds = [
+        "smoke-capabilities",
+        "smoke-project",
+        "smoke-timeline-before",
+        ...frameRequests.map((item) => item.requestId),
+        "smoke-timeline-after",
+        "smoke-plugin-submit",
+        "smoke-plugin-list"
+      ];
+      window.__EXTENSION_PROTOCOL_SMOKE__ = { status: "running" };
+      const smokeTimeout = window.setTimeout(() => {
+        if (result.dataset.complete === "true") return;
+        const missingRequestIds = requiredRequestIds.filter((requestId) => !responses[requestId]);
+        const report = {
+          status: "failed",
+          ok: false,
+          error: "二创接口自测超时",
+          missingRequestIds
+        };
+        window.__EXTENSION_PROTOCOL_SMOKE__ = report;
+        result.textContent = JSON.stringify(report, null, 2);
+        result.dataset.complete = "true";
+        result.dataset.status = "failed";
+      }, 20_000);
+      director.src = `/?instanceId=extension_protocol_smoke&benchmark=standard&performance=fluid&benchmarkProgress=0.42&benchmarkPlaying=paused&hostOrigin=${encodeURIComponent(origin)}`;
+
+      function request(requestId, action, options) {
+        director.contentWindow.postMessage({
+          type: "storyai:director-desk:request",
+          payload: { requestId, action, ...(options ? { options } : {}) },
+        }, origin);
+      }
+
+      function requestNextFrame() {
+        const item = frameRequests[nextFrameIndex];
+        if (!item) {
+          request("smoke-timeline-after", "timeline.get");
+          return;
+        }
+        nextFrameIndex += 1;
+        window.setTimeout(() => {
+          request(item.requestId, "export.frame", {
+            fileName: `${item.position}.png`,
+            position: item.position,
+            quality: "720p"
+          });
+        }, 250);
+      }
+
+      function inspectFrameDataUrl(dataUrl) {
+        return new Promise((resolve, reject) => {
+          const image = new Image();
+          image.onload = () => {
+            try {
+              const canvas = document.createElement("canvas");
+              canvas.width = 64;
+              canvas.height = 36;
+              const context = canvas.getContext("2d", { willReadFrequently: true });
+              context.drawImage(image, 0, 0, canvas.width, canvas.height);
+              const data = context.getImageData(0, 0, canvas.width, canvas.height).data;
+              const pixels = [];
+              let luminanceTotal = 0;
+              for (let index = 0; index < data.length; index += 4) {
+                const red = data[index];
+                const green = data[index + 1];
+                const blue = data[index + 2];
+                pixels.push(red, green, blue);
+                luminanceTotal += red * 0.2126 + green * 0.7152 + blue * 0.0722;
+              }
+              const luminance = luminanceTotal / (canvas.width * canvas.height * 255);
+              let varianceTotal = 0;
+              for (let index = 0; index < pixels.length; index += 3) {
+                const pixelLuminance = (
+                  pixels[index] * 0.2126
+                  + pixels[index + 1] * 0.7152
+                  + pixels[index + 2] * 0.0722
+                ) / 255;
+                varianceTotal += Math.pow(pixelLuminance - luminance, 2);
+              }
+              resolve({
+                height: image.naturalHeight,
+                luminance: Number(luminance.toFixed(6)),
+                pixels,
+                variance: Number((varianceTotal / (canvas.width * canvas.height)).toFixed(6)),
+                width: image.naturalWidth
+              });
+            } catch (error) {
+              reject(error);
+            }
+          };
+          image.onerror = () => reject(new Error("PNG dataUrl 无法解码"));
+          image.src = dataUrl;
+        });
+      }
+
+      function pixelDelta(left, right) {
+        const total = left.pixels.reduce(
+          (sum, value, index) => sum + Math.abs(value - right.pixels[index]),
+          0
+        );
+        return Number((total / (left.pixels.length * 255)).toFixed(6));
+      }
+
+      function timelinesMatch(left, right) {
+        return Boolean(left && right)
+          && Math.abs(left.progress - right.progress) <= 0.000001
+          && Math.abs(left.timeSeconds - right.timeSeconds) <= 0.000001
+          && left.playing === right.playing
+          && left.viewMode === right.viewMode
+          && left.activeCameraId === right.activeCameraId;
+      }
+
+      async function finalizeIfReady() {
+        if (finalizing || !requiredRequestIds.every((requestId) => responses[requestId])) return;
+        finalizing = true;
+        try {
+          const frameInspections = {};
+          for (const item of frameRequests) {
+            const response = responses[item.requestId];
+            frameInspections[item.position] = response.ok
+              ? await inspectFrameDataUrl(response.data.dataUrl)
+              : { error: response.error?.message || "帧导出失败" };
+          }
+          const frameSummaries = Object.fromEntries(frameRequests.map((item) => {
+            const response = responses[item.requestId];
+            const inspection = frameInspections[item.position];
+            return [item.position, response.ok ? {
+              expectedProgress: item.expectedProgress,
+              height: response.data.height,
+              luminance: inspection.luminance,
+              position: response.data.position,
+              progress: response.data.progress,
+              variance: inspection.variance,
+              width: response.data.width
+            } : { error: response.error }];
+          }));
+          const firstLastDelta = frameInspections.first.error || frameInspections.last.error
+            ? 0
+            : pixelDelta(frameInspections.first, frameInspections.last);
+          const frameChecksPassed = frameRequests.every((item) => {
+            const response = responses[item.requestId];
+            const inspection = frameInspections[item.position];
+            return response.ok
+              && response.data.position === item.position
+              && Math.abs(response.data.progress - item.expectedProgress) <= 0.000001
+              && response.data.width === 1280
+              && response.data.height > 0
+              && inspection.variance > 0.00002;
+          });
+          const projectResponse = responses["smoke-project"];
+          const pluginListResponse = responses["smoke-plugin-list"];
+          const timelineRestored = timelinesMatch(
+            responses["smoke-timeline-before"].data,
+            responses["smoke-timeline-after"].data
+          );
+          const passed = requiredRequestIds.every((requestId) => responses[requestId].ok)
+            && frameChecksPassed
+            && firstLastDelta > 0.0005
+            && timelineRestored
+            && projectResponse.data?.project?.cameras?.length > 0
+            && pluginListResponse.data?.length === 1
+            && pluginListResponse.data[0].stale === false;
+          const report = {
+            status: passed ? "passed" : "failed",
+            ok: passed,
+            frames: frameSummaries,
+            firstLastDelta,
+            timelineBefore: responses["smoke-timeline-before"].data,
+            timelineAfter: responses["smoke-timeline-after"].data,
+            timelineRestored,
+            projectFingerprint: projectResponse.data?.projectFingerprint,
+            pluginResultCount: pluginListResponse.data?.length ?? 0
+          };
+          window.__EXTENSION_PROTOCOL_SMOKE__ = report;
+          window.clearTimeout(smokeTimeout);
+          result.textContent = JSON.stringify(report, null, 2);
+          result.dataset.complete = "true";
+          result.dataset.status = report.status;
+        } catch (error) {
+          const report = {
+            status: "failed",
+            ok: false,
+            error: error instanceof Error ? error.message : "接口自测失败"
+          };
+          window.__EXTENSION_PROTOCOL_SMOKE__ = report;
+          window.clearTimeout(smokeTimeout);
+          result.textContent = JSON.stringify(report, null, 2);
+          result.dataset.complete = "true";
+          result.dataset.status = "failed";
+        }
+      }
+
+      window.addEventListener("message", (event) => {
+        if (event.origin !== origin || event.source !== director.contentWindow) return;
+        if (event.data?.type === "storyai:director-desk-ready") {
+          if (readyHandled) return;
+          readyHandled = true;
+          window.setTimeout(() => {
+            request("smoke-capabilities", "capabilities.get");
+            request("smoke-project", "project.get");
+            request("smoke-timeline-before", "timeline.get");
+            requestNextFrame();
+          }, 500);
+          return;
+        }
+        if (event.data?.type !== "storyai:director-desk:response") return;
+        if (result.dataset.complete === "true") return;
+        const response = event.data.payload;
+        responses[response.requestId] = response;
+        if (frameRequests.some((item) => item.requestId === response.requestId)) {
+          requestNextFrame();
+        }
+        if (response.action === "project.get" && response.ok && !pluginSubmitted) {
+          pluginSubmitted = true;
+          request("smoke-plugin-submit", "plugin.result.submit", {
+            result: {
+              basedOnProjectFingerprint: response.data.projectFingerprint,
+              data: { shotSuggestion: "从过肩镜头平滑移动到人物正脸" },
+              kind: "camera-plan",
+              plugin: { id: "smoke.camera-agent", name: "接口自测镜头 Agent", version: "1.0.0" },
+              status: "success",
+              summary: "生成一条镜头建议"
+            }
+          });
+        }
+        if (response.action === "plugin.result.submit" && response.ok) {
+          request("smoke-plugin-list", "plugin.results.list");
+        }
+        result.textContent = `已完成 ${Object.keys(responses).length} / ${requiredRequestIds.length} 项，正在验证...`;
+        void finalizeIfReady();
+      });
+    </script>
+  </body>
+</html>
