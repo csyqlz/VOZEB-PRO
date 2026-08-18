@@ -7,6 +7,7 @@ import { maintenanceWorkerContext } from "@/lib/server/maintenance-auth";
 import {
     allowsImageProtocolFallback,
     ImageQueryContractError,
+    findImageResult,
     imageRequestAspectRatio,
     imageTaskPollAttempts,
     imageTaskPollUrls,
@@ -97,6 +98,13 @@ describe("GlobalAiOpc image task paths", () => {
         expect(imageRequestAspectRatio("1824x1024")).toBe("16:9");
         expect(imageRequestAspectRatio("1024x1536")).toBe("2:3");
         expect(imageRequestAspectRatio("9:16")).toBe("9:16");
+    });
+
+    it("treats raw JPEG base64 as inline image data before relative URL parsing", () => {
+        const jpegBase64 = `/9j/${"A".repeat(96)}`;
+        expect(findImageResult(jpegBase64, "https://provider.example/v1/images/generations", config)).toMatchObject({
+            dataUrl: `data:image/jpeg;base64,${jpegBase64}`,
+        });
     });
 
     it("uses the configured create and result endpoints instead of OpenAI defaults", async () => {

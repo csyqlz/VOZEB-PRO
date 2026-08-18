@@ -391,6 +391,11 @@ export function findImageResults(value: unknown, baseUrl: string, config: ImageT
 function collectImageResults(value: unknown, baseUrl: string, config: ImageTaskConfig, depth: number, images: ImageTaskMediaResult[]) {
     if (!value || depth > 6) return null;
     if (typeof value === "string") {
+        const inlineImage = rawImageBase64DataUrl(value);
+        if (inlineImage) {
+            images.push({ dataUrl: inlineImage });
+            return;
+        }
         const url = resolveImageUrlLike(value, baseUrl, config, false);
         if (url) images.push(url);
         const dataUrl = resolveImageBase64Like(value);
@@ -430,10 +435,26 @@ export function resolveImageUrlLike(value: string, baseUrl: string, config: Imag
     return null;
 }
 
+function rawImageBase64DataUrl(value: string) {
+    const base64 = value.trim().replace(/\s/g, "");
+    const mimeType = base64.startsWith("/9j/")
+        ? "image/jpeg"
+        : base64.startsWith("iVBORw0KGgo")
+          ? "image/png"
+          : base64.startsWith("R0lGOD")
+            ? "image/gif"
+            : base64.startsWith("UklGR")
+              ? "image/webp"
+              : "";
+    return mimeType && /^[a-z0-9+/=_-]+$/i.test(base64) ? `data:${mimeType};base64,${base64}` : "";
+}
+
 export function resolveImageBase64Like(value: string) {
     const base64 = value.trim();
     if (!base64) return "";
     if (/^data:image\//i.test(base64)) return base64;
+    const rawImage = rawImageBase64DataUrl(base64);
+    if (rawImage) return rawImage;
     if (base64.length < 64 || !/^[a-z0-9+/=_-]+$/i.test(base64.replace(/\s/g, ""))) return "";
     return `data:image/png;base64,${base64.replace(/\s/g, "")}`;
 }
