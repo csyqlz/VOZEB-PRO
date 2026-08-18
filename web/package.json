@@ -77,7 +77,7 @@
         "@types/react": "19.2.18",
         "@types/react-dom": "19.2.4",
         "eslint": "9.39.5",
-        "eslint-config-next": "16.3.0",
+        "eslint-config-next": "16.3.1",
         "jsonrepair": "^3.15.0",
         "postcss": "8.5.26",
         "prettier": "^3.9.6",
