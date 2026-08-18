@@ -3,7 +3,7 @@ import { getTrustedProxyHops } from "@/lib/server/trusted-proxy";
 
 export function proxy(request: NextRequest) {
     const nonce = crypto.randomUUID().replaceAll("-", "");
-    const contentSecurityPolicy = buildContentSecurityPolicy(nonce);
+    const contentSecurityPolicy = buildContentSecurityPolicy(nonce, isHttpsRequest(request));
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set("x-nonce", nonce);
     requestHeaders.set("content-security-policy", contentSecurityPolicy);
@@ -44,7 +44,7 @@ function securedJsonResponse(body: unknown, status: number, contentSecurityPolic
     return response;
 }
 
-function buildContentSecurityPolicy(nonce: string) {
+function buildContentSecurityPolicy(nonce: string, isHttpsRequest: boolean) {
     const isDev = process.env.NODE_ENV !== "production";
     return [
         "default-src 'self'",
@@ -60,8 +60,15 @@ function buildContentSecurityPolicy(nonce: string) {
         "base-uri 'self'",
         "form-action 'self'",
         "frame-ancestors 'none'",
-        ...(isDev ? [] : ["upgrade-insecure-requests"]),
+        ...(!isDev && isHttpsRequest ? ["upgrade-insecure-requests"] : []),
     ].join("; ");
+}
+
+function isHttpsRequest(request: NextRequest) {
+    const trustForwarded = getTrustedProxyHops() > 0;
+    const forwardedProto = trustForwarded ? request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim() : "";
+    const protocol = forwardedProto || request.nextUrl.protocol;
+    return protocol.replace(/:$/, "").toLowerCase() === "https";
 }
 
 function publicRequestOrigin(request: NextRequest) {

@@ -29,6 +29,23 @@ describe("application proxy security", () => {
         expect(policy).not.toMatch(/connect-src[^;]*http:/);
         expect(policy).toContain("upgrade-insecure-requests");
     });
+
+    it("does not upgrade resources for direct HTTP requests", () => {
+        vi.stubEnv("NODE_ENV", "production");
+
+        const policy = proxy(new NextRequest("http://app.example.com/create")).headers.get("content-security-policy") || "";
+
+        expect(policy).not.toContain("upgrade-insecure-requests");
+    });
+
+    it("does not trust a spoofed forwarded HTTPS protocol without a trusted proxy", () => {
+        vi.stubEnv("NODE_ENV", "production");
+
+        const request = new NextRequest("http://app.example.com/create", { headers: { "x-forwarded-proto": "https" } });
+        const policy = proxy(request).headers.get("content-security-policy") || "";
+
+        expect(policy).not.toContain("upgrade-insecure-requests");
+    });
 });
 
 function writeRequest(headers: Record<string, string>) {
