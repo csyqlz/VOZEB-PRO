@@ -78,12 +78,12 @@
         "@types/react": "19.2.18",
         "@types/react-dom": "19.2.4",
         "eslint": "9.39.5",
-        "eslint-config-next": "16.3.0",
+        "eslint-config-next": "16.3.2",
         "jsonrepair": "^3.15.0",
         "postcss": "8.5.26",
         "prettier": "^3.9.6",
-        "shadcn": "^4.16.2",
+        "shadcn": "^4.19.0",
         "typescript": "^5",
-        "vitest": "^4.1.10"
+        "vitest": "^4.1.11"
     }
 }
