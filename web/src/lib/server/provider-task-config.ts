@@ -43,7 +43,7 @@ export function assertReferenceUrls(config: SystemChannelAdvancedConfig | undefi
     const ruleRequiresPublicUrl = /公网|public|next_public_site_url|must.*\burl\b|\burl\b.*only|必须.*\burl\b|仅.*\burl\b|只.*\burl\b/i.test(config?.referenceRule || "");
     if (!publicUrlRequired && !ruleRequiresPublicUrl) return;
     if (references.some((reference) => !isExternallyReachableReferenceUrl(reference.url || "") || isUnsignedReferenceAssetUrl(reference.url || ""))) {
-        throw new Error("当前渠道无法读取站内参考素材，请联系管理员检查站点部署地址");
+        throw new Error("当前服务无法读取站内参考素材，请重新上传或稍后重试");
     }
 }
 
@@ -154,7 +154,9 @@ function alignVideoProviderFields(payload: Record<string, unknown>, values: Temp
         const dynamicValueKey = VIDEO_DYNAMIC_VALUE_KEYS[normalizedKey];
         if (dynamicValueKey && values[dynamicValueKey] !== undefined) {
             const value = values[dynamicValueKey];
-            next[key] = normalizedKey === "seconds" && typeof current === "string" ? String(value) : value;
+            // Several OpenAI-compatible video gateways declare `seconds` as a
+            // string even when the client-side duration is numeric.
+            next[key] = normalizedKey === "seconds" ? String(value) : value;
             continue;
         }
         const referenceValueKey = VIDEO_REFERENCE_VALUE_KEYS[normalizedKey];

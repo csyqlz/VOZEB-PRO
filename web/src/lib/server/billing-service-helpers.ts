@@ -57,7 +57,7 @@ export async function buildRefundedOrderResult(order: BillingOrderRecord, db?: Q
 
 export async function createOrderPlanAssignment(order: BillingOrderRecord, paidAt: string, db: QueryExecutor) {
     if (!order.userId) throw new BillingInputError("订单没有绑定用户", 409);
-    if (order.productKind !== "plan" || !order.planId) throw new BillingInputError("积分充值订单不能创建套餐权益", 409);
+    if (order.productKind !== "plan" || !order.planId) throw new BillingInputError("余额充值订单不能创建套餐权益", 409);
     const repos = createPostgresRepositories(db);
     const active = await repos.billing.getActivePlanAssignment(order.userId, new Date(paidAt));
     const paidDate = new Date(paidAt);
@@ -98,8 +98,8 @@ export async function normalizeBillingProductInput(input: BillingProductInput, d
     const amountCents = normalizePositiveInteger(input.amountCents, 0, 100_000_000, 0);
     const pointsAmount = normalizeMoneyLike(input.pointsAmount, 0, 1_000_000);
     const dailyPoints = productKind === "plan" ? normalizeMoneyLike(input.dailyPoints, plan?.dailyPoints || 0, 1_000_000) : 0;
-    if (productKind === "points" && pointsAmount <= 0) throw new BillingInputError("积分充值商品的积分必须大于零");
-    if (pointsAmount > 0 && amountCents <= 0) throw new BillingInputError(productKind === "points" ? "积分充值商品价格必须大于零" : "赠送积分的商品价格必须大于零");
+    if (productKind === "points" && pointsAmount <= 0) throw new BillingInputError("余额充值商品的金额必须大于零");
+    if (pointsAmount > 0 && amountCents <= 0) throw new BillingInputError(productKind === "points" ? "余额充值商品价格必须大于零" : "赠送余额的商品价格必须大于零");
     return {
         id,
         productKind,
@@ -146,8 +146,8 @@ export async function normalizeBillingProductPatch(input: BillingProductInput, c
     if (input.metadata !== undefined) patch.metadata = sanitizeJson(input.metadata);
     const finalAmountCents = patch.amountCents ?? current.amountCents;
     const finalPointsAmount = patch.pointsAmount ?? current.pointsAmount;
-    if (productKind === "points" && finalPointsAmount <= 0) throw new BillingInputError("积分充值商品的积分必须大于零");
-    if (finalPointsAmount > 0 && finalAmountCents <= 0) throw new BillingInputError(productKind === "points" ? "积分充值商品价格必须大于零" : "赠送积分的商品价格必须大于零");
+    if (productKind === "points" && finalPointsAmount <= 0) throw new BillingInputError("余额充值商品的金额必须大于零");
+    if (finalPointsAmount > 0 && finalAmountCents <= 0) throw new BillingInputError(productKind === "points" ? "余额充值商品价格必须大于零" : "赠送余额的商品价格必须大于零");
     return patch;
 }
 

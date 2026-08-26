@@ -73,7 +73,7 @@ export function AccountDeletionPanel() {
                         <h3 className="text-sm font-semibold text-stone-950 dark:text-white">账号注销</h3>
                         {request ? <Tag color={statusColor(request.status)}>{statusLabel(request.status)}</Tag> : null}
                     </div>
-                    <p className="mt-1 max-w-xl text-sm leading-6 text-stone-500 dark:text-stone-400">提交后由管理员人工核验。受理只代表进入注销处理，不会立即删除订单、支付记录或仍需保留的数据。</p>
+                    <p className="mt-1 max-w-xl text-sm leading-6 text-stone-500 dark:text-stone-400">提交后由平台人工核验。受理只代表进入注销处理，不会立即删除订单、支付记录或仍需保留的数据。</p>
                     {request ? (
                         <div className="mt-3 space-y-1 text-xs leading-5 text-stone-500 dark:text-stone-400">
                             <div>申请时间：{formatTime(request.requestedAt)}</div>
@@ -115,7 +115,7 @@ export function AccountDeletionPanel() {
             >
                 <div className="space-y-4 pt-2">
                     <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2.5 text-sm leading-6 text-red-800 dark:border-red-950 dark:bg-red-950/35 dark:text-red-200">
-                        管理员会核对创作数据、媒体引用和订单保留要求。正式执行前可能需要进一步身份复核。
+                        平台会核对创作数据、媒体引用和订单保留要求。正式执行前可能需要进一步身份复核。
                     </div>
                     <label className="block space-y-2">
                         <span className="text-sm font-medium text-stone-700 dark:text-stone-200">当前密码</span>
@@ -123,7 +123,7 @@ export function AccountDeletionPanel() {
                     </label>
                     <label className="block space-y-2">
                         <span className="text-sm font-medium text-stone-700 dark:text-stone-200">补充说明（选填）</span>
-                        <Input.TextArea value={note} maxLength={500} rows={3} showCount placeholder="可填写注销原因或需要管理员注意的事项" onChange={(event) => setNote(event.target.value)} />
+                        <Input.TextArea value={note} maxLength={500} rows={3} showCount placeholder="可填写注销原因或需要平台注意的事项" onChange={(event) => setNote(event.target.value)} />
                     </label>
                 </div>
             </Modal>

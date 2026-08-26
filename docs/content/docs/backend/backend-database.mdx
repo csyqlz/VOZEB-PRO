@@ -1,11 +1,11 @@
 ---
 title: 数据库结构
-description: VOZEB PRO PostgreSQL 主库表结构与 Repository 边界
+description: 星启智域 PostgreSQL 主库表结构与 Repository 边界
 ---
 
 # 数据库结构
 
-VOZEB PRO 商业版默认使用 PostgreSQL 作为主库。数据库初始化 SQL 由 `web/src/lib/server/database/schema.ts` 维护，服务端统一通过 `web/src/lib/server/database/` 下的 Repository 访问主库。
+星启智域 商业版默认使用 PostgreSQL 作为主库。数据库初始化 SQL 由 `web/src/lib/server/database/schema.ts` 维护，服务端统一通过 `web/src/lib/server/database/` 下的 Repository 访问主库。
 
 ## 环境变量
 
@@ -27,13 +27,13 @@ VOZEB_PRO_DATABASE_PROVIDER=file
 
 ## 表名前缀
 
-VOZEB PRO 的 PostgreSQL 真实表名统一使用项目名前缀 `vozeb_pro_`。业务代码里仍然使用逻辑表名，例如 `users`、`billing_orders`、`generation_logs`；数据库执行层会统一映射为真实表名：
+星启智域 的 PostgreSQL 真实表名统一使用项目名前缀 `vozeb_pro_`。业务代码里仍然使用逻辑表名，例如 `users`、`billing_orders`、`generation_logs`；数据库执行层会统一映射为真实表名：
 
 - `users` -> `vozeb_pro_users`
 - `billing_orders` -> `vozeb_pro_billing_orders`
 - `generation_logs` -> `vozeb_pro_generation_logs`
 
-这样同一个 PostgreSQL 数据库里即使存在其他业务表，也能清楚区分 VOZEB PRO 的数据。Schema 中的显式索引和会生成索引的命名唯一约束也必须使用 `vozeb_pro_` 前缀，避免与同一 `public` Schema 的其他应用对象重名。无前缀表不会被自动删除；当前部署和后续读写只使用 `vozeb_pro_` 前缀表。
+这样同一个 PostgreSQL 数据库里即使存在其他业务表，也能清楚区分 星启智域 的数据。Schema 中的显式索引和会生成索引的命名唯一约束也必须使用 `vozeb_pro_` 前缀，避免与同一 `public` Schema 的其他应用对象重名。无前缀表不会被自动删除；当前部署和后续读写只使用 `vozeb_pro_` 前缀表。
 
 ## 核心表
 

@@ -11,6 +11,7 @@ import {
     type UserNotificationRecord,
     type WorkCommunityRankingCursor,
 } from "@/lib/server/database";
+import { USERNAME_PATTERN } from "@/lib/auth/store-foundation";
 import { publicGalleryItem } from "@/lib/server/public-work-view";
 import { userAvatarUrl } from "@/lib/user-avatar";
 
@@ -321,7 +322,7 @@ function requiredSlug(value: unknown) {
 
 function requiredUsername(value: unknown) {
     const username = text(value, 32);
-    if (!/^[a-zA-Z0-9_.-]{3,32}$/.test(username)) throw new WorkCommunityServiceError("创作者主页不存在", 404);
+    if (!USERNAME_PATTERN.test(username)) throw new WorkCommunityServiceError("创作者主页不存在", 404);
     return username;
 }
 

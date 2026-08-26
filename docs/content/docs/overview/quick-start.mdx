@@ -1,22 +1,22 @@
 ---
 title: 快速开始
-description: 使用 PostgreSQL、Docker Compose 或源码启动 VOZEB PRO
+description: 使用 PostgreSQL、Docker Compose 或源码启动 星启智域
 ---
 
 # 快速开始
 
-VOZEB PRO 默认使用 PostgreSQL。推荐通过 Docker Compose 启动主应用与 PostgreSQL，再使用安装向导创建第一个管理员。
+星启智域 默认使用 PostgreSQL。推荐通过 Docker Compose 启动主应用与 PostgreSQL，再使用安装向导创建第一个管理员。
 
 ## 最低服务器配置
 
 项目通过外部 API 调用文本、图片、视频和音频模型，不需要 GPU。服务器仍需承担 Next.js、PostgreSQL、媒体传输和可选 FFmpeg 处理。
 
-| 场景                       | CPU      | 内存           | 磁盘       | 数据库与媒体建议                                                        |
-| -------------------------- | -------- | -------------- | ---------- | ----------------------------------------------------------------------- |
-| 最低可启动                 | 1 vCPU   | 1GB + 1GB swap | 10GB SSD   | 外部 PostgreSQL + S3/OSS，只拉取发布镜像，适合安装体验和低并发            |
-| 标准小型部署               | 2 vCPU   | 2GB + 1GB swap | 20GB SSD   | PostgreSQL 可同机，媒体量小时可使用本地数据卷                            |
-| 推荐日常使用               | 2–4 vCPU | 4GB            | 40GB+ SSD  | 支持主要工作台、后台和少量并发，建议使用对象存储承载长期视频              |
-| 短剧合成/频繁本地视频处理  | 4+ vCPU  | 8GB+           | 80GB+ SSD  | FFmpeg 转码、字幕、配音混合和长视频临时文件需要额外 CPU、内存与磁盘空间   |
+| 场景                      | CPU      | 内存           | 磁盘      | 数据库与媒体建议                                                        |
+| ------------------------- | -------- | -------------- | --------- | ----------------------------------------------------------------------- |
+| 最低可启动                | 1 vCPU   | 1GB + 1GB swap | 10GB SSD  | 外部 PostgreSQL + S3/OSS，只拉取发布镜像，适合安装体验和低并发          |
+| 标准小型部署              | 2 vCPU   | 2GB + 1GB swap | 20GB SSD  | PostgreSQL 可同机，媒体量小时可使用本地数据卷                           |
+| 推荐日常使用              | 2–4 vCPU | 4GB            | 40GB+ SSD | 支持主要工作台、后台和少量并发，建议使用对象存储承载长期视频            |
+| 短剧合成/频繁本地视频处理 | 4+ vCPU  | 8GB+           | 80GB+ SSD | FFmpeg 转码、字幕、配音混合和长视频临时文件需要额外 CPU、内存与磁盘空间 |
 
 基础环境：64 位 Linux（amd64 或 arm64）、Docker Engine 与 Compose v2、PostgreSQL 16、80/443 端口、HTTPS 域名，以及能访问模型、对象存储、SMTP 和支付服务的出站网络。源码运行需要 Node.js 22 与 pnpm 10+。
 
@@ -27,7 +27,6 @@ VOZEB PRO 默认使用 PostgreSQL。推荐通过 Docker Compose 启动主应用�
 ### 1. 准备配置
 
 ```bash
-git clone https://github.com/csyqlz/VOZEB-PRO.git
 cd VOZEB-PRO
 cp .env.example .env
 ```
@@ -41,7 +40,7 @@ Copy-Item .env.example .env
 编辑 `.env`，至少修改：
 
 ```dotenv
-NEXT_PUBLIC_SITE_URL=https://vozeb-pro.example.com
+NEXT_PUBLIC_SITE_URL=https://games.xingqizhiyu.cn
 POSTGRES_PASSWORD=请替换为强数据库密码
 VOZEB_PRO_ENCRYPTION_KEY=请填写 openssl rand -hex 32 的输出
 ```
@@ -97,7 +96,6 @@ docker compose -f docker-compose.baota.yml up -d
 要求 Node.js 22、pnpm 10+ 和 PostgreSQL 16。
 
 ```bash
-git clone https://github.com/csyqlz/VOZEB-PRO.git
 cd VOZEB-PRO
 cp .env.example web/.env.local
 ```

@@ -93,7 +93,7 @@ function buildAdminSetupSummary(input: { settings: AuthSettings; userSummary: Pu
         },
         {
             id: "plans",
-            title: "套餐与积分规则",
+            title: "套餐与人民币价格规则",
             eyebrow: "商业权益",
             status: plansReady ? "done" : enabledPlans.length >= 2 || enabledProducts > 0 ? "attention" : "pending",
             statusLabel: plansReady ? "已启用" : "待启用",

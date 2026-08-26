@@ -8,16 +8,16 @@ export const navigationGroups = [
 ] as const;
 
 export const landingNavigationTools = [
-    { slug: "create", label: "Agent" },
+    { slug: "create", label: "智能创作" },
     { slug: "drama", label: "短剧" },
-    { slug: "gallery", label: "广场" },
+    { slug: "gallery", label: "作品广场" },
 ] as const;
 
 export const navigationTools = [
     {
         slug: "create",
-        label: "Agent",
-        description: "统一创作入口",
+        label: "智能创作",
+        description: "从想法到成品的创作入口",
         group: "create",
         icon: Sparkles,
         primary: true,
@@ -38,8 +38,8 @@ export const navigationTools = [
     },
     {
         slug: "works",
-        label: "作品",
-        description: "发布、审核与分享",
+        label: "我的作品",
+        description: "管理发布、审核与分享",
         group: "assets",
         icon: GalleryVerticalEnd,
     },
@@ -52,21 +52,21 @@ export const navigationTools = [
     },
     {
         slug: "my-prompts",
-        label: "提示词",
-        description: "个人提示词",
+        label: "我的模板",
+        description: "保存常用创作模板",
         group: "assets",
         icon: BookMarked,
     },
     {
         slug: "prompts",
-        label: "词库",
-        description: "公共提示词",
+        label: "灵感模板",
+        description: "浏览公开创作模板",
         group: "assets",
         icon: FileText,
     },
     {
         slug: "community",
-        label: "广场",
+        label: "灵感广场",
         description: "发现公开作品",
         group: "community",
         icon: Compass,

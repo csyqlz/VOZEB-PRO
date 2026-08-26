@@ -1,10 +1,10 @@
 "use client";
 
 import type { FormEvent, ReactNode } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ArrowRight, Gift, LockKeyhole, Mail, ShieldCheck, UserRound } from "lucide-react";
+import { ArrowLeft, ArrowRight, ChevronDown, Gift, LockKeyhole, Mail, ShieldCheck, UserRound } from "lucide-react";
 import { App, Button, Checkbox, Input } from "antd";
 
 import { SiteLogo } from "@/components/layout/site-logo";
@@ -28,6 +28,7 @@ type AuthFormProps = {
     initialReferralCode?: string;
     referralSource?: string;
     inviteError?: string;
+    onModeChange?: (mode: "login" | "register") => void;
 };
 
 export function AuthForm({
@@ -45,6 +46,7 @@ export function AuthForm({
     initialReferralCode = "",
     referralSource = "registration-form",
     inviteError,
+    onModeChange,
 }: AuthFormProps) {
     const router = useRouter();
     const { message } = App.useApp();
@@ -56,19 +58,34 @@ export function AuthForm({
     const [emailCode, setEmailCode] = useState("");
     const [displayName, setDisplayName] = useState("");
     const [password, setPassword] = useState("");
+    const [confirmPassword, setConfirmPassword] = useState("");
     const [totpCode, setTotpCode] = useState("");
     const [mfaRequired, setMfaRequired] = useState(false);
     const [referralCode, setReferralCode] = useState(initialReferralCode);
     const [policyAccepted, setPolicyAccepted] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     const [sendingCode, setSendingCode] = useState(false);
+    const [codeCooldown, setCodeCooldown] = useState(0);
     const isRegister = mode === "register";
     const disabled = isRegister && !registrationEnabled;
     const installTokenReady = !firstUser || installToken.trim().length >= 32;
+    const passwordMismatch = isRegister && confirmPassword.length > 0 && password !== confirmPassword;
+    const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+    const emailCodeReady = !isRegister || !emailRegistrationEnabled || (validEmail && /^\d{6}$/.test(emailCode));
+
+    useEffect(() => {
+        if (codeCooldown <= 0) return;
+        const timer = window.setInterval(() => setCodeCooldown((current) => (current <= 1 ? 0 : current - 1)), 1000);
+        return () => window.clearInterval(timer);
+    }, [codeCooldown]);
 
     const submit = async (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();
         if (disabled) return;
+        if (isRegister && password !== confirmPassword) {
+            message.error("两次输入的密码不一致，请重新确认");
+            return;
+        }
         setSubmitting(true);
         try {
             const response = await fetch(isRegister ? "/api/auth/register" : "/api/auth/login", {
@@ -111,6 +128,11 @@ export function AuthForm({
     };
 
     const sendEmailCode = async () => {
+        if (!validEmail) {
+            message.warning("请输入有效的邮箱地址");
+            return;
+        }
+        if (codeCooldown > 0) return;
         setSendingCode(true);
         try {
             const response = await fetch("/api/auth/email-code", {
@@ -121,6 +143,7 @@ export function AuthForm({
             const payload = (await response.json()) as { error?: string };
             if (!response.ok) throw new Error(payload.error || "验证码发送失败");
             message.success("验证码已发送，请查看邮箱");
+            setCodeCooldown(60);
         } catch (error) {
             message.error(error instanceof Error ? error.message : "验证码发送失败");
         } finally {
@@ -133,16 +156,16 @@ export function AuthForm({
             <form onSubmit={submit} className={cn("auth-form-body w-full", variant === "embedded" ? "space-y-4" : "space-y-6")}>
                 {headerSlot}
                 <div className="auth-form-header">
-                    <p className="auth-form-kicker text-sm font-medium">{firstUser ? "首次初始化" : isRegister ? "创建创作账号" : "欢迎回来"}</p>
+                    <p className="auth-form-kicker text-sm font-medium">{firstUser ? "首次初始化" : isRegister ? "创建账号" : "欢迎回来"}</p>
                     <h2 className={cn("mt-2 font-semibold tracking-normal text-stone-950 dark:text-white", variant === "embedded" ? "text-2xl" : "text-3xl")}>{firstUser ? "创建首个管理员" : isRegister ? `注册 ${siteTitle}` : `登录 ${siteTitle}`}</h2>
-                    <p className="auth-form-description mt-3 text-sm leading-6 text-stone-500 dark:text-stone-400">{isRegister ? "保存创作项目、提示词和常用风格，从同一个入口继续。" : "继续你的电商、短剧、美颜与画布创作。"}</p>
+                    <p className="auth-form-description mt-3 text-sm leading-6 text-stone-500 dark:text-stone-400">{isRegister ? "注册后可保存作品并在不同设备继续创作，生成前会显示人民币费用。" : "登录后继续创作、管理作品并查看账号权益。"}</p>
                 </div>
 
                 {authError ? <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900 dark:border-red-400/20 dark:bg-red-400/10 dark:text-red-100">{authError}</div> : null}
 
                 {isRegister && inviteError ? <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-100">{inviteError}</div> : null}
 
-                {disabled ? <div className="rounded-md border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm text-cyan-900 dark:border-cyan-300/20 dark:bg-cyan-300/8 dark:text-cyan-50">当前站点已关闭注册，请联系管理员开通账号。</div> : null}
+                {disabled ? <div className="rounded-md border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm text-cyan-900 dark:border-cyan-300/20 dark:bg-cyan-300/8 dark:text-cyan-50">当前暂未开放注册，请通过客服邮箱咨询开通方式。</div> : null}
 
                 {firstUser ? (
                     <label className="block space-y-3">
@@ -162,7 +185,7 @@ export function AuthForm({
                 ) : null}
 
                 <label className="block space-y-3">
-                    <span className="text-sm font-medium text-stone-700 dark:text-stone-200">{isRegister ? "用户名" : "用户名或邮箱"}</span>
+                    <span className="text-sm font-medium text-stone-700 dark:text-stone-200">{isRegister ? "账号" : "账号或邮箱"}</span>
                     <Input
                         size="large"
                         prefix={<UserRound className="size-4 text-stone-500" />}
@@ -172,12 +195,12 @@ export function AuthForm({
                             setMfaRequired(false);
                             setTotpCode("");
                         }}
-                        placeholder={isRegister ? "设置登录用户名" : "输入用户名或已绑定邮箱"}
+                        placeholder={isRegister ? "设置登录账号" : "输入账号或已绑定邮箱"}
                         autoComplete="username"
                         disabled={submitting || disabled}
                         required
                     />
-                    {isRegister ? <span className="block text-xs leading-5 text-stone-500 dark:text-stone-400">用于登录，注册后不可修改；创作昵称可随时调整。</span> : null}
+                    {isRegister ? <span className="block text-xs leading-5 text-stone-500 dark:text-stone-400">用于登录，支持中文、数字、英文字母及其组合；昵称可以之后在个人资料中设置。</span> : null}
                 </label>
 
                 {isRegister && emailRegistrationEnabled ? (
@@ -189,50 +212,62 @@ export function AuthForm({
                                 prefix={<Mail className="size-4 text-stone-500" />}
                                 value={email}
                                 onChange={(event) => setEmail(event.target.value)}
-                                placeholder="csyqlz@gmail.com"
+                                placeholder="输入常用邮箱"
                                 autoComplete="email"
                                 type="email"
                                 disabled={submitting || disabled}
                                 required
                             />
+                            <span className="block text-xs leading-5 text-stone-500 dark:text-stone-400">用于接收验证码、找回密码和重要服务通知，请填写本人可以正常收信的邮箱。</span>
                         </label>
                         <label className="block space-y-3">
-                            <span className="text-sm font-medium text-stone-700 dark:text-stone-200">邮箱验证码</span>
+                            <span className="text-sm font-medium text-stone-700 dark:text-stone-200">验证码</span>
                             <Input.Search
                                 size="large"
                                 value={emailCode}
-                                onChange={(event) => setEmailCode(event.target.value)}
-                                placeholder="6 位验证码"
-                                enterButton={sendingCode ? "发送中" : "获取验证码"}
+                                onChange={(event) => setEmailCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                                placeholder="输入 6 位验证码"
+                                inputMode="numeric"
+                                maxLength={6}
+                                enterButton={sendingCode ? "发送中" : codeCooldown > 0 ? `${codeCooldown} 秒后重试` : "获取验证码"}
                                 loading={sendingCode}
-                                disabled={submitting || disabled}
+                                disabled={submitting || disabled || codeCooldown > 0}
                                 onSearch={() => void sendEmailCode()}
                                 required
                             />
+                            <span className="block text-xs leading-5 text-stone-500 dark:text-stone-400">验证码将发送到上方邮箱，请注意查收垃圾邮件。</span>
                         </label>
                     </div>
                 ) : null}
 
-                {isRegister ? (
-                    <label className="block space-y-3">
-                        <span className="text-sm font-medium text-stone-700 dark:text-stone-200">创作昵称</span>
-                        <Input size="large" value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="显示在账号菜单，可留空" autoComplete="name" disabled={submitting || disabled} />
-                    </label>
+                {isRegister && !firstUser ? (
+                    <details className="group rounded-lg border border-stone-200 dark:border-stone-800" open={Boolean(initialReferralCode || inviteError) || undefined}>
+                        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2.5 text-sm font-medium text-stone-700 marker:hidden dark:text-stone-200">
+                            <span>有邀请码？（可选）</span>
+                            <ChevronDown className="size-4 shrink-0 text-stone-400 transition-transform group-open:rotate-180" aria-hidden="true" />
+                        </summary>
+                        <div className="border-t border-stone-200 p-3 dark:border-stone-800">
+                            <label className="block space-y-2">
+                                <span className="sr-only">邀请码</span>
+                                <Input
+                                    size="large"
+                                    prefix={<Gift className="size-4 text-stone-500" />}
+                                    value={referralCode}
+                                    onChange={(event) => setReferralCode(event.target.value.toUpperCase())}
+                                    placeholder="输入邀请码"
+                                    autoComplete="off"
+                                    maxLength={24}
+                                    disabled={submitting || disabled}
+                                />
+                            </label>
+                        </div>
+                    </details>
                 ) : null}
 
-                {isRegister && !firstUser ? (
+                {firstUser ? (
                     <label className="block space-y-3">
-                        <span className="text-sm font-medium text-stone-700 dark:text-stone-200">邀请码（选填）</span>
-                        <Input
-                            size="large"
-                            prefix={<Gift className="size-4 text-stone-500" />}
-                            value={referralCode}
-                            onChange={(event) => setReferralCode(event.target.value.toUpperCase())}
-                            placeholder="通过邀请链接进入时会自动填写"
-                            autoComplete="off"
-                            maxLength={24}
-                            disabled={submitting || disabled}
-                        />
+                        <span className="text-sm font-medium text-stone-700 dark:text-stone-200">管理员昵称（选填）</span>
+                        <Input size="large" value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="用于后台显示，可留空" autoComplete="name" disabled={submitting} />
                     </label>
                 ) : null}
 
@@ -247,12 +282,32 @@ export function AuthForm({
                             setMfaRequired(false);
                             setTotpCode("");
                         }}
-                        placeholder={isRegister ? "至少 8 位" : "请输入密码"}
+                        placeholder={isRegister ? "设置登录密码，至少 8 位" : "输入登录密码"}
                         autoComplete={isRegister ? "new-password" : "current-password"}
                         disabled={submitting || disabled}
+                        minLength={isRegister ? 8 : undefined}
                         required
                     />
                 </label>
+
+                {isRegister ? (
+                    <label className="block space-y-3">
+                        <span className="text-sm font-medium text-stone-700 dark:text-stone-200">确认密码</span>
+                        <Input.Password
+                            size="large"
+                            prefix={<LockKeyhole className="size-4 text-stone-500" />}
+                            value={confirmPassword}
+                            onChange={(event) => setConfirmPassword(event.target.value)}
+                            placeholder="再次输入登录密码"
+                            autoComplete="new-password"
+                            disabled={submitting || disabled}
+                            minLength={8}
+                            status={passwordMismatch ? "error" : undefined}
+                            required
+                        />
+                        {passwordMismatch ? <span className="block text-xs leading-5 text-red-600 dark:text-red-300">两次输入的密码不一致。</span> : null}
+                    </label>
+                ) : null}
 
                 {!isRegister && mfaRequired ? (
                     <label className="block space-y-3">
@@ -294,27 +349,39 @@ export function AuthForm({
                     size="large"
                     block
                     loading={submitting}
-                    disabled={disabled || !installTokenReady || (isRegister && !firstUser && !policyAccepted)}
+                    disabled={disabled || !installTokenReady || !emailCodeReady || (isRegister && !firstUser && !policyAccepted)}
                     icon={<ArrowRight className="size-4" />}
                     iconPlacement="end"
                 >
-                    {firstUser ? "创建管理员并进入后台" : isRegister ? "注册并开始创作" : mfaRequired ? "验证并登录" : "登录并继续"}
+                    {firstUser ? "创建管理员并进入后台" : isRegister ? "注册并开始使用" : mfaRequired ? "验证并登录" : "登录并继续"}
                 </Button>
 
                 <div className="auth-switch-link pt-2 text-center text-sm text-stone-500 dark:text-stone-400">
                     {isRegister ? (
                         <>
                             已有账号？{" "}
-                            <Link href="/login" className="font-medium text-stone-950 hover:underline dark:text-white">
-                                直接登录
-                            </Link>
+                            {onModeChange ? (
+                                <button type="button" className="font-medium text-stone-950 hover:underline dark:text-white" onClick={() => onModeChange("login")}>
+                                    直接登录
+                                </button>
+                            ) : (
+                                <Link href="/login" className="font-medium text-stone-950 hover:underline dark:text-white">
+                                    直接登录
+                                </Link>
+                            )}
                         </>
                     ) : (
                         <>
                             还没有账号？{" "}
-                            <Link href="/register" className="font-medium text-stone-950 hover:underline dark:text-white">
-                                立即注册
-                            </Link>
+                            {onModeChange ? (
+                                <button type="button" className="font-medium text-stone-950 hover:underline dark:text-white" onClick={() => onModeChange("register")}>
+                                    立即注册
+                                </button>
+                            ) : (
+                                <Link href="/register" className="font-medium text-stone-950 hover:underline dark:text-white">
+                                    立即注册
+                                </Link>
+                            )}
                             <span className="mx-2 text-stone-300 dark:text-stone-700">/</span>
                             <Link href="/forgot-password" className="font-medium text-stone-950 hover:underline dark:text-white">
                                 忘记密码
@@ -346,17 +413,17 @@ export function AuthForm({
                         </Link>
                     </div>
                     <div className="auth-page-brand-copy">
-                        <h1 className="text-balance text-2xl font-semibold tracking-normal sm:text-3xl">{firstUser ? "创建首个管理员" : isRegister ? "从一个入口开始视觉创作" : "回到你的视觉创作台"}</h1>
+                        <h1 className="text-balance text-2xl font-semibold tracking-normal sm:text-3xl">{firstUser ? "创建首个管理员" : isRegister ? "开启你的视觉创作" : "继续你的视觉创作"}</h1>
                     </div>
                     <div className="auth-page-feature-list grid gap-2 text-sm text-stone-600 dark:text-stone-300">
-                        {["电商、短剧与美颜创作", "画布项目与提示词复用", "图片、视频与音频统一创作"].map((item) => (
+                        {["图片与视频创作", "保存作品与创作记录", "随时继续未完成的灵感"].map((item) => (
                             <div key={item} className="flex items-center gap-2">
                                 <span className="auth-feature-dot size-1.5 rounded-full" />
                                 <span>{item}</span>
                             </div>
                         ))}
                     </div>
-                    <p className="auth-page-brand-description max-w-sm text-sm leading-6 text-stone-500 dark:text-stone-400">登录后从首页场景入口继续创作，项目、提示词和常用风格都能随时接着使用。</p>
+                    <p className="auth-page-brand-description max-w-sm text-sm leading-6 text-stone-500 dark:text-stone-400">注册后即可保存自己的作品与创作记录，随时回来继续完成新的想法。</p>
                 </section>
                 {form}
             </div>

@@ -174,7 +174,7 @@ export default function WorksPage() {
         setActionId(work.id);
         try {
             await submitWorkAppeal(work.id, { versionId: version.id, description: appealDescription.trim() });
-            message.success("申诉已提交，管理员会进行复核");
+            message.success("申诉已提交，平台会尽快复核");
             setAppealWork(undefined);
             setAppealDescription("");
         } catch (appealError) {

@@ -13,6 +13,6 @@ export default async function manifest(): Promise<MetadataRoute.Manifest> {
         lang: "zh-CN",
         background_color: "#ffffff",
         theme_color: "#111111",
-        icons: [{ src: "/favicon.ico", sizes: "any", purpose: "any" }],
+        icons: [{ src: "/sub2-logo.png", sizes: "512x512", type: "image/png", purpose: "maskable" }],
     };
 }

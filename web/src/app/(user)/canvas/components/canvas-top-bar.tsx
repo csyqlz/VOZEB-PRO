@@ -157,10 +157,10 @@ export function CanvasTopBar({
                             className="canvas-agent-button inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-xl border px-2.5 text-sm font-medium shadow-sm transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/35 [&_svg]:size-4"
                             style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.toolbar.item, boxShadow: colorTheme === "dark" ? "0 10px 30px rgba(0,0,0,.28)" : "0 10px 24px rgba(28,25,23,.08)" }}
                             onClick={onToggleAgent}
-                            aria-label="打开 Agent"
+                            aria-label="打开智能助手"
                         >
                             <Bot aria-hidden="true" />
-                            <span>Agent</span>
+                            <span>智能助手</span>
                         </button>
                     ) : null}
                 </div>

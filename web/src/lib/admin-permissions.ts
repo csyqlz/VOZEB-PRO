@@ -1,7 +1,7 @@
 export const ADMIN_PERMISSION_GROUPS = [
     { key: "users", label: "经营与用户", description: "经营数据、用户账号与管理员职责" },
     { key: "generation", label: "生成与上游", description: "生成记录、任务运维与模型渠道" },
-    { key: "billing", label: "商品与财务", description: "商品营销、订单支付与积分账务" },
+    { key: "billing", label: "商品与财务", description: "商品营销、订单支付与人民币余额账务" },
     { key: "system", label: "系统与内容", description: "站点配置、内容治理与审计追踪" },
 ] as const;
 
@@ -17,7 +17,7 @@ export const ADMIN_PERMISSION_DEFINITIONS = [
     { key: "upstream.manage", group: "generation", label: "上游配置", description: "管理模型渠道、路由、Skills 和生成参数。" },
     { key: "commerce.manage", group: "billing", label: "商品营销", description: "管理套餐商品、促销、优惠券和邀请奖励。" },
     { key: "billing.read", group: "billing", label: "财务查看", description: "查看订单、流水、支付和对账摘要。" },
-    { key: "billing.manage", group: "billing", label: "财务管理", description: "处理收款、退款、积分、支付配置和对账。" },
+    { key: "billing.manage", group: "billing", label: "财务管理", description: "处理收款、退款、人民币余额、支付配置和对账。" },
     { key: "system.manage", group: "system", label: "系统管理", description: "管理站点、邮件、存储、备份和数据维护。" },
     { key: "content.manage", group: "system", label: "内容运营", description: "管理作品审核、举报申诉、公告和公共提示词。" },
     { key: "audit.read", group: "system", label: "审计查看", description: "只读查看管理员和安全审计记录。" },
@@ -32,7 +32,7 @@ export const ALL_ADMIN_PERMISSIONS: AdminPermission[] = ADMIN_PERMISSION_DEFINIT
 
 export const ADMIN_PERMISSION_PRESETS = [
     { key: "full", label: "全权限管理员", description: "负责账号权限和全站配置。", permissions: ALL_ADMIN_PERMISSIONS },
-    { key: "finance", label: "财务", description: "订单、支付、退款、积分与对账。", permissions: ["users.read", "billing.read", "billing.manage"] },
+    { key: "finance", label: "财务", description: "订单、支付、退款、人民币余额与对账。", permissions: ["users.read", "billing.read", "billing.manage"] },
     { key: "support", label: "客服与用户运营", description: "用户账号与生成任务排障。", permissions: ["users.read", "users.manage", "generation.read", "generation.manage"] },
     { key: "content", label: "内容审核", description: "作品、举报申诉、公告与提示词。", permissions: ["users.read", "content.manage"] },
     { key: "commerce", label: "商品与营销运营", description: "经营数据、商品、促销、优惠券和邀请。", permissions: ["analytics.read", "users.read", "commerce.manage"] },

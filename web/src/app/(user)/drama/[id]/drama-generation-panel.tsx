@@ -5,6 +5,7 @@ import { App, Button, Progress, Tag } from "antd";
 import { ArrowRight, Captions, CircleAlert, CircleCheck, CircleDashed, Download, Film, LoaderCircle, Pause, Play, RefreshCw, ScanSearch, Send, Volume2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
+import { MediaRetentionNotice } from "@/components/media/media-retention-notice";
 import { createAgentPromptHref } from "@/lib/create-agent-prompt";
 import { compileDramaShotPrompts } from "@/lib/drama-prompt-compiler";
 import { mediaDownloadFileName } from "@/lib/media-file";
@@ -233,7 +234,7 @@ export function DramaGenerationPanel({ project, episode, onStageChange, onOpenAs
                 ? "当前没有必须生成的 AI 配音，可使用视频原声或静音"
                 : audioReady
                   ? `音频模型已配置，${readiness.voiceoverShotIds.length} 个镜头需要 AI 配音`
-                  : `${readiness.voiceoverShotIds.length} 个镜头选择 AI 配音，但后台未配置音频模型`,
+                  : `${readiness.voiceoverShotIds.length} 个镜头选择 AI 配音，但当前暂不可用`,
             tone: !readiness.voiceoverShotIds.length ? ("optional" as const) : audioReady ? ("done" as const) : ("blocked" as const),
             action: () => onStageChange("storyboard"),
             actionLabel: "检查配音方式",
@@ -253,8 +254,8 @@ export function DramaGenerationPanel({ project, episode, onStageChange, onOpenAs
                         ? [
                               { label: "镜头", value: `${readiness.completedVideoCount}/${readiness.totalShots}` },
                               { label: "配音", value: readiness.voiceoverShotIds.length ? `${readiness.completedAudioCount}/${readiness.voiceoverShotIds.length}` : "无需" },
-                              { label: "预计", value: `${estimateEpisodePoints(config, project, episode.shots)} 积分` },
-                              { label: "实际", value: `${costSummary?.actualPoints || 0} 积分` },
+                              { label: "预计", value: `¥${estimateEpisodePoints(config, project, episode.shots)}` },
+                              { label: "实际", value: `¥${costSummary?.actualPoints || 0}` },
                               { label: "任务", value: costSummary?.taskCount || 0 },
                           ]
                         : []
@@ -297,12 +298,12 @@ export function DramaGenerationPanel({ project, episode, onStageChange, onOpenAs
                                 视觉复盘
                             </Button>
                         </ToolGroup>
-                        <ToolGroup title="后期处理" description={audioReady ? "配音与字幕按镜头结果继续处理。" : "AI 配音需后台先配置音频模型。"}>
+                        <ToolGroup title="后期处理" description={audioReady ? "配音与字幕按镜头结果继续处理。" : "AI 配音暂不可用，可联系客服处理。"}>
                             <Button
                                 className={actionButtonClass}
                                 icon={<Volume2 className="size-4" />}
                                 disabled={!audioReady || !audioCandidateShotIds.length}
-                                title={audioReady ? undefined : "请管理员先在后台设置默认音频模型"}
+                                title={audioReady ? undefined : "当前暂不可用，请联系客服"}
                                 onClick={() => queueAudio(project.id, episode.id, audioCandidateShotIds)}
                             >
                                 批量配音
@@ -469,6 +470,7 @@ function RenderTaskCard({ task, onCancel }: { task: DramaRenderTask; onCancel: (
                     <a className="mt-3 inline-flex text-sm font-medium text-blue-600 hover:underline dark:text-cyan-300" href={originalMediaDownloadUrl(task.result.url)} download={mediaDownloadFileName(task.id, "video/mp4", task.result.url)}>
                         下载整集成片
                     </a>
+                    <MediaRetentionNotice className="max-w-full" />
                 </div>
             ) : null}
         </section>
@@ -540,7 +542,7 @@ function ShotTaskRow({
                         取消配音
                     </Button>
                 ) : dialogue ? (
-                    <Button className={actionButtonClass} disabled={!audioReady} title={audioReady ? undefined : "请管理员先在后台设置默认音频模型"} icon={<Volume2 className="size-4" />} onClick={() => queueAudio(project.id, episode.id, [shot.id])}>
+                    <Button className={actionButtonClass} disabled={!audioReady} title={audioReady ? undefined : "当前暂不可用，请联系客服"} icon={<Volume2 className="size-4" />} onClick={() => queueAudio(project.id, episode.id, [shot.id])}>
                         {shot.audioStatus === "error" ? "重试配音" : shot.audioMode === "voiceover" ? "生成配音" : "改用 AI 配音"}
                     </Button>
                 ) : null}
@@ -646,8 +648,8 @@ function buildPrimaryAction({
         );
     if (readiness.missingAudioShotIds.length)
         return (
-            <Button type="primary" className={primaryClass} icon={<Volume2 className="size-4" />} disabled={!audioReady} title={audioReady ? undefined : "请管理员先在后台设置默认音频模型"} onClick={() => onQueueAudio(readiness.missingAudioShotIds)}>
-                {audioReady ? `生成 ${readiness.missingAudioShotIds.length} 条配音` : "等待音频模型配置"}
+            <Button type="primary" className={primaryClass} icon={<Volume2 className="size-4" />} disabled={!audioReady} title={audioReady ? undefined : "当前暂不可用，请联系客服"} onClick={() => onQueueAudio(readiness.missingAudioShotIds)}>
+                {audioReady ? `生成 ${readiness.missingAudioShotIds.length} 条配音` : "配音暂不可用"}
             </Button>
         );
     if (renderTask && ["pending", "running"].includes(renderTask.status))

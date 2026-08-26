@@ -5,13 +5,15 @@ import { Check, Orbit } from "lucide-react";
 import { useState } from "react";
 
 import type { CreativeGenerationMode, CreativeGenerationPreferences } from "@/lib/creative-runtime-contract";
+import { consumerModelPriceLabel, type ConsumerModelPricing } from "@/lib/consumer-model-price";
 import { cn } from "@/lib/utils";
 
 import { creativeComposerPopoverOverflow, type CreativeComposerPopoverPlacement } from "@/components/creative-composer-popover";
 import { creativeComposerToolButtonClass } from "@/components/creative-composer-styles";
 import { CreativeGenerationPreferences as GenerationPreferencesControl, mediaCapabilityLabel, type MediaCapability } from "@/components/creative-generation-preferences";
 
-export type CreativeModelOption = { id: string; name: string; capability: MediaCapability };
+type CreativeModelCapability = "text" | MediaCapability;
+export type CreativeModelOption = { id: string; name: string; capability: CreativeModelCapability; pricing?: ConsumerModelPricing };
 
 export function CreativeGenerationControls({
     models,
@@ -39,10 +41,12 @@ export function CreativeGenerationControls({
     onChangeGenerationPreference: (capability: MediaCapability, patch: Record<string, string | number | boolean>) => void;
 }) {
     const [modelPickerOpen, setModelPickerOpen] = useState(false);
-    const [preferredCapability, setPreferredCapability] = useState<MediaCapability>("image");
-    const modelCapabilities = creationMode === "agent" ? (["image", "video", "audio"] as const).filter((capability) => models.some((model) => model.capability === capability)) : [creationMode];
-    const activeCapability = creationMode === "agent" ? (modelCapabilities.includes(preferredCapability) ? preferredCapability : selectedModels[0]?.capability || modelCapabilities[0] || "image") : creationMode;
-    const preferenceCapabilities = creationMode === "agent" ? (modelCapabilities.length ? modelCapabilities : [activeCapability]) : [creationMode];
+    const [preferredCapability, setPreferredCapability] = useState<CreativeModelCapability>("text");
+    const mediaCapabilities = (["image", "video", "audio"] as const).filter((capability) => models.some((model) => model.capability === capability));
+    const modelCapabilities: CreativeModelCapability[] = creationMode === "agent" ? (["text", ...mediaCapabilities] as const).filter((capability) => models.some((model) => model.capability === capability)) : [creationMode];
+    const activeCapability = creationMode === "agent" ? (modelCapabilities.includes(preferredCapability) ? preferredCapability : selectedModels[0]?.capability || modelCapabilities[0] || "text") : creationMode;
+    const activeMediaCapability = isMediaCapability(activeCapability) ? activeCapability : mediaCapabilities[0] || "image";
+    const preferenceCapabilities = creationMode === "agent" ? (mediaCapabilities.length ? mediaCapabilities : [activeMediaCapability]) : [creationMode];
     const modelSummary = selectedModels.length === 0 ? (smartPlanning ? "智能模型" : "选择模型") : selectedModels.length === 1 ? selectedModels[0].name : `${selectedModels[0].name} +${selectedModels.length - 1}`;
 
     return (
@@ -84,7 +88,7 @@ export function CreativeGenerationControls({
                             </button>
                         </div>
                         {modelCapabilities.length > 1 ? (
-                            <div className={cn("mb-2 grid gap-1 rounded-xl bg-[#eef1f4] p-1 dark:bg-[#252a31]", modelCapabilities.length === 2 ? "grid-cols-2" : "grid-cols-3")}>
+                            <div className="mb-2 grid gap-1 rounded-xl bg-[#eef1f4] p-1 dark:bg-[#252a31]" style={{ gridTemplateColumns: `repeat(${modelCapabilities.length}, minmax(0, 1fr))` }}>
                                 {modelCapabilities.map((capability) => {
                                     const count = models.filter((model) => model.capability === capability).length;
                                     return (
@@ -98,14 +102,14 @@ export function CreativeGenerationControls({
                                             onClick={() => setPreferredCapability(capability)}
                                             aria-pressed={activeCapability === capability}
                                         >
-                                            {mediaCapabilityLabel(capability)} · {count}
+                                            {modelCapabilityLabel(capability)} · {count}
                                         </button>
                                     );
                                 })}
                             </div>
                         ) : null}
                         <div className="hide-scrollbar max-h-64 space-y-1 overflow-y-auto overscroll-contain">
-                            {!models.some((model) => model.capability === activeCapability) ? <p className="px-2 py-5 text-center text-xs text-[#8b949f] dark:text-[#7f8996]">当前未配置可用的{mediaCapabilityLabel(activeCapability)}模型</p> : null}
+                            {!models.some((model) => model.capability === activeCapability) ? <p className="px-2 py-5 text-center text-xs text-[#8b949f] dark:text-[#7f8996]">当前未配置可用的{modelCapabilityLabel(activeCapability)}模型</p> : null}
                             {models
                                 .filter((model) => model.capability === activeCapability)
                                 .map((model) => {
@@ -125,7 +129,10 @@ export function CreativeGenerationControls({
                                             </span>
                                             <span className="min-w-0 flex-1">
                                                 <span className="block truncate text-xs font-medium">{model.name}</span>
-                                                <span className="mt-0.5 block text-[11px] leading-4 text-[#8b949f] dark:text-[#7f8996]">{mediaCapabilityLabel(model.capability)}模型 · 可与其他模型同时生成</span>
+                                                <span className="mt-0.5 block text-[11px] leading-4 text-[#8b949f] dark:text-[#7f8996]">
+                                                    {model.capability === "text" ? "文本模型 · 用于本轮对话与创作规划" : `${mediaCapabilityLabel(model.capability)}模型 · 可与其他模型同时生成`}
+                                                </span>
+                                                <span className="mt-1 block text-[11px] font-medium leading-4 text-[#5f6d7b] dark:text-[#b0bac5]">{consumerModelPriceLabel(model.pricing) || "费用以提交前预览为准"}</span>
                                             </span>
                                             <span
                                                 className={cn(
@@ -156,7 +163,7 @@ export function CreativeGenerationControls({
                 </Button>
             </Popover>
             <GenerationPreferencesControl
-                capability={activeCapability}
+                capability={activeMediaCapability}
                 capabilities={preferenceCapabilities}
                 preferences={generationPreferences}
                 triggerLabel={creationMode === "agent" ? "生成参数" : undefined}
@@ -165,10 +172,18 @@ export function CreativeGenerationControls({
                     setPreferredCapability(capability);
                     onCapabilityChange(capability);
                 }}
-                onChange={(patch) => onChangeGenerationPreference(creationMode === "agent" ? preferredCapability : activeCapability, patch as Record<string, string | number | boolean>)}
+                onChange={(patch) => onChangeGenerationPreference(creationMode === "agent" ? activeMediaCapability : creationMode, patch as Record<string, string | number | boolean>)}
             />
         </>
     );
+}
+
+function isMediaCapability(capability: CreativeModelCapability): capability is MediaCapability {
+    return capability !== "text";
+}
+
+function modelCapabilityLabel(capability: CreativeModelCapability) {
+    return capability === "text" ? "文本" : mediaCapabilityLabel(capability);
 }
 
 function ModelPlatformIcon({ model }: { model: CreativeModelOption }) {

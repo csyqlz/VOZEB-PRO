@@ -38,7 +38,7 @@ export function PublicWorkReportButton({ slug, compact = false, className }: { s
         setLoading(true);
         try {
             await submitWorkReport(slug, { category, description: description.trim() });
-            message.success("举报已提交，管理员会进行复核");
+            message.success("举报已提交，平台会尽快复核");
             setOpen(false);
             setDescription("");
         } catch (error) {
@@ -61,7 +61,7 @@ export function PublicWorkReportButton({ slug, compact = false, className }: { s
                     </div>
                     <div>
                         <div className="mb-2 text-sm font-medium">举报说明</div>
-                        <Input.TextArea value={description} rows={5} maxLength={1000} showCount placeholder="请描述具体问题和出现位置，便于管理员核实" onChange={(event) => setDescription(event.target.value)} />
+                        <Input.TextArea value={description} rows={5} maxLength={1000} showCount placeholder="请描述具体问题和出现位置，便于平台核实" onChange={(event) => setDescription(event.target.value)} />
                     </div>
                 </div>
             </Modal>

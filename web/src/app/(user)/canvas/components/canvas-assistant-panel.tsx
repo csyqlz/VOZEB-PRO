@@ -207,7 +207,7 @@ export function CanvasAssistantPanel({ nodes, selectedNodeIds, snapshot, session
         try {
             if (conversationIds.length) persistedState = await deleteCanvasAssistantConversations(snapshotRef.current.projectId, conversationIds);
         } catch (error) {
-            message.error(error instanceof Error ? error.message : "Agent 对话删除失败");
+            message.error(error instanceof Error ? error.message : "智能助手对话删除失败");
             return false;
         }
         const removedActiveSession = Boolean(activeSession && removableIds.includes(activeSession.id));
@@ -287,7 +287,7 @@ export function CanvasAssistantPanel({ nodes, selectedNodeIds, snapshot, session
                 upsertMessage(session.id, { id: assistantId, runId: createdRunId, role: "assistant", text: "实时连接暂时不可用，任务仍会在后台继续运行。" });
                 updateSessionRun(session.id, createdRunId, { stage: { key: "reconnecting", resumeKey: "planning", text: "实时连接暂时不可用，任务仍在后台运行" } });
             } else {
-                upsertMessage(session.id, { id: assistantId, role: "error", title: "Agent 执行失败", text: friendlyAgentError(error) });
+                upsertMessage(session.id, { id: assistantId, role: "error", title: "智能助手执行失败", text: friendlyAgentError(error) });
                 releaseSessionRun(session.id, assistantId);
             }
         }
@@ -357,8 +357,8 @@ export function CanvasAssistantPanel({ nodes, selectedNodeIds, snapshot, session
                         assistantId = nanoid();
                         session = {
                             ...session,
-                            title: "进行中的 Agent 任务",
-                            messages: [{ id: assistantId, runId: run.id, role: "assistant", text: "已恢复刷新前仍在执行的 Agent 任务。" }],
+                            title: "进行中的智能助手任务",
+                            messages: [{ id: assistantId, runId: run.id, role: "assistant", text: "已恢复刷新前仍在执行的智能助手任务。" }],
                         };
                         nextSessions = [session, ...nextSessions];
                     } else {
@@ -382,11 +382,11 @@ export function CanvasAssistantPanel({ nodes, selectedNodeIds, snapshot, session
                 commitSessionState(nextSessions, localActiveSessionIdRef.current || nextSessions[0]?.id || null);
                 setRunStatesBySession((current) => ({ ...current, ...nextRunStates }));
                 watches.forEach(({ runId, sessionId, assistantId }) => {
-                    void waitForBackendAgent(runId, sessionId, assistantId).catch((error) => appendMessage(sessionId, { id: nanoid(), role: "error", title: "恢复失败", text: friendlyAgentError(error, "Agent 任务恢复失败，请稍后重试。") }));
+                    void waitForBackendAgent(runId, sessionId, assistantId).catch((error) => appendMessage(sessionId, { id: nanoid(), role: "error", title: "恢复失败", text: friendlyAgentError(error, "智能助手任务恢复失败，请稍后重试。") }));
                 });
             })
             .catch((error) => {
-                if (!cancelled) message.error(friendlyAgentError(error, "Agent 任务恢复失败，请稍后重试。"));
+                if (!cancelled) message.error(friendlyAgentError(error, "智能助手任务恢复失败，请稍后重试。"));
             });
         return () => {
             cancelled = true;
@@ -418,7 +418,7 @@ export function CanvasAssistantPanel({ nodes, selectedNodeIds, snapshot, session
             if (action === "pause") updateSessionRun(session.id, run.runId, { paused: true, stage: { key: "paused", text: "任务已暂停" } });
             if (action === "resume") updateSessionRun(session.id, run.runId, { paused: false, stage: { key: "executing", text: "任务已恢复，正在继续执行" } });
         } catch (error) {
-            appendMessage(session.id, { id: nanoid(), role: "error", title: "控制失败", text: friendlyAgentError(error, "Agent 任务控制失败，请稍后重试。") });
+            appendMessage(session.id, { id: nanoid(), role: "error", title: "控制失败", text: friendlyAgentError(error, "智能助手任务控制失败，请稍后重试。") });
         }
     };
 
@@ -592,7 +592,7 @@ export function CanvasAssistantPanel({ nodes, selectedNodeIds, snapshot, session
                                         style={{ background: theme.node.action, color: theme.node.actionText }}
                                         onClick={() => setPrompt("请介绍一下你能如何协助我完成当前画布。")}
                                     >
-                                        了解 Agent 能做什么 <ArrowRight className="size-3.5 shrink-0" />
+                                        了解智能助手能做什么 <ArrowRight className="size-3.5 shrink-0" />
                                     </button>
                                 </div>
                                 <div className="pointer-events-none grid size-16 place-items-center rounded-2xl border" style={{ borderColor: theme.node.stroke, color: theme.node.muted }} aria-hidden="true">
@@ -670,7 +670,7 @@ export function CanvasAssistantPanel({ nodes, selectedNodeIds, snapshot, session
                         mentionAssets={mentionAssets}
                         selectedReferenceIds={selectedMediaReferenceIds}
                         sending={isRunning}
-                        placeholder="描述你想让 Agent 如何操作画布"
+                        placeholder="描述你想让智能助手如何操作画布"
                         theme={theme}
                         onPromptChange={setPrompt}
                         onSubmit={submit}
@@ -747,7 +747,7 @@ export function CanvasAssistantPanel({ nodes, selectedNodeIds, snapshot, session
         >
             <motion.aside
                 className="canvas-agent-panel relative flex shrink-0 flex-col border-l"
-                aria-label="Canvas Agent 对话面板"
+                aria-label="画布智能助手对话面板"
                 initial={{ x: 48 }}
                 animate={{ x: closing ? 28 : 0 }}
                 transition={{ duration: resizing ? 0 : PANEL_MOTION_SECONDS, ease: [0.22, 1, 0.36, 1] }}
@@ -760,7 +760,7 @@ export function CanvasAssistantPanel({ nodes, selectedNodeIds, snapshot, session
                             <Bot className="size-4" />
                         </span>
                         <div className="min-w-0">
-                            <div className="text-base font-semibold leading-5">Agent</div>
+                            <div className="text-base font-semibold leading-5">智能助手</div>
                             <div className="truncate text-xs" style={{ color: theme.node.muted }}>
                                 画布助手 · 让创意落地更简单
                             </div>
@@ -768,7 +768,7 @@ export function CanvasAssistantPanel({ nodes, selectedNodeIds, snapshot, session
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
                         <Tooltip title="收起对话">
-                            <Button type="text" shape="circle" className="!h-8 !w-8 !min-w-8" style={iconButtonStyle} icon={<PanelRightClose className="size-4" />} onClick={collapse} aria-label="收起 Agent 面板" />
+                            <Button type="text" shape="circle" className="!h-8 !w-8 !min-w-8" style={iconButtonStyle} icon={<PanelRightClose className="size-4" />} onClick={collapse} aria-label="收起智能助手面板" />
                         </Tooltip>
                     </div>
                 </header>

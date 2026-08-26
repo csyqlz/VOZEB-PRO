@@ -20,7 +20,7 @@ export function AdminUsersSection({ controller }: { controller: AdminDashboardCo
         <Panel>
             <PanelHeader
                 title="用户管理"
-                description="调整角色、账号状态和积分余额。"
+                description="调整角色、账号状态和人民币余额。"
                 actions={
                     canCreateUser ? (
                         <Button icon={<Plus className="size-4" />} onClick={openCreateUserEditor}>
@@ -46,7 +46,7 @@ export function AdminUsersSection({ controller }: { controller: AdminDashboardCo
                             <span className="mx-1 text-stone-300 dark:text-stone-700">/</span>共 <strong className="ml-1 text-stone-950 dark:text-stone-100">{userTotal}</strong>
                         </span>
                         {canCreateUser ? (
-                            <Popconfirm title="批量删除选中用户？" description="会逐个清理用户会话、积分和额度记录；当前账号和最后一个管理员会被系统阻止删除。" okText="删除" cancelText="取消" onConfirm={() => void bulkDeleteUsers()}>
+                            <Popconfirm title="批量删除选中用户？" description="会逐个清理用户会话、余额和额度记录；当前账号和最后一个管理员会被系统阻止删除。" okText="删除" cancelText="取消" onConfirm={() => void bulkDeleteUsers()}>
                                 <Button danger icon={<Trash2 className="size-4" />} disabled={!selectedUserIds.length} loading={bulkDeletingUsers}>
                                     批量删除
                                 </Button>

@@ -93,8 +93,8 @@ export function ProfileReferralCenter() {
                 </div>
 
                 <div className="mt-3 grid gap-2 text-xs sm:mt-5 sm:grid-cols-3">
-                    <Rule icon={<UserPlus className="size-4" />} label="邀请人奖励" value={`${data.program.inviterPoints} 积分`} />
-                    <Rule icon={<Gift className="size-4" />} label="新用户奖励" value={data.program.inviteeRewardType === "coupon" ? "新客优惠券" : `${data.program.inviteePoints} 积分`} />
+                    <Rule icon={<UserPlus className="size-4" />} label="邀请人奖励" value={`¥${data.program.inviterPoints} 余额`} />
+                    <Rule icon={<Gift className="size-4" />} label="新用户奖励" value={data.program.inviteeRewardType === "coupon" ? "新客优惠券" : `¥${data.program.inviteePoints} 余额`} />
                     <Rule icon={<ShieldCheck className="size-4" />} label="结算条件" value={`实付满 ¥${(data.program.minimumPaidCents / 100).toFixed(2)} · 冷静期 ${data.program.coolingOffDays} 天`} />
                 </div>
             </AccountPanel>
@@ -150,7 +150,7 @@ export function ProfileReferralCenter() {
                                         <Tag className="m-0" color={rewardColor(reward.status)}>
                                             {rewardLabel(reward.status)}
                                         </Tag>
-                                        <div className="mt-1 text-xs font-semibold text-foreground">{reward.rewardType === "coupon" ? "优惠券" : `${reward.pointsAmount} 积分`}</div>
+                                        <div className="mt-1 text-xs font-semibold text-foreground">{reward.rewardType === "coupon" ? "优惠券" : `¥${reward.pointsAmount} 余额`}</div>
                                     </div>
                                 </div>
                             ))}

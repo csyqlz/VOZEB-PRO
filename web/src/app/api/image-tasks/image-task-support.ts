@@ -55,7 +55,7 @@ import {
     type ImageEditReferenceMode,
 } from "./image-task-types";
 
-export { imageRequestAspectRatio, parseImageDimensions, parseImageRatio, resolveRequestSize, resolveResultSize, resolveSize, validateImageSize } from "./image-task-size";
+export { alignImageSizeToStep, imageRequestAspectRatio, parseImageDimensions, parseImageRatio, resolveProviderRequestSize, resolveRequestSize, resolveResultSize, resolveSize, validateImageSize } from "./image-task-size";
 
 export function publicTask(task: ImageTask) {
     return {

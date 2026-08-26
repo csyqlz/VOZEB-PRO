@@ -245,7 +245,7 @@ test("legacy image and video routes hand off to the unified creative Agent", asy
     for (const route of ["/image", "/video"]) {
         await page.goto(route, { waitUntil: "domcontentloaded" });
         await expect(page).toHaveURL(/\/create$/);
-        await expect(page.getByRole("heading", { name: "VOZEB PRO 创作 Agent" })).toBeVisible();
+        await expect(page.getByRole("heading", { name: "星启智域 创作 Agent" })).toBeVisible();
         await expect(page.getByRole("button", { name: /生成模型：/ })).toBeVisible();
     }
 });

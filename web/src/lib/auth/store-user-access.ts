@@ -112,7 +112,7 @@ export async function createUser(input: { username: string; email?: string; emai
         if (!db.settings.registrationEnabled) throw new AuthInputError("注册已关闭");
         if (!input.policyAccepted) throw new AuthInputError("请先阅读并同意服务条款和隐私政策");
         if (db.settings.emailRegistrationEnabled && !email) throw new AuthInputError("请填写邮箱地址");
-        if (db.users.some((user) => user.username.toLowerCase() === username.toLowerCase())) throw new AuthInputError("用户名已存在");
+        if (db.users.some((user) => user.username.toLowerCase() === username.toLowerCase())) throw new AuthInputError("账号已存在");
         if (email && db.users.some((user) => user.email?.toLowerCase() === email.toLowerCase())) throw new AuthInputError("邮箱已被注册");
         if (db.settings.emailRegistrationEnabled) consumeEmailCode(db, { purpose: "register", email, code: input.emailCode });
 
@@ -285,7 +285,7 @@ export async function createUserByAdmin(input: {
     return mutateAuthDb(async (db) => {
         const actor = db.users.find((user) => user.id === input.actorId);
         assertCanCreateManagedUser(actor, input);
-        if (db.users.some((user) => user.username.toLowerCase() === username.toLowerCase())) throw new AuthInputError("用户名已存在");
+        if (db.users.some((user) => user.username.toLowerCase() === username.toLowerCase())) throw new AuthInputError("账号已存在");
         if (email && db.users.some((user) => user.email?.toLowerCase() === email.toLowerCase())) throw new AuthInputError("邮箱已被注册");
 
         const now = new Date().toISOString();
@@ -323,7 +323,7 @@ export async function authenticateUser(input: { username: string; password: stri
         const repos = createPostgresRepositories();
         const user = await repos.users.getByLogin(account, accountEmail || undefined);
         const passwordMatches = await verifyPasswordWithDummy(input.password, user?.passwordHash);
-        if (!user || !passwordMatches) throw new AuthInputError("用户名或密码不正确");
+        if (!user || !passwordMatches) throw new AuthInputError("账号或密码不正确");
         if (user.status !== "active") throw new AuthInputError("账号已被禁用");
         verifyAdminMfaForLogin(user, input.totpCode);
 
@@ -337,7 +337,7 @@ export async function authenticateUser(input: { username: string; password: stri
     const db = await readAuthDb();
     const user = db.users.find((item) => item.username.toLowerCase() === account.toLowerCase() || (accountEmail && item.email?.toLowerCase() === accountEmail));
     const passwordMatches = await verifyPasswordWithDummy(input.password, user?.passwordHash);
-    if (!user || !passwordMatches) throw new AuthInputError("用户名或密码不正确");
+    if (!user || !passwordMatches) throw new AuthInputError("账号或密码不正确");
     if (user.status !== "active") throw new AuthInputError("账号已被禁用");
     verifyAdminMfaForLogin(user, input.totpCode);
 
@@ -435,7 +435,7 @@ function takeNextFileAccountId(db: AuthDatabase) {
 
 function assertNoIdentityConflict(conflict: StoredUser | null, username: string, email: string) {
     if (!conflict) return;
-    if (conflict.username.toLowerCase() === username.toLowerCase()) throw new AuthInputError("用户名已存在");
+    if (conflict.username.toLowerCase() === username.toLowerCase()) throw new AuthInputError("账号已存在");
     if (email && conflict.email?.toLowerCase() === email.toLowerCase()) throw new AuthInputError("邮箱已被注册");
 }
 

@@ -1,4 +1,4 @@
-import type { SiteFriendLink, SiteSocialSettings } from "@/lib/auth/store-types";
+import type { AuthSettings, SiteFriendLink, SiteSocialSettings } from "@/lib/auth/store-types";
 import type { CreateAgentMode } from "@/lib/create-agent-prompt";
 import { WORK_CATEGORIES } from "@/lib/work-publication-options";
 import type { PublicGalleryItem } from "@/services/api/work-governance";
@@ -21,7 +21,7 @@ export type HomeNavigationItem = {
 };
 
 export const HOME_NAVIGATION = [
-    { label: "创作 Agent", href: "/create", action: "protected" },
+    { label: "智能创作", href: "/create", action: "protected" },
     { label: "短剧制作", href: "/drama", action: "protected" },
     { label: "作品广场", href: "/gallery", action: "link" },
     { label: "价格方案", href: "/billing", action: "billing" },
@@ -56,6 +56,23 @@ export const HOME_CREATION_MODES = [
 
 export type HomeCreationMode = CreateAgentMode;
 
+export function resolveHomeCreationModes(settings: Pick<AuthSettings, "logicalModels" | "defaultModels">): HomeCreationMode[] {
+    const configured = settings.logicalModels
+        .filter((model) => model.enabled && model.bindings.some((binding) => binding.enabled))
+        .map((model) => model.capability)
+        .filter((capability, index, values) => values.indexOf(capability) === index)
+        .filter((capability): capability is Exclude<HomeCreationMode, "agent"> => capability === "image" || capability === "video" || capability === "audio");
+    if (configured.length) return configured;
+    return (["image", "video", "audio"] as const).filter((capability) => Boolean(settings.defaultModels[`${capability}Model` as "imageModel" | "videoModel" | "audioModel"]));
+}
+
+/** The intelligent entry needs a text model for planning and conversation. */
+export function resolveHomeAgentAvailability(settings: Pick<AuthSettings, "logicalModels" | "defaultModels">) {
+    const configured = settings.logicalModels.filter((model) => model.enabled && model.bindings.some((binding) => binding.enabled));
+    if (configured.length) return configured.some((model) => model.capability === "text");
+    return Boolean(settings.defaultModels.textModel);
+}
+
 export const HOME_STEPS = [
     { number: "01", title: "选择场景", description: "选择合适的创作场景，明确创作类型", icon: "grid" },
     { number: "02", title: "输入需求", description: "描述你的想法，上传必要的参考素材", icon: "edit" },
@@ -64,10 +81,10 @@ export const HOME_STEPS = [
 ] as const;
 
 export const HOME_ADVANTAGES = [
-    { title: "100+ 创作模板", description: "覆盖多行业与多场景", icon: "layers" },
-    { title: "多模型协同", description: "按任务智能匹配能力", icon: "network" },
-    { title: "长任务不中断", description: "稳定续取创作进度", icon: "history" },
-    { title: "企业级存储", description: "可靠保存创作资产", icon: "cloud" },
+    { title: "多场景创作", description: "覆盖常用图片、视频与智能创作需求", icon: "layers" },
+    { title: "自动匹配能力", description: "根据目标选择合适的创作方式", icon: "network" },
+    { title: "进度清晰可查", description: "生成进度和失败状态一目了然", icon: "history" },
+    { title: "作品随时可续", description: "保存创作记录，换设备也能继续", icon: "cloud" },
 ] as const;
 
 export const HOME_GALLERY_TABS = [{ id: "all", label: "全部" }, ...WORK_CATEGORIES.map((category) => ({ id: category, label: category }))] as const;

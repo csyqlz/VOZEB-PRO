@@ -4,7 +4,7 @@ const mocks = vi.hoisted(() => ({
     getPublicSiteSettings: vi.fn(),
     siteMetadataBase: vi.fn(() => new URL("https://example.com")),
     absoluteSiteUrl: vi.fn((value: string, base = new URL("https://example.com")) => new URL(value, base).toString()),
-    browserIconHref: vi.fn((site: { iconUrl?: string; logoUrl?: string }) => site.iconUrl || site.logoUrl || "/icon.svg"),
+    browserIconHref: vi.fn((site: { iconUrl?: string; logoUrl?: string }) => site.iconUrl || site.logoUrl || "/sub2-logo.png"),
     listPublicWorkSitemapEntries: vi.fn(),
 }));
 
@@ -47,7 +47,7 @@ describe("site metadata routes", () => {
         const result = await manifest();
 
         expect(result.name).toBe("自定义站点");
-        expect(result.icons).toEqual([{ src: "/favicon.ico", sizes: "any", purpose: "any" }]);
+        expect(result.icons).toEqual([{ src: "/sub2-logo.png", sizes: "512x512", type: "image/png", purpose: "maskable" }]);
     });
 
     it("rewrites the reserved favicon path to the dynamic site icon route before static files", async () => {
@@ -69,11 +69,11 @@ describe("site metadata routes", () => {
     });
 
     it("keeps a site-local icon relative to the current host", async () => {
-        mocks.getPublicSiteSettings.mockResolvedValue({ title: "默认站点", iconUrl: "/icon.svg", logoUrl: "/logo.svg" });
+        mocks.getPublicSiteSettings.mockResolvedValue({ title: "默认站点", iconUrl: "/sub2-logo.png", logoUrl: "/logo.svg" });
 
         const response = await favicon(new Request("http://localhost:3000/api/site-icon"));
 
-        expect(response.headers.get("location")).toBe("/icon.svg");
+        expect(response.headers.get("location")).toBe("/sub2-logo.png");
     });
 
     it("falls back to the infinite-evolution icon when favicon points back to itself", async () => {
@@ -81,6 +81,6 @@ describe("site metadata routes", () => {
 
         const response = await favicon(new Request("http://localhost:3000/api/site-icon"));
 
-        expect(response.headers.get("location")).toBe("/icon.svg");
+        expect(response.headers.get("location")).toBe("/sub2-logo.png");
     });
 });

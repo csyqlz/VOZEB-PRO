@@ -75,7 +75,7 @@ export default async function AdminSetupPage() {
                                 <span className="rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400">安装后初始化中心</span>
                             </div>
                             <h1 className="mt-5 max-w-2xl text-2xl font-semibold tracking-normal text-zinc-950 sm:text-3xl dark:text-zinc-100">把站点配置到可以上线运营</h1>
-                            <p className="mt-3 max-w-3xl text-sm leading-7 text-zinc-500 dark:text-zinc-400">集中检查品牌、模型、套餐、支付、邮件安全和存储。每一项都连接到现有后台配置，适合开源用户在服务器安装完成后继续往商业版部署。</p>
+                            <p className="mt-3 max-w-3xl text-sm leading-7 text-zinc-500 dark:text-zinc-400">集中检查品牌、模型、套餐、支付、邮件安全和存储，完成后即可按消费者使用场景上线运营。</p>
                             <div className="mt-6 max-w-xl">
                                 <div className="flex items-center justify-between text-sm">
                                     <span className="font-medium text-zinc-600 dark:text-zinc-400">完成度</span>

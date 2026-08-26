@@ -5,6 +5,7 @@ import { Cpu } from "lucide-react";
 
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { consumerModelPriceLabel } from "@/lib/consumer-model-price";
 import { modelOptionLabel, modelOptionName, selectableModelsByCapability, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
 
 type ModelPickerProps = {
@@ -95,14 +96,18 @@ export function ModelPicker({ config, value, onChange, capability, className, fu
 function emptyModelLabel(config: AiConfig, capability?: ModelCapability) {
     const label = capability === "image" ? "生图" : capability === "video" ? "视频" : capability === "text" ? "文本" : capability === "audio" ? "音频" : "";
     if (capability && config.models.length) return `暂无匹配的${label}模型`;
-    return config.models.length ? `暂无匹配的${label}模型` : "请联系管理员在后台配置渠道和模型";
+    return config.models.length ? `暂无匹配的${label}模型` : "当前暂无可用模型，请稍后再试或联系客服";
 }
 
 function ModelLabel({ config, model }: { config: AiConfig; model: string }) {
+    const price = consumerModelPriceLabel(config.modelPricing[model]) || "费用以提交前预览为准";
     return (
-        <span className="flex min-w-0 items-center gap-2">
+        <span className="flex min-w-0 items-start gap-2 py-0.5">
             <ModelIcon model={model} />
-            <span className="truncate">{modelOptionLabel(config, model)}</span>
+            <span className="min-w-0">
+                <span className="block truncate">{modelOptionLabel(config, model)}</span>
+                {price ? <span className="mt-0.5 block truncate text-[11px] font-normal text-muted-foreground">{price}</span> : null}
+            </span>
         </span>
     );
 }

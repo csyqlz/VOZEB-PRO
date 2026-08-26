@@ -5,7 +5,8 @@ import { AlertTriangle, GitBranch, Pencil, RefreshCw, Route, Search } from "luci
 import { useDeferredValue, useMemo, useState } from "react";
 
 import { LabeledControl, SectionTitle } from "@/components/admin/admin-settings-controls";
-import type { LogicalModel, LogicalModelBinding, LogicalModelCapability, LogicalModelCapabilityProfile, SystemDefaultModels, SystemModelChannel } from "@/lib/auth/store";
+import type { LogicalModel, LogicalModelBinding, LogicalModelCapability, LogicalModelCapabilityProfile, LogicalModelPricing, SystemDefaultModels, SystemModelChannel } from "@/lib/auth/store";
+import { billingUnitLabel, effectiveBillingUnit } from "@/lib/model-pricing";
 import { capabilityLabel, isLogicalModelResolvable, normalizeDefaultModelsConfig, resolveLogicalModelConfig, synchronizeLogicalModelsWithChannels } from "@/lib/model-routing-config";
 
 type Props = {
@@ -106,6 +107,7 @@ export function AdminLogicalModelManager({ channels, logicalModels, defaultModel
                         {visibleModels.map((model) => {
                             const resolved = resolveLogicalModelConfig(logicalModels, channels, model.capability, model.id);
                             const isDefault = Object.values(defaultModels).some((value) => value.toLowerCase() === model.id.toLowerCase());
+                            const pricing = resolved?.binding.capabilityProfile?.pricing;
                             return (
                                 <div key={model.id} className="flex min-w-0 flex-col gap-3 rounded-lg border border-stone-200 bg-white p-3 sm:flex-row sm:items-center sm:justify-between dark:border-stone-800 dark:bg-stone-950">
                                     <div className="min-w-0">
@@ -125,6 +127,13 @@ export function AdminLogicalModelManager({ channels, logicalModels, defaultModel
                                             <span>ID：{model.id}</span>
                                             <span>{model.bindings.length} 个同名渠道绑定</span>
                                             <span className={resolved ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}>{resolved ? `${resolved.channel.name} / ${resolved.binding.upstreamModel}` : "当前无可用渠道"}</span>
+                                        </div>
+                                        <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
+                                            {pricingSummary(model.capability, pricing).map((item) => (
+                                                <Tag key={item} className="m-0" color={item.includes("销售") ? "blue" : "gold"}>
+                                                    {item}
+                                                </Tag>
+                                            ))}
                                         </div>
                                     </div>
                                     <Button className="shrink-0" size="small" icon={<Pencil className="size-3.5" />} onClick={() => openEdit(model)}>
@@ -200,7 +209,27 @@ export function AdminLogicalModelManager({ channels, logicalModels, defaultModel
                                     />
                                 </LabeledControl>
                                 <LabeledControl label="能力类型">
-                                    <Select className="w-full" value={draft.capability} options={capabilityOptions} onChange={(capability) => setDraft((current) => (current ? { ...current, capability } : current))} />
+                                    <Select
+                                        className="w-full"
+                                        value={draft.capability}
+                                        options={capabilityOptions}
+                                        onChange={(capability) =>
+                                            setDraft((current) =>
+                                                current
+                                                    ? {
+                                                          ...current,
+                                                          capability,
+                                                          bindings: current.bindings.map((binding) => {
+                                                              const pricing = binding.capabilityProfile?.pricing;
+                                                              return pricing
+                                                                  ? { ...binding, capabilityProfile: { ...binding.capabilityProfile, pricing: { ...pricing, billingUnit: effectiveBillingUnit(capability, pricing.billingUnit) } } }
+                                                                  : binding;
+                                                          }),
+                                                      }
+                                                    : current,
+                                            )
+                                        }
+                                    />
                                 </LabeledControl>
                                 <LabeledControl label="模型状态">
                                     <div className="flex h-8 items-center">
@@ -231,6 +260,23 @@ export function AdminLogicalModelManager({ channels, logicalModels, defaultModel
     );
 }
 
+function pricingSummary(capability: LogicalModelCapability, pricing: LogicalModelPricing | undefined) {
+    if (capability === "text") {
+        return [
+            `输入成本 ¥${formatPrice(pricing?.inputCostPrice)} / 1M token`,
+            `输入销售 ¥${formatPrice(pricing?.inputSalePrice)} / 1M token`,
+            `输出成本 ¥${formatPrice(pricing?.outputCostPrice)} / 1M token`,
+            `输出销售 ¥${formatPrice(pricing?.outputSalePrice)} / 1M token`,
+        ];
+    }
+    const unit = effectiveBillingUnit(capability, pricing?.billingUnit) === "per_second" ? "秒" : "次";
+    return [`成本 ¥${formatPrice(pricing?.costPrice)} / ${unit}`, `销售 ¥${formatPrice(pricing?.salePrice)} / ${unit}`];
+}
+
+function formatPrice(value: number | undefined) {
+    return (Number.isFinite(value) ? Number(value) : 0).toFixed(6).replace(/0+$/, "").replace(/\.$/, "");
+}
+
 function BindingEditor({ binding, capability, channels, onChange }: { binding: LogicalModelBinding; capability: LogicalModelCapability; channels: SystemModelChannel[]; onChange: (patch: Partial<LogicalModelBinding>) => void }) {
     const channel = channels.find((item) => item.id === binding.channelId);
     const profile = binding.capabilityProfile || {};
@@ -245,6 +291,9 @@ function BindingEditor({ binding, capability, channels, onChange }: { binding: L
                 .map((item) => item.trim())
                 .filter(Boolean),
         });
+    const pricing = profile.pricing || { currency: "CNY" as const, billingUnit: effectiveBillingUnit(capability, undefined) };
+    const unit = effectiveBillingUnit(capability, pricing.billingUnit);
+    const updatePricing = (patch: Partial<LogicalModelPricing>) => updateProfile({ pricing: { ...pricing, ...patch, billingUnit: effectiveBillingUnit(capability, patch.billingUnit || pricing.billingUnit), currency: "CNY" } });
     return (
         <div className="rounded-lg border border-stone-200 bg-stone-50/70 p-3 dark:border-stone-800 dark:bg-stone-900/40">
             <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_90px_90px_auto] sm:items-end">
@@ -322,12 +371,54 @@ function BindingEditor({ binding, capability, channels, onChange }: { binding: L
                     <LabeledControl label="并发上限">
                         <InputNumber className="w-full" min={1} max={1000} precision={0} value={profile.concurrencyLimit} onChange={(value) => updateProfile({ concurrencyLimit: Number(value) || 1 })} />
                     </LabeledControl>
-                    <LabeledControl label="单次成本">
+                    <LabeledControl label={`兼容成本（元/${unit === "per_1m_tokens" ? "1M token" : unit === "per_second" ? "秒" : "次"}）`}>
                         <InputNumber className="w-full" min={0} precision={4} value={profile.unitCost} onChange={(value) => updateProfile({ unitCost: Number(value) || 0 })} />
                     </LabeledControl>
                     <LabeledControl label="成本货币">
-                        <Input value={profile.unitCostCurrency || ""} maxLength={12} placeholder="USD / CNY" onChange={(event) => updateProfile({ unitCostCurrency: event.target.value.trim().toUpperCase() })} />
+                        <Input value="CNY" disabled />
                     </LabeledControl>
+                    {capability === "text" ? (
+                        <LabeledControl label="计费单位">
+                            <Input value={billingUnitLabel(unit)} disabled />
+                        </LabeledControl>
+                    ) : (
+                        <LabeledControl label="计费单位">
+                            <Select
+                                className="w-full"
+                                value={unit}
+                                options={capability === "video" ? [{ label: "按次（每次调用）", value: "per_call" }, { label: "按秒（按实际视频时长）", value: "per_second" }] : [{ label: "按次（每次调用）", value: "per_call" }]}
+                                onChange={(value) => updatePricing({ billingUnit: value })}
+                            />
+                        </LabeledControl>
+                    )}
+                    <LabeledControl label={capability === "text" ? "输入成本价（元/1M token）" : `成本价（元/${unit === "per_second" ? "秒" : "次"}）`}>
+                        <InputNumber
+                            className="w-full"
+                            min={0}
+                            precision={6}
+                            value={capability === "text" ? pricing.inputCostPrice : pricing.costPrice}
+                            onChange={(value) => updatePricing(capability === "text" ? { inputCostPrice: Number(value) || 0 } : { costPrice: Number(value) || 0 })}
+                        />
+                    </LabeledControl>
+                    <LabeledControl label={capability === "text" ? "输入销售价（元/1M token）" : `销售价（元/${unit === "per_second" ? "秒" : "次"}）`}>
+                        <InputNumber
+                            className="w-full"
+                            min={0}
+                            precision={6}
+                            value={capability === "text" ? pricing.inputSalePrice : pricing.salePrice}
+                            onChange={(value) => updatePricing(capability === "text" ? { inputSalePrice: Number(value) || 0 } : { salePrice: Number(value) || 0 })}
+                        />
+                    </LabeledControl>
+                    {capability === "text" ? (
+                        <>
+                            <LabeledControl label="输出成本价（元/1M token）">
+                                <InputNumber className="w-full" min={0} precision={6} value={pricing.outputCostPrice} onChange={(value) => updatePricing({ billingUnit: "per_1m_tokens", outputCostPrice: Number(value) || 0 })} />
+                            </LabeledControl>
+                            <LabeledControl label="输出销售价（元/1M token）">
+                                <InputNumber className="w-full" min={0} precision={6} value={pricing.outputSalePrice} onChange={(value) => updatePricing({ billingUnit: "per_1m_tokens", outputSalePrice: Number(value) || 0 })} />
+                            </LabeledControl>
+                        </>
+                    ) : null}
                 </div>
             </div>
         </div>

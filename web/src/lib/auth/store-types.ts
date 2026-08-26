@@ -4,7 +4,6 @@ export type { AdminPermission } from "@/lib/admin-permissions";
 import type { AdminPermission } from "@/lib/admin-permissions";
 import type { GlobalAiOpcPresetId } from "@/lib/globalaiopc-catalog";
 import type { RegistrationPolicyConsent } from "@/lib/registration-consent";
-import { VOZEB_QQ_GROUP_URL } from "@/constant/community";
 
 export type ApiCallFormat = "openai" | "gemini";
 export type SystemChannelProtocol = "auto" | "openai" | "yumeng" | "gemini" | "sub2api" | "newapi" | "vozeb-recommended" | "globalaiopc" | "seedance" | "stable-diffusion" | "volcengine-video" | "seedance-special" | "custom" | "compatible";
@@ -72,6 +71,23 @@ export type LegacyUserQuota = {
 export type ModelPointCosts = Record<string, number>;
 export type PointUsageKind = "api" | "image" | "video" | "audio" | "text";
 
+export type PointRecordBillingDetail = {
+    billingUnit: "per_call" | "per_second" | "per_1m_tokens";
+    currency: "CNY";
+    actualCost?: number;
+    unitRate?: number;
+    inputTokens?: number;
+    outputTokens?: number;
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+    inputRate?: number;
+    outputRate?: number;
+    cacheReadRate?: number;
+    cacheWriteRate?: number;
+    estimated?: boolean;
+    settlementStatus?: "reserved" | "settled";
+};
+
 export type SystemModelChannel = {
     id: string;
     name: string;
@@ -90,6 +106,44 @@ export type SystemModelChannel = {
 
 export type LogicalModelCapability = "text" | "image" | "video" | "audio";
 
+/**
+ * Operational token cost reference. Values are cash costs per one million
+ * tokens and are intentionally separate from modelPointCosts, which is the
+ * consumer-facing per-call point multiplier.
+ */
+export type LogicalModelTokenPricing = {
+    unit: "per_1m_tokens";
+    currency: string;
+    input: number;
+    output: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+    source?: string;
+    upstreamGroup?: string;
+    upstreamGroupRatio?: number;
+    rechargeRatio?: number;
+    modelRatio?: number;
+    completionRatio?: number;
+};
+
+/** User-facing and operational prices for one logical model binding. All values are CNY. */
+export type LogicalModelPricing = {
+    currency: "CNY";
+    billingUnit: "per_call" | "per_second" | "per_1m_tokens";
+    costPrice?: number;
+    salePrice?: number;
+    inputCostPrice?: number;
+    outputCostPrice?: number;
+    cacheReadCostPrice?: number;
+    cacheWriteCostPrice?: number;
+    inputSalePrice?: number;
+    outputSalePrice?: number;
+    cacheReadSalePrice?: number;
+    cacheWriteSalePrice?: number;
+    source?: string;
+    updatedAt?: string;
+};
+
 export type LogicalModelCapabilityProfile = {
     supportsReferenceImage?: boolean;
     supportsReferenceVideo?: boolean;
@@ -106,6 +160,8 @@ export type LogicalModelCapabilityProfile = {
     concurrencyLimit?: number;
     unitCost?: number;
     unitCostCurrency?: string;
+    tokenPricing?: LogicalModelTokenPricing;
+    pricing?: LogicalModelPricing;
 };
 
 export type LogicalModelBinding = {
@@ -319,17 +375,13 @@ export type SiteSocialSettings = Record<
 >;
 
 export const DEFAULT_SITE_SOCIALS: SiteSocialSettings = {
-    email: { enabled: true, label: "邮箱联系", url: "mailto:csyqlz@gmail.com" },
+    email: { enabled: true, label: "客服邮箱", url: "mailto:service@xingqizhiyu.cn" },
     telegram: { enabled: false, label: "Telegram", url: "" },
     x: { enabled: false, label: "X", url: "" },
     instagram: { enabled: false, label: "Instagram", url: "" },
 };
 
-export const DEFAULT_SITE_FRIEND_LINKS: SiteFriendLink[] = [
-    { id: "vozeb-pro-home", label: "VOZEB PRO", url: "https://www.vozeb.com/", enabled: true },
-    { id: "qq-vozeb-open-source", label: "VOZEB 开源交流 QQ 群", url: VOZEB_QQ_GROUP_URL, enabled: true },
-    { id: "linux-do", label: "Linux.do", url: "https://linux.do/", enabled: true },
-];
+export const DEFAULT_SITE_FRIEND_LINKS: SiteFriendLink[] = [{ id: "vozeb-pro-home", label: "星启智域", url: "https://games.xingqizhiyu.cn/", enabled: true }];
 
 export type MailSettings = {
     provider: string;
@@ -404,6 +456,9 @@ export type PublicPointRecord = {
     dailyBalanceAfter: number;
     description: string;
     model?: string;
+    usageKind?: PointUsageKind;
+    units?: number;
+    billingDetail?: PointRecordBillingDetail;
     idempotencyKey?: string;
     sourceRecordId?: string;
     sourceDate?: string;

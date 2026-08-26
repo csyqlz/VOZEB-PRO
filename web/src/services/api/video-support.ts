@@ -38,7 +38,7 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export function aiApiUrl(config: AiConfig, path: string) {
-    if (!config.baseUrl.startsWith("/api/ai/system/")) throw new Error("视频请求必须使用后台系统渠道");
+    if (!config.baseUrl.startsWith("/api/ai/system/")) throw new Error("当前视频服务暂不可用，请稍后重试或联系客服");
     return buildApiUrl(config.baseUrl, path);
 }
 
@@ -295,7 +295,7 @@ export function readHeader(headers: unknown, key: string) {
 
 export function assertVideoConfig(config: AiConfig, model: string) {
     if (!model) throw new Error("请先配置视频模型");
-    if (!config.baseUrl.startsWith("/api/ai/system/")) throw new Error("请管理员先配置可用的视频系统渠道");
+    if (!config.baseUrl.startsWith("/api/ai/system/")) throw new Error("当前视频服务暂不可用，请稍后重试或联系客服");
 }
 
 export function normalizeVideoSeconds(value: string) {
@@ -364,7 +364,7 @@ export function prefixedVideoError(message: string, prefix: string) {
 }
 
 export function statusMessage(status: number | undefined, fallback: string) {
-    if (status === 401 || status === 403) return "鉴权失败，请检查 API Key、套餐权限或模型权限";
+    if (status === 401 || status === 403) return "当前服务暂时无法使用，请稍后重试或联系客服";
     if (status === 429) return "请求被限流或额度不足，请稍后重试";
     return status ? `${fallback}（${status}）` : fallback;
 }

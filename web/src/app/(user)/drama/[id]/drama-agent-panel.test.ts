@@ -16,7 +16,7 @@ describe("Drama project Agent references", () => {
 
         expect(source).toContain("clientRequestId: submission.clientRequestId");
         expect(source).toContain("failedSubmissionsRef.current.get(assistantMessageId)");
-        expect(source).toContain('aria-label="重试本次项目 Agent 请求"');
+        expect(source).toContain('aria-label="重试本次项目智能助手 请求"');
         expect(source).toContain("metadata: { assetIds }");
         expect(source).toMatch(/messageAssetIds\(message\)\s*\.filter/);
     });
@@ -36,12 +36,12 @@ describe("Drama project Agent references", () => {
         expect(source).toContain("size={360}");
         expect(source).toContain("mask={false}");
         expect(source).toContain("useState(404)");
-        expect(source).toContain('aria-label="调整项目 Agent 面板宽度"');
+        expect(source).toContain('aria-label="调整项目智能助手 面板宽度"');
         expect(source).toContain("Math.min(640, Math.max(348");
         expect(source).not.toContain('title="项目 Agent"');
         expect(source).toContain("data-drama-agent-quick-actions");
         expect(source).toContain("本阶段建议");
-        expect(source).toContain('aria-label="打开本阶段 Agent 建议"');
+        expect(source).toContain('aria-label="打开本阶段智能助手建议"');
         expect(source).toContain('trigger={["click"]}');
         expect(source).toContain("stageGuide.prompts.map((item, index)");
         expect(source).toContain("fillStagePrompt(item.prompt)");
@@ -66,8 +66,8 @@ describe("Drama project Agent references", () => {
         expect(source).toContain("disabled={sending || loading}");
         expect(source).toContain('controlCreativeAgentRun(failedMessage.runId, "retry"');
         expect(source).toContain("retryCreativeAgentTasks");
-        expect(source).toContain('aria-label="暂停项目 Agent"');
-        expect(source).toContain('aria-label="继续项目 Agent"');
+        expect(source).toContain('aria-label="暂停项目智能助手"');
+        expect(source).toContain('aria-label="继续项目智能助手"');
         expect(source).toContain("!messages.length ?");
         expect(source).toContain("data-drama-agent-composer");
         expect(source).toContain("data-drama-agent-input-row");
@@ -80,8 +80,8 @@ describe("Drama project Agent references", () => {
         expect(source).not.toContain("CompactAgentGenerationSettings");
         expect(source).not.toContain("generationPreferences");
         expect(source).not.toContain("preferences: submission.preferences");
-        expect(source).toContain('aria-label="新建项目 Agent 对话"');
-        expect(source).toContain('aria-label="打开项目 Agent 历史对话"');
+        expect(source).toContain('aria-label="新建项目智能助手 对话"');
+        expect(source).toContain('aria-label="打开项目智能助手 历史对话"');
         expect(source).toContain('listCreativeConversationPage({ surface: "drama", source: "drama", projectId: project.id');
         expect(source).toContain("<DramaAgentHistory");
         expect(source).not.toContain("w-[340px]");

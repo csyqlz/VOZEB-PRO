@@ -97,7 +97,7 @@ function PlanCard({ product, index, recommended, variant, onSelect }: { product:
             }`}
         >
             <div className="relative flex min-h-7 items-center justify-between gap-3">
-                <span className="text-[10px] font-semibold tracking-[0.14em] text-stone-400 sm:text-[11px] sm:tracking-[0.16em] dark:text-stone-500">VOZEB PASS · {String(index + 1).padStart(2, "0")}</span>
+                <span className="text-[10px] font-semibold tracking-[0.14em] text-stone-400 sm:text-[11px] sm:tracking-[0.16em] dark:text-stone-500">星启智域方案 · {String(index + 1).padStart(2, "0")}</span>
                 {promotion ? (
                     <span className="rounded-md border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-700 sm:px-3 sm:py-1 sm:text-[11px] dark:border-rose-900/60 dark:bg-rose-950/35 dark:text-rose-200">{promotion.label}</span>
                 ) : recommended ? (
@@ -142,7 +142,7 @@ function PlanCard({ product, index, recommended, variant, onSelect }: { product:
                         <CreditSymbol className="text-[10px]" />
                     </span>
                     <span>
-                        <strong className="font-semibold text-stone-950 dark:text-white">{formatCreditAmount(product.pointsAmount)}</strong> {isPointsProduct ? "永久积分" : "创作积分"}
+                        <strong className="font-semibold text-stone-950 dark:text-white">¥{formatCreditAmount(product.pointsAmount)}</strong> 人民币余额
                     </span>
                 </li>
                 {features.map((line) => (
@@ -203,7 +203,7 @@ function CompactPlanCard({ product, recommended, onSelect }: { product: BillingP
                         <CreditSymbol className="text-[11px]" />
                     </span>
                     <span className="whitespace-nowrap font-semibold text-stone-950 dark:text-white">{formatCreditAmount(product.pointsAmount)}</span>
-                    <span className="hidden text-stone-500 lg:inline dark:text-stone-400">积分</span>
+                    <span className="hidden text-stone-500 lg:inline dark:text-stone-400">余额</span>
                 </div>
             </div>
 
@@ -251,8 +251,8 @@ function productMetadata(product: BillingProduct) {
 
 function featureLines(product: BillingProduct, configured: string[]) {
     if (configured.length) return configured;
-    if (product.productKind === "points") return ["支付成功后一次性到账", "永久积分不会按日过期", "订单与积分流水可查"];
-    return ["图片、视频、音频与 Agent 创作", "适用于个人创作与商业项目交付", "订单、套餐和积分流水统一管理", product.periodDays ? `${product.periodDays} 天完整套餐权益` : "长期有效套餐权益"];
+    if (product.productKind === "points") return ["订单完成后一次性到账", "人民币余额不会按日过期", "订单与余额流水可查"];
+    return ["图片、视频与智能创作", "适用于个人创作与商业项目交付", "订单、套餐和余额流水统一管理", product.periodDays ? `${product.periodDays} 天完整套餐权益` : "长期有效套餐权益"];
 }
 
 function periodLabel(periodDays: number) {

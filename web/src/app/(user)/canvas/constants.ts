@@ -22,7 +22,7 @@ export const NODE_DEFAULT_SIZE = {
     [CanvasNodeType.Video]: { width: 420, height: 236, title: "Video" },
     [CanvasNodeType.Audio]: { width: 340, height: 120, title: "Audio" },
     [CanvasNodeType.Brief]: { width: 380, height: 280, title: "创作简报" },
-    [CanvasNodeType.Task]: { width: 340, height: 210, title: "Agent 任务" },
+    [CanvasNodeType.Task]: { width: 340, height: 210, title: "智能任务" },
     [CanvasNodeType.BrandKit]: { width: 340, height: 240, title: "品牌规范" },
 } satisfies Record<CanvasNodeType, { width: number; height: number; title: string }>;
 

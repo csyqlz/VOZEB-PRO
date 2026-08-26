@@ -6,6 +6,7 @@ import { nanoid } from "nanoid";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { SiteLogo } from "@/components/layout/site-logo";
+import { MediaRetentionNotice } from "@/components/media/media-retention-notice";
 
 import type { AgentMediaDownload } from "@/components/agent/agent-media-download";
 import { CreativeAgentControls, CreativeAgentSkillCard, type CreativeAgentModelOption } from "@/components/agent/creative-agent-controls";
@@ -122,7 +123,7 @@ export function DramaAgentPanel({
                 onClose={() => onOpenChange(false)}
                 rootClassName="drama-agent-drawer"
                 styles={{ wrapper: { maxWidth: "calc(100vw - 8px)" }, body: { padding: 0 } }}
-                aria-label="项目 Agent"
+                aria-label="项目智能助手"
             >
                 {content}
             </Drawer>
@@ -135,8 +136,8 @@ export function DramaAgentPanel({
             data-drama-agent-panel-frame
             aria-hidden={!open}
         >
-            <aside className={`relative h-full min-w-0 shrink-0 border-l border-border ${resizing ? "" : "transition-transform duration-300 ease-out"} ${open ? "translate-x-0" : "translate-x-8"}`} style={{ width: "100%" }} aria-label="项目 Agent 面板">
-                <button type="button" className="absolute inset-y-0 left-0 z-40 w-4 -translate-x-1/2 cursor-col-resize" onMouseDown={startResize} aria-label="调整项目 Agent 面板宽度" />
+            <aside className={`relative h-full min-w-0 shrink-0 border-l border-border ${resizing ? "" : "transition-transform duration-300 ease-out"} ${open ? "translate-x-0" : "translate-x-8"}`} style={{ width: "100%" }} aria-label="项目智能助手 面板">
+                <button type="button" className="absolute inset-y-0 left-0 z-40 w-4 -translate-x-1/2 cursor-col-resize" onMouseDown={startResize} aria-label="调整项目智能助手 面板宽度" />
                 {content}
             </aside>
         </div>
@@ -390,7 +391,7 @@ function DramaAgentContent({
             conversation = await createCreativeConversation({ surface: "drama", source: "drama", projectId: project.id, title: "新对话" });
         } catch (error) {
             if (requestId !== conversationLoadRef.current) return;
-            message.error(error instanceof Error ? error.message : "新建项目 Agent 对话失败");
+            message.error(error instanceof Error ? error.message : "新建项目智能助手 对话失败");
             if (previousConversationId) await openConversation(previousConversationId, false);
             else setLoading(false);
             return;
@@ -461,7 +462,7 @@ function DramaAgentContent({
         void load().catch((error) => {
             if (cancelled) return;
             setLoading(false);
-            message.error(friendlyAgentError(error, "项目 Agent 任务恢复失败，请稍后重试。"));
+            message.error(friendlyAgentError(error, "项目智能助手 任务恢复失败，请稍后重试。"));
         });
         return () => {
             cancelled = true;
@@ -505,7 +506,7 @@ function DramaAgentContent({
         } catch (error) {
             if (!isCurrentView()) return false;
             failedSubmissionsRef.current.set(submission.temporaryAssistantId, submission);
-            const content = friendlyAgentError(error, "项目 Agent 请求失败，请稍后重试。");
+            const content = friendlyAgentError(error, "项目智能助手 请求失败，请稍后重试。");
             setMessages((current) => current.map((item) => (item.id === submission.temporaryAssistantId ? { ...item, content, status: "failed", updatedAt: Date.now() } : item)));
             setSending(false);
             submittingRef.current = false;
@@ -591,7 +592,7 @@ function DramaAgentContent({
                 watchRun(result.run, result.run.assistantMessageId || assistantMessageId);
                 return true;
             } catch (error) {
-                setMessages((current) => current.map((item) => (item.id === assistantMessageId ? { ...item, content: friendlyAgentError(error, "项目 Agent 重试失败，请稍后重试。"), status: "failed", updatedAt: Date.now() } : item)));
+                setMessages((current) => current.map((item) => (item.id === assistantMessageId ? { ...item, content: friendlyAgentError(error, "项目智能助手 重试失败，请稍后重试。"), status: "failed", updatedAt: Date.now() } : item)));
                 setSending(false);
                 submittingRef.current = false;
                 setRunStatus("failed");
@@ -612,7 +613,7 @@ function DramaAgentContent({
                 setRunId(undefined);
             }
         } catch (error) {
-            message.error(friendlyAgentError(error, "项目 Agent 控制失败，请稍后重试。"));
+            message.error(friendlyAgentError(error, "项目智能助手 控制失败，请稍后重试。"));
         }
     };
 
@@ -662,7 +663,7 @@ function DramaAgentContent({
                                 icon={<MessageSquarePlus className="size-4" />}
                                 disabled={loading}
                                 onClick={() => void newConversation().catch((error) => message.error(error instanceof Error ? error.message : "新建对话失败"))}
-                                aria-label="新建项目 Agent 对话"
+                                aria-label="新建项目智能助手 对话"
                             />
                         </Tooltip>
                         <Popover
@@ -692,14 +693,14 @@ function DramaAgentContent({
                                     shape="circle"
                                     className={`!size-8 !min-w-8 ${historyOpen ? "!bg-primary/10 !text-primary" : ""}`}
                                     icon={<History className="size-4" />}
-                                    aria-label="打开项目 Agent 历史对话"
+                                    aria-label="打开项目智能助手 历史对话"
                                     aria-expanded={historyOpen}
                                 />
                             </Tooltip>
                         </Popover>
                         {!embedded ? (
-                            <Tooltip title="收起项目 Agent">
-                                <Button type="text" shape="circle" className="!size-8 !min-w-8" icon={<X className="size-4" />} onClick={onClose} aria-label="收起项目 Agent" />
+                            <Tooltip title="收起项目智能助手">
+                                <Button type="text" shape="circle" className="!size-8 !min-w-8" icon={<X className="size-4" />} onClick={onClose} aria-label="收起项目智能助手" />
                             </Tooltip>
                         ) : null}
                     </div>
@@ -732,7 +733,7 @@ function DramaAgentContent({
                                 className="!flex !h-8 !items-center !justify-start !gap-1.5 !px-2.5 !text-xs !text-muted-foreground hover:!border-foreground/20 hover:!text-foreground"
                                 icon={<ListChecks className="size-3.5" aria-hidden />}
                                 disabled={sending}
-                                aria-label="打开本阶段 Agent 建议"
+                                aria-label="打开本阶段智能助手建议"
                             >
                                 <span className="min-w-0 flex-1 truncate text-left">本阶段建议</span>
                                 <span className="text-[11px] tabular-nums opacity-65">{stageGuide.prompts.length} 项</span>
@@ -760,7 +761,7 @@ function DramaAgentContent({
                                     className="!mt-1 !h-7 !px-1.5 !text-xs !text-red-600 hover:!bg-red-50 hover:!text-red-700 dark:!text-red-300 dark:hover:!bg-red-950/30 dark:hover:!text-red-200"
                                     icon={<RotateCcw className="size-3.5" />}
                                     onClick={() => void retrySubmission(message.id)}
-                                    aria-label="重试本次项目 Agent 请求"
+                                    aria-label="重试本次项目智能助手 请求"
                                 >
                                     重试
                                 </Button>
@@ -838,7 +839,7 @@ function DramaAgentContent({
                             ref={inputRef}
                             value={prompt}
                             rows={3}
-                            placeholder="告诉 Agent 下一步要做什么"
+                            placeholder="告诉智能助手下一步要做什么"
                             disabled={sending || loading}
                             className="hide-scrollbar min-h-20 min-w-0 flex-1 resize-none border-0 bg-transparent px-1 py-1 text-sm leading-5 text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-0 focus:outline-none focus:ring-0 disabled:cursor-not-allowed disabled:opacity-60"
                             onChange={(event) => {
@@ -900,14 +901,14 @@ function DramaAgentContent({
                     {sending && runId ? (
                         <div className="flex items-center gap-1">
                             {runStatus === "paused" ? (
-                                <Button type="text" shape="circle" icon={<Play className="size-3.5" />} onClick={() => void controlRun("resume")} aria-label="继续项目 Agent" />
+                                <Button type="text" shape="circle" icon={<Play className="size-3.5" />} onClick={() => void controlRun("resume")} aria-label="继续项目智能助手" />
                             ) : (
-                                <Button type="text" shape="circle" icon={<Pause className="size-3.5" />} onClick={() => void controlRun("pause")} aria-label="暂停项目 Agent" />
+                                <Button type="text" shape="circle" icon={<Pause className="size-3.5" />} onClick={() => void controlRun("pause")} aria-label="暂停项目智能助手" />
                             )}
-                            <Button danger shape="circle" icon={<Square className="size-3.5" />} onClick={() => void controlRun("cancel")} aria-label="停止项目 Agent" />
+                            <Button danger shape="circle" icon={<Square className="size-3.5" />} onClick={() => void controlRun("cancel")} aria-label="停止项目智能助手" />
                         </div>
                     ) : (
-                        <Button type="primary" shape="circle" className="!size-10 !min-w-10 !shrink-0" icon={<ArrowUp className="size-4" />} disabled={!prompt.trim() || uploading || loading} onClick={() => void submit()} aria-label="发送给项目 Agent" />
+                        <Button type="primary" shape="circle" className="!size-10 !min-w-10 !shrink-0" icon={<ArrowUp className="size-4" />} disabled={!prompt.trim() || uploading || loading} onClick={() => void submit()} aria-label="发送给项目智能助手" />
                     )}
                 </div>
             </div>
@@ -991,7 +992,7 @@ function DramaAgentAssets({ assets, project, episode }: { assets: CreativeAsset[
             url,
             storageKey: sourceAsset.storageKey,
             source: "generated",
-            label: sourceAsset.title || "Agent 生成图",
+            label: sourceAsset.title || "智能助手生成图",
             width: sourceAsset.width,
             height: sourceAsset.height,
             createdAt: new Date().toISOString(),
@@ -1003,18 +1004,26 @@ function DramaAgentAssets({ assets, project, episode }: { assets: CreativeAsset[
             updateAsset(project.id, visualKind, selected.id, { references, primaryReferenceId: reference.id, referenceImageUrl: reference.url, referenceStorageKey: reference.storageKey });
             message.success(`已加入${selected.name}的视觉参考图`);
         } else if (visualKind === "characters") {
-            addCharacter(project.id, { name, description: "来自项目 Agent 的视觉参考", profile: emptyAssetProfile(), references: [reference], primaryReferenceId: reference.id, referenceImageUrl: reference.url, referenceStorageKey: reference.storageKey });
+            addCharacter(project.id, {
+                name,
+                description: "来自项目智能助手 的视觉参考",
+                profile: emptyAssetProfile(),
+                references: [reference],
+                primaryReferenceId: reference.id,
+                referenceImageUrl: reference.url,
+                referenceStorageKey: reference.storageKey,
+            });
             message.success(`已创建角色“${name}”并加入参考图`);
         } else if (visualKind === "scenes") {
-            addScene(project.id, { name, description: "来自项目 Agent 的视觉参考", profile: emptyAssetProfile(), references: [reference], primaryReferenceId: reference.id, referenceImageUrl: reference.url, referenceStorageKey: reference.storageKey });
+            addScene(project.id, { name, description: "来自项目智能助手 的视觉参考", profile: emptyAssetProfile(), references: [reference], primaryReferenceId: reference.id, referenceImageUrl: reference.url, referenceStorageKey: reference.storageKey });
             message.success(`已创建场景“${name}”并加入参考图`);
         } else if (visualKind === "props") {
-            addProp(project.id, { name, description: "来自项目 Agent 的视觉参考", profile: emptyAssetProfile(), references: [reference], primaryReferenceId: reference.id, referenceImageUrl: reference.url, referenceStorageKey: reference.storageKey });
+            addProp(project.id, { name, description: "来自项目智能助手 的视觉参考", profile: emptyAssetProfile(), references: [reference], primaryReferenceId: reference.id, referenceImageUrl: reference.url, referenceStorageKey: reference.storageKey });
             message.success(`已创建道具“${name}”并加入参考图`);
         } else {
             addClue(project.id, {
                 name,
-                description: "来自项目 Agent 的视觉参考",
+                description: "来自项目智能助手 的视觉参考",
                 payoff: "",
                 profile: emptyAssetProfile(),
                 references: [reference],
@@ -1032,14 +1041,14 @@ function DramaAgentAssets({ assets, project, episode }: { assets: CreativeAsset[
     return (
         <>
             <div className="mt-3 grid gap-2">
-                {assets
+            {assets
                     .filter((asset) => asset.type !== "text")
                     .map((asset) => {
                         const url = asset.serverUrl || asset.remoteUrl || "";
                         if (!url) return null;
                         return (
                             <div key={asset.id} className="min-w-0">
-                                <AgentMediaPreview type={asset.type} url={url} title={asset.title || "Agent 生成媒体"} className={asset.type === "image" ? "max-h-64 rounded-md" : asset.type === "video" ? "aspect-video rounded-md" : undefined} />
+                                <AgentMediaPreview type={asset.type} url={url} title={asset.title || "智能助手生成媒体"} className={asset.type === "image" ? "max-h-64 rounded-md" : asset.type === "video" ? "aspect-video rounded-md" : undefined} />
                                 {asset.type === "image" ? (
                                     <div className="mt-2 flex min-w-0 items-center rounded-lg border border-border/70 bg-muted/30 p-1">
                                         <Button
@@ -1068,6 +1077,7 @@ function DramaAgentAssets({ assets, project, episode }: { assets: CreativeAsset[
                         );
                     })}
             </div>
+            {assets.some((asset) => asset.type !== "text" && Boolean(asset.serverUrl || asset.remoteUrl)) ? <MediaRetentionNotice className="max-w-full" /> : null}
             <Modal title="引用图片到分镜" open={Boolean(referenceAsset)} width={420} centered destroyOnHidden okText="确认引用" cancelText="取消" okButtonProps={{ disabled: !shotId }} onCancel={() => setReferenceAsset(undefined)} onOk={applyReference}>
                 <div className="grid gap-4 pt-2">
                     <label className="grid gap-1.5 text-sm">
@@ -1112,7 +1122,7 @@ function DramaAgentAssets({ assets, project, episode }: { assets: CreativeAsset[
                 onOk={applyVisualAsset}
             >
                 <div className="grid gap-4 pt-2">
-                    <p className="text-sm leading-6 text-muted-foreground">这张 Agent 图片会直接保存为角色、场景、道具或线索的参考图，不需要下载后重新上传。</p>
+                    <p className="text-sm leading-6 text-muted-foreground">这张智能助手图片会直接保存为角色、场景、道具或线索的参考图，不需要下载后重新上传。</p>
                     <label className="grid gap-1.5 text-sm">
                         <span className="font-medium">资产类型</span>
                         <Segmented

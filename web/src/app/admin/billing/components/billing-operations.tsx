@@ -217,7 +217,7 @@ export function BillingOperations({ initialTab = "orders", initialPaymentConfig,
         if (action === "complete") {
             modal.confirm({
                 title: "确认这笔订单已收款？",
-                content: "确认后会开通套餐并发放积分，请先核实支付商或线下收款记录。",
+                content: "确认后会开通套餐并发放人民币余额，请先核实支付商或线下收款记录。",
                 okText: "确认收款",
                 cancelText: "取消",
                 onOk: () => runOrderAction(order, action),
@@ -380,7 +380,7 @@ export function BillingOperations({ initialTab = "orders", initialPaymentConfig,
             width: 150,
             render: (_, order) => (
                 <div className="text-sm text-stone-600 dark:text-stone-300">
-                    <div>{order.pointsAmount} 永久积分</div>
+                    <div>¥{order.pointsAmount} 永久余额</div>
                     <div className="text-xs text-stone-500 dark:text-stone-400">
                         每日 {order.dailyPoints} · {order.periodDays ? `${order.periodDays} 天` : "长期"}
                     </div>
@@ -566,7 +566,9 @@ export function BillingOperations({ initialTab = "orders", initialPaymentConfig,
                                             <div className="flex items-start justify-between gap-3">
                                                 <div className="min-w-0">
                                                     <div className="truncate text-sm font-semibold text-stone-950 dark:text-stone-100">{product.name}</div>
-                                                    <div className="mt-1 line-clamp-2 text-xs leading-5 text-stone-500 dark:text-stone-400">{product.description || (product.productKind === "points" ? "积分充值商品" : product.planId || "未关联套餐")}</div>
+                                                    <div className="mt-1 line-clamp-2 text-xs leading-5 text-stone-500 dark:text-stone-400">
+                                                        {product.description || (product.productKind === "points" ? "人民币余额充值商品" : product.planId || "未关联套餐")}
+                                                    </div>
                                                     {product.pricing.discountCents > 0 ? (
                                                         <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5 text-xs">
                                                             <Tag className="m-0" color="red">
@@ -578,14 +580,14 @@ export function BillingOperations({ initialTab = "orders", initialPaymentConfig,
                                                     ) : null}
                                                 </div>
                                                 <div className="flex shrink-0 items-center gap-1.5">
-                                                    <Tag color={product.productKind === "points" ? "gold" : "blue"}>{product.productKind === "points" ? "积分" : "套餐"}</Tag>
+                                                    <Tag color={product.productKind === "points" ? "gold" : "blue"}>{product.productKind === "points" ? "余额充值" : "套餐"}</Tag>
                                                     <Tag color={product.enabled ? "green" : "default"}>{product.enabled ? "上架" : "下架"}</Tag>
                                                 </div>
                                             </div>
                                             <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-stone-500 sm:mt-4 sm:grid-cols-4 dark:text-stone-400">
                                                 <ProductFact label="日常价" value={formatMoney(product.amountCents, product.currency)} />
-                                                <ProductFact label={product.productKind === "points" ? "充值积分" : "永久积分"} value={`${product.pointsAmount}`} />
-                                                <ProductFact label="每日赠送" value={product.productKind === "plan" ? `${product.dailyPoints}` : "-"} />
+                                                <ProductFact label={product.productKind === "points" ? "充值余额（元）" : "永久余额（元）"} value={`¥${product.pointsAmount}`} />
+                                                <ProductFact label="每日赠送余额（元）" value={product.productKind === "plan" ? `¥${product.dailyPoints}` : "-"} />
                                                 <ProductFact label="周期" value={product.productKind === "plan" ? (product.periodDays ? `${product.periodDays} 天` : "长期") : "一次性"} />
                                             </div>
                                             <div className="mt-3 flex justify-end gap-2 border-t border-stone-200 pt-2.5 sm:mt-4 sm:pt-3 dark:border-stone-800">
@@ -625,7 +627,7 @@ export function BillingOperations({ initialTab = "orders", initialPaymentConfig,
                     >
                         <Form form={productForm} layout="vertical" initialValues={defaultProductFormValue(products.length + 1)} onFinish={(value) => void saveProduct(value)}>
                             <div className="mb-4 rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm leading-6 text-stone-500 dark:border-stone-800 dark:bg-stone-900/50 dark:text-stone-400">
-                                保存后会立即影响充值中心展示。积分充值只增加永久积分；套餐可同时配置有效期内的每日赠送积分。
+                                保存后会立即影响充值中心展示。余额充值只增加永久人民币余额；套餐可同时配置有效期内的每日赠送余额。
                             </div>
                             <Form.Item name="id" hidden>
                                 <Input />
@@ -641,7 +643,7 @@ export function BillingOperations({ initialTab = "orders", initialPaymentConfig,
                                     block
                                     options={[
                                         { label: "套餐权益", value: "plan" },
-                                        { label: "积分充值", value: "points" },
+                                        { label: "余额充值", value: "points" },
                                     ]}
                                 />
                             </Form.Item>
@@ -657,13 +659,13 @@ export function BillingOperations({ initialTab = "orders", initialPaymentConfig,
                                 <Form.Item name="amountYuan" label="价格" rules={[{ required: true, message: "请填写价格" }]}>
                                     <InputNumber min={0} precision={2} className="w-full" prefix="¥" />
                                 </Form.Item>
-                                <Form.Item name="pointsAmount" label="一次性永久积分" rules={[{ required: true, message: "请填写永久积分" }]} extra="支付成功后一次性加入永久余额，不会按日过期。">
-                                    <InputNumber min={0} precision={0} className="w-full" />
+                                <Form.Item name="pointsAmount" label="一次性永久余额（元）" rules={[{ required: true, message: "请填写永久余额" }]} extra="支付成功后一次性加入人民币余额，不会按日过期。">
+                                    <InputNumber min={0} precision={8} prefix="¥" className="w-full" />
                                 </Form.Item>
                                 {productKind === "plan" ? (
                                     <>
-                                        <Form.Item name="dailyPoints" label="每日赠送积分" rules={[{ required: true, message: "请填写每日赠送积分" }]} extra="套餐有效期内每天自动补充，仅当日有效，不会跨日累积。">
-                                            <InputNumber min={0} precision={0} className="w-full" />
+                                        <Form.Item name="dailyPoints" label="每日赠送余额（元）" rules={[{ required: true, message: "请填写每日赠送余额" }]} extra="套餐有效期内每天自动补充，仅当日有效，不会跨日累积。">
+                                            <InputNumber min={0} precision={8} prefix="¥" className="w-full" />
                                         </Form.Item>
                                         <Form.Item name="periodDays" label="生效天数" rules={[{ required: true, message: "请填写天数" }]}>
                                             <InputNumber min={1} precision={0} className="w-full" />

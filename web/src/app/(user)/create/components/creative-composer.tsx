@@ -38,6 +38,8 @@ export function CreativeComposer({
     onChange,
     onOptimize,
     onSubmit,
+    submitDisabled = false,
+    submitDisabledReason = "当前创作能力暂不可用",
     onCancel,
     onAttachment,
     onPasteImages,
@@ -77,6 +79,8 @@ export function CreativeComposer({
     onChange: (value: string) => void;
     onOptimize: () => void;
     onSubmit: () => void;
+    submitDisabled?: boolean;
+    submitDisabledReason?: string;
     onCancel: () => void;
     onAttachment: () => void;
     onPasteImages: (files: File[]) => void;
@@ -100,8 +104,8 @@ export function CreativeComposer({
     onClearModels: () => void;
     onToggleSmartPlanning: () => void;
     onChangeCreationMode: (mode: "agent" | CreativeGenerationMode) => void;
-    onChangeGenerationCapability: (capability: CreativeModelOption["capability"]) => void;
-    onChangeGenerationPreference: (capability: CreativeModelOption["capability"], patch: Record<string, string | number | boolean>) => void;
+    onChangeGenerationCapability: (capability: CreativeGenerationMode) => void;
+    onChangeGenerationPreference: (capability: CreativeGenerationMode, patch: Record<string, string | number | boolean>) => void;
     onSelectVideoFrame: (role: Extract<VideoReferenceRole, "first_frame" | "last_frame">, assetId: string) => void;
     onUploadVideoFrame: (role: Extract<VideoReferenceRole, "first_frame" | "last_frame">) => void;
     onRemoveVideoFrame: (role: Extract<VideoReferenceRole, "first_frame" | "last_frame">) => void;
@@ -121,6 +125,7 @@ export function CreativeComposer({
     const skillCategories = skillCategoryOptions(skills);
     const visibleSkills = skills.filter((skill) => matchesSkillCategory(skill, skillCategory));
     const currentMode = creativeModeOptions.find((option) => option.value === creationMode) || creativeModeOptions[0];
+    const availableModeOptions = useMemo(() => creativeModeOptions.filter((option) => option.value === "agent" || models.some((model) => model.capability === option.value)), [models]);
     const videoPreference = generationPreferences.video;
     const frameMode = videoPreference?.referenceMode || "reference";
     const showVideoFrames = shouldShowVideoFrameControls(creationMode, generationPreferences);
@@ -309,13 +314,13 @@ export function CreativeComposer({
                             aria-label="引用当前对话资产"
                         />
                     </Tooltip>
-                    <Tooltip title="优化提示词">
+                    <Tooltip title={submitDisabled ? submitDisabledReason : "优化提示词"}>
                         <Button
                             type="text"
                             className="!size-11 !min-w-11 !shrink-0 !rounded-xl !text-[#66717e] hover:!bg-[#f2f4f6] hover:!text-[#20242a] disabled:!bg-transparent disabled:!text-[#b3bac4] dark:!text-[#a3acb7] dark:hover:!bg-[#292f37] dark:hover:!text-white dark:disabled:!text-[#5f6873]"
                             icon={<WandSparkles className="size-4" />}
                             loading={optimizing}
-                            disabled={busy || !value.trim()}
+                            disabled={busy || submitDisabled || !value.trim()}
                             onClick={(event) => {
                                 event.stopPropagation();
                                 onOptimize();
@@ -323,13 +328,13 @@ export function CreativeComposer({
                             aria-label={optimizing ? "正在优化提示词" : "优化提示词"}
                         />
                     </Tooltip>
-                    <Tooltip title={busy ? "停止生成" : "发送"}>
+                    <Tooltip title={busy ? "停止生成" : submitDisabled ? submitDisabledReason : "发送"}>
                         <Button
                             type="primary"
                             shape="circle"
                             className="!size-11 !min-w-11 !shrink-0 !border-0 !bg-[linear-gradient(135deg,#5968ff,#604dff)] !text-white !shadow-[0_6px_16px_rgba(89,104,255,0.22)] hover:!bg-[linear-gradient(135deg,#5261f3,#5846ee)] disabled:!bg-none disabled:!bg-[#e2e5e8] disabled:!text-[#aeb5bd] disabled:!shadow-none dark:disabled:!bg-[#30353c] dark:disabled:!text-[#68717d]"
                             icon={busy ? <Square className="size-3.5 fill-current" /> : <ArrowUp className="size-4" />}
-                            disabled={!busy && !value.trim()}
+                            disabled={!busy && (submitDisabled || !value.trim())}
                             onClick={busy ? onCancel : onSubmit}
                             aria-label={busy ? "停止生成" : "发送"}
                         />
@@ -353,13 +358,13 @@ export function CreativeComposer({
                                 <span className="grid size-5 shrink-0 place-items-center rounded-md bg-[#d3a44f]/16 text-[#95681d] dark:bg-[#e4bb70]/14 dark:text-[#e4bb70]">
                                     <Sparkles className="size-3.5" />
                                 </span>
-                                <span className="truncate">Skill · {selectedSkill.name}</span>
+                                <span className="truncate">创作能力 · {selectedSkill.name}</span>
                                 <button
                                     type="button"
                                     className="grid size-5 shrink-0 place-items-center rounded-md text-[#7c8795] transition hover:bg-[#dfe5ec] hover:text-[#263141] dark:text-[#aab3bf] dark:hover:bg-[#343c46] dark:hover:text-white"
                                     onClick={onRemoveSkill}
-                                    aria-label={`移除 Skill ${selectedSkill.name}`}
-                                    title="移除 Skill"
+                                    aria-label={`移除创作能力 ${selectedSkill.name}`}
+                                    title="移除创作能力"
                                 >
                                     <X className="size-3" />
                                 </button>
@@ -434,7 +439,7 @@ export function CreativeComposer({
                                 <div className="hide-scrollbar max-h-[calc(100vh-160px)] w-[calc(100vw-56px)] max-w-[300px] overflow-y-auto py-1 sm:w-72 sm:max-w-none">
                                     <p className="px-2 pb-2 text-sm font-semibold text-[#20242a] dark:text-[#f3f5f7]">创作类型</p>
                                     <div className="space-y-1">
-                                        {creativeModeOptions.map((option) => {
+                                        {availableModeOptions.map((option) => {
                                             const selected = option.value === creationMode;
                                             return (
                                                 <button
@@ -515,16 +520,16 @@ export function CreativeComposer({
                             onOpenChange={setSkillPickerOpen}
                             content={
                                 <div className="w-[calc(100vw-56px)] max-w-[300px] py-1 sm:w-80 sm:max-w-none">
-                                    <p className="px-2 pb-2 text-sm font-semibold text-[#20242a] dark:text-[#f3f5f7]">选择创作 Skill</p>
+                                    <p className="px-2 pb-2 text-sm font-semibold text-[#20242a] dark:text-[#f3f5f7]">选择创作能力</p>
                                     {skillsLoading ? <p className="px-2 py-3 text-xs text-[#8b949f] dark:text-[#7f8996]">正在加载...</p> : null}
-                                    {!skillsLoading && !skills.length ? <p className="px-2 py-3 text-xs text-[#8b949f] dark:text-[#7f8996]">暂无可用 Skill</p> : null}
+                                    {!skillsLoading && !skills.length ? <p className="px-2 py-3 text-xs text-[#8b949f] dark:text-[#7f8996]">暂无可用创作能力</p> : null}
                                     {skills.length ? (
                                         <div className="mb-2 grid grid-cols-[28px_minmax(0,1fr)_28px] items-center gap-1">
                                             <button
                                                 type="button"
                                                 className="grid size-7 place-items-center rounded-md text-[#7c8794] transition hover:bg-[#eef1f4] hover:text-[#20242a] disabled:cursor-default disabled:opacity-30 dark:text-[#929ca8] dark:hover:bg-[#292f37] dark:hover:text-white"
                                                 onClick={() => skillCategoryScrollRef.current?.scrollBy({ left: -180, behavior: "smooth" })}
-                                                aria-label="向左查看更多 Skill 分类"
+                                                aria-label="向左查看更多能力分类"
                                             >
                                                 <ChevronLeft className="size-4" />
                                             </button>
@@ -534,7 +539,7 @@ export function CreativeComposer({
                                                 onWheel={scrollHorizontalCategories}
                                                 {...skillCategoryDragScrollProps}
                                                 role="tablist"
-                                                aria-label="Skill 分类，可左右滑动查看更多"
+                                                aria-label="能力分类，可左右滑动查看更多"
                                             >
                                                 {skillCategories.map((category) => (
                                                     <button
@@ -558,7 +563,7 @@ export function CreativeComposer({
                                                 type="button"
                                                 className="grid size-7 place-items-center rounded-md text-[#7c8794] transition hover:bg-[#eef1f4] hover:text-[#20242a] dark:text-[#929ca8] dark:hover:bg-[#292f37] dark:hover:text-white"
                                                 onClick={() => skillCategoryScrollRef.current?.scrollBy({ left: 180, behavior: "smooth" })}
-                                                aria-label="向右查看更多 Skill 分类"
+                                                aria-label="向右查看更多能力分类"
                                             >
                                                 <ChevronRight className="size-4" />
                                             </button>
@@ -566,7 +571,7 @@ export function CreativeComposer({
                                     ) : null}
                                     <div className="relative">
                                         <div className="hide-scrollbar max-h-[142px] space-y-1 overflow-y-auto overscroll-contain [scrollbar-width:none] sm:max-h-[154px] [&::-webkit-scrollbar]:hidden">
-                                            {!skillsLoading && skills.length && !visibleSkills.length ? <p className="px-2 py-5 text-center text-xs text-[#8b949f] dark:text-[#7f8996]">当前分类暂无可用 Skill</p> : null}
+                                            {!skillsLoading && skills.length && !visibleSkills.length ? <p className="px-2 py-5 text-center text-xs text-[#8b949f] dark:text-[#7f8996]">当前分类暂无可用创作能力</p> : null}
                                             {visibleSkills.map((skill) => {
                                                 const selected = selectedSkill?.id === skill.id;
                                                 const visual = skillOptionVisual(skill);
@@ -600,17 +605,17 @@ export function CreativeComposer({
                                 </div>
                             }
                         >
-                            <Button type="text" className={creativeComposerToolButtonClass(skillPickerOpen)} icon={<Boxes className="size-4" />} aria-label="选择创作 Skill" aria-haspopup="menu" aria-expanded={skillPickerOpen}>
-                                <span className="hidden text-xs font-medium sm:inline">使用 Skill</span>
+                            <Button type="text" className={creativeComposerToolButtonClass(skillPickerOpen)} icon={<Boxes className="size-4" />} aria-label="选择创作能力" aria-haspopup="menu" aria-expanded={skillPickerOpen}>
+                                <span className="hidden text-xs font-medium sm:inline">创作能力</span>
                             </Button>
                         </Popover>
-                        <Tooltip title="优化提示词">
+                        <Tooltip title={submitDisabled ? submitDisabledReason : "优化提示词"}>
                             <Button
                                 type="text"
                                 className={creativeComposerToolButtonClass(false)}
                                 icon={<WandSparkles className="size-4" />}
                                 loading={optimizing}
-                                disabled={busy || !value.trim()}
+                                disabled={busy || submitDisabled || !value.trim()}
                                 onClick={onOptimize}
                                 aria-label={optimizing ? "正在优化提示词" : "优化提示词"}
                             >
@@ -618,13 +623,13 @@ export function CreativeComposer({
                             </Button>
                         </Tooltip>
                     </div>
-                    <Tooltip title={busy ? "停止生成" : "发送"}>
+                    <Tooltip title={busy ? "停止生成" : submitDisabled ? submitDisabledReason : "发送"}>
                         <Button
                             type="primary"
                             shape="circle"
                             className="shrink-0 !size-11 !min-w-11 !border-0 !bg-[#20242a] !text-white shadow-none hover:!bg-[#343b44] disabled:!bg-[#e2e5e8] disabled:!text-[#aeb5bd] dark:!bg-[#f1f3f5] dark:!text-[#20242a] dark:hover:!bg-white dark:disabled:!bg-[#30353c] dark:disabled:!text-[#68717d]"
                             icon={busy ? <Square className="size-3.5 fill-current" /> : <ArrowUp className="size-4" />}
-                            disabled={!busy && !value.trim()}
+                            disabled={!busy && (submitDisabled || !value.trim())}
                             onClick={busy ? onCancel : onSubmit}
                             aria-label={busy ? "停止生成" : "发送"}
                         />

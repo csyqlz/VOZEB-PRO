@@ -1,10 +1,11 @@
 "use client";
 
-import { ArrowUpRight, CheckCircle2, FileImage, LoaderCircle, Maximize2, Paperclip, RefreshCw, Sparkles, Video } from "lucide-react";
+import { ArrowUpRight, CheckCircle2, Clock3, Download, FileImage, LoaderCircle, Maximize2, Paperclip, RefreshCw, Sparkles, Video } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { AgentMediaPreview } from "@/components/agent/agent-media-preview";
+import { downloadAgentMedia } from "@/components/agent/agent-media-download";
 import { browserReadableMediaUrl } from "@/lib/browser-media-url";
 import type { CreateOverviewAsset, CreateOverviewMedia, CreateOverviewTask } from "@/lib/create-workbench-overview";
 import { imagePreviewUrl } from "@/lib/media-image-url";
@@ -21,6 +22,14 @@ const recentAssetVisibilityClasses = ["", "", "hidden sm:block", "hidden lg:bloc
 export function CreateWorkbenchOverview({ onUseAsset }: { onUseAsset: (asset: CreateOverviewAsset) => Promise<void> }) {
     const { latestProject, runningTasks, recentAssets, loading, error, reload } = useCreateWorkbenchOverview();
     const [importingAssetId, setImportingAssetId] = useState("");
+    const [now, setNow] = useState(() => Date.now());
+    const availableRecentAssets = recentAssets.filter((asset) => Date.parse(asset.expiresAt) > now);
+
+    useEffect(() => {
+        if (!recentAssets.length) return;
+        const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+        return () => window.clearInterval(timer);
+    }, [recentAssets]);
 
     const importAsset = async (asset: CreateOverviewAsset) => {
         setImportingAssetId(asset.id);
@@ -31,32 +40,43 @@ export function CreateWorkbenchOverview({ onUseAsset }: { onUseAsset: (asset: Cr
         }
     };
 
+    const downloadAll = () => {
+        downloadAgentMedia(availableRecentAssets.map((asset) => ({ type: asset.kind, url: asset.url, title: asset.title })));
+    };
+
     return (
         <div className="mt-3 w-full space-y-3 pb-3 sm:mt-12 sm:space-y-9 sm:pb-8">
             <section aria-labelledby="create-assets-heading">
                 <div className="flex items-end justify-between gap-3 border-b border-[#e8ebef] pb-3 dark:border-[#292d33]">
                     <div>
                         <h2 id="create-assets-heading" className={sectionTitleClass}>
-                            最近生成
+                            临时下载区
                         </h2>
-                        <p className={sectionHintClass}>点击图片或视频可直接放大查看</p>
+                        <p className={sectionHintClass}>生成图片和视频仅保留 24 小时，请及时下载到本地</p>
                     </div>
-                    <Link href="/assets" className="inline-flex shrink-0 items-center gap-1 text-xs text-[#697381] transition hover:text-[#20242a] dark:text-[#9aa3af] dark:hover:text-white">
-                        查看素材库 <ArrowUpRight className="size-3.5" />
-                    </Link>
+                    <div className="flex shrink-0 items-center gap-3">
+                        {availableRecentAssets.length ? (
+                            <button type="button" onClick={downloadAll} className="inline-flex items-center gap-1 text-xs font-medium text-[#334155] transition hover:text-[#111827] dark:text-[#dce1e7] dark:hover:text-white" aria-label={`下载全部最近生成，共 ${availableRecentAssets.length} 个`}>
+                                <Download className="size-3.5" /> 下载全部
+                            </button>
+                        ) : null}
+                        <Link href="/assets" className="inline-flex items-center gap-1 text-xs text-[#697381] transition hover:text-[#20242a] dark:text-[#9aa3af] dark:hover:text-white">
+                            查看素材库 <ArrowUpRight className="size-3.5" />
+                        </Link>
+                    </div>
                 </div>
                 {loading ? <OverviewLoading label="正在读取最近生成..." /> : null}
                 {!loading && error ? <OverviewError message={error} onRetry={reload} /> : null}
-                {!loading && !error && recentAssets.length ? (
+                {!loading && !error && availableRecentAssets.length ? (
                     <div className="grid grid-cols-2 gap-2 pt-2 sm:grid-cols-3 sm:gap-3 sm:pt-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
-                        {recentAssets.slice(0, recentAssetVisibilityClasses.length).map((asset, index) => (
+                        {availableRecentAssets.slice(0, recentAssetVisibilityClasses.length).map((asset, index) => (
                             <div key={asset.id} className={recentAssetVisibilityClasses[index]}>
-                                <RecentAssetCard asset={asset} importing={importingAssetId === asset.id} onUse={() => void importAsset(asset)} />
+                                <RecentAssetCard asset={asset} importing={importingAssetId === asset.id} now={now} onUse={() => void importAsset(asset)} />
                             </div>
                         ))}
                     </div>
                 ) : null}
-                {!loading && !error && !recentAssets.length ? <OverviewEmpty label="完成一次图片或视频生成后，结果会出现在这里" /> : null}
+                {!loading && !error && !availableRecentAssets.length ? <OverviewEmpty label="当前没有可下载的临时素材；到期素材会自动清理并从这里消失" /> : null}
             </section>
 
             <section aria-labelledby="create-projects-heading">
@@ -98,7 +118,7 @@ function LatestProjectCard({ project, loading, error, onRetry }: { project?: Ret
     if (!project)
         return (
             <div className={cn(panelClass, "flex h-32 items-center p-2.5 sm:h-44 sm:p-4")}>
-                <OverviewEmpty label="创建第一个 Canvas 项目后，会在这里继续" compact />
+                <OverviewEmpty label="创建第一个画布项目后，会在这里继续" compact />
             </div>
         );
 
@@ -154,7 +174,8 @@ function CanvasProjectCover({ previews }: { previews: CreateOverviewMedia[] }) {
     );
 }
 
-function RecentAssetCard({ asset, importing, onUse }: { asset: CreateOverviewAsset; importing: boolean; onUse: () => void }) {
+function RecentAssetCard({ asset, importing, now, onUse }: { asset: CreateOverviewAsset; importing: boolean; now: number; onUse: () => void }) {
+    const remaining = formatRemainingTime(asset.expiresAt, now);
     return (
         <div className="group min-w-0 overflow-hidden rounded-lg border border-[#e2e7eb] bg-white transition hover:border-[#cbd2d9] hover:shadow-[0_8px_20px_rgba(32,36,42,0.08)] dark:border-[#2b3037] dark:bg-[#181b20] dark:hover:border-[#3b424c] dark:hover:shadow-black/25">
             <div className="relative overflow-hidden bg-[#eef1f4] dark:bg-[#252a31]">
@@ -165,15 +186,25 @@ function RecentAssetCard({ asset, importing, onUse }: { asset: CreateOverviewAss
             </div>
             <div className="min-w-0 px-2.5 py-2">
                 <p className="truncate text-xs font-medium text-[#343b44] dark:text-[#dce1e7]">{asset.title}</p>
-                <div className="mt-1 flex min-w-0 items-center justify-between gap-2">
-                    <p className="min-w-0 truncate text-[11px] text-[#9aa2ad] dark:text-[#737d89]">{formatRecentTime(asset.createdAt)}</p>
+                <p className="mt-1 flex min-w-0 items-center gap-1 text-[11px] text-[#9aa2ad] dark:text-[#737d89]" title={`生成于 ${formatRecentTime(asset.createdAt)}`}>
+                    <Clock3 className="size-3 shrink-0" /> <span className="truncate">{remaining}后清理</span>
+                </p>
+                <div className="mt-2 grid grid-cols-[minmax(0,1fr)_30px] gap-1.5">
+                    <button
+                        type="button"
+                        className="inline-flex h-8 min-w-0 items-center justify-center gap-1.5 rounded-md bg-[#20242a] px-2 text-xs font-medium text-white transition hover:bg-[#343b44] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 dark:bg-[#f3f5f7] dark:text-[#20242a] dark:hover:bg-white"
+                        onClick={() => downloadAgentMedia([{ type: asset.kind, url: asset.url, title: asset.title }])}
+                        aria-label={`下载：${asset.title}`}
+                    >
+                        <Download className="size-3.5" /> 下载
+                    </button>
                     <button
                         type="button"
                         disabled={importing}
-                        className="ml-auto grid size-7 shrink-0 place-items-center rounded-md text-[#596470] transition hover:bg-[#eef1f4] hover:text-[#20242a] disabled:cursor-wait disabled:opacity-60 dark:text-[#aab2bd] dark:hover:bg-[#252a31] dark:hover:text-white"
+                        className="grid size-[30px] place-items-center rounded-md text-[#596470] transition hover:bg-[#eef1f4] hover:text-[#20242a] disabled:cursor-wait disabled:opacity-60 dark:text-[#aab2bd] dark:hover:bg-[#252a31] dark:hover:text-white"
                         onClick={onUse}
-                        aria-label="引用到 Agent"
-                        title="引用到 Agent"
+                        aria-label="引用到智能创作"
+                        title="引用到智能创作"
                     >
                         {importing ? <LoaderCircle className="size-3.5 animate-spin" /> : <Paperclip className="size-3.5" />}
                     </button>
@@ -259,4 +290,13 @@ function formatRecentTime(value: string) {
     const time = Date.parse(value);
     if (!Number.isFinite(time)) return "刚刚";
     return new Date(time).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+function formatRemainingTime(expiresAt: string, now: number) {
+    const remainingMs = Math.max(0, Date.parse(expiresAt) - now);
+    const totalMinutes = Math.ceil(remainingMs / 60_000);
+    if (totalMinutes < 1) return "不足 1 分钟";
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return hours ? `${hours}小时${minutes ? `${minutes}分钟` : ""}` : `${minutes}分钟`;
 }

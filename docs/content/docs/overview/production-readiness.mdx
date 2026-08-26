@@ -1,6 +1,6 @@
 ---
 title: 生产上线基线
-description: VOZEB PRO 商业部署前的健康检查、调度、备份、监控、支付与合规清单
+description: 星启智域 商业部署前的健康检查、调度、备份、监控、支付与合规清单
 ---
 
 # 生产上线基线
@@ -33,7 +33,7 @@ description: VOZEB PRO 商业部署前的健康检查、调度、备份、监控
 ```bash
 curl -fsS -X POST \
   -H "Authorization: Bearer $VOZEB_PRO_MAINTENANCE_TOKEN" \
-  https://vozeb-pro.example.com/api/maintenance/billing-orders/expire
+  https://games.xingqizhiyu.cn/api/maintenance/billing-orders/expire
 ```
 
 宝塔使用计划任务，Docker 使用宿主机 Cron，云平台使用 Scheduler。任务可以重复执行，多实例会通过数据库锁避免重复关闭订单。

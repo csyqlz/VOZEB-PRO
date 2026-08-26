@@ -8,6 +8,7 @@ import { AgentMessageActions } from "@/components/agent/agent-message-actions";
 import { AgentMarkdown } from "@/components/agent/agent-markdown";
 import { AgentMediaPreview } from "@/components/agent/agent-media-preview";
 import { SiteLogo } from "@/components/layout/site-logo";
+import { MediaRetentionNotice } from "@/components/media/media-retention-notice";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { clipboardImageFiles } from "@/lib/clipboard-image-files";
 import { droppedFiles, leftDropTarget, preventFileDragEvent } from "@/lib/file-drop";
@@ -143,6 +144,7 @@ export function AgentChatMessage({
                     </button>
                 ) : null}
                 {item.attachments?.length ? <AgentMessageAttachments attachments={item.attachments} /> : null}
+                {item.attachments?.length ? <MediaRetentionNotice className="max-w-full" /> : null}
                 {item.meta ? <div className="mt-1 text-[11px] opacity-45">{item.meta}</div> : null}
                 <AgentMessageActions
                     text={item.text}
@@ -555,7 +557,7 @@ export function AgentPanelTabs<T extends string>({
     return (
         <div className="border-b px-3" style={{ borderColor: theme.node.stroke }}>
             <div className="flex min-h-11 items-center justify-between gap-3">
-                <nav className="thin-scrollbar flex min-w-0 flex-1 items-center gap-3 overflow-x-auto text-sm" role="tablist" aria-label="Agent 面板">
+                <nav className="thin-scrollbar flex min-w-0 flex-1 items-center gap-3 overflow-x-auto text-sm" role="tablist" aria-label="智能助手面板">
                     {items.map((item) => (
                         <button
                             key={item.value}
@@ -589,7 +591,7 @@ function AgentDetailBlock({ detail, theme }: { detail: unknown; theme: (typeof c
 function AgentAvatar({ theme }: { theme: (typeof canvasThemes)[keyof typeof canvasThemes] }) {
     const site = usePublicSessionStore((state) => state.payload?.settings?.site) || { title: DEFAULT_SITE_TITLE, logoUrl: "/logo.svg" };
     return (
-        <span className="grid size-8 shrink-0 place-items-center" role="img" aria-label={`${resolveSiteTitle(site.title)} Agent`} style={{ color: theme.node.text }}>
+        <span className="grid size-8 shrink-0 place-items-center" role="img" aria-label={`${resolveSiteTitle(site.title)} 智能助手`} style={{ color: theme.node.text }}>
             <SiteLogo logoUrl={site.logoUrl} className="size-5" />
         </span>
     );

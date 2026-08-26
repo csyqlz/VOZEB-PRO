@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { NextResponse } from "next/server";
 
-import { consumeUserPoints, getAuthSettings, isAuthInputError, isQuotaExceededError, refundUserPoints, type ApiCallFormat, type GenerationPointMultipliers, type PointUsageKind } from "@/lib/auth/store";
+import { consumeUserPoints, getAuthSettings, isAuthInputError, isQuotaExceededError, refundUserPoints, settleUserTokenCharge, type ApiCallFormat, type GenerationPointMultipliers, type PointUsageKind } from "@/lib/auth/store";
 import { getCurrentUser } from "@/lib/auth/session";
 import { DEFAULT_CHANNEL_CONNECT_ERROR } from "@/lib/server/generation-errors";
 import { UnsupportedMediaContentError } from "@/lib/server/media-content-validation";
@@ -23,6 +23,8 @@ import { authorizedWorkerUserId } from "@/lib/server/maintenance-auth";
 import { authorizeGenerationMediaProxyRequest } from "@/lib/server/generation-media-access";
 import { userOwnsGenerationUpstreamTask } from "@/lib/server/generation-task-authorization";
 import { authorizeSystemAiProxyRequest } from "@/lib/server/system-ai-proxy-policy";
+import { chargeFromUsage, estimateTextCharge, extractTokenUsage, resolveTextPricing } from "@/lib/server/text-token-billing";
+import { effectiveBillingUnit, resolveLogicalModelPricing } from "@/lib/model-pricing";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,6 +37,7 @@ type RouteContext = {
 };
 type PointsRequest = { model: string; amount: number; usageKind: PointUsageKind };
 type ProxyRequestBody = { body?: BodyInit; pointsPayload?: ArrayBuffer | Record<string, unknown>; bodyDigest: string };
+type TokenSettlement = { pricing: ReturnType<typeof resolveTextPricing>; reservedCost: number; actualCost?: number; usage?: ReturnType<typeof extractTokenUsage> };
 const MAX_PROXY_BODY_BYTES = 4 * 1024 * 1024;
 const MAX_PROXY_MULTIPART_BYTES = 25 * 1024 * 1024;
 const SYSTEM_MEDIA_TIMEOUT_MS = 30 * 1000;
@@ -98,8 +101,8 @@ async function proxySystemRequest(request: Request, context: RouteContext) {
     const globalPreset = resolveGlobalAiOpcPreset(channel.advancedConfig, upstreamModel) || resolveGlobalAiOpcPathPreset(channel.advancedConfig, path);
     const globalAdaptation = adaptGlobalAiOpcTextRequest(channel.advancedConfig, path, requestBody.body);
     if (globalAdaptation === "responses-unsupported") return NextResponse.json({ error: "该 GlobalAiOpc 原生文本接口不支持 Responses，已切换 Chat 兼容回退。" }, { status: 404 });
-    const pointsRequest =
-        classifyPointsRequest(request.method, apiFormat, path, contentType, requestBody.pointsPayload, settings.generationPointMultipliers) ||
+    let pointsRequest =
+        classifyPointsRequest(request.method, apiFormat, path, contentType, requestBody.pointsPayload, settings.generationPointMultipliers, settings.logicalModels, channel.id) ||
         classifyConfiguredPointsRequest(
             request.method,
             path,
@@ -133,6 +136,19 @@ async function proxySystemRequest(request: Request, context: RouteContext) {
         },
     });
     if (!access.allowed) return NextResponse.json({ error: access.error }, { status: access.status });
+    const billingModel = access.logicalModelId || upstreamModel;
+    const billingPricing = pointsRequest?.usageKind === "video" ? resolveLogicalModelPricing(settings.logicalModels, billingModel, channel.id) : undefined;
+    const billingUnit = billingPricing ? effectiveBillingUnit("video", billingPricing.billingUnit) : undefined;
+    const requestPayload = readRequestBody(contentType, requestBody.pointsPayload);
+    const tokenPricing = pointsRequest?.usageKind === "text" ? resolveTextPricing(settings.logicalModels, billingModel, channel.id) : undefined;
+    let tokenSettlement: TokenSettlement | null = null;
+    if (pointsRequest?.usageKind === "text" && tokenPricing) {
+        const estimate = estimateTextCharge({ logicalModels: settings.logicalModels, model: billingModel, channelId: channel.id, body: requestPayload });
+        if (estimate !== undefined) {
+            pointsRequest = { ...pointsRequest, amount: estimate };
+            tokenSettlement = { pricing: tokenPricing, reservedCost: estimate };
+        }
+    }
     if (access.operation !== "create") {
         const owned = await userOwnsGenerationUpstreamTask({ userId, capability: access.capability, channelId: channel.id, upstreamModel, upstreamTaskId: access.upstreamTaskId });
         if (!owned) return NextResponse.json({ error: "任务不存在或无权访问" }, { status: 404 });
@@ -175,7 +191,10 @@ async function proxySystemRequest(request: Request, context: RouteContext) {
     };
     if (pointsRequest) {
         try {
-            pointsResult = await consumeUserPoints(userId, access.logicalModelId, pointsRequest.amount, pointsRequest.usageKind, pointsIdempotencyKey, requestFingerprint);
+            const billingContext = billingPricing || tokenPricing ? { channelId: channel.id, upstreamModel } : undefined;
+            pointsResult = billingContext
+                ? await consumeUserPoints(userId, access.logicalModelId, pointsRequest.amount, pointsRequest.usageKind, pointsIdempotencyKey, requestFingerprint, undefined, billingContext)
+                : await consumeUserPoints(userId, access.logicalModelId, pointsRequest.amount, pointsRequest.usageKind, pointsIdempotencyKey, requestFingerprint);
         } catch (error) {
             if (isQuotaExceededError(error)) return NextResponse.json({ error: error.message }, { status: error.status });
             if (isAuthInputError(error)) return NextResponse.json({ error: error.message }, { status: error.status });
@@ -208,17 +227,56 @@ async function proxySystemRequest(request: Request, context: RouteContext) {
         return NextResponse.json({ error: "上游接口不允许重定向，请检查后台渠道地址" }, { status: 502, headers: responseHeaders(new Headers(), null, refundedPointsRemaining) });
     }
     if (upstream.ok) pointsSettled = true;
+    let settledTextCost: number | undefined;
+    if (upstream.ok && tokenSettlement && pointsResult?.recordId) {
+        const bytes = await upstream.arrayBuffer();
+        const text = new TextDecoder().decode(bytes);
+        const usage = extractTokenUsage(upstream.headers.get("content-type")?.includes("json") ? parseJson(text) : text);
+        if (usage) {
+            const actualCost = chargeFromUsage(tokenSettlement.pricing, usage);
+            if (actualCost !== undefined) {
+                tokenSettlement.actualCost = actualCost;
+                tokenSettlement.usage = usage;
+                settledTextCost = actualCost;
+                try {
+                    await settleUserTokenCharge({
+                        userId,
+                        model: pointsResult.model,
+                        reservedCost: tokenSettlement.reservedCost,
+                        actualCost,
+                        sourceRecordId: pointsResult.recordId,
+                        businessRequestId,
+                        requestFingerprint,
+                        usage,
+                        saleRates: tokenSettlement.pricing,
+                    });
+                } catch (error) {
+                    console.error("Token billing settlement failed; reservation retained", error instanceof Error ? error.message : error);
+                    settledTextCost = tokenSettlement.reservedCost;
+                }
+            }
+        }
+        upstream = new Response(bytes, { status: upstream.status, statusText: upstream.statusText, headers: upstream.headers });
+    }
     if (globalAdaptation && upstream.ok) {
         const payload = await upstream.json().catch(() => null);
-        if (!payload) return NextResponse.json({ error: "上游文本接口返回了无效 JSON" }, { status: 502, headers: responseHeaders(upstream.headers, pointsResult, refundedPointsRemaining, target) });
-        return NextResponse.json(adaptGlobalAiOpcTextResponse(globalAdaptation.adapter, payload), { status: upstream.status, headers: responseHeaders(upstream.headers, pointsResult, refundedPointsRemaining, target) });
+        if (!payload) return NextResponse.json({ error: "上游文本接口返回了无效 JSON" }, { status: 502, headers: responseHeaders(upstream.headers, pointsResult, refundedPointsRemaining, target, settledTextCost, billingUnit) });
+        return NextResponse.json(adaptGlobalAiOpcTextResponse(globalAdaptation.adapter, payload), { status: upstream.status, headers: responseHeaders(upstream.headers, pointsResult, refundedPointsRemaining, target, settledTextCost, billingUnit) });
     }
 
     return new Response(upstream.body, {
         status: upstream.status,
         statusText: upstream.statusText,
-        headers: responseHeaders(upstream.headers, pointsResult, refundedPointsRemaining, target),
+        headers: responseHeaders(upstream.headers, pointsResult, refundedPointsRemaining, target, settledTextCost, billingUnit),
     });
+}
+
+function parseJson(value: string) {
+    try {
+        return JSON.parse(value) as unknown;
+    } catch {
+        return value;
+    }
 }
 
 function channelHasModel(models: string[], requested: string) {
@@ -411,7 +469,16 @@ function emptyBodyDigest() {
     return digestBytes(new Uint8Array());
 }
 
-function classifyPointsRequest(method: string, apiFormat: ApiCallFormat, path: string[], contentType: string | null, body?: ArrayBuffer | Record<string, unknown>, multipliers?: GenerationPointMultipliers): PointsRequest | null {
+function classifyPointsRequest(
+    method: string,
+    apiFormat: ApiCallFormat,
+    path: string[],
+    contentType: string | null,
+    body?: ArrayBuffer | Record<string, unknown>,
+    multipliers?: GenerationPointMultipliers,
+    logicalModels?: Awaited<ReturnType<typeof getAuthSettings>>["logicalModels"],
+    channelId = "",
+): PointsRequest | null {
     if (method.toUpperCase() !== "POST") return null;
     const cleanPath = path[0] === "v1" || path[0] === "v1beta" ? path.slice(1) : path;
     const routePath = `/${cleanPath.join("/")}`.toLowerCase();
@@ -424,10 +491,10 @@ function classifyPointsRequest(method: string, apiFormat: ApiCallFormat, path: s
     }
     if (routePath === "/audio/speech") return { model, amount: 1, usageKind: "audio" };
     if (routePath === "/videos" || routePath === "/video/generations" || routePath === "/videos/generations" || routePath === "/videos/videos" || routePath === "/contents/generations/tasks") {
-        return { model, amount: videoParameterMultiplier(payload, multipliers), usageKind: "video" };
+        return { model, amount: videoBillingAmount(payload, multipliers, logicalModels, channelId, model), usageKind: "video" };
     }
     if (apiFormat === "gemini" && /^\/models\/[^/]+:predictlongrunning$/i.test(routePath)) {
-        return { model, amount: videoParameterMultiplier(payload, multipliers), usageKind: "video" };
+        return { model, amount: videoBillingAmount(payload, multipliers, logicalModels, channelId, model), usageKind: "video" };
     }
     if (routePath === "/responses") {
         const isImage = hasResponsesImageGenerationTool(payload);
@@ -459,7 +526,7 @@ function classifyConfiguredPointsRequest(
     if (!model) return null;
     const capability = logicalModels.find((logical) => logical.enabled && logical.bindings.some((binding) => binding.enabled && binding.channelId === channelId && sameModel(binding.upstreamModel, model)))?.capability;
     if (capability === "image") return { model, amount: readRequestCount(payload) * imageQualityMultiplier(payload, multipliers), usageKind: "image" };
-    if (capability === "video") return { model, amount: videoParameterMultiplier(payload, multipliers), usageKind: "video" };
+    if (capability === "video") return { model, amount: videoBillingAmount(payload, multipliers, logicalModels, channelId, model), usageKind: "video" };
     if (capability === "audio") return { model, amount: 1, usageKind: "audio" };
     return capability === "text" ? { model, amount: 1, usageKind: "text" } : null;
 }
@@ -524,6 +591,20 @@ function videoParameterMultiplier(payload: Record<string, unknown>, multipliers?
         multiplierValue(multipliers?.videoQuality, normalizeVideoQualityKey(payload.resolution_name || payload.resolution || payload.quality || payload.vquality || parameters.resolution || parameters.quality || parameters.resolution_name)) *
         multiplierValue(multipliers?.videoSeconds, normalizeVideoSecondsKey(payload.duration || payload.seconds || parameters.durationSeconds || parameters.duration || parameters.seconds))
     );
+}
+
+function videoBillingAmount(payload: Record<string, unknown>, multipliers: GenerationPointMultipliers | undefined, logicalModels: Awaited<ReturnType<typeof getAuthSettings>>["logicalModels"] | undefined, channelId: string, model: string) {
+    const binding = logicalModels
+        ?.find((logical) => logical.enabled && logical.capability === "video" && logical.bindings.some((item) => item.enabled && item.channelId === channelId && sameModel(item.upstreamModel, model)))
+        ?.bindings.find((item) => item.enabled && item.channelId === channelId && sameModel(item.upstreamModel, model));
+    const configuredUnit = binding?.capabilityProfile?.pricing?.billingUnit;
+    if (configuredUnit === "per_second") {
+        const parameters = payload.parameters && typeof payload.parameters === "object" && !Array.isArray(payload.parameters) ? (payload.parameters as Record<string, unknown>) : {};
+        const seconds = Number(payload.duration || payload.seconds || parameters.durationSeconds || parameters.duration || parameters.seconds);
+        return Number.isFinite(seconds) && seconds > 0 ? Math.min(3600, seconds) : 5;
+    }
+    if (configuredUnit === "per_call") return 1;
+    return videoParameterMultiplier(payload, multipliers);
 }
 
 function multiplierValue(values: Record<string, number> | undefined, key: string) {
@@ -634,7 +715,14 @@ function normalizeApiBaseUrl(baseUrl: string, apiFormat: "openai" | "gemini", gl
     return `${normalized}/v1`;
 }
 
-function responseHeaders(headers: Headers, pointsResult?: Awaited<ReturnType<typeof consumeUserPoints>> | null, refundedPointsRemaining?: number | null, upstreamUrl?: string) {
+function responseHeaders(
+    headers: Headers,
+    pointsResult?: Awaited<ReturnType<typeof consumeUserPoints>> | null,
+    refundedPointsRemaining?: number | null,
+    upstreamUrl?: string,
+    settledTextCost?: number,
+    billingUnit?: "per_call" | "per_second" | "per_1m_tokens",
+) {
     const nextHeaders = new Headers();
     const passthrough = ["content-type", "cache-control", "content-disposition"];
     passthrough.forEach((key) => {
@@ -649,6 +737,9 @@ function responseHeaders(headers: Headers, pointsResult?: Awaited<ReturnType<typ
         nextHeaders.set("x-vozeb-pro-points-daily", String(pointsResult.dailyRemaining));
         nextHeaders.set("x-vozeb-pro-points-daily-expires-at", pointsResult.dailyExpiresAt);
         if (pointsResult.recordId) nextHeaders.set("x-vozeb-pro-points-record-id", pointsResult.recordId);
+        nextHeaders.set("x-vozeb-pro-currency", "CNY");
+        nextHeaders.set("x-vozeb-pro-billing-unit", pointsResult.usageKind === "text" ? "per_1m_tokens" : billingUnit === "per_second" ? "per_second" : "per_call");
+        nextHeaders.set("x-vozeb-pro-cny-cost", String(typeof settledTextCost === "number" ? settledTextCost : pointsResult.cost));
     } else if (typeof refundedPointsRemaining === "number") {
         nextHeaders.set("x-vozeb-pro-points-remaining", String(refundedPointsRemaining));
     }

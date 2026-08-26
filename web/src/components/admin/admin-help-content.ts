@@ -43,13 +43,13 @@ export const adminHelpArticles: AdminHelpArticle[] = [
             },
             {
                 title: "配置站点和模型能力",
-                description: "先设置站点名称与无限进化 Logo，再配置上游渠道、逻辑模型和默认文本模型。",
+                description: "先设置站点名称与星启智域 Logo，再配置上游渠道、逻辑模型和默认文本模型。",
                 checks: ["前台、登录页和后台品牌一致", "用户端文本调用成功", "已设置默认文本逻辑模型"],
             },
             {
-                title: "配置商品、积分和支付",
-                description: "创建可售套餐或积分商品，核对模型扣费，再按实际商户资质启用支付渠道。",
-                checks: ["至少一个商品已启用", "模型基础积分有明确规则", "支付回调地址与站点 HTTPS 域名一致"],
+                title: "配置商品、余额和支付",
+                description: "创建可售套餐或人民币余额商品，核对模型扣费，再按实际商户资质启用支付渠道。",
+                checks: ["至少一个商品已启用", "模型人民币价格有明确规则", "支付回调地址与站点 HTTPS 域名一致"],
             },
             {
                 title: "确定存储和恢复方案",
@@ -57,7 +57,7 @@ export const adminHelpArticles: AdminHelpArticle[] = [
                 checks: ["媒体写入测试成功", "数据目录或 Bucket 已持久化", "完成一次可复现的恢复演练"],
             },
         ],
-        checks: ["管理员、普通用户和禁用用户权限符合预期", "文本、图片和视频按实际启用能力完成一次真实调用", "下单、支付、积分入账、失败退款和媒体读取均有验证记录"],
+        checks: ["管理员、普通用户和禁用用户权限符合预期", "文本、图片和视频按实际启用能力完成一次真实调用", "下单、支付、余额入账、失败退款和媒体读取均有验证记录"],
         warnings: ["不要在模型、存储和支付尚未验证时开放公开注册或对外收费。", "数据库、媒体和加密密钥必须作为同一套恢复资产管理，缺少其中任何一项都不算可恢复。"],
         links: [
             { label: "初始化配置", description: "查看上线准备进度和下一项配置", href: "/admin/setup" },
@@ -78,13 +78,13 @@ export const adminHelpArticles: AdminHelpArticle[] = [
         steps: [
             {
                 title: "先看经营看板",
-                description: "关注活跃用户、收入、积分负债、请求趋势、成功率和模型分布是否出现异常变化。",
+                description: "关注活跃用户、收入、余额负债、请求趋势、成功率和模型分布是否出现异常变化。",
                 checks: ["统计时间范围明确", "收入与订单口径一致", "异常峰值能够定位到日期和模型"],
             },
             {
                 title: "按用户核对权限和权益",
-                description: "在用户运营中查看账号状态、角色、套餐和积分；人工调整前先确认业务原因。",
-                checks: ["未误改管理员角色", "套餐与积分调整有明确原因", "禁用用户无法继续创建任务"],
+                description: "在用户运营中查看账号状态、角色、套餐和人民币余额；人工调整前先确认业务原因。",
+                checks: ["未误改管理员角色", "套餐与余额调整有明确原因", "禁用用户无法继续创建任务"],
             },
             {
                 title: "从调用记录定位单次请求",
@@ -93,12 +93,12 @@ export const adminHelpArticles: AdminHelpArticle[] = [
             },
             {
                 title: "在生成运维处理任务",
-                description: "统一查看任务、会话、项目、渠道健康和积分成本，只有用户显式重试时才重新创建上游任务。",
+                description: "统一查看任务、会话、项目、渠道健康和人民币成本，只有用户显式重试时才重新创建上游任务。",
                 checks: ["没有重复创建同类上游任务", "失败记录仍可审计", "取消、超时和退款状态一致"],
             },
         ],
         checks: ["经营指标能够下钻到真实订单或任务", "用户权限、套餐和余额不存在明显错配", "失败任务有错误、退款和用户可见状态"],
-        warnings: ["不要为了清理列表直接删除仍用于审计、退款或媒体引用的记录。", "人工增加积分会改变财务负债，应保留原因并同步核对流水。"],
+        warnings: ["不要为了清理列表直接删除仍用于审计、退款或媒体引用的记录。", "人工增加人民币余额会改变财务负债，应保留原因并同步核对流水。"],
         links: [
             { label: "经营看板", description: "查看平台运营摘要", section: "overview" },
             { label: "用户运营", description: "管理用户状态与权益", section: "users" },
@@ -116,8 +116,8 @@ export const adminHelpArticles: AdminHelpArticle[] = [
         steps: [
             {
                 title: "先创建商品和日常价",
-                description: "设置商品名称、价格、积分或套餐权益、有效期和展示状态；日常价必须是真实可售价格。",
-                checks: ["价格单位和权益数量正确", "商品启停符合投放计划", "购买后可得到对应积分或套餐"],
+                description: "设置商品名称、人民币价格、余额或套餐权益、有效期和展示状态；日常价必须是真实可售价格。",
+                checks: ["价格单位和权益数量正确", "商品启停符合投放计划", "购买后可得到对应余额或套餐"],
             },
             {
                 title: "配置限时促销",
@@ -131,7 +131,7 @@ export const adminHelpArticles: AdminHelpArticle[] = [
             },
             {
                 title: "配置邀请奖励",
-                description: "在营销推广中设置邀请人积分、新用户积分或优惠券、首单最低实付、冷静期、月度/活动上限和风险冻结策略，再启用计划。",
+                description: "在营销推广中设置邀请人余额、新用户余额或优惠券、首单最低实付、冷静期、月度/活动上限和风险冻结策略，再启用计划。",
                 checks: ["奖励和门槛与获客成本预算一致", "优惠券有效期覆盖预计结算时间", "维护任务与人工结算入口可用"],
             },
             {
@@ -153,15 +153,15 @@ export const adminHelpArticles: AdminHelpArticle[] = [
     {
         id: "finance",
         category: "财务管理",
-        title: "积分、支付渠道、CDK 与财务流水",
-        summary: "统一核对模型扣费、支付配置、兑换码和资金及积分流水。",
-        keywords: ["积分", "模型单价", "倍率", "支付渠道", "Stripe", "支付宝", "微信支付", "PayPly", "CDK", "流水", "对账"],
-        purpose: "保证一次购买、生成、退款或兑换都能在订单、支付流水、积分流水和套餐用量之间相互核对。",
+        title: "人民币余额、支付渠道、CDK 与财务流水",
+        summary: "统一核对模型扣费、支付配置、兑换码和资金及余额流水。",
+        keywords: ["人民币余额", "模型单价", "倍率", "支付渠道", "Stripe", "支付宝", "微信支付", "PayPly", "CDK", "流水", "对账"],
+        purpose: "保证一次购买、生成、退款或兑换都能在订单、支付流水、余额流水和套餐用量之间相互核对。",
         steps: [
             {
-                title: "建立统一积分规则",
-                description: "按逻辑模型配置基础积分，并设置图片数量、视频时长、清晰度等参数倍率。",
-                checks: ["用户预计积分与服务端实际扣费使用同一规则", "免费调用也会记录幂等流水和套餐次数", "失败任务能撤销积分与套餐用量"],
+                title: "建立统一人民币价格规则",
+                description: "按逻辑模型配置成本价、销售价，并设置图片数量、视频时长、清晰度等参数倍率。",
+                checks: ["用户预计扣费与服务端实际扣费使用同一规则", "免费调用也会记录幂等流水和套餐次数", "失败任务能撤销余额与套餐用量"],
             },
             {
                 title: "配置并检测支付渠道",
@@ -170,22 +170,22 @@ export const adminHelpArticles: AdminHelpArticle[] = [
             },
             {
                 title: "发行和追踪 CDK",
-                description: "按活动或售后场景生成积分或套餐兑换码，设置次数、有效期和备注，明文仅在生成当次导出。",
+                description: "按活动或售后场景生成余额或套餐兑换码，设置次数、有效期和备注，明文仅在生成当次导出。",
                 checks: ["发放范围和数量可追踪", "过期或停用码不可兑换", "兑换用户和时间可核对"],
             },
             {
                 title: "每日核对财务流水",
-                description: "对比订单、支付渠道实收、退款、积分负债和异常对账项，发现差异后先保留证据再处理。",
+                description: "对比订单、支付渠道实收、退款、余额负债和异常对账项，发现差异后先保留证据再处理。",
                 checks: ["已支付订单存在成功支付流水", "退款订单的退款流水和权益状态一致", "人工调整有备注和责任人"],
             },
         ],
-        checks: ["支付回调具备幂等证据", "积分余额与流水汇总一致", "订单金额、支付实收和退款金额可相互核对"],
+        checks: ["支付回调具备幂等证据", "人民币余额与流水汇总一致", "订单金额、支付实收和退款金额可相互核对"],
         warnings: ["API Key、私钥、证书和 webhook secret 只能保存在服务端配置或环境变量中。", "不要通过直接改数据库修正账务；应使用已有业务入口并保留审计。"],
         links: [
-            { label: "积分规则", description: "配置模型价格与参数倍率", section: "points" },
+            { label: "人民币价格规则", description: "配置模型成本价、销售价与参数倍率", section: "points" },
             { label: "支付渠道", description: "管理商户配置和回调", section: "payments" },
             { label: "CDK 兑换", description: "生成和管理兑换码", section: "cdk" },
-            { label: "财务流水", description: "核对资金与积分变化", section: "wallet" },
+            { label: "财务流水", description: "核对资金与余额变化", section: "wallet" },
         ],
     },
     {
@@ -204,7 +204,7 @@ export const adminHelpArticles: AdminHelpArticle[] = [
             {
                 title: "同步逻辑模型和路由",
                 description: "按上游模型名自动生成逻辑模型；跨渠道同名模型自动合并，不同名模型保持独立，再维护能力、启停、优先级和权重。",
-                checks: ["同名上游模型已跨渠道合并", "每个渠道目录模型都有对应绑定", "基础积分键使用逻辑模型 ID"],
+                checks: ["同名上游模型已跨渠道合并", "每个渠道目录模型都有对应绑定", "价格档案键使用逻辑模型 ID"],
             },
             {
                 title: "设置系统默认模型",
@@ -226,7 +226,7 @@ export const adminHelpArticles: AdminHelpArticle[] = [
         links: [
             { label: "模型渠道", description: "配置渠道、模型和默认能力", section: "channels" },
             { label: "Agent Skills", description: "管理专业能力与触发规则", section: "skills" },
-            { label: "积分规则", description: "核对逻辑模型计费", section: "points" },
+            { label: "人民币价格规则", description: "核对逻辑模型成本与销售价", section: "points" },
             { label: "调用记录", description: "验证实际路由和错误", section: "logs" },
         ],
     },
@@ -240,7 +240,7 @@ export const adminHelpArticles: AdminHelpArticle[] = [
         steps: [
             {
                 title: "维护站点资料和品牌",
-                description: "设置站点名称、SEO、社交入口、首页展示和无限进化 Logo；浏览器图标与助手头像使用同一品牌来源。",
+                description: "设置站点名称、SEO、社交入口、首页展示和星启智域 Logo；浏览器图标与助手头像使用同一品牌来源。",
                 checks: ["Logo、ICO、favicon 和后台标识一致", "默认与回退图标均不是三角形品牌", "浅色和深色背景下清晰可读"],
             },
             {
@@ -259,7 +259,7 @@ export const adminHelpArticles: AdminHelpArticle[] = [
                 checks: ["当前版本与目标版本明确", "升级前备份可恢复", "升级后执行核心页面与能力回归"],
             },
         ],
-        checks: ["站点所有品牌入口使用无限进化 Logo", "注册、验证码和找回密码流程与 SMTP 状态一致", "注销和升级操作都有可追踪记录"],
+        checks: ["站点所有品牌入口使用星启智域 Logo", "注册、验证码和找回密码流程与 SMTP 状态一致", "注销和升级操作都有可追踪记录"],
         warnings: ["更换 Logo 后要同时检查 favicon、manifest、metadata、登录页、用户端、后台和助手头像。", "开启邮箱注册前必须完成真实收件测试，避免用户无法登录或找回密码。"],
         links: [
             { label: "站点资料", description: "管理品牌、SEO 与首页内容", section: "site" },
@@ -356,7 +356,7 @@ export const adminHelpArticles: AdminHelpArticle[] = [
             },
             {
                 title: "检查账务和存储",
-                description: "生成故障核对积分流水，支付故障核对订单与支付流水，媒体故障核对 storage_provider、对象或本地文件。",
+                description: "生成故障核对余额流水，支付故障核对订单与支付流水，媒体故障核对 storage_provider、对象或本地文件。",
                 checks: ["没有重复扣费或发放权益", "退款不依赖页面再次打开", "媒体 URL 没有泄露对象 Key 或永久上游地址"],
             },
             {

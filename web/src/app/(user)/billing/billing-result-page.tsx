@@ -93,7 +93,7 @@ export function BillingResultPage({ mode, orderId }: { mode: "success" | "cancel
     const Icon = paid ? CheckCircle2 : canceled ? XCircle : refunded ? RotateCcw : Clock3;
     const title = paid ? "支付成功" : order?.status === "closed" ? "订单已关闭" : canceled ? "支付已取消" : order?.status === "refunded" ? "订单已退款" : order?.status === "refunding" ? "订单退款中" : "支付结果确认中";
     const description = paid
-        ? "套餐权益和积分已经更新。"
+        ? "套餐权益和人民币余额已经更新。"
         : order?.status === "closed"
           ? "订单已超过支付有效期，你可以重新选择套餐和支付方式。"
           : canceled

@@ -130,7 +130,7 @@ export async function POST(request: Request) {
                 id: "",
                 provider: "generation" as const,
                 model: channel.model,
-                pollPath: geminiVideo ? geminiVideoCreatePath(channel.model) : channel.advancedConfig?.createPath || CREATE_PATHS[0],
+                pollPath: geminiVideo ? geminiVideoCreatePath(channel.model) : channel.advancedConfig?.queryPath || channel.advancedConfig?.createPath || CREATE_PATHS[0],
             };
             if (!localTask) {
                 localTask = await createVideoTask({
@@ -334,7 +334,18 @@ export async function createUpstream(
                   })
                 : buildVideoProviderRequest(channel.advancedConfig?.requestTemplate, defaults, values);
     const requestBody = multipart
-        ? await buildOpenAiVideoFormData({ model: channel.model, prompt, seconds: values.seconds as number, width: dimensions.width, height: dimensions.height, imageUrls: firstFrameUrl ? [firstFrameUrl] : images, origin, cookie })
+        ? await buildOpenAiVideoFormData({
+              model: channel.model,
+              prompt,
+              seconds: values.seconds as number,
+              width: dimensions.width,
+              height: dimensions.height,
+              aspectRatio: values.aspect_ratio as string,
+              quality: values.resolution as string,
+              imageUrls: firstFrameUrl ? [firstFrameUrl] : images,
+              origin,
+              cookie,
+          })
         : JSON.stringify(payload);
     const imageToVideoPath = images.length || firstFrameUrl ? channel.advancedConfig?.imageToVideoPath?.trim() : "";
     const createPaths = globalPreset ? [globalPreset.createPath] : imageToVideoPath ? [imageToVideoPath] : resolvedProviderCreatePaths(channel.advancedConfig, "video", CREATE_PATHS);
@@ -362,14 +373,14 @@ export async function createUpstream(
         } catch (error) {
             const pointsCost = billedPointsCost(response.headers.get("x-vozeb-pro-points-cost"));
             const pointsRecordId = response.headers.get("x-vozeb-pro-points-record-id") || undefined;
-            if (pointsCost !== undefined && pointsRecordId) await refundUserPoints(userId, generationModelId(channel), pointsCost, "video", videoUnits(raw, multipliers), undefined, pointsRecordId);
+            if (pointsCost !== undefined && pointsRecordId) await refundUserPoints(userId, generationModelId(channel), pointsCost, "video", videoUnits(raw, multipliers, channel), undefined, pointsRecordId);
             throw error instanceof Error ? error : new Error("视频接口返回了无效 JSON");
         }
         const providerError = readProviderError(data);
         if (isProviderBusinessError(data)) {
             const pointsCost = billedPointsCost(response.headers.get("x-vozeb-pro-points-cost"));
             const pointsRecordId = response.headers.get("x-vozeb-pro-points-record-id") || undefined;
-            if (pointsCost !== undefined && pointsRecordId) await refundUserPoints(userId, generationModelId(channel), pointsCost, "video", videoUnits(raw, multipliers), undefined, pointsRecordId);
+            if (pointsCost !== undefined && pointsRecordId) await refundUserPoints(userId, generationModelId(channel), pointsCost, "video", videoUnits(raw, multipliers, channel), undefined, pointsRecordId);
             throw new SafeCandidateFailure(providerError || "视频接口请求失败");
         }
         const resultUrl = readVideoProviderUrl(data, channel.advancedConfig?.resultField);
@@ -377,7 +388,7 @@ export async function createUpstream(
         if (!id) {
             const pointsCost = billedPointsCost(response.headers.get("x-vozeb-pro-points-cost"));
             const pointsRecordId = response.headers.get("x-vozeb-pro-points-record-id") || undefined;
-            if (pointsCost !== undefined && pointsRecordId) await refundUserPoints(userId, generationModelId(channel), pointsCost, "video", videoUnits(raw, multipliers), undefined, pointsRecordId);
+            if (pointsCost !== undefined && pointsRecordId) await refundUserPoints(userId, generationModelId(channel), pointsCost, "video", videoUnits(raw, multipliers, channel), undefined, pointsRecordId);
             throw new Error(providerError || "视频接口没有返回任务 ID");
         }
         return {
@@ -385,10 +396,10 @@ export async function createUpstream(
             provider: "generation" as const,
             model: channel.model,
             pollPath: path,
-            queryPath: undefined,
+            queryPath: channel.advancedConfig?.queryPath,
             resultUrl: resultUrl || undefined,
             pointsCost: billedPointsCost(response.headers.get("x-vozeb-pro-points-cost")),
-            pointsUnits: videoUnits(raw, multipliers),
+            pointsUnits: videoUnits(raw, multipliers, channel),
             pointsRecordId: response.headers.get("x-vozeb-pro-points-record-id") || undefined,
         };
     }
@@ -446,7 +457,7 @@ async function createGeminiVideoUpstream(input: {
     const pointsRecordId = response.headers.get("x-vozeb-pro-points-record-id") || undefined;
     if (created.error) {
         if (pointsCost !== undefined && pointsRecordId) {
-            await refundUserPoints(input.userId, generationModelId(input.channel), pointsCost, "video", videoUnits(input.raw, input.multipliers), undefined, pointsRecordId);
+            await refundUserPoints(input.userId, generationModelId(input.channel), pointsCost, "video", videoUnits(input.raw, input.multipliers, input.channel), undefined, pointsRecordId);
         }
         throw new SafeCandidateFailure(created.error);
     }
@@ -459,7 +470,7 @@ async function createGeminiVideoUpstream(input: {
         queryPath: created.queryPath || undefined,
         resultUrl: created.resultUrl || undefined,
         pointsCost,
-        pointsUnits: videoUnits(input.raw, input.multipliers),
+        pointsUnits: videoUnits(input.raw, input.multipliers, input.channel),
         pointsRecordId,
     };
 }
@@ -510,7 +521,13 @@ function billedPointsCost(value: unknown) {
     const number = Number(value);
     return Number.isFinite(number) && number >= 0 ? number : undefined;
 }
-function videoUnits(raw: Record<string, unknown>, multipliers: Awaited<ReturnType<typeof getAuthSettings>>["generationPointMultipliers"]) {
+function videoUnits(raw: Record<string, unknown>, multipliers: Awaited<ReturnType<typeof getAuthSettings>>["generationPointMultipliers"], channel?: NonNullable<ReturnType<typeof toSystemGenerationChannel>>) {
+    const configuredUnit = channel?.capabilityProfile?.pricing?.billingUnit;
+    if (configuredUnit === "per_second") {
+        const seconds = duration(raw.videoSeconds);
+        if (Number.isFinite(seconds) && seconds > 0) return Math.min(3600, seconds);
+    }
+    if (configuredUnit === "per_call") return 1;
     const quality = clean(raw.vquality).replace(/p$/i, "") || "720";
     const seconds = String(duration(raw.videoSeconds));
     return (multipliers.videoQuality[quality] || 1) * (multipliers.videoSeconds[seconds] || 1);

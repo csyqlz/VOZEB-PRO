@@ -2,7 +2,7 @@
 
 import type { CSSProperties } from "react";
 import { useEffect, useRef, useState } from "react";
-import { ChevronRight, CreditCard, Crown, Gift, Keyboard, LogOut, ShieldCheck, UserCircle } from "lucide-react";
+import { ChevronRight, CreditCard, Crown, Gift, Keyboard, LogOut, Mail, ShieldCheck, UserCircle } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { MenuProps } from "antd";
@@ -18,6 +18,7 @@ import { canvasThemes } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { useUserStore, type LocalUser } from "@/stores/use-user-store";
 import { resetClientSessionState } from "@/lib/client-session-reset";
+import { DEFAULT_SUPPORT_EMAIL } from "@/lib/site-brand";
 
 type UserStatusActionsProps = {
     variant?: "default" | "canvas";
@@ -101,7 +102,7 @@ export function UserStatusActions({ variant = "default", onOpenShortcuts, initia
                             </button>
                         </div>
                         <div className="mt-2 flex items-center justify-between gap-3 border-t border-stone-200 pt-2 text-xs dark:border-stone-800">
-                            <span className="text-stone-500 dark:text-stone-400">积分余额</span>
+                            <span className="text-stone-500 dark:text-stone-400">人民币余额</span>
                             <span className="inline-flex shrink-0 items-center gap-1.5 font-semibold text-stone-900 dark:text-stone-100">
                                 <CreditSymbol className="text-sm text-[#66758e] dark:text-[#d8dee8]" />
                                 {formatCreditAmount(user?.pointsBalance || 0)}
@@ -130,6 +131,11 @@ export function UserStatusActions({ variant = "default", onOpenShortcuts, initia
                     套餐中心
                 </Link>
             ),
+        },
+        {
+            key: "support",
+            icon: <Mail className="size-4" />,
+            label: <a href={`mailto:${DEFAULT_SUPPORT_EMAIL}`}>联系客服</a>,
         },
         ...(user?.role === "admin"
             ? [
@@ -213,7 +219,7 @@ export function UserStatusActions({ variant = "default", onOpenShortcuts, initia
             type="button"
             className={cn(variant === "canvas" ? canvasControlClass : defaultControlClass, "gap-1 px-2 text-xs font-semibold sm:gap-1.5 sm:px-2.5", variant === "canvas" ? "canvas-points-action" : "app-points-action shrink-0")}
             style={iconStyle}
-            title="积分余额"
+            title="人民币余额"
         >
             <CreditSymbol className="text-sm" />
             {formatCreditAmount(user.pointsBalance)}
@@ -345,7 +351,7 @@ function PointsSummaryPanel({ user, onClose, onUpgrade }: { user: LocalUser; onC
             if (!response.ok || !payload.user) throw new Error(payload.error || "兑换失败");
             setUser(payload.user);
             setCode("");
-            message.success(`兑换成功，获得 ${formatCreditAmount(payload.points || 0)} 积分`);
+            message.success(`兑换成功，获得 ¥${formatCreditAmount(payload.points || 0)} 余额`);
         } catch (error) {
             message.error(error instanceof Error ? error.message : "兑换失败");
         } finally {
@@ -357,7 +363,7 @@ function PointsSummaryPanel({ user, onClose, onUpgrade }: { user: LocalUser; onC
         <div className="user-points-panel w-[min(19rem,calc(100vw-2rem))] text-stone-950 dark:text-stone-100">
             <div className="flex items-start justify-between gap-3 px-0.5 pb-2.5">
                 <div className="min-w-0">
-                    <div className="text-base font-semibold leading-6">积分记录</div>
+                    <div className="text-base font-semibold leading-6">余额记录</div>
                     <div className="mt-0.5 text-[11px] leading-4 text-stone-500 dark:text-stone-400">{recordTotal === undefined ? "余额与使用记录" : `共 ${recordTotal} 条记录，按时间倒序`}</div>
                 </div>
                 <span className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-stone-200 bg-stone-50 px-2.5 text-xs font-medium text-stone-600 dark:border-stone-800 dark:bg-stone-900/70 dark:text-stone-300">
@@ -373,7 +379,7 @@ function PointsSummaryPanel({ user, onClose, onUpgrade }: { user: LocalUser; onC
                 </div>
                 <div className="pl-3">
                     <div className="flex items-baseline justify-between gap-2">
-                        <span className="text-[11px] text-stone-500 dark:text-stone-400">永久积分</span>
+                        <span className="text-[11px] text-stone-500 dark:text-stone-400">永久余额</span>
                         <strong className="shrink-0 text-sm font-semibold tabular-nums">{formatCreditAmount(user.permanentPointsBalance ?? Math.max(0, user.pointsBalance - (user.dailyPointsBalance || 0)))}</strong>
                     </div>
                 </div>
@@ -381,7 +387,7 @@ function PointsSummaryPanel({ user, onClose, onUpgrade }: { user: LocalUser; onC
             <div className="py-2.5">
                 <div className="mb-2 flex items-center justify-between gap-3">
                     <span className="inline-flex items-center gap-2 text-sm font-semibold text-stone-800 dark:text-stone-100">
-                        <Gift className="size-4 text-sky-600 dark:text-sky-300" /> CDK 兑换
+                        <Gift className="size-4 text-sky-600 dark:text-sky-300" /> 兑换码
                     </span>
                     <span className="text-[11px] text-stone-400 dark:text-stone-500">兑换后自动刷新</span>
                 </div>
@@ -389,7 +395,7 @@ function PointsSummaryPanel({ user, onClose, onUpgrade }: { user: LocalUser; onC
                     className="points-cdk-search"
                     size="small"
                     value={code}
-                    placeholder="输入兑换密钥"
+                    placeholder="输入兑换码"
                     enterButton={
                         <Button type="primary" size="small" loading={redeeming}>
                             兑换
@@ -406,7 +412,7 @@ function PointsSummaryPanel({ user, onClose, onUpgrade }: { user: LocalUser; onC
                 onClick={onUpgrade}
                 className="points-summary-purchase !flex !h-9 !items-center !justify-center !gap-2 !rounded-lg !border-stone-950 !bg-stone-950 !px-3 !text-xs !font-semibold !text-white !shadow-none hover:!border-black hover:!bg-black hover:!text-white dark:!border-white dark:!bg-white dark:!text-stone-950 dark:hover:!border-stone-100 dark:hover:!bg-stone-100 dark:hover:!text-stone-950"
             >
-                购买积分与套餐
+                充值人民币余额与套餐
             </Button>
             <Link href="/profile?section=consume" onClick={onClose} className="mt-1 flex min-h-9 items-center justify-between rounded-lg px-2 text-sm font-medium text-stone-800 transition hover:bg-stone-100 dark:text-stone-100 dark:hover:bg-stone-800/80">
                 使用详情

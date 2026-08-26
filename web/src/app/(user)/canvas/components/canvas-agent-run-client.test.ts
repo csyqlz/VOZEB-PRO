@@ -189,7 +189,7 @@ describe("Canvas Agent 事件流", () => {
         FakeEventSource.instance.emit("run.failed", { data: { message: "生成渠道暂时无法连接，请稍后重试或联系管理员。" } });
         await promise;
 
-        expect(messages).toEqual([{ text: "生成渠道暂时无法连接，请稍后重试或联系管理员。", detail: { runId: "run", title: "Agent 执行失败" } }]);
+        expect(messages).toEqual([{ text: "生成渠道暂时无法连接，请稍后重试或联系管理员。", detail: { runId: "run", title: "智能任务执行失败" } }]);
     });
 
     it("keeps a non-terminal Run alive after an event connection interruption", async () => {

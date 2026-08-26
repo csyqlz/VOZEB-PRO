@@ -1,5 +1,6 @@
 import type { RegistrationPolicyConsent } from "@/lib/registration-consent";
 import type { AdminPermission } from "@/lib/admin-permissions";
+import type { PointRecordBillingDetail } from "@/lib/auth/store-types";
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
@@ -165,6 +166,9 @@ export type PointRecord = {
     dailyBalanceAfter: number;
     description: string;
     model?: string;
+    usageKind?: UsageKind;
+    units?: number;
+    billingDetail?: PointRecordBillingDetail;
     idempotencyKey?: string;
     requestFingerprint?: string;
     sourceRecordId?: string;

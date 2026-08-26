@@ -71,9 +71,21 @@ describe("serializePublicSettings", () => {
                         enabled: true,
                         priority: 1,
                         weight: 8,
-                        capabilityProfile: { unitCost: 3, unitCostCurrency: "USD", timeoutMs: 60_000 },
+                        capabilityProfile: {
+                            unitCost: 3,
+                            unitCostCurrency: "USD",
+                            timeoutMs: 60_000,
+                            pricing: { currency: "CNY", billingUnit: "per_call", costPrice: 0.2, salePrice: 0.4, source: "private pricing source" },
+                        },
                     },
                 ],
+            },
+            {
+                id: "deleted-channel-model",
+                name: "已删除渠道模型",
+                capability: "image",
+                enabled: true,
+                bindings: [{ id: "deleted-binding", channelId: "deleted-channel", upstreamModel: "deleted-image", enabled: true, priority: 1 }],
             },
         ];
         settings.site.socials = {
@@ -89,22 +101,23 @@ describe("serializePublicSettings", () => {
         expect(result.systemChannels).toEqual([
             {
                 id: "channel-one",
-                name: "渠道一",
                 baseUrl: "/api/ai/system/channel-one",
-                apiKey: "system",
                 apiFormat: "openai",
                 models: ["vendor-image"],
                 enabled: true,
-                hasApiKey: true,
             },
         ]);
         expect(result.logicalModels[0]?.bindings[0]).toEqual({ id: "binding-one", channelId: "channel-one", upstreamModel: "vendor-image", enabled: true, priority: 1 });
+        expect(result.logicalModels.map((model) => model.id)).toEqual(["image-main"]);
+        expect(result.modelPricing).toEqual({ "image-main": { billingUnit: "per_call", currency: "CNY", salePrice: 0.4 } });
         expect(serialized).not.toContain("provider-secret");
+        expect(serialized).not.toContain("渠道一");
         expect(serialized).not.toContain("internal-provider.example");
         expect(serialized).not.toContain("smtp.internal");
         expect(serialized).not.toContain("mail-secret");
         expect(serialized).not.toContain("private/create");
         expect(serialized).not.toContain("完整指令");
+        expect(serialized).not.toContain("private pricing source");
         expect(result).not.toHaveProperty("mail");
         expect(result).not.toHaveProperty("agentSkills");
         expect(result).not.toHaveProperty("entitlements");

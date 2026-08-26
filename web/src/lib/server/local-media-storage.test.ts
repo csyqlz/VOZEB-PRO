@@ -110,6 +110,19 @@ describe("local media storage", () => {
         await expect(access(file)).rejects.toBeTruthy();
     });
 
+    it("expires generated media even while its generation log remains", async () => {
+        const storage = await import("./local-media-storage");
+        const registry = await import("./local-media-registry");
+        const mediaPath = storage.createDatedMediaPath("temporary", "image", ".png");
+        const file = await write(storage.GENERATION_MEDIA_ROOT, mediaPath, "image");
+        const expiredAt = new Date(Date.now() - 60_000).toISOString();
+        await registry.registerLocalMediaAsset({ storageKey: mediaPath, scope: "generation", storageClass: "temporary", type: "image", ownerUserId: "user-one", source: "image-workbench", mimeType: "image/png", bytes: 5, expiresAt: expiredAt });
+        await writeFile(resolve(dataDir, "generation-logs.json"), JSON.stringify({ version: 1, logs: [{ userId: "user-one", assets: [{ serverUrl: `/api/generation-log-assets/${mediaPath}` }] }] }));
+
+        expect(await storage.cleanupExpiredLocalMediaAssets()).toMatchObject({ deletedFiles: 1, blocked: [] });
+        await expect(access(file)).rejects.toBeTruthy();
+    });
+
     it("extracts reference and generated media keys without trusting malformed paths", async () => {
         const { collectLocalMediaStorageKeys } = await import("./local-media-references");
         expect(

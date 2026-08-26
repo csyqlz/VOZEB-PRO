@@ -13,7 +13,7 @@ const configuredBuildCpus = Number.parseInt(process.env.NEXT_BUILD_CPUS || "", 1
 const distDir = process.env.NEXT_DIST_DIR?.trim() || ".next";
 const skipBuildTypeCheck = process.env.NEXT_SKIP_BUILD_TYPECHECK === "1";
 const nodeProxy = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy;
-const privatePageSource = "/:section(api|admin|assets|billing|canvas|community|create|drama|forgot-password|help|image|install|login|my-prompts|profile|prompts|register|video|works)/:path*";
+const privatePageSource = "/:section(api|admin|assets|billing|canvas|community|create|drama|forgot-password|help|image|install|login|my-prompts|profile|prompts|register|service-unavailable|video|works)/:path*";
 if (nodeProxy) setGlobalDispatcher(new ProxyAgent(nodeProxy));
 
 export default function nextConfig(phase: string): NextConfig {

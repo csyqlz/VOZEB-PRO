@@ -58,4 +58,13 @@ describe("用户积分同步", () => {
         expect(result).toMatchObject({ total: 9, page: 2, pageSize: 8 });
         expect(fetchMock).toHaveBeenCalledWith("/api/points?page=2&pageSize=8&direction=debit", { cache: "no-store" });
     });
+
+    it("requests the structured consumption view", async () => {
+        const fetchMock = vi.fn(async () => Response.json({ records: [], total: 0, page: 1, pageSize: 8 }));
+        vi.stubGlobal("fetch", fetchMock);
+
+        await listPointRecords({ page: 1, pageSize: 8, direction: "debit", view: "consumption" });
+
+        expect(fetchMock).toHaveBeenCalledWith("/api/points?page=1&pageSize=8&direction=debit&view=consumption", { cache: "no-store" });
+    });
 });

@@ -6,6 +6,7 @@ import { AudioLines, Image as ImageIcon, Lightbulb, Paperclip, Send, Video } fro
 import { HOME_CREATION_MODES, type HomeCreationMode } from "./home-data";
 import { useHomeActions } from "./home-actions";
 import styles from "./home-agent-hero.module.css";
+import { DEFAULT_SUPPORT_EMAIL } from "@/lib/site-brand";
 
 const modeIcons = {
     agent: Lightbulb,
@@ -14,48 +15,60 @@ const modeIcons = {
     audio: AudioLines,
 } as const;
 
-export function HomeAgentHero() {
+export function HomeAgentHero({ availableCreationModes = ["image", "video"], agentAvailable = true }: { availableCreationModes?: readonly string[]; agentAvailable?: boolean }) {
     const [prompt, setPrompt] = useState("");
-    const [mode, setMode] = useState<HomeCreationMode>("agent");
+    const [mode, setMode] = useState<HomeCreationMode>(agentAvailable ? "agent" : (availableCreationModes[0] as HomeCreationMode) || "agent");
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const { startCreating } = useHomeActions();
-    const currentMode = HOME_CREATION_MODES.find((item) => item.id === mode) ?? HOME_CREATION_MODES[0];
+    const creationModes = HOME_CREATION_MODES.filter((item) => (item.id === "agent" ? agentAvailable : availableCreationModes.includes(item.id)));
+    const visibleCreationModes = creationModes;
+    const currentMode = visibleCreationModes.find((item) => item.id === mode) ?? visibleCreationModes[0];
+    const hasCreationCapability = visibleCreationModes.length > 0;
 
     const submit = () => {
+        if (!hasCreationCapability) return;
         if (!prompt.trim()) {
             textareaRef.current?.focus();
             return;
         }
-        startCreating(prompt, mode);
+        startCreating(prompt, currentMode?.id || "agent");
     };
 
     return (
         <section className={styles.hero} aria-labelledby="home-hero-title">
-            <span className={`${styles.floatingArtifact} ${styles.artifactAgent}`} data-hero-decoration aria-hidden="true">
-                <span className={styles.artifactFace}>
-                    <Lightbulb />
+            {agentAvailable ? (
+                <span className={`${styles.floatingArtifact} ${styles.artifactAgent}`} data-hero-decoration aria-hidden="true">
+                    <span className={styles.artifactFace}>
+                        <Lightbulb />
+                    </span>
                 </span>
-            </span>
-            <span className={`${styles.floatingArtifact} ${styles.artifactImage}`} data-hero-decoration aria-hidden="true">
-                <span className={styles.artifactFace}>
-                    <ImageIcon />
+            ) : null}
+            {availableCreationModes.includes("image") ? (
+                <span className={`${styles.floatingArtifact} ${styles.artifactImage}`} data-hero-decoration aria-hidden="true">
+                    <span className={styles.artifactFace}>
+                        <ImageIcon />
+                    </span>
                 </span>
-            </span>
-            <span className={`${styles.floatingArtifact} ${styles.artifactVideo}`} data-hero-decoration aria-hidden="true">
-                <span className={styles.artifactFace}>
-                    <Video />
+            ) : null}
+            {availableCreationModes.includes("video") ? (
+                <span className={`${styles.floatingArtifact} ${styles.artifactVideo}`} data-hero-decoration aria-hidden="true">
+                    <span className={styles.artifactFace}>
+                        <Video />
+                    </span>
                 </span>
-            </span>
-            <span className={`${styles.floatingArtifact} ${styles.artifactAudio}`} data-hero-decoration aria-hidden="true">
-                <span className={styles.artifactFace}>
-                    <AudioLines />
+            ) : null}
+            {availableCreationModes.includes("audio") ? (
+                <span className={`${styles.floatingArtifact} ${styles.artifactAudio}`} data-hero-decoration aria-hidden="true">
+                    <span className={styles.artifactFace}>
+                        <AudioLines />
+                    </span>
                 </span>
-            </span>
+            ) : null}
             <div className={styles.heroContent}>
                 <h1 id="home-hero-title" className={styles.heroTitle}>
                     一个入口 完成所有 <span>AI 创作</span>
                 </h1>
-                <p className={styles.heroSubtitle}>从图片、视频、音频到 Agent 编排，让每个想法直接进入完整创作流程</p>
+                <p className={styles.heroSubtitle}>从图片、视频到智能创作助手，让每个想法直接变成作品</p>
 
                 <div className={styles.agentStage}>
                     <div className={styles.agentRing} data-testid="home-agent-halo" aria-hidden="true">
@@ -83,17 +96,27 @@ export function HomeAgentHero() {
                             />
                         </div>
 
-                        <div className={styles.promptExamples} aria-label="示例提示词">
-                            {currentMode.examples.map((example) => (
-                                <button key={example} type="button" onClick={() => setPrompt(example)}>
-                                    {example}
-                                </button>
-                            ))}
-                        </div>
+                        {currentMode ? (
+                            <div className={styles.promptExamples} aria-label="示例提示词">
+                                {currentMode.examples.map((example) => (
+                                    <button key={example} type="button" onClick={() => setPrompt(example)}>
+                                        {example}
+                                    </button>
+                                ))}
+                            </div>
+                        ) : null}
+
+                        {!hasCreationCapability ? (
+                            <div className={styles.serviceStatus} role="status" aria-live="polite" data-testid="home-service-status">
+                                <strong>创作服务正在准备中</strong>
+                                <span>请稍后再试；需要帮助时可联系</span>
+                                <a href={`mailto:${DEFAULT_SUPPORT_EMAIL}`}>{DEFAULT_SUPPORT_EMAIL}</a>
+                            </div>
+                        ) : null}
 
                         <div className={styles.agentToolbar}>
                             <div className={styles.creationModes} role="group" aria-label="创作模式">
-                                {HOME_CREATION_MODES.map((item) => {
+                                {visibleCreationModes.map((item) => {
                                     const Icon = modeIcons[item.icon];
                                     return (
                                         <button key={item.id} type="button" className={mode === item.id ? styles.modeActive : undefined} onClick={() => setMode(item.id)} aria-label={item.label} title={item.label} aria-pressed={mode === item.id}>
@@ -106,10 +129,16 @@ export function HomeAgentHero() {
                                 })}
                             </div>
                             <div className={styles.agentTools}>
-                                <button type="button" aria-label="进入创作页添加参考素材" title="进入创作页添加参考素材" onClick={() => startCreating(prompt, mode)}>
+                                <button
+                                    type="button"
+                                    aria-label="进入创作页添加参考素材"
+                                    title={hasCreationCapability ? "进入创作页添加参考素材" : "创作服务正在准备中"}
+                                    onClick={() => startCreating(prompt, currentMode?.id || "agent")}
+                                    disabled={!hasCreationCapability}
+                                >
                                     <Paperclip aria-hidden="true" />
                                 </button>
-                                <button type="button" className={styles.sendButton} aria-label="开始创作" title="开始创作" onClick={submit}>
+                                <button type="button" className={styles.sendButton} aria-label="开始创作" title={hasCreationCapability ? "开始创作" : "创作服务正在准备中"} onClick={submit} disabled={!hasCreationCapability || !prompt.trim()}>
                                     <Send aria-hidden="true" />
                                 </button>
                             </div>

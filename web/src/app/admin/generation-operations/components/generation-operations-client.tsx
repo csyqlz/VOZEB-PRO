@@ -199,7 +199,7 @@ export function GenerationOperationsClient() {
                 <Panel>
                     <PanelHeader
                         title="运行概览"
-                        description="快速查看任务吞吐、成功率、耗时与积分消耗。"
+                        description="快速查看任务吞吐、成功率、耗时与人民币余额消耗。"
                         actions={
                             <Button aria-label="刷新生成运维数据" icon={<RefreshCw className="size-4" />} loading={loading} onClick={() => void load()}>
                                 刷新
@@ -212,7 +212,7 @@ export function GenerationOperationsClient() {
                         <SummaryMetric icon={<CircleCheckBig />} label="成功" value={summary?.success || 0} detail="已完成任务" />
                         <SummaryMetric icon={<CircleStop />} label="失败" value={summary?.failed || 0} detail="需要关注" tone="danger" />
                         <SummaryMetric icon={<Clock3 />} label="平均耗时" value={formatDuration(summary?.averageDurationMs || 0)} detail="全部任务平均" />
-                        <SummaryMetric icon={<Coins />} label="积分消耗" value={summary?.totalPointsCost || 0} detail="累计扣减" />
+                        <SummaryMetric icon={<Coins />} label="余额消耗（元）" value={`¥${summary?.totalPointsCost || 0}`} detail="累计扣减" />
                     </section>
                 </Panel>
 
@@ -432,7 +432,7 @@ function TaskCard({ task, actingId, onAction, onReview }: { task: AdminGeneratio
                 <TaskCardFact label="模型" value={task.model || "未记录"} />
                 <TaskCardFact label="入口" value={surfaceLabel(task.surface)} />
                 <TaskCardFact label="耗时" value={formatDuration(task.durationMs)} />
-                <TaskCardFact label="积分" value={generationTaskPointsLabel(task)} />
+                <TaskCardFact label="余额" value={generationTaskPointsLabel(task)} />
             </div>
             <AgentPlannerAuditSummary task={task} />
             <GenerationTaskRuntimeSummary task={task} compact />

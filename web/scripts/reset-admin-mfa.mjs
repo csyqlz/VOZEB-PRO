@@ -169,7 +169,7 @@ function postgresSslConfig() {
 }
 
 function printHelp() {
-    console.log(`VOZEB PRO 管理员 MFA 恢复
+    console.log(`星启智域管理员 MFA 恢复
 
 用法：
   pnpm reset:admin-mfa -- --username admin

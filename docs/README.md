@@ -1,6 +1,6 @@
 # 项目文档
 
-该目录包含 VOZEB PRO 文档站，包括产品功能、安装部署、后台配置、接口与数据库、生产运维和项目治理说明。文档站基于 Next.js 与 Fumadocs，使用 standalone 方式运行，搜索等 Route Handler 在生产环境继续可用。
+该目录包含星启智域文档站，包括产品功能、安装部署、后台配置、接口与数据库、生产运维和项目治理说明。文档站基于 Next.js 与 Fumadocs，使用 standalone 方式运行，搜索等 Route Handler 在生产环境继续可用。
 
 ## 本地开发
 

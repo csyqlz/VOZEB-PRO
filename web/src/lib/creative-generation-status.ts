@@ -1,7 +1,7 @@
 export const CREATIVE_GENERATION_STATUS = {
     running: "好的，正在按你的要求生成。",
     completed: "已完成，创作结果已生成。",
-    insufficientPoints: "积分不足",
+    insufficientPoints: "人民币余额不足",
     failed: "生成失败，请重试",
     cancelled: "已停止生成",
 } as const;

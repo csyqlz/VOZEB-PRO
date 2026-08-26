@@ -297,7 +297,7 @@ const CANVAS_NODE_TYPE_LABELS = {
     [CanvasNodeType.Video]: "视频",
     [CanvasNodeType.Audio]: "音频",
     [CanvasNodeType.Brief]: "创作简报",
-    [CanvasNodeType.Task]: "Agent 任务",
+    [CanvasNodeType.Task]: "智能创作任务",
     [CanvasNodeType.BrandKit]: "品牌规范",
 } satisfies Record<CanvasNodeType, string>;
 

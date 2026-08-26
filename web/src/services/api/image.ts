@@ -249,7 +249,7 @@ async function readFetchError(response: Response, fallback: string) {
 }
 
 function statusError(status: number, fallback: string) {
-    if (status === 401 || status === 403) return "鉴权失败，请检查 API Key、套餐权限或模型权限";
+    if (status === 401 || status === 403) return "当前服务暂时无法使用，请稍后重试或联系客服";
     if (status === 429) return "请求被限流或额度不足，请稍后重试";
     return status ? `${fallback}：${status}` : fallback;
 }

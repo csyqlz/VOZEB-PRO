@@ -27,7 +27,7 @@ export function useDramaAudioQueue(project: DramaProject, episode: DramaEpisode,
         if (episode.shots.some((shot) => shot.audioStatus === "running")) return;
         const next = episode.shots.find((shot) => shot.audioStatus === "queued");
         if (!next || startingRef.current === next.id) return;
-        if (!config.audioModel.trim()) return updateShot(project.id, episode.id, next.id, { audioStatus: "error", audioError: "后台尚未配置可用的默认音频模型" });
+        if (!config.audioModel.trim()) return updateShot(project.id, episode.id, next.id, { audioStatus: "error", audioError: "当前暂不可用，请联系客服" });
         const prompt = (next.subtitle || next.dialogue).trim();
         if (!prompt) return updateShot(project.id, episode.id, next.id, { audioStatus: "error", audioError: "请先填写对白或字幕" });
         const speaker = next.utterances.find((item) => item.type === "dialogue" && item.speaker.trim())?.speaker.trim();

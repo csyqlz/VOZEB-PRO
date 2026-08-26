@@ -50,7 +50,7 @@ export function GenerationTaskRuntimeSummary({ task, compact = false }: { task: 
 
 export function generationTaskPointsLabel(task: AdminGenerationTask) {
     const breakdown = task.pointsBreakdown;
-    return breakdown ? `规划 ${breakdown.planner} · 子任务 ${breakdown.childTasks} · 合计 ${breakdown.total} 积分` : `${task.pointsCost} 积分`;
+    return breakdown ? `规划 ¥${breakdown.planner} · 子任务 ¥${breakdown.childTasks} · 合计 ¥${breakdown.total}` : `¥${task.pointsCost}`;
 }
 
 export function planningProtocolLabel(protocol?: "responses" | "chat" | "gemini" | "custom") {

@@ -143,12 +143,19 @@ export function mapPointRecord(row: Record<string, unknown>): PointRecord {
         dailyBalanceAfter: numberValue(row.daily_balance_after),
         description: stringValue(row.description),
         model: optionalString(row.model),
+        usageKind: row.usage_kind === null || row.usage_kind === undefined ? undefined : usageKindValue(row.usage_kind),
+        units: row.units === null || row.units === undefined ? undefined : numberValue(row.units),
+        billingDetail: isJsonObject(row.billing_detail) ? (row.billing_detail as PointRecord["billingDetail"]) : undefined,
         idempotencyKey: optionalString(row.idempotency_key),
         requestFingerprint: optionalString(row.request_fingerprint),
         sourceRecordId: optionalString(row.source_record_id),
         sourceDate: row.source_date === null || row.source_date === undefined ? undefined : dateValue(row.source_date),
         createdAt: isoValue(row.created_at),
     };
+}
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+    return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
 export function mapDailyPlanPointWallet(row: Record<string, unknown>): DailyPlanPointWalletRecord {

@@ -14,6 +14,7 @@ import { formatCreditAmount } from "@/constant/credits";
 import type { AuthSettings, PublicCdkCode, PublicUser, PublicUserSummary, UserRole, UserStatus } from "@/lib/auth/store";
 import { imagePreviewUrl } from "@/lib/media-image-url";
 import type { AdminSetupSummary } from "@/lib/server/admin-setup-status";
+import { classifyGenerationError, generationErrorCategoryLabel } from "@/lib/server/generation-errors";
 import type { StoredGenerationLog } from "@/lib/server/generation-log-store";
 import type { Prompt } from "@/services/api/prompts";
 import { cdkStatusLabel, cdkStatusTone } from "./admin-dashboard-elements";
@@ -186,15 +187,15 @@ export function useAdminDashboardTableModel({ state, data, settingsActions }: { 
             render: (status: UserStatus) => <Tag color={status === "active" ? "green" : "red"}>{status === "active" ? "可用" : "已禁用"}</Tag>,
         },
         {
-            title: "积分",
+            title: "人民币余额",
             dataIndex: "pointsBalance",
             width: 170,
             responsive: ["sm"],
             render: (pointsBalance: number, record) => (
                 <div className="text-xs text-stone-500 dark:text-stone-400">
-                    <div className="font-semibold text-stone-950 dark:text-stone-100">总计 {formatCreditAmount(pointsBalance)}</div>
+                    <div className="font-semibold text-stone-950 dark:text-stone-100">总计 ¥{formatCreditAmount(pointsBalance)}</div>
                     <div className="mt-1">
-                        今日 {formatCreditAmount(record.dailyPointsBalance)} · 永久 {formatCreditAmount(record.permanentPointsBalance)}
+                        今日 ¥{formatCreditAmount(record.dailyPointsBalance)} · 永久 ¥{formatCreditAmount(record.permanentPointsBalance)}
                     </div>
                 </div>
             ),
@@ -231,7 +232,7 @@ export function useAdminDashboardTableModel({ state, data, settingsActions }: { 
                             </Button>
                         ) : null}
                         {canDelete ? (
-                            <Popconfirm title="删除该用户？" description="会同时清理该用户会话、积分、额度记录、生成日志和服务器副本。" okText="删除" cancelText="取消" onConfirm={() => void deleteUser(record.id)}>
+                            <Popconfirm title="删除该用户？" description="会同时清理该用户会话、余额、额度记录、生成日志和服务器副本。" okText="删除" cancelText="取消" onConfirm={() => void deleteUser(record.id)}>
                                 <Button size="small" danger loading={updatingUserId === record.id} icon={<Trash2 className="size-3.5" />} aria-label={`删除用户 ${record.displayName}`} title={`删除用户 ${record.displayName}`} />
                             </Popconfirm>
                         ) : null}
@@ -321,7 +322,12 @@ export function useAdminDashboardTableModel({ state, data, settingsActions }: { 
             title: "状态",
             dataIndex: "status",
             width: 92,
-            render: (_, record) => <span className={generationStatusClass(record.status)}>{generationStatusLabel(record.status)}</span>,
+                render: (_, record) => <span className={generationStatusClass(record.status)}>{generationStatusLabel(record.status)}</span>,
+        },
+        {
+            title: "失败原因",
+            width: 150,
+            render: (_, record) => (record.status === "failed" && record.error ? <Tag className="m-0" color="red">{generationErrorCategoryLabel(classifyGenerationError(record.error))}</Tag> : <span className="text-sm text-stone-400">-</span>),
         },
         {
             title: "结果",
@@ -384,7 +390,7 @@ export function useAdminDashboardTableModel({ state, data, settingsActions }: { 
             width: 190,
             render: (_, code) => (
                 <div className="text-sm leading-6 text-stone-700 dark:text-stone-200">
-                    <div>{formatCreditAmount(code.points)} 积分</div>
+                    <div>¥{formatCreditAmount(code.points)} 余额</div>
                     <div className="text-xs text-stone-500 dark:text-stone-400">
                         已兑 {code.redeemedCount}/{code.maxRedemptions}
                     </div>
@@ -437,7 +443,7 @@ export function useAdminDashboardTableModel({ state, data, settingsActions }: { 
                     <Button size="small" type="text" icon={<Eye className="size-3.5" />} onClick={() => setViewingCdkCode(code)}>
                         明细
                     </Button>
-                    <Popconfirm title="删除这个 CDK？" description="删除后用户将不能再兑换这个密钥，已有积分流水不会被删除。" okText="删除" cancelText="取消" onConfirm={() => void deleteCdkById(code.id)}>
+                    <Popconfirm title="删除这个 CDK？" description="删除后用户将不能再兑换这个密钥，已有余额流水不会被删除。" okText="删除" cancelText="取消" onConfirm={() => void deleteCdkById(code.id)}>
                         <Button size="small" danger icon={<Trash2 className="size-3.5" />}>
                             删除
                         </Button>

@@ -33,6 +33,8 @@ test("public homepage is functional for signed-out visitors", async ({ browser }
     await expect(page.getByText("核心能力", { exact: true })).toHaveCount(0);
     await expect(page.getByTestId("home-agent-card")).toHaveCount(1);
     await expect(page.getByTestId("home-agent-halo").locator("[data-halo-ring]")).toHaveCount(4);
+    await expect(page.getByText("生成前确认费用", { exact: true })).toBeVisible();
+    await expect(page.getByText("失败任务自动退回余额", { exact: true })).toBeVisible();
     await expect(page.getByTestId("home-public-gallery")).toBeVisible();
     const galleryLayout = await page
         .getByTestId("home-public-gallery")
@@ -65,7 +67,7 @@ test("public homepage is functional for signed-out visitors", async ({ browser }
     const headerNavigation = page.getByRole("navigation", { name: "官网主导航" });
     if (testInfo.project.name === "chromium") {
         await expect(headerNavigation).toBeVisible();
-        await expect(headerNavigation.getByRole("button", { name: "创作 Agent" })).toHaveCount(1);
+        await expect(headerNavigation.getByRole("button", { name: "智能创作" })).toHaveCount(1);
         await expect(headerNavigation.getByRole("button", { name: "短剧制作" })).toHaveCount(1);
         await expect(headerNavigation.getByRole("link", { name: "作品广场" })).toHaveCount(1);
         await expect(headerNavigation.getByRole("button", { name: "价格方案" })).toHaveCount(1);
@@ -75,11 +77,12 @@ test("public homepage is functional for signed-out visitors", async ({ browser }
             .locator("header")
             .getByRole("button", { name: /立即体验/ })
             .click();
-        await expect(page.getByRole("dialog")).toBeVisible();
-        await page.getByRole("button", { name: "Close" }).click();
+        await expect(page).toHaveURL(/\/register\?next=%2Fcreate$/);
+        await expect(page.getByRole("heading", { name: /注册 星启智域/ })).toBeVisible();
+        await page.goBack();
 
         const navGlass = page.getByTestId("home-nav-glass");
-        const firstNavItem = headerNavigation.getByRole("button", { name: "创作 Agent" });
+        const firstNavItem = headerNavigation.getByRole("button", { name: "智能创作" });
         const lastNavItem = headerNavigation.getByRole("button", { name: "价格方案" });
         await firstNavItem.hover();
         await expect(navGlass).toHaveCSS("opacity", "1");
@@ -89,7 +92,7 @@ test("public homepage is functional for signed-out visitors", async ({ browser }
         await lastNavItem.click();
         const plansDialog = page.getByRole("dialog");
         await expect(plansDialog.getByText("升级创作套餐", { exact: true })).toBeVisible();
-        await expect(plansDialog.getByText("暂无已上架套餐", { exact: true })).toBeVisible();
+        await expect(plansDialog.getByText("套餐正在准备中", { exact: true })).toBeVisible();
         await plansDialog.getByRole("button", { name: "关闭套餐选择" }).click();
         await expect(plansDialog).toBeHidden();
     } else {
@@ -98,7 +101,7 @@ test("public homepage is functional for signed-out visitors", async ({ browser }
         await menuButton.click();
         const mobileNavigation = page.getByRole("navigation", { name: "移动端导航" });
         await expect(mobileNavigation).toBeVisible();
-        await expect(mobileNavigation.getByRole("button", { name: "创作 Agent" })).toHaveCount(1);
+        await expect(mobileNavigation.getByRole("button", { name: "智能创作" })).toHaveCount(1);
         await expect(mobileNavigation.getByRole("button", { name: "短剧制作" })).toHaveCount(1);
         await expect(mobileNavigation.getByRole("link", { name: "作品广场" })).toHaveCount(1);
         await expect(mobileNavigation.getByRole("button", { name: "价格方案" })).toHaveCount(1);
@@ -148,14 +151,9 @@ test("public homepage is functional for signed-out visitors", async ({ browser }
     }
     for (const action of ["开始创作", "进入创作页添加参考素材"]) {
         await page.getByRole("button", { name: action }).click();
-        const dialog = page.getByRole("dialog");
-        const closeButton = dialog.getByRole("button", { name: "Close" });
-        await expect(dialog).toBeVisible();
-        await expect(dialog.getByRole("heading", { name: "登录后回到刚才的位置" })).toBeVisible();
-        await expect(dialog.getByText("登录后将继续刚才的创作操作，输入内容不会丢失。")).toHaveCount(0);
-        await expect(closeButton).toBeVisible();
-        await closeButton.click();
-        await expect(dialog).toBeHidden();
+        await expect(page).toHaveURL(/\/register\?next=%2Fcreate$/);
+        await expect(page.getByRole("heading", { name: /注册 星启智域/ })).toBeVisible();
+        await page.goBack();
     }
 
     await expect(page.getByRole("heading", { name: "简单四步，创意即刻落地" })).toBeVisible();

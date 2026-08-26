@@ -192,7 +192,7 @@ function listAdmins(db) {
 }
 
 function printHelp() {
-    console.log(`VOZEB PRO 管理员密码重置
+    console.log(`星启智域管理员密码重置
 
 用法：
   node scripts/reset-admin-password.mjs --username admin --password "NewPass123!"

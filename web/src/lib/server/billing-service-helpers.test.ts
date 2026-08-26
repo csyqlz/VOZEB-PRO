@@ -33,11 +33,11 @@ describe("billing product patch", () => {
     const planCurrent: BillingProductRecord = { ...current, productKind: "plan", planId: "creator" };
 
     it("rejects changing an existing points product to free", async () => {
-        await expect(normalizeBillingProductPatch({ amountCents: 0 }, current, db)).rejects.toThrow("积分充值商品价格必须大于零");
+        await expect(normalizeBillingProductPatch({ amountCents: 0 }, current, db)).rejects.toThrow("余额充值商品价格必须大于零");
     });
 
     it("rejects adding points to a free product", async () => {
-        await expect(normalizeBillingProductPatch({ pointsAmount: 10 }, { ...planCurrent, amountCents: 0, pointsAmount: 0 }, db)).rejects.toThrow("赠送积分的商品价格必须大于零");
+        await expect(normalizeBillingProductPatch({ pointsAmount: 10 }, { ...planCurrent, amountCents: 0, pointsAmount: 0 }, db)).rejects.toThrow("赠送余额的商品价格必须大于零");
     });
 
     it("allows a free product when points are removed together", async () => {

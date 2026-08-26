@@ -105,4 +105,28 @@ describe("normalizePointAmount allows negative values", () => {
         expect(consumption).toMatchObject({ cost: 0, remaining: 0 });
         expect(consumption.recordId).not.toBe("");
     });
+
+    it("charges second-priced video using its requested duration", async () => {
+        const admin = await createAdmin();
+        const user = await createUser({ username: "tester", password: "password123", policyAccepted: true });
+        await updateUserByAdmin(admin.id, user.id, { pointsBalance: 10 });
+        await setAuthSettings({
+            systemChannels: [{ id: "video-channel", name: "视频渠道", baseUrl: "https://api.example.com/v1", apiKey: "", apiFormat: "openai", models: ["vendor-video"], enabled: true }],
+            logicalModels: [
+                {
+                    id: "video-per-second",
+                    name: "按秒视频模型",
+                    capability: "video",
+                    enabled: true,
+                    bindings: [
+                        { id: "video-binding", channelId: "video-channel", upstreamModel: "vendor-video", enabled: true, priority: 1, capabilityProfile: { pricing: { currency: "CNY", billingUnit: "per_second", costPrice: 0.23, salePrice: 0.46 } } },
+                    ],
+                },
+            ],
+        });
+
+        const consumption = await consumeUserPoints(user.id, "video-per-second", 6, "video", "video-per-second-charge");
+
+        expect(consumption).toMatchObject({ model: "video-per-second", units: 6, multiplier: 0.46, cost: 2.76, remaining: 7.24 });
+    });
 });

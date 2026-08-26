@@ -96,4 +96,4 @@ export const TASK_ID_KEYS = ["task_id", "taskId", "id", "job_id", "jobId", "requ
 export const TASK_STATUS_KEYS = ["status", "state", "task_status", "taskStatus"];
 export const VIDEO_CREATE_ERROR_PREFIX = "视频任务创建失败：";
 export const VIDEO_QUERY_ERROR_PREFIX = "视频任务查询失败：";
-export const VIDEO_STAGE_ERROR_PREFIX = "上游生成阶段失败：";
+export const VIDEO_STAGE_ERROR_PREFIX = "视频生成阶段失败：";

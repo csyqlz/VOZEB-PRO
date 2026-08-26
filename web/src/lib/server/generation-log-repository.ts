@@ -7,7 +7,7 @@ import type { GenerationLogReferenceSnapshot, GenerationLogRequestSnapshot, Gene
 import { isPostgresDatabaseEnabled, type QueryExecutor } from "@/lib/server/database";
 import { readJsonDataFile, withJsonDataFileLock, writeJsonDataFile } from "@/lib/server/data-adapter";
 import { normalizeGeneratedImageBytes } from "@/lib/server/generated-image-normalizer";
-import { createDatedMediaPath, GENERATION_MEDIA_ROOT } from "@/lib/server/local-media-storage";
+import { createDatedMediaPath, GENERATION_MEDIA_ROOT, TEMPORARY_MEDIA_TTL_MS } from "@/lib/server/local-media-storage";
 import { deleteLocalMediaRegistrations, getLocalMediaRegistration, registerLocalMediaAsset } from "@/lib/server/local-media-registry";
 import { deleteExternalMediaObject, persistExternalMediaIfEnabled } from "@/lib/server/object-storage-service";
 import { fetchSafeOutbound } from "@/lib/server/safe-outbound-fetch";
@@ -128,11 +128,12 @@ export async function writeAssetBytes(bytes: Buffer, mimeType: string, type: Gen
     bytes = normalized.bytes;
     mimeType = normalized.mimeType;
     const extension = extensionFromMime(mimeType, type);
-    const relativePath = createDatedMediaPath("permanent", type, extension);
+    const createdAt = new Date();
+    const relativePath = createDatedMediaPath("temporary", type, extension, createdAt);
     const registration = {
         storageKey: relativePath,
         scope: "generation" as const,
-        storageClass: "permanent" as const,
+        storageClass: "temporary" as const,
         type,
         ownerUserId: context.ownerUserId,
         originalName: generationAssetFileName(context, mimeType),
@@ -141,6 +142,8 @@ export async function writeAssetBytes(bytes: Buffer, mimeType: string, type: Gen
         taskId: context.taskId,
         mimeType,
         bytes: bytes.length,
+        createdAt: createdAt.toISOString(),
+        expiresAt: new Date(createdAt.getTime() + TEMPORARY_MEDIA_TTL_MS).toISOString(),
     };
     const external = await persistExternalMediaIfEnabled({ registration, bytes });
     const serverUrl = `/api/generation-log-assets/${relativePath.split("/").map(encodeURIComponent).join("/")}`;

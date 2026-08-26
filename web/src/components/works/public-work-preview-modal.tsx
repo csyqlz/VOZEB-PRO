@@ -173,25 +173,25 @@ export function PublicWorkPreviewModal({
                                                 <Button size="small" shape="circle" icon={<Copy className="size-3.5" />} onClick={() => void copyPrompt()} aria-label="复制提示词" />
                                             </Tooltip>
                                             {onUseImage && contentAssets.some((asset) => asset.mediaType === "image") ? (
-                                                <Tooltip title="引用图片到 Agent">
+                                                <Tooltip title="引用图片到智能创作">
                                                     <Button
                                                         size="small"
                                                         shape="circle"
                                                         icon={imageImporting ? <LoaderCircle className="size-3.5 animate-spin" /> : <ImagePlus className="size-3.5" />}
                                                         disabled={imageImporting}
                                                         onClick={() => void onUseImage()}
-                                                        aria-label="引用图片到 Agent"
+                                                        aria-label="引用图片到智能创作"
                                                     />
                                                 </Tooltip>
                                             ) : null}
                                             {onUsePrompt ? (
-                                                <Tooltip title="引用提示词到 Agent">
+                                                <Tooltip title="引用提示词到智能创作">
                                                     <Button
                                                         type="primary"
                                                         size="small"
                                                         shape="circle"
                                                         icon={<Sparkles className="size-3.5" />}
-                                                        aria-label="引用提示词到 Agent"
+                                                        aria-label="引用提示词到智能创作"
                                                         onClick={() => {
                                                             onUsePrompt(work.publicPrompt);
                                                             onClose();

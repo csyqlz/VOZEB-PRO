@@ -663,7 +663,31 @@ describe("configured versioned protocol billing", () => {
         mocks.safeUrl.mockResolvedValue(true);
         mocks.getAuthSettings.mockResolvedValue({
             generationPointMultipliers: {},
-            logicalModels: [logicalModel("seedance-special-video", "video", "sd_2.0_fast_special_720p")],
+            logicalModels: [
+                    {
+                        id: "seedance-special-video",
+                    name: "按秒视频",
+                    capability: "video",
+                    enabled: true,
+                    bindings: [
+                        {
+                            id: "seedance-special-video-binding",
+                            channelId: "channel-one",
+                            upstreamModel: "sd_2.0_fast_special_720p",
+                            enabled: true,
+                            priority: 1,
+                            capabilityProfile: { pricing: { currency: "CNY", billingUnit: "per_second", costPrice: 0.23, salePrice: 0.46 } },
+                        },
+                    ],
+                },
+                {
+                    id: "call-video",
+                    name: "按次视频",
+                    capability: "video",
+                    enabled: true,
+                    bindings: [{ id: "call-video-binding", channelId: "channel-one", upstreamModel: "call-video", enabled: true, priority: 1, capabilityProfile: { pricing: { currency: "CNY", billingUnit: "per_call", costPrice: 2, salePrice: 4 } } }],
+                },
+            ],
             systemChannels: [
                 {
                     id: "channel-one",
@@ -671,11 +695,17 @@ describe("configured versioned protocol billing", () => {
                     baseUrl: "https://provider.example/kyyReactApiServer",
                     apiKey: "secret",
                     apiFormat: "openai",
-                    models: ["sd_2.0_fast_special_720p"],
+                    models: ["sd_2.0_fast_special_720p", "call-video"],
                     advancedConfig: {
                         protocol: "seedance-special",
                         modelConfigs: {
                             "sd_2.0_fast_special_720p": {
+                                capability: "video",
+                                protocol: "seedance-special",
+                                createPath: "/v1/seedance-special/videos",
+                                queryPath: "/v1/result/:task_id",
+                            },
+                            "call-video": {
                                 capability: "video",
                                 protocol: "seedance-special",
                                 createPath: "/v1/seedance-special/videos",
@@ -689,6 +719,20 @@ describe("configured versioned protocol billing", () => {
     });
 
     it("classifies a configured v1 create path from the trusted model header", async () => {
+        mocks.consumeUserPoints.mockResolvedValue({
+            model: "seedance-special-video",
+            units: 5,
+            multiplier: 0.46,
+            cost: 2.3,
+            remaining: 97.7,
+            permanentRemaining: 97.7,
+            dailyRemaining: 0,
+            dailyExpiresAt: "",
+            usageKind: "video",
+            planId: "free",
+            recordId: "record-one",
+            idempotencyKey: "request-one",
+        });
         const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ task_id: "seedance-task", status: "queued" }));
         const response = await POST(
             new Request("http://localhost/api/ai/system/channel-one/v1/seedance-special/videos", {
@@ -700,8 +744,40 @@ describe("configured versioned protocol billing", () => {
         );
 
         expect(response.status).toBe(200);
+        expect(response.headers.get("x-vozeb-pro-billing-unit")).toBe("per_second");
         expect(fetchMock.mock.calls[0]?.[0]).toBe("https://provider.example/kyyReactApiServer/v1/seedance-special/videos");
-        expect(mocks.consumeUserPoints).toHaveBeenCalledWith("user-one", "seedance-special-video", 1, "video", expect.any(String), expect.any(String));
+        expect(mocks.consumeUserPoints).toHaveBeenCalledWith("user-one", "seedance-special-video", 5, "video", expect.any(String), expect.any(String), undefined, { channelId: "channel-one", upstreamModel: "sd_2.0_fast_special_720p" });
+    });
+
+    it("charges a per-call video once even when a duration is supplied", async () => {
+        mocks.consumeUserPoints.mockResolvedValue({
+            model: "call-video",
+            units: 1,
+            multiplier: 4,
+            cost: 4,
+            remaining: 96,
+            permanentRemaining: 96,
+            dailyRemaining: 0,
+            dailyExpiresAt: "",
+            usageKind: "video",
+            planId: "free",
+            recordId: "record-call",
+            idempotencyKey: "request-call",
+        });
+        const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ task_id: "call-task", status: "queued" }));
+        const response = await POST(
+            new Request("http://localhost/api/ai/system/channel-one/v1/seedance-special/videos", {
+                method: "POST",
+                headers: { "content-type": "application/json", ...systemModelHeaders("call-video", "call-video") },
+                body: JSON.stringify({ content: [{ type: "text", text: "test" }], duration: 30, ratio: "16:9" }),
+            }),
+            { params: Promise.resolve({ channelId: "channel-one", path: ["v1", "seedance-special", "videos"] }) },
+        );
+
+        expect(response.status).toBe(200);
+        expect(mocks.consumeUserPoints).toHaveBeenCalledWith("user-one", "call-video", 1, "video", expect.any(String), expect.any(String), undefined, { channelId: "channel-one", upstreamModel: "call-video" });
+        expect(response.headers.get("x-vozeb-pro-billing-unit")).toBe("per_call");
+        expect(fetchMock).toHaveBeenCalledOnce();
     });
 });
 

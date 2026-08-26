@@ -261,7 +261,7 @@ export function DramaAssetEditorDrawer({ project, kind, assetId, open, onClose }
                 <section className="border-t border-border pt-3.5">
                     <div className="mb-2.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
                         <h3 className="text-sm font-semibold">角色配音</h3>
-                        <p className="text-xs text-muted-foreground">留空音色 ID 时使用后台默认配置</p>
+                        <p className="text-xs text-muted-foreground">留空音色 ID 时使用平台默认设置</p>
                     </div>
                     <div className="grid gap-3 sm:grid-cols-[minmax(140px,0.8fr)_110px_minmax(220px,1.2fr)]">
                         <Input value={draft.voiceProfile.voice} onChange={(event) => setDraft((current) => ({ ...current, voiceProfile: { ...current.voiceProfile, voice: event.target.value } }))} placeholder="音色 ID" />

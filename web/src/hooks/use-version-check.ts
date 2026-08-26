@@ -5,8 +5,8 @@ import { App } from "antd";
 import { APP_VERSION } from "@/constant/env";
 import { parseChangelog, type ReleaseInfo } from "@/lib/release";
 
-const latestVersionUrl = "https://raw.githubusercontent.com/csyqlz/VOZEB-PRO/main/VERSION";
-const latestChangelogUrl = "https://raw.githubusercontent.com/csyqlz/VOZEB-PRO/main/CHANGELOG.md";
+const latestVersionUrl = process.env.NEXT_PUBLIC_RELEASE_VERSION_URL?.trim() || "";
+const latestChangelogUrl = process.env.NEXT_PUBLIC_RELEASE_CHANGELOG_URL?.trim() || "";
 const currentReleaseMajor = toVersionParts(APP_VERSION)?.[0] ?? 0;
 
 function readLocalReleases(): ReleaseInfo[] {
@@ -66,6 +66,7 @@ export function useVersionCheck() {
     const hasNewVersion = isNewerVersion(latestVersion, currentVersion);
 
     const checkLatestVersion = useCallback(async () => {
+        if (!latestVersionUrl) return false;
         try {
             const response = await fetch(latestVersionUrl);
             if (!response.ok) return false;
@@ -81,6 +82,13 @@ export function useVersionCheck() {
     const checkLatestRelease = useCallback(
         async (showMessage = false) => {
             setChecking(true);
+            if (!latestVersionUrl || !latestChangelogUrl) {
+                setLatestVersion(currentVersion);
+                setReleases(localReleases);
+                if (showMessage) message.info("当前部署使用本地版本记录");
+                setChecking(false);
+                return false;
+            }
             try {
                 const [versionResponse, changelogResponse] = await Promise.all([fetch(latestVersionUrl), fetch(latestChangelogUrl)]);
                 if (!versionResponse.ok) throw new Error("版本读取失败");
@@ -96,7 +104,7 @@ export function useVersionCheck() {
             } catch {
                 setLatestVersion(currentVersion);
                 setReleases(localReleases);
-                if (showMessage) message.warning("GitHub 暂不可访问或仓库尚未公开，已显示本地版本记录");
+                if (showMessage) message.warning("远程版本记录暂时不可用，已显示本地版本记录");
                 return false;
             } finally {
                 setChecking(false);

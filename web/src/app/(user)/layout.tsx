@@ -13,6 +13,7 @@ export const metadata: Metadata = {
 export default async function UserLayout({ children }: { children: ReactNode }) {
     const access = await getAuthenticatedPageAccess();
     if (!access.user) {
+        if (access.install.database.configured && !access.install.database.healthy) redirect("/service-unavailable");
         if (!access.install.database.healthy || access.install.firstAdminRequired) redirect("/install");
         redirect("/login");
     }

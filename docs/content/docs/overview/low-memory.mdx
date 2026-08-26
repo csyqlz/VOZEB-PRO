@@ -1,11 +1,11 @@
 ---
 title: 低内存服务器部署
-description: 使用发布镜像和外部 PostgreSQL 运行 VOZEB PRO
+description: 使用发布镜像和外部 PostgreSQL 运行 星启智域
 ---
 
 # 低内存服务器部署
 
-低内存机器不要现场执行 `next build` 或 `docker build`。`docker-compose.lowmem.yml` 只运行 VOZEB PRO 应用，PostgreSQL 使用外部托管服务或另一台服务器。
+低内存机器不要现场执行 `next build` 或 `docker build`。`docker-compose.lowmem.yml` 只运行 星启智域 应用，PostgreSQL 使用外部托管服务或另一台服务器。
 
 ## 最低资源边界
 
@@ -29,7 +29,7 @@ cp .env.example .env
 至少修改：
 
 ```dotenv
-NEXT_PUBLIC_SITE_URL=https://vozeb-pro.example.com
+NEXT_PUBLIC_SITE_URL=https://games.xingqizhiyu.cn
 DATABASE_URL=postgres://user:password@database-host:5432/vozeb_pro
 VOZEB_PRO_DATABASE_SSL=1
 VOZEB_PRO_DATABASE_POOL_MAX=5

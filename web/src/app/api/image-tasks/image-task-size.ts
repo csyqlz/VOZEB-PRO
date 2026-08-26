@@ -20,6 +20,19 @@ export function resolveRequestSize(quality: string | undefined, size: string) {
     }
 }
 
+/** Align explicit dimensions for gateways that reject non-16-pixel edges. */
+export function resolveProviderRequestSize(quality: string | undefined, size: string, protocol?: string) {
+    const requestSize = resolveRequestSize(quality, size);
+    return (protocol === "sub2api" || protocol === "custom") && requestSize ? alignImageSizeToStep(requestSize) : requestSize;
+}
+
+export function alignImageSizeToStep(size: string, step = IMAGE_SIZE_STEP) {
+    const dimensions = parseImageDimensions(size);
+    if (!dimensions) return size;
+    const align = (value: number) => Math.ceil(value / step) * step;
+    return `${align(dimensions.width)}x${align(dimensions.height)}`;
+}
+
 export function resolveResultSize(quality: string | undefined, size: string) {
     const value = size.trim();
     const dimensions = parseImageDimensions(value);

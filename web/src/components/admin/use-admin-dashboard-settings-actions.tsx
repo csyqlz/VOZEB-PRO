@@ -8,8 +8,9 @@ import { nanoid } from "nanoid";
 import type { ReactNode } from "react";
 import { useEffect, useRef } from "react";
 
-import type { AuthSettings, PublicUser, PublicUserSummary, SiteFriendLink, SiteSocialKey, SystemChannelAdvancedConfig, SystemModelChannel } from "@/lib/auth/store";
+import type { AuthSettings, LogicalModelPricing, PublicUser, PublicUserSummary, SiteFriendLink, SiteSocialKey, SystemChannelAdvancedConfig, SystemModelChannel } from "@/lib/auth/store";
 import { buildGlobalAiOpcSelection } from "@/lib/globalaiopc-catalog";
+import { effectiveBillingUnit } from "@/lib/model-pricing";
 import { normalizeDefaultModelsConfig, synchronizeLogicalModelsWithChannels } from "@/lib/model-routing-config";
 import type { AdminSetupSummary } from "@/lib/server/admin-setup-status";
 import { clampInteger, createSystemChannel, requestAdminModels, type AdminModelsResult } from "./admin-dashboard-elements";
@@ -81,9 +82,10 @@ export function useAdminDashboardSettingsActions({ state, data }: { state: Admin
     };
 
     const deleteChannel = async (id: string) => {
-        const systemChannels = settings.systemChannels.filter((channel) => channel.id !== id);
-        const logicalModels = synchronizeLogicalModelsWithChannels(settings.logicalModels, systemChannels);
-        const defaultModels = normalizeDefaultModelsConfig(settings.defaultModels, logicalModels, systemChannels);
+        const current = latestSettingsRef.current;
+        const systemChannels = current.systemChannels.filter((channel) => channel.id !== id);
+        const logicalModels = synchronizeLogicalModelsWithChannels(current.logicalModels, systemChannels);
+        const defaultModels = normalizeDefaultModelsConfig(current.defaultModels, logicalModels, systemChannels);
         return saveSettings({ systemChannels, logicalModels, defaultModels }, "渠道已删除");
     };
 
@@ -136,6 +138,25 @@ export function useAdminDashboardSettingsActions({ state, data }: { state: Admin
 
     const updateModelPointCost = (model: string, value: number | null) => {
         setSettings((current) => ({ ...current, modelPointCosts: { ...current.modelPointCosts, [model]: toNumberOrOne(value) } }));
+    };
+
+    const updateModelPricing = (modelId: string, patch: Partial<LogicalModelPricing>) => {
+        setSettings((current) => ({
+            ...current,
+            logicalModels: current.logicalModels.map((model) => {
+                if (model.id !== modelId) return model;
+                const target = model.bindings.find((binding) => binding.enabled !== false) || model.bindings[0];
+                if (!target) return model;
+                const currentPricing = target.capabilityProfile?.pricing;
+                const pricing: LogicalModelPricing = {
+                    ...(currentPricing || {}),
+                    ...patch,
+                    billingUnit: effectiveBillingUnit(model.capability, patch.billingUnit || currentPricing?.billingUnit),
+                    currency: "CNY",
+                };
+                return { ...model, bindings: model.bindings.map((binding) => (binding.id === target.id ? { ...binding, capabilityProfile: { ...(binding.capabilityProfile || {}), pricing } } : binding)) };
+            }),
+        }));
     };
 
     const updateGenerationPointMultiplier = (group: keyof AuthSettings["generationPointMultipliers"], key: string, value: number | null) => {
@@ -331,6 +352,7 @@ export function useAdminDashboardSettingsActions({ state, data }: { state: Admin
         updateGenerationCostControl,
         updateDataLifecycle,
         updateModelPointCost,
+        updateModelPricing,
         updateGenerationPointMultiplier,
         deleteGenerationPointMultiplier,
         addCustomPointModel,

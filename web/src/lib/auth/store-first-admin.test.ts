@@ -17,7 +17,7 @@ vi.mock("@/lib/server/data-adapter", () => ({
     }),
 }));
 
-import { createFirstAdmin, createUser } from "./store";
+import { authenticateUser, createFirstAdmin, createUser } from "./store";
 
 describe("first administrator creation", () => {
     beforeEach(() => {
@@ -52,6 +52,16 @@ describe("first administrator creation", () => {
             privacyUrl: "/privacy",
             acceptedAt: expect.any(String),
         });
+    });
+
+    it("creates and authenticates a Chinese account", async () => {
+        await createFirstAdmin({ username: "管理员", password: "password123", installToken: TOKEN });
+
+        const user = await createUser({ username: "星启2026", password: "password123", policyAccepted: true });
+        const authenticated = await authenticateUser({ username: "星启2026", password: "password123" });
+
+        expect(user.username).toBe("星启2026");
+        expect(authenticated.username).toBe("星启2026");
     });
 
     it("serializes concurrent first-admin attempts", async () => {

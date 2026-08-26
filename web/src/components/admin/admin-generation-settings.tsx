@@ -49,14 +49,14 @@ export function GenerationCostControlPanel({ settings, onChange }: { settings: A
         <div className={settingsPanelSurfaceClass}>
             <SectionTitle icon={<CircleGauge className="size-4" />} title="生成成本保护" />
             <div className="mt-4 grid gap-3 sm:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
-                <LabeledControl label="单任务积分上限">
-                    <InputNumber className="w-full" min={0} precision={2} value={settings.generationCostControl.maxPointsPerTask} onChange={(value) => onChange("maxPointsPerTask", value)} />
+                <LabeledControl label="单任务余额上限（元）">
+                    <InputNumber className="w-full" min={0} precision={8} prefix="¥" value={settings.generationCostControl.maxPointsPerTask} onChange={(value) => onChange("maxPointsPerTask", value)} />
                 </LabeledControl>
-                <LabeledControl label="单用户每日积分上限">
-                    <InputNumber className="w-full" min={0} precision={2} value={settings.generationCostControl.dailyUserPointSpend} onChange={(value) => onChange("dailyUserPointSpend", value)} />
+                <LabeledControl label="单用户每日余额上限（元）">
+                    <InputNumber className="w-full" min={0} precision={8} prefix="¥" value={settings.generationCostControl.dailyUserPointSpend} onChange={(value) => onChange("dailyUserPointSpend", value)} />
                 </LabeledControl>
-                <LabeledControl label="全站每日积分上限">
-                    <InputNumber className="w-full" min={0} precision={2} value={settings.generationCostControl.dailyTotalPointSpend} onChange={(value) => onChange("dailyTotalPointSpend", value)} />
+                <LabeledControl label="全站每日余额上限（元）">
+                    <InputNumber className="w-full" min={0} precision={8} prefix="¥" value={settings.generationCostControl.dailyTotalPointSpend} onChange={(value) => onChange("dailyTotalPointSpend", value)} />
                 </LabeledControl>
             </div>
         </div>

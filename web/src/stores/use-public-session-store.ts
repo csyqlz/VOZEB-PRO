@@ -34,6 +34,7 @@ type PublicSessionStore = {
 export const usePublicSessionStore = create<PublicSessionStore>(() => ({ payload: null, ready: false }));
 
 export const PUBLIC_SETTINGS_CHANGED_EVENT = "vozeb-pro-public-settings-changed";
+export const PUBLIC_SETTINGS_CHANGED_STORAGE_KEY = "vozeb-pro-public-settings-changed-at";
 const SESSION_CACHE_TTL_MS = 30_000;
 let sessionRequest: Promise<PublicSessionPayload> | null = null;
 let sessionLoadedAt = 0;
@@ -70,7 +71,14 @@ export function loadPublicSession({ force = false }: { force?: boolean } = {}) {
 
 export function notifyPublicSettingsChanged() {
     sessionLoadedAt = 0;
-    if (typeof window !== "undefined") window.dispatchEvent(new Event(PUBLIC_SETTINGS_CHANGED_EVENT));
+    if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event(PUBLIC_SETTINGS_CHANGED_EVENT));
+        try {
+            window.localStorage.setItem(PUBLIC_SETTINGS_CHANGED_STORAGE_KEY, String(Date.now()));
+        } catch {
+            // Storage can be unavailable in restricted browser contexts; same-tab refresh still works above.
+        }
+    }
 }
 
 export function applyPublicSiteSettings(site: PublicSiteSettings) {

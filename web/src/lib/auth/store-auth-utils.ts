@@ -23,7 +23,7 @@ export function currentQuotaDate() {
 }
 
 export function validateUsername(username: string) {
-    if (!USERNAME_PATTERN.test(username)) throw new AuthInputError("用户名只能使用 3-32 位字母、数字、下划线、点或短横线");
+    if (!USERNAME_PATTERN.test(username)) throw new AuthInputError("账号需为 2-32 位中文、字母、数字或 . _ -，且不能包含空格");
 }
 
 export function validateEmail(email: string) {

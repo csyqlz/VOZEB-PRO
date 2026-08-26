@@ -317,7 +317,7 @@ export function AdminSettingsSection({ controller }: { controller: AdminDashboar
                                             </div>
                                             <div className="grid gap-3 lg:grid-cols-2">
                                                 <LabeledControl label="邮箱账号">
-                                                    <Input value={settings.mail.username} placeholder="csyqlz@gmail.com" onChange={(event) => updateMailSetting("username", event.target.value)} />
+                                                    <Input value={settings.mail.username} placeholder="星启智域发信邮箱" onChange={(event) => updateMailSetting("username", event.target.value)} />
                                                 </LabeledControl>
                                                 <LabeledControl label="授权码 / 密码">
                                                     <Input.Password value={settings.mail.password} placeholder="QQ 邮箱请填写 SMTP 授权码" onChange={(event) => updateMailSetting("password", event.target.value)} />

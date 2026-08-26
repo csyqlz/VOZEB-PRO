@@ -1,6 +1,6 @@
 ---
 title: 项目结构与流程
-description: VOZEB PRO 目录职责、服务边界、核心请求链路和部署拓扑
+description: 星启智域 目录职责、服务边界、核心请求链路和部署拓扑
 ---
 
 # 项目结构与流程
@@ -17,7 +17,7 @@ VOZEB-PRO/
 |  |- public/community/     QQ 群等项目社区素材
 |  |- public/screenshots/   文档使用的脱敏页面截图
 |  `- src/                  文档站页面、搜索和导航
-|- web/                     VOZEB PRO 主应用
+|- web/                     星启智域 主应用
 |  |- public/               Logo、图标等静态资源
 |  |- scripts/              standalone 启动与运维脚本
 |  `- src/
@@ -193,7 +193,7 @@ flowchart LR
 flowchart LR
     USER["浏览器"] --> HTTPS["HTTPS 域名"]
     HTTPS --> NGINX["宝塔 Nginx 或其他反向代理"]
-    NGINX --> APP["VOZEB PRO :3000"]
+    NGINX --> APP["星启智域 :3000"]
     APP --> PG[("PostgreSQL 16")]
     APP --> LOCAL["本地持久媒体目录"]
     APP --> OSS["可选 S3 / OSS"]

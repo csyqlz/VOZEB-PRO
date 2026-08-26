@@ -59,7 +59,7 @@ describe("points wallet service", () => {
     it("rejects an insufficient debit without partial mutation", async () => {
         await seedWallet({ permanentPoints: 50, dailyPoints: 30 });
 
-        await expect(consume("consume-too-much", 81, "2026-07-22T08:00:00+08:00")).rejects.toThrow("积分不足");
+        await expect(consume("consume-too-much", 81, "2026-07-22T08:00:00+08:00")).rejects.toThrow("人民币余额不足");
         const snapshot = await getPointsWalletSnapshot("user-one", { now: at("2026-07-22T09:00:00+08:00") });
         const db = await readAuthDb();
 
@@ -79,6 +79,36 @@ describe("points wallet service", () => {
         expect(second.applied).toBe(false);
         expect(second.snapshot.totalPoints).toBe(60);
         expect(db.pointRecords).toHaveLength(1);
+    });
+
+    it("persists structured token billing details on the consumption record", async () => {
+        await seedWallet({ permanentPoints: 50, dailyPoints: 0 });
+
+        const result = await consumePoints({
+            userId: "user-one",
+            amount: 0.01234567,
+            units: 1,
+            usageKind: "text",
+            model: "writer",
+            description: "文本模型调用",
+            idempotencyKey: "text-detail-one",
+            billingDetail: {
+                billingUnit: "per_1m_tokens",
+                currency: "CNY",
+                actualCost: 0.01234567,
+                inputTokens: 1200,
+                outputTokens: 800,
+                inputRate: 1.5,
+                outputRate: 9,
+            },
+        });
+
+        expect(result.record).toMatchObject({
+            usageKind: "text",
+            units: 1,
+            billingDetail: expect.objectContaining({ inputTokens: 1200, outputTokens: 800, actualCost: 0.01234567 }),
+        });
+        expect((await readAuthDb()).pointRecords[0]).toMatchObject({ billingDetail: expect.objectContaining({ billingUnit: "per_1m_tokens" }) });
     });
 
     it("rejects reused consumption keys with different billing parameters", async () => {
@@ -282,7 +312,7 @@ describe("points wallet service", () => {
         await consume("plan-total-image", 4, "2026-07-22T08:00:00+08:00");
 
         await expect(consumePoints({ userId: "user-one", amount: 3, units: 1, usageKind: "text", model: "test-text-model", description: "文本调用", idempotencyKey: "plan-total-text", now: at("2026-07-22T09:00:00+08:00") })).rejects.toThrow(
-            "今日积分消费额度不足",
+            "今日人民币余额消费额度不足",
         );
     });
 
@@ -298,7 +328,7 @@ describe("points wallet service", () => {
                 idempotencyKey: "shared-key",
                 now: at("2026-07-22T09:00:00+08:00"),
             }),
-        ).rejects.toThrow("积分幂等键已被其他业务使用");
+        ).rejects.toThrow("余额幂等键已被其他业务使用");
     });
 });
 

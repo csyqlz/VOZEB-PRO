@@ -5,7 +5,7 @@ import type { PublicPointRecord } from "@/lib/auth/store-types";
 import { serializeApiParams } from "./request";
 import { expireClientSession } from "./session-expiration";
 
-export type PointRecord = Pick<PublicPointRecord, "id" | "type" | "amount" | "balanceAfter" | "description" | "createdAt">;
+export type PointRecord = Pick<PublicPointRecord, "id" | "type" | "amount" | "balanceAfter" | "description" | "createdAt" | "model" | "usageKind" | "units" | "billingDetail" | "sourceRecordId">;
 
 export type PointRecordListResult = {
     records: PointRecord[];
@@ -18,11 +18,11 @@ type HeaderLike = Headers | Record<string, unknown> | { get: (key: string) => un
 let pointsRefreshPromise: Promise<void> | null = null;
 let pointsRefreshQueued = false;
 
-export async function listPointRecords(input: { page?: number; pageSize?: number; direction?: "credit" | "debit" } = {}): Promise<PointRecordListResult> {
+export async function listPointRecords(input: { page?: number; pageSize?: number; direction?: "credit" | "debit"; view?: "balance" | "consumption" } = {}): Promise<PointRecordListResult> {
     const params = serializeApiParams(input);
     const response = await fetch(`/api/points${params.size ? `?${params.toString()}` : ""}`, { cache: "no-store" });
     const payload = (await response.json().catch(() => null)) as (Partial<PointRecordListResult> & { error?: string }) | null;
-    if (!response.ok || !payload) throw new Error(payload?.error || "积分记录加载失败");
+    if (!response.ok || !payload) throw new Error(payload?.error || "余额记录加载失败");
     return {
         records: payload.records || [],
         total: Number(payload.total || 0),

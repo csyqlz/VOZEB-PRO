@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { applyPublicSiteSettings, loadPublicSession, resetPublicSession, usePublicSessionStore } from "@/stores/use-public-session-store";
+import { applyPublicSiteSettings, loadPublicSession, notifyPublicSettingsChanged, PUBLIC_SETTINGS_CHANGED_STORAGE_KEY, resetPublicSession, usePublicSessionStore } from "@/stores/use-public-session-store";
 
 afterEach(() => {
     resetPublicSession();
@@ -38,5 +38,16 @@ describe("public session refresh", () => {
         expect(refreshed.settings?.logicalModels?.map((model) => model.id)).toEqual(["video-one"]);
         expect(fetchMock).toHaveBeenCalledTimes(2);
         expect(usePublicSessionStore.getState().payload).toEqual(refreshed);
+    });
+
+    it("broadcasts settings changes to other browser tabs", () => {
+        const storage = new Map<string, string>();
+        vi.stubGlobal("window", {
+            dispatchEvent: vi.fn(),
+            localStorage: { setItem: (key: string, value: string) => storage.set(key, value), getItem: (key: string) => storage.get(key) || null },
+        });
+        notifyPublicSettingsChanged();
+
+        expect(storage.get(PUBLIC_SETTINGS_CHANGED_STORAGE_KEY)).toMatch(/\d+/);
     });
 });

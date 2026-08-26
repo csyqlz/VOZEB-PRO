@@ -15,5 +15,6 @@ export async function GET(request: Request) {
     const pageSize = Number(url.searchParams.get("pageSize") || url.searchParams.get("limit") || 10);
     const directionValue = url.searchParams.get("direction");
     const direction = directionValue === "credit" || directionValue === "debit" ? directionValue : undefined;
-    return NextResponse.json(await listPointRecordsPage(currentUser.id, { page, pageSize, direction }));
+    const view = url.searchParams.get("view") === "consumption" ? "consumption" : undefined;
+    return NextResponse.json(await listPointRecordsPage(currentUser.id, view ? { page, pageSize, direction, view } : { page, pageSize, direction }));
 }

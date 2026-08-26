@@ -6,8 +6,9 @@ import { Plus, Trash2 } from "lucide-react";
 
 import { DEFAULT_MODEL_POINT_COST_KEY } from "@/constant/credits";
 import type { AuthSettings } from "@/lib/auth/store";
-import type { LogicalModelCapability } from "@/lib/auth/store";
-import { configuredModelPointCostKeys, resolveConfiguredModelPointCost } from "@/lib/model-point-cost";
+import type { LogicalModelCapability, LogicalModelPricing } from "@/lib/auth/store";
+import { configuredModelPointCostKeys } from "@/lib/model-point-cost";
+import { billingUnitLabel, effectiveBillingUnit } from "@/lib/model-pricing";
 import { LabeledControl } from "@/components/admin/admin-settings-controls";
 import { toNumberOrOne, toNumberOrZero, uniqueList } from "@/components/admin/admin-values";
 
@@ -44,6 +45,7 @@ export function QuotaRuleTable({
     onFreeDailyPointsChange,
     onModelPointCostChange,
     onModelPointCostDelete,
+    onModelPricingChange,
     onGenerationPointMultiplierChange,
     onGenerationPointMultiplierDelete,
 }: {
@@ -55,6 +57,7 @@ export function QuotaRuleTable({
     onFreeDailyPointsChange: (value: number | null) => void;
     onModelPointCostChange: (model: string, value: number | null) => void;
     onModelPointCostDelete: (model: string) => void;
+    onModelPricingChange: (model: string, patch: Partial<LogicalModelPricing>) => void;
     onGenerationPointMultiplierChange: (group: keyof AuthSettings["generationPointMultipliers"], key: string, value: number | null) => void;
     onGenerationPointMultiplierDelete: (group: keyof AuthSettings["generationPointMultipliers"], key: string) => void;
 }) {
@@ -67,8 +70,8 @@ export function QuotaRuleTable({
         <div className="min-w-0">
             <section className="grid gap-3 border-b border-zinc-200 pb-4 sm:grid-cols-[minmax(0,1fr)_minmax(220px,320px)] sm:items-end sm:gap-6 sm:pb-5 dark:border-zinc-800">
                 <div className="min-w-0">
-                    <div className="text-sm font-semibold text-stone-950 dark:text-stone-100">免费用户每日积分</div>
-                    <p className="mt-1 text-xs leading-5 text-stone-500 dark:text-stone-400">未购买套餐的用户每天自动获得，仅当日有效；套餐每日赠送由商品配置决定，不受此开关影响。</p>
+                    <div className="text-sm font-semibold text-stone-950 dark:text-stone-100">免费用户每日余额</div>
+                    <p className="mt-1 text-xs leading-5 text-stone-500 dark:text-stone-400">未购买套餐的用户每天自动获得人民币余额，仅当日有效；套餐每日赠送由商品配置决定，不受此开关影响。</p>
                 </div>
                 <div className="grid grid-cols-[auto_minmax(0,1fr)] items-end gap-3">
                     <div className="pb-1">
@@ -76,18 +79,25 @@ export function QuotaRuleTable({
                         <Switch size="small" checked={settings.freeDailyPointsEnabled} checkedChildren="开启" unCheckedChildren="关闭" onChange={onFreeDailyPointsEnabledChange} />
                     </div>
                     <LabeledControl label="每日额度">
-                        <InputNumber className="w-full" min={0} precision={0} value={settings.freeDailyPoints} onChange={(value) => onFreeDailyPointsChange(toNumberOrZero(value))} />
+                        <InputNumber className="w-full" min={0} precision={8} prefix="¥" value={settings.freeDailyPoints} onChange={(value) => onFreeDailyPointsChange(toNumberOrZero(value))} />
                     </LabeledControl>
                 </div>
             </section>
             <section className="border-b border-zinc-200 py-4 sm:py-5 dark:border-zinc-800">
-                <div className="text-sm font-semibold text-stone-950 dark:text-stone-100">模型基础扣费</div>
-                <div className="mt-1 text-xs leading-5 text-stone-500 dark:text-stone-400">每次生成先扣除模型基础积分；单独配置的模型使用自己的数值，其他模型使用统一默认值。</div>
+                <div className="text-sm font-semibold text-stone-950 dark:text-stone-100">模型人民币价格</div>
+                <div className="mt-1 text-xs leading-5 text-stone-500 dark:text-stone-400">所有模型统一使用人民币。图片按次、视频按次或按秒、文本按实际输入和输出 token 计费。成本价仅供管理人员核算，销售价用于用户余额扣费。</div>
                 <div className="mt-3 grid gap-3 lg:grid-cols-[240px_minmax(0,1fr)] lg:items-end">
-                    <LabeledControl label="其他模型每次默认扣除积分">
-                        <InputNumber className="w-full" min={0} precision={2} value={settings.modelPointCosts[DEFAULT_MODEL_POINT_COST_KEY] ?? 1} onChange={(value) => onModelPointCostChange(DEFAULT_MODEL_POINT_COST_KEY, toNumberOrOne(value))} />
+                    <LabeledControl label="其他模型每次默认销售价（元）">
+                        <InputNumber
+                            className="w-full"
+                            min={0}
+                            precision={8}
+                            prefix="¥"
+                            value={settings.modelPointCosts[DEFAULT_MODEL_POINT_COST_KEY] ?? 1}
+                            onChange={(value) => onModelPointCostChange(DEFAULT_MODEL_POINT_COST_KEY, toNumberOrOne(value))}
+                        />
                     </LabeledControl>
-                    <LabeledControl label="添加模型单独扣费">
+                    <LabeledControl label="添加模型价格档案">
                         <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
                             <Input value={customModel} placeholder="输入任意模型名，例如 grok-imagine-video" onChange={(event) => onCustomModelChange(event.target.value)} onPressEnter={onAddCustomModel} />
                             <Button icon={<Plus className="size-4" />} aria-label="添加模型" title="添加模型" onClick={onAddCustomModel}>
@@ -105,15 +115,21 @@ export function QuotaRuleTable({
                         onChange={(value) => setActiveCapability(value as LogicalModelCapability)}
                     />
                 </div>
-                <div className="mt-3 text-[11px] text-stone-400 dark:text-stone-500">当前显示{modelCapabilityOptions.find((item) => item.value === activeCapability)?.label}模型；每个数值均表示该模型每次调用扣除的基础积分。</div>
+                <div className="mt-3 text-[11px] text-stone-400 dark:text-stone-500">当前显示{modelCapabilityOptions.find((item) => item.value === activeCapability)?.label}模型；价格单位为人民币（CNY）。</div>
                 <div className="mt-3 grid gap-x-5 gap-y-2 md:grid-cols-2">
+                    <div className="hidden grid-cols-[minmax(0,1fr)_96px_96px_28px] items-center gap-2 px-1 text-[11px] font-medium text-stone-400 sm:grid sm:grid-cols-[minmax(0,1fr)_132px_132px_32px] md:col-span-2">
+                        <span>模型</span>
+                        <span>成本价（CNY）</span>
+                        <span>销售价（CNY）</span>
+                        <span />
+                    </div>
                     {visibleModels.length ? (
                         visibleModels.map((model) => {
                             const logical = settings.logicalModels.find((item) => item.id.toLowerCase() === model.toLowerCase());
                             return (
                                 <div
                                     key={model}
-                                    className="grid min-w-0 grid-cols-[minmax(0,1fr)_76px_28px] items-center gap-2 border-t border-zinc-100 py-2 first:border-t-0 md:[&:nth-child(2)]:border-t-0 dark:border-zinc-900 sm:grid-cols-[minmax(0,1fr)_104px_32px]"
+                                    className="grid min-w-0 grid-cols-[minmax(0,1fr)_96px_96px_28px] items-center gap-2 border-t border-zinc-100 py-2 first:border-t-0 md:[&:nth-child(2)]:border-t-0 dark:border-zinc-900 sm:grid-cols-[minmax(0,1fr)_132px_132px_32px]"
                                 >
                                     <div className="min-w-0">
                                         <div className="flex min-w-0 items-center gap-2">
@@ -121,6 +137,9 @@ export function QuotaRuleTable({
                                                 {logical?.name || model}
                                             </span>
                                             <ModelCapabilityTag capability={activeCapability} />
+                                            <Tag className="!m-0 shrink-0" color="gold">
+                                                {billingUnitLabel(effectiveBillingUnit(activeCapability, logical?.bindings.find((binding) => binding.enabled !== false)?.capabilityProfile?.pricing?.billingUnit))}
+                                            </Tag>
                                         </div>
                                         {logical && logical.name !== logical.id ? (
                                             <span className="mt-0.5 block truncate text-xs text-stone-400">ID: {logical.id}</span>
@@ -128,13 +147,7 @@ export function QuotaRuleTable({
                                             <span className="mt-0.5 block text-xs text-stone-400">手动添加</span>
                                         ) : null}
                                     </div>
-                                    <InputNumber
-                                        className="w-full"
-                                        min={0}
-                                        precision={2}
-                                        value={resolveConfiguredModelPointCost(settings.modelPointCosts, model, settings.logicalModels)}
-                                        onChange={(value) => onModelPointCostChange(model, toNumberOrOne(value))}
-                                    />
+                                    <PriceEditor model={model} capability={activeCapability} settings={settings} onChange={onModelPricingChange} />
                                     <Button
                                         className="!h-7 !w-7 !min-w-7 !p-0"
                                         size="small"
@@ -195,6 +208,41 @@ function ModelCapabilityTag({ capability }: { capability: LogicalModelCapability
         <Tag className="!m-0 shrink-0" color={colors[capability]}>
             {labels[capability]}
         </Tag>
+    );
+}
+
+function PriceEditor({ model, capability, settings, onChange }: { model: string; capability: LogicalModelCapability; settings: AuthSettings; onChange: (model: string, patch: Partial<LogicalModelPricing>) => void }) {
+    const logical = settings.logicalModels.find((item) => item.id.toLowerCase() === model.toLowerCase() || item.bindings.some((binding) => binding.upstreamModel.toLowerCase() === model.toLowerCase()));
+    const binding = logical?.bindings.find((item) => item.enabled !== false) || logical?.bindings[0];
+    const existing = binding?.capabilityProfile?.pricing;
+    const legacyCost = binding?.capabilityProfile?.unitCost ?? 0;
+    const fallbackSale = settings.modelPointCosts[model] !== undefined ? Number(settings.modelPointCosts[model]) : legacyCost * 2;
+    const isText = capability === "text";
+    const cost = isText ? (existing?.inputCostPrice ?? binding?.capabilityProfile?.tokenPricing?.input ?? 0) : (existing?.costPrice ?? legacyCost);
+    const sale = isText ? (existing?.inputSalePrice ?? cost * 2) : (existing?.salePrice ?? fallbackSale);
+    const billingUnit = effectiveBillingUnit(capability, existing?.billingUnit);
+    const unit = isText ? "元 / 1M 输入 token" : billingUnit === "per_second" ? "元 / 秒" : "元 / 次";
+    return (
+        <>
+            <InputNumber
+                className="w-full"
+                min={0}
+                precision={6}
+                prefix="¥"
+                title={`成本价（${unit}）`}
+                value={cost}
+                onChange={(value) => onChange(model, isText ? { billingUnit: "per_1m_tokens", inputCostPrice: Number(value) || 0 } : { billingUnit, costPrice: Number(value) || 0 })}
+            />
+            <InputNumber
+                className="w-full"
+                min={0}
+                precision={6}
+                prefix="¥"
+                title={`销售价（${unit}）`}
+                value={sale}
+                onChange={(value) => onChange(model, isText ? { billingUnit: "per_1m_tokens", inputSalePrice: Number(value) || 0 } : { billingUnit, salePrice: Number(value) || 0 })}
+            />
+        </>
     );
 }
 

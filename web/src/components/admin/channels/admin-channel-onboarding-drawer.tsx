@@ -488,7 +488,7 @@ function ReviewStep({ channel, settings }: { channel: SystemModelChannel; settin
             <ChannelInfoNote title="启用后请在用户工作台验证" description="文本、图片、视频和音频能力以对应工作台的真实业务请求为准。" />
             <div className="flex items-start gap-2 text-xs leading-5 text-stone-500 dark:text-stone-400">
                 <CircleDollarSign className="mt-0.5 size-4 shrink-0" />
-                <span>用户积分仍按逻辑模型配置；上游模型名只用于真实请求。</span>
+                <span>用户人民币余额仍按逻辑模型成本价和销售价配置；上游模型名只用于真实请求。</span>
             </div>
         </div>
     );

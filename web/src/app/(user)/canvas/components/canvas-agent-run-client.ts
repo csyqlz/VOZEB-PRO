@@ -58,19 +58,19 @@ export function watchCanvasAgentRun(runId: string, handlers: RunHandlers, option
                 const run = await getCreativeAgentRun(runId);
                 if (settled) return;
                 if (run.status === "completed") {
-                    handlers.onAssistant("Agent 任务已完成，结果已经返回。", latestOutput);
+                    handlers.onAssistant("智能任务已完成，结果已经返回。", latestOutput);
                     finish();
                     return;
                 }
                 if (run.status === "cancelled") {
-                    handlers.onAssistant("Agent 任务已取消。");
+                    handlers.onAssistant("智能任务已取消。");
                     finish();
                     return;
                 }
                 if (run.status === "failed") {
                     const failed = run.tasks.find((task) => task.status === "failed");
                     if (!latestFailedTask && failed) handlers.onAssistant(`「${failed.title || "创作任务"}」执行失败：${failed.error || "生成服务暂时不可用"}`, { runId, taskId: failed.id, title: failed.title || "创作任务失败" });
-                    else if (!latestFailedTask) handlers.onAssistant("Agent 执行失败", { runId, title: "Agent 执行失败" });
+                    else if (!latestFailedTask) handlers.onAssistant("智能任务执行失败", { runId, title: "智能任务执行失败" });
                     finish();
                     return;
                 }
@@ -149,13 +149,13 @@ export function watchCanvasAgentRun(runId: string, handlers: RunHandlers, option
         });
         listen("run.failed", (event) => {
             const payload = read<{ data?: { message?: string } }>(event);
-            if (!latestFailedTask) handlers.onAssistant(payload.data?.message || "Agent 执行失败", { runId, title: "Agent 执行失败" });
+            if (!latestFailedTask) handlers.onAssistant(payload.data?.message || "智能任务执行失败", { runId, title: "智能任务执行失败" });
             finish();
         });
         listen("run.cancelled", (event) => {
             const payload = read<{ data?: { ops?: CanvasAgentOp[] } }>(event);
             if (payload.data?.ops?.length) handlers.onOps(payload.data.ops);
-            handlers.onAssistant("Agent 任务已取消。");
+            handlers.onAssistant("智能任务已取消。");
             finish();
         });
         listen("run.paused", () => {
@@ -169,17 +169,17 @@ export function watchCanvasAgentRun(runId: string, handlers: RunHandlers, option
         listen("run.snapshot", (event) => {
             const payload = read<{ status?: string; tasks?: Array<{ id?: string; title?: string; status?: string; error?: string }> }>(event);
             if (payload.status === "cancelled") {
-                handlers.onAssistant("Agent 任务已取消。");
+                handlers.onAssistant("智能任务已取消。");
                 finish();
             }
             if (payload.status === "completed") {
-                handlers.onAssistant("Agent 任务已完成，结果已经返回。");
+                handlers.onAssistant("智能任务已完成，结果已经返回。");
                 finish();
             }
             if (payload.status === "failed") {
                 const failed = payload.tasks?.find((task) => task.status === "failed" && task.id);
                 if (!latestFailedTask && failed?.id) handlers.onAssistant(`「${failed.title || "创作任务"}」执行失败：${failed.error || "生成服务暂时不可用"}`, { runId, taskId: failed.id, title: failed.title || "创作任务失败" });
-                else if (!latestFailedTask) handlers.onAssistant("Agent 执行失败", { runId, title: "Agent 执行失败" });
+                else if (!latestFailedTask) handlers.onAssistant("智能任务执行失败", { runId, title: "智能任务执行失败" });
                 finish();
             }
             if (payload.status === "paused") setPaused(true);

@@ -145,6 +145,7 @@ import {
     normalizeOptionalIsoDate,
     resolveCdkExpiresAt,
     normalizePointRecord,
+    normalizePointRecordBillingDetail,
     addPointRecord,
     normalizeEmailCode,
     consumeEmailCode,
@@ -419,6 +420,9 @@ export function mapPostgresPointRecord(row: Record<string, unknown>): StoredPoin
         dailyBalanceAfter: dbNumber(row.daily_balance_after, 0),
         description: dbText(row.description),
         model: dbOptionalText(row.model),
+        usageKind: row.usage_kind === null || row.usage_kind === undefined ? undefined : row.usage_kind === "image" || row.usage_kind === "video" || row.usage_kind === "audio" || row.usage_kind === "text" ? row.usage_kind : "api",
+        units: row.units === null || row.units === undefined ? undefined : dbNumber(row.units, 0),
+        billingDetail: normalizePointRecordBillingDetail(row.billing_detail),
         idempotencyKey: dbOptionalText(row.idempotency_key),
         requestFingerprint: dbOptionalText(row.request_fingerprint),
         sourceRecordId: dbOptionalText(row.source_record_id),
@@ -691,8 +695,8 @@ export async function insertPostgresQuotaUsage(db: QueryExecutor, quotaUsage: St
 export async function insertPostgresPointRecords(db: QueryExecutor, records: StoredPointRecord[]) {
     for (const record of records) {
         await db.query(
-            `INSERT INTO point_records (id, user_id, type, amount, balance_after, permanent_amount, daily_amount, permanent_balance_after, daily_balance_after, description, model, idempotency_key, request_fingerprint, source_record_id, source_date, created_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+            `INSERT INTO point_records (id, user_id, type, amount, balance_after, permanent_amount, daily_amount, permanent_balance_after, daily_balance_after, description, model, usage_kind, units, billing_detail, idempotency_key, request_fingerprint, source_record_id, source_date, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
              ON CONFLICT (id) DO UPDATE SET
                 user_id = EXCLUDED.user_id,
                 type = EXCLUDED.type,
@@ -704,6 +708,9 @@ export async function insertPostgresPointRecords(db: QueryExecutor, records: Sto
                 daily_balance_after = EXCLUDED.daily_balance_after,
                 description = EXCLUDED.description,
                 model = EXCLUDED.model,
+                usage_kind = EXCLUDED.usage_kind,
+                units = EXCLUDED.units,
+                billing_detail = EXCLUDED.billing_detail,
                 idempotency_key = EXCLUDED.idempotency_key,
                 request_fingerprint = EXCLUDED.request_fingerprint,
                 source_record_id = EXCLUDED.source_record_id,
@@ -721,6 +728,9 @@ export async function insertPostgresPointRecords(db: QueryExecutor, records: Sto
                 record.dailyBalanceAfter,
                 record.description,
                 record.model || null,
+                record.usageKind || null,
+                record.units ?? null,
+                record.billingDetail ? JSON.stringify(record.billingDetail) : null,
                 record.idempotencyKey || null,
                 record.requestFingerprint || null,
                 record.sourceRecordId || null,

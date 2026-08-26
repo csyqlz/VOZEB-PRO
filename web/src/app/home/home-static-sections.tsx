@@ -1,10 +1,29 @@
-import { Cloud, Grid2X2, History, Layers3, Network, PencilLine, Rocket, Share2 } from "lucide-react";
+import { Cloud, Grid2X2, History, Layers3, Network, PencilLine, Rocket, Share2, ShieldCheck, WalletCards } from "lucide-react";
 
 import { HOME_ADVANTAGES, HOME_STEPS } from "./home-data";
 import styles from "./home.module.css";
 
 const stepIcons = { grid: Grid2X2, edit: PencilLine, rocket: Rocket, share: Share2 } as const;
 const advantageIcons = { layers: Layers3, network: Network, history: History, cloud: Cloud } as const;
+
+export function HomeTrustStrip() {
+    return (
+        <section className={styles.trustStrip} aria-label="使用保障">
+            <div>
+                <WalletCards aria-hidden="true" />
+                <span>生成前确认费用</span>
+            </div>
+            <div>
+                <ShieldCheck aria-hidden="true" />
+                <span>失败任务自动退回余额</span>
+            </div>
+            <div>
+                <History aria-hidden="true" />
+                <span>作品与创作记录自动保存</span>
+            </div>
+        </section>
+    );
+}
 
 export function HomeStepsSection() {
     return (

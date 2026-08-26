@@ -7,6 +7,7 @@ import { browserReadableMediaUrl } from "@/lib/browser-media-url";
 import { AdminAccountId } from "@/components/admin/admin-user-identity";
 import { imagePreviewUrl } from "@/lib/media-image-url";
 import type { StoredGenerationLog } from "@/lib/server/generation-log-store";
+import { classifyGenerationError, generationErrorCategoryLabel } from "@/lib/server/generation-errors";
 
 export function GenerationLogAssetPreview({ log }: { log: StoredGenerationLog }) {
     const asset = log.assets[0];
@@ -35,6 +36,7 @@ export function GenerationLogMobileCard({ log, selected, onSelectedChange, onVie
                             {generationKindLabel(log.kind)}
                         </Tag>
                         <span className={generationStatusClass(log.status)}>{generationStatusLabel(log.status)}</span>
+                        {log.status === "failed" && log.error ? <Tag className="m-0" color="red">{generationErrorCategoryLabel(classifyGenerationError(log.error))}</Tag> : null}
                         <span className="text-xs text-stone-500">{generationSourceLabel(log.source)}</span>
                     </div>
                     <div className="mt-2 truncate text-sm font-semibold text-stone-950 dark:text-stone-100">{log.title}</div>
@@ -74,6 +76,7 @@ export function GenerationLogDetail({ log }: { log: StoredGenerationLog }) {
                 <InfoBox label="耗时" value={formatAdminLogDuration(log.durationMs)} />
                 <InfoBox label="模型" value={formatGenerationLogModel(log.model)} />
                 <InfoBox label="数量" value={`成功 ${log.successCount} / 失败 ${log.failCount} / 共 ${log.count}`} />
+                {log.status === "failed" && log.error ? <InfoBox label="失败原因" value={generationErrorCategoryLabel(classifyGenerationError(log.error))} /> : null}
             </div>
             <GenerationLogResultSection log={log} />
             <div>

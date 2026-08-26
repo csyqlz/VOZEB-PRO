@@ -1,6 +1,6 @@
 ---
 title: 配置说明
-description: VOZEB PRO 环境变量、模型渠道、服务器媒体与支付配置
+description: 星启智域 环境变量、模型渠道、服务器媒体与支付配置
 ---
 
 # 配置说明
@@ -93,13 +93,13 @@ VOZEB_PRO_CONTENT_MODERATION_KEYWORDS=风险词一,风险词二
 需要支付回调、上游读取站内参考素材或 HTTPS Cookie 时，配置真实域名：
 
 ```dotenv
-NEXT_PUBLIC_SITE_URL=https://vozeb-pro.example.com
+NEXT_PUBLIC_SITE_URL=https://games.xingqizhiyu.cn
 ```
 
 独立部署文档站时，可在文档容器设置主应用地址：
 
 ```dotenv
-VOZEB_PRO_APP_URL=https://vozeb-pro.example.com
+VOZEB_PRO_APP_URL=https://games.xingqizhiyu.cn
 ```
 
 文档站的 `/favicon.ico` 会通过主应用同名入口读取后台配置的站点图标；未配置时继续使用文档镜像内置 Logo，不会连接主应用数据库。
@@ -164,7 +164,7 @@ App 与 Worker 必须共享同一个至少 32 字符的 `VOZEB_PRO_WORKER_TOKEN`
 ```bash
 curl -fsS -X POST \
   -H "Authorization: Bearer $VOZEB_PRO_MAINTENANCE_TOKEN" \
-  https://vozeb-pro.example.com/api/maintenance/data-lifecycle/run
+  https://games.xingqizhiyu.cn/api/maintenance/data-lifecycle/run
 ```
 
 接口每次只执行一个配置批次。临时媒体删除前会重新统计创作会话、素材库、Canvas、短剧、生成记录和发布作品等全站引用；仍有引用的对象保留并在结果中报告。该维护能力不会自动删除创作对话、长期媒体、审计、积分、订单或支付记录，也不能替代部署地区适用的法定保留、用户删除请求和诉讼保全制度。
@@ -192,7 +192,7 @@ SMTP 在后台 `账号与邮箱` 配置。建议先测试邮箱，再开启邮�
 ```bash
 curl -fsS -X POST \
   -H "Authorization: Bearer $VOZEB_PRO_MAINTENANCE_TOKEN" \
-  https://vozeb-pro.example.com/api/maintenance/billing-orders/expire
+  https://games.xingqizhiyu.cn/api/maintenance/billing-orders/expire
 ```
 
 宝塔使用“计划任务 -> Shell 脚本”，Docker 可使用宿主机 Cron，云部署使用平台 Scheduler。接口采用同一令牌和幂等批处理，不依赖单机进程定时器；未配置令牌时维护接口保持关闭。系统超时关闭的订单在支付商确认真实付款后仍可安全完成开通，管理员手动关闭的订单不会被重新打开。

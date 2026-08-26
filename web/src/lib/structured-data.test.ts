@@ -6,7 +6,7 @@ describe("structured data", () => {
     it("builds the public website identity with its configured logo", () => {
         expect(
             buildWebsiteStructuredData({
-                name: "无限进化",
+                name: "星启智域",
                 description: "视觉创作平台",
                 url: "https://example.com/",
                 logoUrl: "https://example.com/logo.svg",

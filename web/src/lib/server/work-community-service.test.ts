@@ -138,6 +138,24 @@ describe("work community service", () => {
         expect(serialized).not.toContain("must-not-leak");
     });
 
+    it("accepts a Chinese account in public creator links", async () => {
+        mocks.workCommunity.getPublicCreatorProfile.mockResolvedValue({
+            userId: "creator-internal-id",
+            username: "星启2026",
+            displayName: "星启创作者",
+            bio: "简介",
+            publishedWorkCount: 0,
+            receivedLikeCount: 0,
+            followerCount: 0,
+            followingCount: 0,
+        });
+        mocks.workCommunity.listPublicCreatorWorks.mockResolvedValue({ items: [], hasMore: false });
+
+        await getPublicCreatorPage("星启2026", "viewer-one");
+
+        expect(mocks.workCommunity.getPublicCreatorProfile).toHaveBeenCalledWith("星启2026");
+    });
+
     it("returns the authenticated community summary without leaking an internal user id", async () => {
         mocks.workCommunity.getUserCommunitySummary.mockResolvedValue({
             userId: "user-one",

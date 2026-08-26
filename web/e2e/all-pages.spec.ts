@@ -79,8 +79,8 @@ test("signed-out, legal, installation and invalid public detail routes fail safe
         await page.addInitScript((nextTheme) => localStorage.setItem("vozeb-pro:theme_store", JSON.stringify({ state: { theme: nextTheme }, version: 0 })), theme);
         const routes: RouteCase[] = [
             { path: "/", readyHeading: "一个入口 完成所有 AI 创作" },
-            { path: "/login", readyHeading: "登录 VOZEB PRO" },
-            { path: "/register", readyHeading: "注册 VOZEB PRO" },
+            { path: "/login", readyHeading: "登录 星启智域" },
+            { path: "/register", readyHeading: "注册 星启智域" },
             { path: "/forgot-password", readyHeading: "重置密码" },
             { path: "/privacy", readyHeading: "隐私政策" },
             { path: "/terms", readyHeading: "服务条款" },

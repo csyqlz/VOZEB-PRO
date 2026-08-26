@@ -274,7 +274,7 @@ export function useCanvasGenerationActions({ state, tasks, interactions }: { sta
                         setNodes((prev) => prev.map((node) => (node.id === nodeId && isConfigNode && node.metadata?.status === NODE_STATUS_LOADING ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_IDLE, errorDetails: undefined } } : node)));
                         return;
                     }
-                    if (hasReview) message.warning("部分图片任务待管理员确认，系统未重复提交");
+                    if (hasReview) message.warning("部分图片任务状态待确认，系统未重复提交");
                     if (hasFailure) message.error(hasSuccess ? "部分图片生成失败" : "全部图片生成失败");
                     setNodes((prev) =>
                         prev.map((node) =>
@@ -519,9 +519,9 @@ export function useCanvasGenerationActions({ state, tasks, interactions }: { sta
                 setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_LOADING, errorDetails: "" } } : item)));
                 try {
                     await retryCanvasAgentNode(node, applyAgentOps);
-                    message.success("Agent 任务已重新生成");
+                    message.success("智能任务已重新生成");
                 } catch (error) {
-                    const errorDetails = error instanceof Error ? error.message : "Agent 任务重试失败";
+                    const errorDetails = error instanceof Error ? error.message : "智能任务重试失败";
                     message.error(errorDetails);
                     setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_ERROR, errorDetails } } : item)));
                 } finally {

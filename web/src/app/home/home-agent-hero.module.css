@@ -429,6 +429,70 @@
     width: 22px;
 }
 
+.agentTools button:disabled {
+    cursor: not-allowed;
+    opacity: 0.52;
+    transform: none;
+}
+
+.agentTools button:disabled:hover,
+.agentTools .sendButton:disabled:hover,
+.agentTools .sendButton:disabled:focus-visible {
+    background: #eef0f3;
+    border-color: #e1e4e8;
+    box-shadow: none;
+    color: #9aa2ad;
+}
+
+:global(.dark) .agentTools button:disabled:hover,
+:global(.dark) .agentTools .sendButton:disabled:hover,
+:global(.dark) .agentTools .sendButton:disabled:focus-visible {
+    background: #30353c;
+    border-color: #3b424b;
+    color: #68717d;
+}
+
+.serviceStatus {
+    align-items: center;
+    color: #66718a;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    justify-content: center;
+    margin: 18px 38px 0;
+    padding: 12px 16px;
+    text-align: center;
+}
+
+.serviceStatus strong {
+    color: #3e465a;
+    font-size: 14px;
+    font-weight: 650;
+}
+
+.serviceStatus span,
+.serviceStatus a {
+    font-size: 13px;
+}
+
+.serviceStatus a {
+    color: #4d5dcc;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+:global(.dark) .serviceStatus {
+    color: #a8b0c5;
+}
+
+:global(.dark) .serviceStatus strong {
+    color: #e1e5f1;
+}
+
+:global(.dark) .serviceStatus a {
+    color: #aeb7ff;
+}
+
 .agentRing {
     height: 238px;
     left: 50%;

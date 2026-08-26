@@ -48,6 +48,7 @@ import {
     type StoredSession,
     type PublicPointRecord,
     type StoredPointRecord,
+    type PointRecordBillingDetail,
     type StoredDailyPlanPointWallet,
     type StoredQuotaUsage,
     type EmailCodePurpose,
@@ -185,7 +186,7 @@ export function assertEntitlementUsageAllowed(db: AuthDatabase, user: StoredUser
     if (!db.settings.entitlements.enabled) return;
     const plan = resolveUserPlan(db, user);
     const usage = findQuotaUsage(db, user.id, usageKind, currentQuotaDate());
-    assertDailyLimit(plan.limits.dailyPointSpend, usage.pointsSpent + cost, "今日积分消费额度");
+    assertDailyLimit(plan.limits.dailyPointSpend, usage.pointsSpent + cost, "今日人民币余额消费额度");
     assertDailyLimit(resolveDailyUsageLimit(plan.limits, usageKind), usage.units + units, dailyUsageLimitLabel(usageKind));
 }
 
@@ -480,7 +481,8 @@ export function normalizeSiteFriendLinks(settings: unknown, siteTitle = DEFAULT_
     return links
         .map((link, index) => {
             const value = link as Partial<SiteFriendLink>;
-            const defaultHomeLink = value.id === "vozeb-pro-home" && value.url?.replace(/\/$/, "") === "https://www.vozeb.com";
+            const normalizedUrl = value.url?.replace(/\/$/, "");
+            const defaultHomeLink = value.id === "vozeb-pro-home" && (normalizedUrl === "https://www.vozeb.com" || normalizedUrl === "https://design.xingqizhiyu.cn" || normalizedUrl === "https://games.xingqizhiyu.cn");
             return {
                 id: normalizeText(value.id, `friend-${index + 1}`, 80),
                 label: normalizeText(defaultHomeLink && (!value.label || value.label === DEFAULT_SITE_SETTINGS.title) ? siteTitle : value.label, "友情链接", 32),
@@ -555,9 +557,9 @@ export function normalizeText(value: unknown, fallback: string, maxLength: numbe
 }
 
 export function repairKnownMojibakeText(value: string) {
-    if (value.includes("VOZEB PRO") && value.includes("AI") && !value.includes("绘图") && value.includes(",")) return DEFAULT_SITE_SETTINGS.seoKeywords;
-    if (value.includes("VOZEB PRO") && value.includes("AI") && !value.includes("工作台")) return DEFAULT_SITE_SETTINGS.seoDescription;
-    if (value.includes("2026 VOZEB PRO") && !value.startsWith("©")) return "© 2026 VOZEB PRO. All rights reserved.";
+    if ((value.includes("VOZEB PRO") || value.includes("星启智域")) && value.includes("AI") && !value.includes("绘图") && value.includes(",")) return DEFAULT_SITE_SETTINGS.seoKeywords;
+    if ((value.includes("VOZEB PRO") || value.includes("星启智域")) && value.includes("AI") && !value.includes("工作台")) return DEFAULT_SITE_SETTINGS.seoDescription;
+    if (value.includes("2026 VOZEB PRO") && !value.startsWith("©")) return DEFAULT_SITE_SETTINGS.footerCopyright;
     if (value.startsWith("QQ ") && !value.includes("邮箱")) return "QQ 邮箱";
     return repairUtf8MojibakeText(value);
 }
@@ -630,13 +632,13 @@ export function normalizePoints(value: unknown, fallback: number) {
 export function normalizePointAmount(value: unknown, fallback: number) {
     const numberValue = Number(value);
     if (!Number.isFinite(numberValue)) return fallback;
-    return Math.min(Number(numberValue.toFixed(2)), 1_000_000);
+    return Math.min(Number(numberValue.toFixed(8)), 1_000_000);
 }
 
 export function normalizePointMultiplier(value: unknown, fallback = 1) {
     const numberValue = Number(value);
     if (!Number.isFinite(numberValue) || numberValue < 0) return fallback;
-    return Math.min(Number(numberValue.toFixed(2)), 1_000_000);
+    return Math.min(Number(numberValue.toFixed(8)), 1_000_000);
 }
 
 export function normalizeModelPointCosts(value: unknown): ModelPointCosts {
@@ -853,14 +855,37 @@ export function normalizePointRecord(value: Partial<StoredPointRecord>): StoredP
         dailyAmount,
         permanentBalanceAfter: normalizePoints(value.permanentBalanceAfter, balanceAfter),
         dailyBalanceAfter: Math.max(0, normalizePoints(value.dailyBalanceAfter, 0)),
-        description: normalizeText(value.description, type === "consume" ? "积分消耗" : "积分增加", 120),
+        description: normalizeText(value.description, type === "consume" ? "人民币余额消耗" : "人民币余额增加", 120),
         model: typeof value.model === "string" ? value.model.slice(0, 160) : undefined,
+        usageKind: value.usageKind === "image" || value.usageKind === "video" || value.usageKind === "audio" || value.usageKind === "text" || value.usageKind === "api" ? value.usageKind : undefined,
+        units: finiteNonNegative(value.units),
+        billingDetail: normalizePointRecordBillingDetail(value.billingDetail),
         idempotencyKey: normalizeOptionalText(value.idempotencyKey, 200),
         requestFingerprint: typeof value.requestFingerprint === "string" && /^[a-f0-9]{64}$/i.test(value.requestFingerprint.trim()) ? value.requestFingerprint.trim().toLowerCase() : undefined,
         sourceRecordId: normalizeOptionalText(value.sourceRecordId, 120),
         sourceDate: normalizeDate(value.sourceDate) || undefined,
         createdAt: value.createdAt || new Date().toISOString(),
     };
+}
+
+export function normalizePointRecordBillingDetail(value: unknown): PointRecordBillingDetail | undefined {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+    const record = value as Record<string, unknown>;
+    const billingUnit = record.billingUnit === "per_1m_tokens" ? "per_1m_tokens" : record.billingUnit === "per_second" ? "per_second" : record.billingUnit === "per_call" ? "per_call" : undefined;
+    if (!billingUnit) return undefined;
+    const detail: PointRecordBillingDetail = { billingUnit, currency: "CNY" };
+    for (const key of ["actualCost", "unitRate", "inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens", "inputRate", "outputRate", "cacheReadRate", "cacheWriteRate"] as const) {
+        const number = finiteNonNegative(record[key]);
+        if (number !== undefined) detail[key] = number;
+    }
+    if (record.estimated === true) detail.estimated = true;
+    if (record.settlementStatus === "reserved" || record.settlementStatus === "settled") detail.settlementStatus = record.settlementStatus;
+    return detail;
+}
+
+function finiteNonNegative(value: unknown) {
+    const number = Number(value);
+    return Number.isFinite(number) && number >= 0 ? number : undefined;
 }
 
 export function normalizeDailyPlanPointWallet(value: Partial<StoredDailyPlanPointWallet>): StoredDailyPlanPointWallet {

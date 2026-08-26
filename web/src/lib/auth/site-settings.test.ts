@@ -15,14 +15,14 @@ describe("site settings", () => {
         expect(settings.iconUrl).toBe("https://cdn.example.com/favicon.ico");
     });
 
-    it("defaults public contacts to the VOZEB email and QQ group", () => {
+    it("does not expose an unverified support mailbox or old community entry by default", () => {
         const settings = normalizeSiteSettings({});
 
-        expect(settings.socials.email).toMatchObject({ enabled: true, url: "mailto:csyqlz@gmail.com" });
+        expect(settings.socials.email).toMatchObject({ enabled: true, url: "mailto:service@xingqizhiyu.cn" });
         expect(settings.socials.telegram).toMatchObject({ enabled: false, url: "" });
         expect(settings.socials.x).toMatchObject({ enabled: false, url: "" });
         expect(settings.socials.instagram).toMatchObject({ enabled: false, url: "" });
-        expect(settings.friendLinks).toContainEqual(expect.objectContaining({ id: "qq-vozeb-open-source", url: "https://qm.qq.com/q/9MVLTxuRd6", enabled: true }));
+        expect(settings.friendLinks).not.toContainEqual(expect.objectContaining({ id: "qq-vozeb-open-source" }));
     });
 
     it("updates only bundled brand defaults when the site title changes", () => {

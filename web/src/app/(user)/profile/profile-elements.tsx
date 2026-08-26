@@ -12,6 +12,7 @@ import { type BillingOrder, type BillingOrderStatus, type BillingProduct } from 
 import type { PointRecord } from "@/services/api/points";
 import { useUserStore } from "@/stores/use-user-store";
 import { ProfileAvatarUploader } from "@/components/profile/profile-avatar-uploader";
+import { consumerModelLabel } from "@/lib/consumer-model-label";
 
 export type ProfileSectionKey = "overview" | "profile" | "billing" | "coupons" | "referrals" | "orders" | "consume" | "points" | "security";
 
@@ -20,13 +21,13 @@ export const ORDER_PAGE_SIZE = 8;
 export const COUPON_PAGE_SIZE = 8;
 
 export const profileSections: Array<{ key: ProfileSectionKey; label: string; description: string; shortDescription: string; icon: ReactNode }> = [
-    { key: "overview", label: "账户概览", description: "查看当前套餐、积分余额、最近订单和最近积分流水。", shortDescription: "资产摘要", icon: <WalletCards className="size-4" /> },
+    { key: "overview", label: "账户概览", description: "查看当前套餐、人民币余额、最近订单和余额流水。", shortDescription: "资产摘要", icon: <WalletCards className="size-4" /> },
     { key: "profile", label: "个人资料", description: "维护头像、显示昵称和个人简介。", shortDescription: "头像与资料", icon: <UserCircle className="size-4" /> },
     { key: "billing", label: "套餐中心", description: "在个人中心内选择套餐，支付时进入独立安全结算页。", shortDescription: "购买套餐", icon: <CreditCard className="size-4" /> },
     { key: "coupons", label: "我的优惠券", description: "领取优惠券并查看可用、锁定、已使用和过期状态。", shortDescription: "领取与状态", icon: <TicketPercent className="size-4" /> },
     { key: "orders", label: "订单记录", description: "查看所有充值订单、支付状态和开通结果。", shortDescription: "收款状态", icon: <ReceiptText className="size-4" /> },
-    { key: "points", label: "积分记录", description: "查看每日积分、充值赠送、退款退回和管理员调整流水。", shortDescription: "余额流水", icon: <CreditSymbol className="text-sm" /> },
-    { key: "consume", label: "消费记录", description: "查看模型调用、生成任务和接口消费扣除。", shortDescription: "积分扣除", icon: <History className="size-4" /> },
+    { key: "points", label: "余额记录", description: "查看充值、退款退回和平台调整的人民币流水。", shortDescription: "余额流水", icon: <CreditSymbol className="text-sm" /> },
+    { key: "consume", label: "消费明细", description: "按模型、文本用量或生成次数查看每次人民币扣费。", shortDescription: "按实际用量", icon: <History className="size-4" /> },
     { key: "referrals", label: "邀请有礼", description: "复制邀请码和邀请链接，查看注册、首单与奖励进度。", shortDescription: "拉新与奖励", icon: <UserPlus className="size-4" /> },
     { key: "security", label: "账户与安全", description: "管理绑定邮箱、登录密码和个人数据。", shortDescription: "邮箱、密码与 MFA", icon: <ShieldCheck className="size-4" /> },
 ];
@@ -100,12 +101,18 @@ export function BillingCenterSection({ products, productsLoading, onRefresh, onC
                 <div className="flex items-end justify-between gap-3">
                     <div className="min-w-0">
                         <h3 className="text-base font-semibold text-stone-950 dark:text-white">可选套餐</h3>
-                        <p className="mt-1 hidden text-sm text-stone-500 sm:block dark:text-stone-400">价格、积分与有效期均同步后台已上架商品。</p>
+                        <p className="mt-1 hidden text-sm text-stone-500 sm:block dark:text-stone-400">价格、人民币余额与有效期以当前可购买方案为准。</p>
                     </div>
                     {!productsLoading && products.length ? <span className="shrink-0 text-xs text-stone-400 dark:text-stone-500">共 {products.length} 个方案</span> : null}
                 </div>
                 <div className="mt-2 sm:mt-4">
-                    {productsLoading ? <LoadingBlock /> : products.length ? <BillingPlanGrid products={products} onSelect={onCheckout} /> : <CompactEmptyState title="暂无已上架套餐商品" description="管理员上架商品后会显示在这里。" />}
+                    {productsLoading ? (
+                        <LoadingBlock />
+                    ) : products.length ? (
+                        <BillingPlanGrid products={products} onSelect={onCheckout} />
+                    ) : (
+                        <CompactEmptyState title="套餐正在准备中" description="套餐上线后会显示价格、余额和有效期，未完成购买不会产生扣费。" />
+                    )}
                 </div>
             </div>
         </section>
@@ -134,7 +141,7 @@ export function ProfileForm({
             <ProfileAvatarUploader />
             <div className="mt-3 grid gap-3 sm:mt-4 sm:grid-cols-2 sm:gap-4">
                 <label className="block min-w-0 space-y-2">
-                    <span className="text-sm font-medium text-stone-700 dark:text-stone-200">登录用户名</span>
+                    <span className="text-sm font-medium text-stone-700 dark:text-stone-200">登录账号</span>
                     <Input value={user?.username || ""} disabled />
                 </label>
                 <label className="block min-w-0 space-y-2">
@@ -296,6 +303,75 @@ export function RecordList({ records }: { records: PointRecord[] }) {
     );
 }
 
+export function ConsumptionRecordList({ records }: { records: PointRecord[] }) {
+    return (
+        <div className="divide-y divide-stone-200 dark:divide-stone-800">
+            {records.map((record) => {
+                const detail = record.billingDetail;
+                const isText = record.usageKind === "text" || detail?.billingUnit === "per_1m_tokens";
+                const isSecondPricedVideo = detail?.billingUnit === "per_second";
+                const amount = Math.abs(Number(record.amount) || 0);
+                const hasTokens = isText && [detail?.inputTokens, detail?.outputTokens, detail?.cacheReadTokens, detail?.cacheWriteTokens].some((value) => value !== undefined);
+                const usageLine =
+                    detail?.estimated && detail.settlementStatus === "reserved"
+                        ? "文本用量 · 正在确认实际用量"
+                        : hasTokens
+                          ? `输入 ${formatTokenCount(detail?.inputTokens)} · 输出 ${formatTokenCount(detail?.outputTokens)}${detail?.cacheReadTokens ? ` · 缓存读 ${formatTokenCount(detail.cacheReadTokens)}` : ""}${detail?.cacheWriteTokens ? ` · 缓存写 ${formatTokenCount(detail.cacheWriteTokens)}` : ""}`
+                          : `${formatUsageKind(record.usageKind)} · ${formatUnits(record.units, isSecondPricedVideo ? "second" : "call")}`;
+                return (
+                    <div key={record.id} className="py-2 first:pt-0 last:pb-0 sm:px-1 sm:py-3">
+                        <div className="flex min-w-0 items-start justify-between gap-3">
+                            <div className="min-w-0">
+                                <div className="break-words text-sm font-semibold text-stone-900 dark:text-stone-100">{record.model ? consumerModelLabel(record.model) : record.description || "模型调用"}</div>
+                                <div className="mt-1 text-xs text-stone-600 dark:text-stone-300">{usageLine}</div>
+                                {isText && detail ? <div className="mt-1 text-[11px] leading-4 text-stone-500 dark:text-stone-400">{tokenRateLine(detail)}</div> : null}
+                                <div className="mt-1 text-[11px] text-stone-500 dark:text-stone-400">
+                                    {formatTime(record.createdAt)} · {isText ? (detail?.settlementStatus === "reserved" ? "预扣金额，完成后按实际用量结算" : "已按实际文本用量结算") : isSecondPricedVideo ? "按视频时长计费" : "按生成次数计费"}
+                                </div>
+                            </div>
+                            <Tag color="red" className="m-0 shrink-0">
+                                -¥{formatMoneyAmount(amount)}
+                            </Tag>
+                        </div>
+                        <div className="mt-1 text-[11px] text-stone-500 dark:text-stone-400">扣费后余额 ¥{formatMoneyAmount(record.balanceAfter)}</div>
+                    </div>
+                );
+            })}
+        </div>
+    );
+}
+
+function formatTokenCount(value: number | undefined) {
+    return Math.max(0, Math.floor(Number(value) || 0)).toLocaleString("zh-CN");
+}
+
+function tokenRateLine(detail: NonNullable<PointRecord["billingDetail"]>) {
+    const rates = [
+        detail.inputRate === undefined ? "" : `输入 ¥${formatMoneyAmount(detail.inputRate)}/1M`,
+        detail.outputRate === undefined ? "" : `输出 ¥${formatMoneyAmount(detail.outputRate)}/1M`,
+        detail.cacheReadRate === undefined ? "" : `缓存读 ¥${formatMoneyAmount(detail.cacheReadRate)}/1M`,
+        detail.cacheWriteRate === undefined ? "" : `缓存写 ¥${formatMoneyAmount(detail.cacheWriteRate)}/1M`,
+    ].filter(Boolean);
+    return rates.length ? rates.join(" · ") + " token" : "按模型公开单价计费";
+}
+
+function formatUnits(value: number | undefined, unit: "call" | "second" = "call") {
+    const units = value === undefined ? 1 : Math.max(0, Number(value) || 0);
+    return `${units.toLocaleString("zh-CN", { maximumFractionDigits: 2 })} ${unit === "second" ? "秒" : "次"}`;
+}
+
+function formatUsageKind(value: PointRecord["usageKind"]) {
+    if (value === "image") return "图片生成";
+    if (value === "video") return "视频生成";
+    if (value === "audio") return "音频生成";
+    if (value === "text") return "文本调用";
+    return "接口调用";
+}
+
+function formatMoneyAmount(value: number) {
+    return Math.max(0, value).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 8 });
+}
+
 export function parseProfileSection(value: string | null): ProfileSectionKey {
     return profileSections.some((section) => section.key === value) ? (value as ProfileSectionKey) : "overview";
 }
@@ -303,8 +379,8 @@ export function parseProfileSection(value: string | null): ProfileSectionKey {
 export function pointRecordTypeLabel(type: PointRecord["type"]) {
     if (type === "consume") return "模型消费";
     if (type === "refund") return "消费退款";
-    if (type === "credit") return "积分充值";
-    return "后台调整";
+    if (type === "credit") return "余额充值";
+    return "平台调整";
 }
 
 export function orderStatusLabel(status: BillingOrderStatus) {

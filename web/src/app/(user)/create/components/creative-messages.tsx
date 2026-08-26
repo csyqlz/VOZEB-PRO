@@ -1,7 +1,7 @@
 "use client";
 
 import { App, Button, Dropdown, Popover, Tooltip } from "antd";
-import { Check, Clapperboard, Clock3, Copy, Download, ExternalLink, FileAudio2, Film, Info, Link2, MoreHorizontal, PanelsTopLeft, RotateCw } from "lucide-react";
+import { Check, Clapperboard, Clock3, Copy, CreditCard, Download, ExternalLink, FileAudio2, Film, Info, Link2, Mail, MoreHorizontal, PanelsTopLeft, RotateCw } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -11,6 +11,7 @@ import { AgentMessageActions } from "@/components/agent/agent-message-actions";
 import { formatAgentArtifactText, formatAgentMessageText, friendlyAgentError } from "@/components/agent/agent-message-format";
 import { AgentMediaPreview } from "@/components/agent/agent-media-preview";
 import { SiteLogo } from "@/components/layout/site-logo";
+import { MediaRetentionNotice } from "@/components/media/media-retention-notice";
 import { useCopyText } from "@/hooks/use-copy-text";
 import { useCreativeAgentModels } from "@/hooks/use-creative-agent-options";
 import { isCreativeProjectHandoff, type CreativeAsset, type CreativeMessage, type CreativeProjectHandoff } from "@/lib/creative-runtime-contract";
@@ -18,7 +19,8 @@ import { imageReferenceLabel } from "@/lib/image-reference-prompt";
 import { imagePreviewUrl } from "@/lib/media-image-url";
 import { cn } from "@/lib/utils";
 import { userAvatarFallback } from "@/lib/user-avatar";
-import { DEFAULT_SITE_TITLE } from "@/lib/site-brand";
+import { DEFAULT_SITE_TITLE, DEFAULT_SUPPORT_EMAIL } from "@/lib/site-brand";
+import { hasInsufficientPointsError } from "@/lib/creative-generation-status";
 import type { MaterializedCreativeProject } from "@/services/creative-project-handoff";
 import { getCreativeAgentRun, type CreativeAgentRun } from "@/services/api/creative";
 import { usePublicSessionStore } from "@/stores/use-public-session-store";
@@ -310,6 +312,7 @@ function CreativeMediaRound({
                                 <CreativeRoundActions outputAssets={outputAssets} run={run} selectedAssetIds={selectedAssetIds} onToggleAsset={onToggleAsset} />
                             ) : null}
                         </div>
+                        {assistantMessage.status === "completed" && mediaOutputs.length ? <MediaRetentionNotice /> : null}
                         {handoff ? (
                             <ProjectHandoffAction
                                 handoff={handoff}
@@ -568,20 +571,40 @@ function assetsForAssistant(message: CreativeMessage, assetsByMessage: Map<strin
 function CreativeGenerationFailure({ message, onRetry }: { message: string; onRetry: () => Promise<boolean | void> }) {
     const displayMessage = friendlyAgentError(message, "创作任务执行失败");
     const [retrying, setRetrying] = useState(false);
+    const insufficientBalance = hasInsufficientPointsError(message) || /余额不足/.test(displayMessage);
     return (
         <div data-testid="creative-generation-failure" className="max-w-[620px] py-1">
             <div className="min-w-0">
                 <p className="break-words text-[17px] font-medium leading-7 text-[#ef2b2d] dark:text-[#ff8b8d]">{displayMessage}</p>
-                <Button
-                    type="default"
-                    className="!mt-3 !h-9 !rounded-[10px] !border-[#ffd4d5] !bg-white !px-4 !text-sm !font-medium !text-[#e22b2e] hover:!border-[#ffb7b8] hover:!bg-[#fff8f8] hover:!text-[#c51f22] dark:!border-[#6b3438] dark:!bg-transparent dark:!text-[#ff9a9c] dark:hover:!border-[#9a4a4e] dark:hover:!bg-[#321e20]"
-                    icon={<RotateCw className="size-4" />}
-                    loading={retrying}
-                    onClick={() => void runRetry(onRetry, setRetrying)}
-                    aria-label="直接重试本次创作"
-                >
-                    直接重试
-                </Button>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                    {!insufficientBalance ? (
+                        <Button
+                            type="default"
+                            className="!h-9 !rounded-[10px] !border-[#ffd4d5] !bg-white !px-4 !text-sm !font-medium !text-[#e22b2e] hover:!border-[#ffb7b8] hover:!bg-[#fff8f8] hover:!text-[#c51f22] dark:!border-[#6b3438] dark:!bg-transparent dark:!text-[#ff9a9c] dark:hover:!border-[#9a4a4e] dark:hover:!bg-[#321e20]"
+                            icon={<RotateCw className="size-4" />}
+                            loading={retrying}
+                            onClick={() => void runRetry(onRetry, setRetrying)}
+                            aria-label="直接重试本次创作"
+                        >
+                            直接重试
+                        </Button>
+                    ) : (
+                        <Link
+                            href="/profile?section=billing"
+                            className="inline-flex h-9 items-center gap-1.5 rounded-[10px] bg-[#20242a] px-4 text-sm font-medium text-white transition hover:bg-[#343b44] dark:bg-white dark:text-[#20242a] dark:hover:bg-[#e8ebef]"
+                        >
+                            <CreditCard className="size-4" />
+                            充值余额
+                        </Link>
+                    )}
+                    <a
+                        href={`mailto:${DEFAULT_SUPPORT_EMAIL}`}
+                        className="inline-flex h-9 items-center gap-1.5 rounded-[10px] border border-[#e3e7eb] bg-white px-3.5 text-sm font-medium text-[#596572] transition hover:border-[#cbd2d9] hover:bg-[#f7f8fa] hover:text-[#20242a] dark:border-[#3b424b] dark:bg-transparent dark:text-[#b7c0ca] dark:hover:border-[#59636e] dark:hover:bg-[#252a31] dark:hover:text-white"
+                    >
+                        <Mail className="size-4" />
+                        联系客服
+                    </a>
+                </div>
             </div>
         </div>
     );
@@ -763,6 +786,7 @@ function CreativeAssetResults({
                     })}
                 </div>
             ) : null}
+            {media.length ? <MediaRetentionNotice /> : null}
         </>
     );
 }

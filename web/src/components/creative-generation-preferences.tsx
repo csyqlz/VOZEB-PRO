@@ -632,7 +632,7 @@ export function CreativeModeIcon({ mode }: { mode: "agent" | MediaCapability }) 
 }
 
 export const creativeModeOptions = [
-    { value: "agent", label: "Agent 模式", description: "自动理解需求并匹配能力" },
+    { value: "agent", label: "智能模式", description: "自动理解需求并匹配能力" },
     { value: "image", label: "图片生成", description: "生成或编辑图片" },
     { value: "video", label: "视频生成", description: "文生视频或图生视频" },
     { value: "audio", label: "音频生成", description: "配音、旁白和音频" },

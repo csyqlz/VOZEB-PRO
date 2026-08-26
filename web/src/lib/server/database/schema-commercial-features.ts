@@ -76,8 +76,8 @@ CREATE TABLE IF NOT EXISTS billing_orders (
     subject text NOT NULL,
     amount_cents bigint NOT NULL DEFAULT 0,
     currency text NOT NULL DEFAULT 'CNY',
-    points_amount numeric(18, 2) NOT NULL DEFAULT 0,
-    daily_points numeric(18, 2) NOT NULL DEFAULT 0,
+    points_amount numeric(18, 8) NOT NULL DEFAULT 0,
+    daily_points numeric(18, 8) NOT NULL DEFAULT 0,
     period_days integer NOT NULL DEFAULT 0,
     quantity integer NOT NULL DEFAULT 1,
     provider text NOT NULL DEFAULT '',
@@ -106,7 +106,7 @@ CREATE INDEX IF NOT EXISTS billing_orders_provider_payment_idx ON billing_orders
 
 ALTER TABLE billing_orders ADD COLUMN IF NOT EXISTS product_id text REFERENCES billing_products(id);
 ALTER TABLE billing_orders ADD COLUMN IF NOT EXISTS product_kind text NOT NULL DEFAULT 'plan';
-ALTER TABLE billing_orders ADD COLUMN IF NOT EXISTS daily_points numeric(18, 2) NOT NULL DEFAULT 0;
+ALTER TABLE billing_orders ADD COLUMN IF NOT EXISTS daily_points numeric(18, 8) NOT NULL DEFAULT 0;
 ALTER TABLE billing_orders ALTER COLUMN plan_id DROP NOT NULL;
 ALTER TABLE billing_orders DROP CONSTRAINT IF EXISTS billing_orders_status;
 ALTER TABLE billing_orders ADD CONSTRAINT billing_orders_status CHECK (status IN ('pending', 'paid', 'closed', 'canceled', 'refunding', 'refunded'));
@@ -225,9 +225,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS billing_refund_jobs_provider_refund_idx ON bil
 CREATE TABLE IF NOT EXISTS referral_programs (
     id text PRIMARY KEY DEFAULT 'default',
     enabled boolean NOT NULL DEFAULT false,
-    inviter_points numeric(18, 2) NOT NULL DEFAULT 0,
+    inviter_points numeric(18, 8) NOT NULL DEFAULT 0,
     invitee_reward_type text NOT NULL DEFAULT 'points',
-    invitee_points numeric(18, 2) NOT NULL DEFAULT 0,
+    invitee_points numeric(18, 8) NOT NULL DEFAULT 0,
     invitee_coupon_template_id text REFERENCES coupon_templates(id) ON DELETE SET NULL,
     minimum_paid_cents bigint NOT NULL DEFAULT 0,
     cooling_off_days integer NOT NULL DEFAULT 7,
@@ -289,7 +289,7 @@ CREATE TABLE IF NOT EXISTS referral_rewards (
     beneficiary_user_id text NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     beneficiary_role text NOT NULL,
     reward_type text NOT NULL,
-    points_amount numeric(18, 2) NOT NULL DEFAULT 0,
+    points_amount numeric(18, 8) NOT NULL DEFAULT 0,
     coupon_template_id text REFERENCES coupon_templates(id) ON DELETE SET NULL,
     trigger_order_id text NOT NULL REFERENCES billing_orders(id) ON DELETE RESTRICT,
     status text NOT NULL DEFAULT 'pending',

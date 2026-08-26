@@ -155,7 +155,7 @@ export function formatCreatedCdkExport(codes: CreatedCdkCode[], siteTitle: strin
         ...codes.map((code, index) =>
             [
                 `${index + 1}. ${code.code}`,
-                `积分：${formatCreditAmount(code.points)}`,
+                `余额：¥${formatCreditAmount(code.points)}`,
                 `可兑换次数：${code.maxRedemptions}`,
                 `有效期：${code.expiresAt ? new Date(code.expiresAt).toLocaleString("zh-CN", { hour12: false }) : "长期有效"}`,
                 code.note ? `备注：${code.note}` : "",

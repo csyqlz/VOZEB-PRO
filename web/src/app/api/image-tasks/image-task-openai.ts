@@ -115,7 +115,7 @@ import {
     imageUnits,
     isRemoteMediaUrl,
     normalizeQuality,
-    resolveRequestSize,
+    resolveProviderRequestSize,
     imageRequestAspectRatio,
     resolveSize,
     parseImageRatio,
@@ -127,7 +127,7 @@ import {
 export async function runOpenAiImageTask(task: ImageTask, origin: string, publicOrigin: string, cookie: string, singleStep = false): Promise<ImageTaskRunResult> {
     const config = task.config;
     const quality = normalizeQuality(config.quality || "");
-    const requestSize = resolveRequestSize(quality, config.size || "auto");
+    const requestSize = resolveProviderRequestSize(quality, config.size || "auto", config.advancedConfig?.protocol);
     const globalPreset = globalAiOpcImagePreset(config);
     if (globalPreset) return runGlobalAiOpcImageTask(task, origin, publicOrigin, cookie, quality, requestSize, singleStep);
     const path = await openAiImageTaskPath(config, task.kind);
@@ -274,7 +274,7 @@ export async function runOpenAiJsonImageEditTask(
 export async function runOpenAiImageTaskWithBase64Response(task: ImageTask, origin: string, publicOrigin: string, cookie: string, singleStep = false): Promise<ImageTaskRunResult> {
     const config = task.config;
     const quality = normalizeQuality(config.quality || "");
-    const requestSize = resolveRequestSize(quality, config.size || "auto");
+    const requestSize = resolveProviderRequestSize(quality, config.size || "auto", config.advancedConfig?.protocol);
     const path = await openAiImageTaskPath(config, task.kind);
     const url = taskUrl(config, path, origin);
     const allowProtocolFallback = allowsImageProtocolFallback(config);

@@ -12,10 +12,12 @@ import {
     imageTaskPollUrls,
     imageTaskRequestTimeoutMs,
     openAiImageTaskPath,
+    alignImageSizeToStep,
     parseImagePayloadOrPoll,
     parseImagePayloadCompat,
     parseImageQueryJson,
     resolveRequestSize,
+    resolveProviderRequestSize,
     resolveResultSize,
     sanitizeConfigs,
     shouldFallbackToJsonImageEdit,
@@ -28,6 +30,15 @@ const config = {
     apiFormat: "openai",
     advancedConfig: { protocol: "globalaiopc", globalAiOpcPreset: "image-gpt-image-2", createPath: "/image2/images", queryPath: "/result/:task_id" },
 } as never;
+
+describe("provider image dimensions", () => {
+    it("aligns explicit sizes for gateways that require 16-pixel edges without changing generic OpenAI sizes", () => {
+        expect(alignImageSizeToStep("1080x2336")).toBe("1088x2336");
+        expect(resolveProviderRequestSize(undefined, "1080x2336", "sub2api")).toBe("1088x2336");
+        expect(resolveProviderRequestSize(undefined, "1080x2336", "custom")).toBe("1088x2336");
+        expect(resolveProviderRequestSize(undefined, "1080x2336", "openai")).toBe("1080x2336");
+    });
+});
 
 describe("GlobalAiOpc image task paths", () => {
     afterEach(() => {

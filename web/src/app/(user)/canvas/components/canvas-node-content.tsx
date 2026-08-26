@@ -67,7 +67,7 @@ export function BriefNodeContent({ node, theme }: NodeContentRendererProps) {
                 <BriefcaseBusiness className="size-4" style={{ color: theme.node.activeStroke }} />
                 创作目标
             </div>
-            <p className="text-sm leading-6">{brief?.objective || "等待 Agent 整理创作目标"}</p>
+            <p className="text-sm leading-6">{brief?.objective || "等待智能助手整理创作目标"}</p>
             {brief?.audience ? (
                 <div className="text-xs" style={{ color: theme.node.placeholder }}>
                     受众：{brief.audience}
@@ -200,7 +200,7 @@ export function ReviewContent({ node, theme, onRetry }: Pick<NodeContentRenderer
         <div className="flex h-full w-full flex-col items-center justify-center gap-3 overflow-hidden px-5 py-4 text-center">
             <Clock3 className="size-6 shrink-0" style={{ color: theme.node.warningText }} />
             <div className="max-h-[55%] max-w-[280px] overflow-y-auto text-xs leading-5" style={{ color: theme.node.text }}>
-                {node.metadata?.errorDetails || "任务创建结果待管理员确认，系统未重复提交。"}
+                {node.metadata?.errorDetails || "任务状态暂待确认，系统未重复提交。"}
             </div>
             <button
                 type="button"

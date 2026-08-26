@@ -8,7 +8,7 @@ import { DEFAULT_SITE_SETTINGS } from "@/lib/auth/store";
 describe("default infinite-evolution brand assets", () => {
     it("uses the built-in infinite-evolution logo for every default brand entry", () => {
         expect(DEFAULT_SITE_SETTINGS.logoUrl).toBe("/logo.svg");
-        expect(DEFAULT_SITE_SETTINGS.iconUrl).toBe("/icon.svg");
+        expect(DEFAULT_SITE_SETTINGS.iconUrl).toBe("/sub2-logo.png");
     });
 
     it("keeps web logo, browser icon and docs logo identical without triangle primitives", async () => {

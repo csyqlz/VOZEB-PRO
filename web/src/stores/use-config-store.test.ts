@@ -74,6 +74,24 @@ describe("applyPublicSystemSettings", () => {
         expect(modelOptionLabel(config, "video-v1")).toBe("sd2");
     });
 
+    it("uses a consumer label when a logical model still has its upstream id as name", () => {
+        const config = {
+            ...defaultConfig,
+            logicalModels: [{ id: "gpt-image-2", name: "gpt-image-2", capability: "image" as const, enabled: true, bindings: [] }],
+        };
+
+        expect(modelOptionLabel(config, "gpt-image-2")).toBe("高清图片 · GPT Image 2");
+    });
+
+    it("does not expose the internal channel name for a channel-scoped model", () => {
+        const config = {
+            ...defaultConfig,
+            channels: [{ id: "private-channel", name: "3365 内部渠道", models: ["grok-imagine-video"], baseUrl: "https://api.example.com/v1", apiKey: "", apiFormat: "openai" as const }],
+        };
+
+        expect(modelOptionLabel(config, "private-channel::grok-imagine-video")).toBe("Grok 视频");
+    });
+
     it("keeps a configured logical default when casing or the upstream alias differs", () => {
         const config = applyPublicSystemSettings(defaultConfig, {
             ...rawModelSettings(),

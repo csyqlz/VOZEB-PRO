@@ -222,8 +222,8 @@ export const registeredChannelProtocolDefinitions: ChannelProtocolDefinition[] =
     },
     {
         id: "vozeb-recommended",
-        label: "VOZEB推荐",
-        description: "VOZEB 推荐的 JSON 异步视频协议，支持多模态参考素材与持久结果地址。",
+        label: "星启智域推荐",
+        description: "星启智域推荐的 JSON 异步视频协议，支持多模态参考素材与持久结果地址。",
         apiFormat: "openai",
         authMode: "bearer",
         defaultBaseUrl: "https://new.aiym.ink/v1",

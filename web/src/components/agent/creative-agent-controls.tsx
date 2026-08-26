@@ -1,17 +1,18 @@
 "use client";
 
 import { Button, Popover, Tooltip } from "antd";
-import { Boxes, Check, FileAudio, FileVideo, ImageIcon, Lightbulb, Orbit, Sparkles, X } from "lucide-react";
+import { Boxes, Check, FileAudio, FileText, FileVideo, ImageIcon, Lightbulb, Orbit, Sparkles, X } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { ModelIcon } from "@/components/model-picker";
 import type { AgentSkillSummary } from "@/services/api/agent-skills";
 import { cn } from "@/lib/utils";
 import { CREATIVE_RUN_MODEL_LIMIT } from "@/lib/creative-runtime-contract";
+import { consumerModelPriceLabel, type ConsumerModelPricing } from "@/lib/consumer-model-price";
 
-export type CreativeAgentModelOption = { id: string; name: string; capability: "image" | "video" | "audio" };
+export type CreativeAgentModelOption = { id: string; name: string; capability: "text" | "image" | "video" | "audio"; pricing?: ConsumerModelPricing };
 export type CreativeAgentControlTheme = { panel: string; border: string; text: string; muted: string; activeBackground: string; activeText: string };
-export const creativeAgentModelCapabilities = ["image", "video", "audio"] as const;
+export const creativeAgentModelCapabilities = ["text", "image", "video", "audio"] as const;
 
 export function CreativeAgentSkillCard({ skill, onRemove, theme, className }: { skill: AgentSkillSummary; onRemove: () => void; theme?: CreativeAgentControlTheme; className?: string }) {
     return (
@@ -23,13 +24,13 @@ export function CreativeAgentSkillCard({ skill, onRemove, theme, className }: { 
                 <span className="grid size-5 shrink-0 place-items-center rounded-md bg-amber-200/45 text-amber-800 dark:bg-amber-300/10 dark:text-amber-300">
                     <Sparkles className="size-3" />
                 </span>
-                <span className="truncate">Skill · {skill.name}</span>
+                <span className="truncate">创作能力 · {skill.name}</span>
                 <button
                     type="button"
                     className="grid size-5 shrink-0 place-items-center rounded text-stone-500 transition hover:bg-black/5 hover:text-stone-950 dark:text-stone-400 dark:hover:bg-white/10 dark:hover:text-white"
                     style={theme ? { color: theme.muted } : undefined}
                     onClick={onRemove}
-                    aria-label={`移除 Skill ${skill.name}`}
+                    aria-label={`移除创作能力 ${skill.name}`}
                 >
                     <X className="size-3" />
                 </button>
@@ -79,7 +80,7 @@ export function CreativeAgentControls({
     const [modelOpen, setModelOpen] = useState(false);
     const [capability, setCapability] = useState<CreativeAgentModelOption["capability"]>(defaultModelCapability);
     const modelsByCapability = useMemo(() => groupCreativeAgentModels(models), [models]);
-    const visibleCapabilities = resolveCreativeAgentModelCapabilities(modelCapabilities);
+    const visibleCapabilities = resolveCreativeAgentModelCapabilities(modelCapabilities, models);
     const preferredCapability = visibleCapabilities.includes(defaultModelCapability) ? defaultModelCapability : visibleCapabilities[0];
     const activeCapability = visibleCapabilities.includes(capability) ? capability : preferredCapability;
     const visibleModels = modelsByCapability[activeCapability];
@@ -93,8 +94,8 @@ export function CreativeAgentControls({
     const skillContent = (
         <div className="w-[calc(100vw-48px)] max-w-[320px] p-1 sm:w-80">
             <div className="px-2 pb-2 pt-1">
-                <p className="text-sm font-semibold text-stone-900 dark:text-stone-100">选择创作 Skill</p>
-                <p className="mt-0.5 text-[11px] text-stone-500 dark:text-stone-400">Skill 作为执行能力提交，不会改写输入内容。</p>
+                <p className="text-sm font-semibold text-stone-900 dark:text-stone-100">选择创作能力</p>
+                <p className="mt-0.5 text-[11px] text-stone-500 dark:text-stone-400">创作能力只负责执行对应任务，不会改写你的原始需求。</p>
             </div>
             <div className="thin-scrollbar max-h-60 space-y-1 overflow-y-auto">
                 {skills.map((skill) => {
@@ -123,8 +124,8 @@ export function CreativeAgentControls({
                         </button>
                     );
                 })}
-                {skillsLoading ? <p className="px-2 py-5 text-center text-xs text-stone-500 dark:text-stone-400">正在加载 Skill...</p> : null}
-                {!skillsLoading && !skills.length ? <p className="px-2 py-5 text-center text-xs text-stone-500 dark:text-stone-400">暂无可用 Skill</p> : null}
+                {skillsLoading ? <p className="px-2 py-5 text-center text-xs text-stone-500 dark:text-stone-400">正在加载创作能力...</p> : null}
+                {!skillsLoading && !skills.length ? <p className="px-2 py-5 text-center text-xs text-stone-500 dark:text-stone-400">暂无可用创作能力</p> : null}
             </div>
         </div>
     );
@@ -177,7 +178,7 @@ export function CreativeAgentControls({
                     aria-label="模型能力分类"
                 >
                     {visibleCapabilities.map((item) => {
-                        const Icon = item === "image" ? ImageIcon : item === "video" ? FileVideo : FileAudio;
+                        const Icon = item === "text" ? FileText : item === "image" ? ImageIcon : item === "video" ? FileVideo : FileAudio;
                         const count = modelsByCapability[item].length;
                         return (
                             <button
@@ -208,14 +209,17 @@ export function CreativeAgentControls({
                             key={model.id}
                             type="button"
                             className={cn(
-                                "flex w-full items-center gap-2 text-left text-xs transition",
+                                "flex w-full items-start gap-2 text-left text-xs transition",
                                 compact ? "min-h-8 rounded-md px-2 py-1.5" : "rounded-lg px-2.5 py-2",
                                 selected ? "bg-stone-100 text-stone-950 dark:bg-stone-800 dark:text-white" : "text-stone-600 hover:bg-stone-50 hover:text-stone-950 dark:text-stone-300 dark:hover:bg-stone-800/70 dark:hover:text-white",
                             )}
                             onClick={() => onToggleModel(model)}
                         >
                             <ModelIcon model={`${model.id} ${model.name}`} />
-                            <span className="min-w-0 flex-1 truncate font-medium">{model.name}</span>
+                            <span className="min-w-0 flex-1">
+                                <span className="block truncate font-medium">{model.name}</span>
+                                <span className="mt-0.5 block truncate text-[10px] font-normal text-stone-500 dark:text-stone-400">{consumerModelPriceLabel(model.pricing) || "费用以提交前预览为准"}</span>
+                            </span>
                             <span
                                 className={cn("grid size-4 shrink-0 place-items-center rounded border", selected ? "border-stone-900 bg-stone-900 text-white dark:border-white dark:bg-white dark:text-stone-950" : "border-stone-300 dark:border-stone-600")}
                             >
@@ -239,9 +243,9 @@ export function CreativeAgentControls({
                     className={cn("!shrink-0 !gap-1.5", compact ? "!h-9 !w-9 !min-w-9 !rounded-lg !p-0" : "!h-8 !min-w-8 !px-2", selectedSkill && !theme && "!bg-amber-50 !text-amber-800 dark:!bg-amber-400/10 dark:!text-amber-300")}
                     style={selectedSkill ? activeStyle : mutedStyle}
                     icon={<Boxes className="size-4" />}
-                    aria-label={selectedSkill ? `当前 Skill：${selectedSkill.name}` : "选择创作 Skill"}
+                    aria-label={selectedSkill ? `当前创作能力：${selectedSkill.name}` : "选择创作能力"}
                 >
-                    {compact ? null : <span className="text-xs">Skill</span>}
+                    {compact ? null : <span className="text-xs">能力</span>}
                 </Button>
             </Popover>
             <Tooltip title={smartPlanning ? "智能规划：已开启" : "智能规划：已关闭"}>
@@ -286,19 +290,20 @@ export function CreativeAgentControls({
 }
 
 function capabilityLabel(capability: CreativeAgentModelOption["capability"]) {
-    return capability === "image" ? "图片" : capability === "video" ? "视频" : "音频";
+    return capability === "text" ? "文本" : capability === "image" ? "图片" : capability === "video" ? "视频" : "音频";
 }
 
 export function groupCreativeAgentModels(models: CreativeAgentModelOption[]) {
     return {
+        text: models.filter((model) => model.capability === "text"),
         image: models.filter((model) => model.capability === "image"),
         video: models.filter((model) => model.capability === "video"),
         audio: models.filter((model) => model.capability === "audio"),
     };
 }
 
-export function resolveCreativeAgentModelCapabilities(capabilities?: readonly CreativeAgentModelOption["capability"][]) {
-    if (!capabilities?.length) return [...creativeAgentModelCapabilities];
+export function resolveCreativeAgentModelCapabilities(capabilities?: readonly CreativeAgentModelOption["capability"][], models: CreativeAgentModelOption[] = []) {
+    if (!capabilities?.length) return models.length ? creativeAgentModelCapabilities.filter((capability) => models.some((model) => model.capability === capability)) : [...creativeAgentModelCapabilities];
     const requested = new Set(capabilities);
     const resolved = creativeAgentModelCapabilities.filter((capability) => requested.has(capability));
     return resolved.length ? resolved : [...creativeAgentModelCapabilities];

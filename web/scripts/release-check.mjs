@@ -48,7 +48,7 @@ try {
 }
 
 if (!process.exitCode) {
-    console.log("\nVOZEB PRO 发布前检查通过。");
+    console.log("\n星启智域发布前检查通过。");
     console.log("移动端发布前还需要人工打开：首页、画布、积分弹窗、图片工作台、视频工作台、管理员后台。");
 }
 

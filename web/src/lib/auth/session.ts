@@ -105,6 +105,19 @@ export function serializeCurrentUser(user: CurrentUser) {
 }
 
 export function serializePublicSettings(settings: AuthSettings) {
+    const publicChannels = settings.systemChannels.filter((channel) => channel.enabled);
+    const publicChannelModels = new Map(publicChannels.map((channel) => [channel.id, new Set(channel.models.map(normalizePublicModelName))]));
+    const publicLogicalModels = settings.logicalModels
+        .filter((model) => model.enabled)
+        .map((model) => ({
+            ...model,
+            bindings: model.bindings.filter((binding) => {
+                if (!binding.enabled) return false;
+                const models = publicChannelModels.get(binding.channelId);
+                return Boolean(models?.has(normalizePublicModelName(binding.upstreamModel)));
+            }),
+        }))
+        .filter((model) => model.bindings.length);
     return {
         site: {
             title: settings.site.title,
@@ -122,6 +135,11 @@ export function serializePublicSettings(settings: AuthSettings) {
         registrationEnabled: settings.registrationEnabled,
         emailRegistrationEnabled: settings.emailRegistrationEnabled,
         modelPointCosts: { ...settings.modelPointCosts },
+        modelPricing: Object.fromEntries(
+            publicLogicalModels
+                .map((model) => [model.id, publicModelPricing(model)])
+                .filter(([, pricing]) => Boolean(pricing)),
+        ),
         generationPointMultipliers: {
             imageQuality: { ...settings.generationPointMultipliers.imageQuality },
             videoQuality: { ...settings.generationPointMultipliers.videoQuality },
@@ -139,9 +157,7 @@ export function serializePublicSettings(settings: AuthSettings) {
             audioFormat: settings.generationDefaults.audioFormat,
         },
         defaultModels: { ...settings.defaultModels },
-        logicalModels: settings.logicalModels
-            .filter((model) => model.enabled)
-            .map((model) => ({
+        logicalModels: publicLogicalModels.map((model) => ({
                 id: model.id,
                 name: model.name,
                 capability: model.capability,
@@ -156,17 +172,31 @@ export function serializePublicSettings(settings: AuthSettings) {
                         priority: binding.priority,
                     })),
             })),
-        systemChannels: settings.systemChannels
-            .filter((channel) => channel.enabled)
+        systemChannels: publicChannels
             .map((channel) => ({
                 id: channel.id,
-                name: channel.name,
                 baseUrl: `/api/ai/system/${channel.id}`,
-                apiKey: "system",
                 apiFormat: channel.apiFormat,
                 models: channel.models,
-                enabled: channel.enabled,
-                hasApiKey: Boolean(channel.apiKey),
+                enabled: true,
             })),
+    };
+}
+
+function normalizePublicModelName(model: string) {
+    return model.replace(/^models\//i, "").trim().toLowerCase();
+}
+
+function publicModelPricing(model: AuthSettings["logicalModels"][number]) {
+    const pricing = model.bindings.find((binding) => binding.enabled && binding.capabilityProfile?.pricing)?.capabilityProfile?.pricing;
+    if (!pricing) return undefined;
+    return {
+        billingUnit: pricing.billingUnit,
+        currency: "CNY" as const,
+        ...(pricing.salePrice !== undefined ? { salePrice: pricing.salePrice } : {}),
+        ...(pricing.inputSalePrice !== undefined ? { inputSalePrice: pricing.inputSalePrice } : {}),
+        ...(pricing.outputSalePrice !== undefined ? { outputSalePrice: pricing.outputSalePrice } : {}),
+        ...(pricing.cacheReadSalePrice !== undefined ? { cacheReadSalePrice: pricing.cacheReadSalePrice } : {}),
+        ...(pricing.cacheWriteSalePrice !== undefined ? { cacheWriteSalePrice: pricing.cacheWriteSalePrice } : {}),
     };
 }

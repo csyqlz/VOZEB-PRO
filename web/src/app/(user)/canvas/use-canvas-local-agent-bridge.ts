@@ -30,7 +30,7 @@ export function useCanvasLocalAgentBridge({ snapshot, onApplyOps }: { snapshot: 
             removeCanvasAgentCredentialsFromUrl();
             if (!notifiedRef.current) {
                 notifiedRef.current = true;
-                message.success("本地 Canvas Agent 已连接");
+                message.success("本地画布智能助手 已连接");
             }
         });
         source.addEventListener("tool_call", (event) => {
@@ -40,7 +40,7 @@ export function useCanvasLocalAgentBridge({ snapshot, onApplyOps }: { snapshot: 
         });
         source.onerror = () => {
             setConnected(false);
-            if (!notifiedRef.current) message.warning("本地 Canvas Agent 连接失败，请确认本地服务仍在运行");
+            if (!notifiedRef.current) message.warning("本地画布智能助手 连接失败，请确认本地服务仍在运行");
         };
         return () => {
             setConnected(false);
@@ -78,7 +78,7 @@ export async function executeCanvasAgentToolCall(call: CanvasAgentToolCall, snap
     }
     if (call.name !== "canvas_apply_ops") throw new Error(`网页不支持本地工具：${call.name}`);
     const ops = Array.isArray(call.input?.ops) ? call.input.ops.filter((op) => Boolean(op?.type)) : [];
-    if (!ops.length) throw new Error("本地 Agent 没有提供有效画布操作");
+    if (!ops.length) throw new Error("本地智能助手没有提供有效画布操作");
     if (!(await confirmOps(ops))) throw new Error("用户拒绝了画布操作");
     return applyOps(ops);
 }
@@ -118,7 +118,7 @@ function confirmCanvasOps(modal: ReturnType<typeof App.useApp>["modal"], ops: Ca
             resolve(value);
         };
         modal.confirm({
-            title: "允许本地 Canvas Agent 修改画布？",
+            title: "允许本地画布智能助手 修改画布？",
             content: `将执行 ${ops.length} 项节点或连线操作。`,
             okText: "允许",
             cancelText: "拒绝",
@@ -139,7 +139,7 @@ function postCanvasAgentResult(connection: CanvasAgentConnection, clientId: stri
 
 async function postCanvasAgentJson(connection: CanvasAgentConnection, path: string, body: unknown) {
     const response = await fetch(`${connection.endpoint}${path}${path.includes("?") ? "&" : "?"}token=${encodeURIComponent(connection.token)}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-    if (!response.ok) throw new Error("本地 Canvas Agent 请求失败");
+    if (!response.ok) throw new Error("本地画布智能助手 请求失败");
 }
 
 function removeCanvasAgentCredentialsFromUrl() {

@@ -5,17 +5,19 @@ import { useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { Modal } from "antd";
-import { ArrowRight, GalleryVerticalEnd, ImageOff, Play, RotateCw } from "lucide-react";
+import { ArrowRight, Clapperboard, GalleryVerticalEnd, Image as ImageIcon, ImageOff, Play, RotateCw, Video } from "lucide-react";
 
 import { LazyMediaImage } from "@/components/media/lazy-media-image";
 import { imagePreviewUrl } from "@/lib/media-image-url";
 import { listPublicGallery, type PublicGalleryItem } from "@/services/api/work-governance";
 import { HOME_GALLERY_TABS, homeGalleryMatches, type HomeGalleryTab } from "./home-data";
+import { useHomeActions } from "./home-actions";
 import styles from "./home.module.css";
 
 export function HomeGallery() {
     const [tab, setTab] = useState<HomeGalleryTab>("all");
     const [previewItem, setPreviewItem] = useState<PublicGalleryItem>();
+    const { startCreating, openProtectedPath } = useHomeActions();
     const query = useQuery({
         queryKey: ["home-public-gallery", "random"],
         queryFn: () => listPublicGallery({ limit: 18, sort: "random" }),
@@ -65,8 +67,23 @@ export function HomeGallery() {
                 ) : (
                     <GalleryState
                         icon={<GalleryVerticalEnd aria-hidden="true" />}
-                        title={tab === "all" ? "还没有公开作品" : "该分类暂无公开作品"}
-                        description={tab === "all" ? "审核通过并公开发布的作品会出现在这里。" : "切换其他分类，探索更多创作灵感。"}
+                        title={tab === "all" ? "从一个想法开始" : "该分类暂无公开作品"}
+                        description={tab === "all" ? "这里会展示公开作品。你也可以先创建自己的第一件作品。" : "切换其他分类，或直接开始一次新的创作。"}
+                        action={
+                            tab === "all" ? (
+                                <div className={styles.galleryStateActions}>
+                                    <button type="button" onClick={() => startCreating("生成一张适合分享的作品", "image")}>
+                                        <ImageIcon aria-hidden="true" /> 生成图片
+                                    </button>
+                                    <button type="button" onClick={() => startCreating("制作一段适合分享的短视频", "video")}>
+                                        <Video aria-hidden="true" /> 制作视频
+                                    </button>
+                                    <button type="button" onClick={() => openProtectedPath("/drama")}>
+                                        <Clapperboard aria-hidden="true" /> 开始短剧
+                                    </button>
+                                </div>
+                            ) : undefined
+                        }
                     />
                 )}
             </div>

@@ -48,6 +48,7 @@ import {
     type StoredSession,
     type PublicPointRecord,
     type StoredPointRecord,
+    type PointRecordBillingDetail,
     type StoredQuotaUsage,
     type StoredEmailCode,
     type AuthDatabase,
@@ -143,6 +144,8 @@ import {
 } from "./store-normalizers";
 import { matchesPublicUser, publicUserFromAuthenticatedRecord, summarizePublicUsers, toPublicUser } from "./store-user-projection";
 import { getAuthSettings } from "./store-settings-actions";
+import { effectiveBillingUnit, resolveLogicalModelPricing, mediaSalePrice, textTokenSalePrice } from "@/lib/model-pricing";
+import type { TokenUsage } from "@/lib/server/text-token-billing";
 
 export { authenticateUser, createEmailVerificationCode, createFirstAdmin, createUser, createUserByAdmin } from "./store-user-access";
 export { toPublicUser };
@@ -249,13 +252,14 @@ export type PointRecordListResult = {
     pageSize: number;
 };
 
-export async function listPointRecordsPage(userId: string, input?: { page?: number; pageSize?: number; direction?: "credit" | "debit" }): Promise<PointRecordListResult> {
+export async function listPointRecordsPage(userId: string, input?: { page?: number; pageSize?: number; direction?: "credit" | "debit"; view?: "balance" | "consumption" }): Promise<PointRecordListResult> {
     const pageSize = Math.max(1, Math.min(50, Math.floor(Number(input?.pageSize) || 10)));
     const page = Math.max(1, Math.floor(Number(input?.page) || 1));
     const direction = input?.direction === "credit" || input?.direction === "debit" ? input.direction : undefined;
+    const view = input?.view === "consumption" ? input.view : undefined;
     if (isPostgresDatabaseEnabled()) {
         await ensurePostgresSchema();
-        const result = await createPostgresRepositories().points.listRecords(userId, { page, pageSize, direction });
+        const result = await createPostgresRepositories().points.listRecords(userId, { page, pageSize, direction, view });
         return {
             records: result.items.map(toPublicPointRecord),
             total: result.total,
@@ -266,6 +270,7 @@ export async function listPointRecordsPage(userId: string, input?: { page?: numb
     const db = await readAuthDb();
     const records = (db.pointRecords || [])
         .filter((record) => record.userId === userId && (!direction || (direction === "credit" ? record.amount > 0 : record.amount < 0)))
+        .filter((record) => view !== "consumption" || !(record.billingDetail?.estimated && record.billingDetail.settlementStatus === "settled"))
         .map(toPublicPointRecord)
         .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
     const total = records.length;
@@ -528,7 +533,7 @@ export async function redeemCdkCode(userId: string, rawCode: string) {
             const redemption = await repos.cdk.addRedemption({ cdkCodeId: item.id, userId, redeemedAt: clock.now.toISOString() });
             if (!redemption) throw new AuthInputError("该 CDK 已被当前账号兑换");
             const points = Math.max(0, normalizePoints(item.points, 0));
-            if (!points) throw new AuthInputError("积分数量必须大于零");
+            if (!points) throw new AuthInputError("人民币余额金额必须大于零");
             const wallet = await adjustPermanentPointsInPostgresTransaction(client, {
                 userId,
                 amount: points,
@@ -685,15 +690,42 @@ export function legacyPointUsageKindFromModel(model: string): PointUsageKind {
     return "api";
 }
 
-export async function consumeUserPoints(userId: string, model: string, amount = 1, usageKind: PointUsageKind = "api", idempotencyKey?: string, requestFingerprint?: string) {
+export async function consumeUserPoints(
+    userId: string,
+    model: string,
+    amount = 1,
+    usageKind: PointUsageKind = "api",
+    idempotencyKey?: string,
+    requestFingerprint?: string,
+    billingDetail?: PointRecordBillingDetail,
+    billingContext?: { channelId?: string; upstreamModel?: string },
+) {
     const normalizedModel = model.trim();
     const db = isPostgresDatabaseEnabled() ? null : await readAuthDb();
     const user = db?.users.find((item) => item.id === userId);
     if (db && (!user || user.status !== "active")) throw new AuthInputError("用户不可用");
     const settings = db ? db.settings : await getAuthSettings();
-    const multiplier = resolveModelPointCost(settings.modelPointCosts, normalizedModel, settings.logicalModels);
-    const units = Math.min(1000, normalizePointAmount(amount, 1));
-    const cost = normalizePointAmount(units * multiplier, 0);
+    const pricing = resolveLogicalModelPricing(settings.logicalModels, billingContext?.upstreamModel || normalizedModel, billingContext?.channelId);
+    const capability = usageKind === "text" ? "text" : usageKind === "video" ? "video" : usageKind === "image" ? "image" : "audio";
+    const billingUnit = billingDetail?.billingUnit || (pricing ? effectiveBillingUnit(capability, pricing.billingUnit) : undefined);
+    const tokenPricedText = usageKind === "text" && billingUnit === "per_1m_tokens";
+    const secondPricedVideo = usageKind === "video" && billingUnit === "per_second";
+    const multiplier = tokenPricedText ? 1 : mediaSalePrice(pricing, resolveModelPointCost(settings.modelPointCosts, normalizedModel, settings.logicalModels));
+    const units = tokenPricedText ? 1 : Math.min(secondPricedVideo ? 3600 : 1000, normalizePointAmount(amount, 1));
+    const cost = tokenPricedText ? normalizePointAmount(amount, 0) : normalizePointAmount(units * multiplier, 0);
+    const defaultBillingDetail: PointRecordBillingDetail = tokenPricedText
+        ? {
+              billingUnit: "per_1m_tokens",
+              currency: "CNY",
+              actualCost: cost,
+              inputRate: textTokenSalePrice(pricing)?.input,
+              outputRate: textTokenSalePrice(pricing)?.output,
+              cacheReadRate: textTokenSalePrice(pricing)?.cacheRead,
+              cacheWriteRate: textTokenSalePrice(pricing)?.cacheWrite,
+              estimated: true,
+              settlementStatus: "reserved",
+          }
+        : { billingUnit: secondPricedVideo ? "per_second" : "per_call", currency: "CNY", actualCost: cost, unitRate: multiplier };
     const operationKey = idempotencyKey?.trim() || `points-consume:${randomUUID()}`;
     const result = await consumePoints({
         userId,
@@ -704,6 +736,7 @@ export async function consumeUserPoints(userId: string, model: string, amount = 
         description: buildPointRecordDescription(normalizedModel, usageKind, "consume"),
         idempotencyKey: operationKey,
         requestFingerprint,
+        billingDetail: billingDetail || defaultBillingDetail,
     });
     return {
         model: normalizedModel,
@@ -763,6 +796,66 @@ export async function refundUserPoints(userId: string, model: string, amount: nu
     const nextDb = await readAuthDb();
     const nextUser = nextDb.users.find((item) => item.id === userId);
     return nextUser ? { ...toPublicUser(nextUser, nextDb), pointsBalance: result.snapshot.totalPoints } : null;
+}
+
+/** Updates a persisted consumption record after the upstream reports actual usage. */
+export async function updatePointRecordBillingDetail(userId: string, recordId: string, billingDetail: PointRecordBillingDetail) {
+    if (isPostgresDatabaseEnabled()) {
+        await ensurePostgresSchema();
+        return createPostgresRepositories().points.updateBillingDetail(recordId, userId, billingDetail);
+    }
+    return mutateAuthDb((db) => {
+        const record = db.pointRecords.find((item) => item.id === recordId && item.userId === userId);
+        if (!record) return null;
+        record.billingDetail = billingDetail;
+        return record;
+    });
+}
+
+/** Reconciles a token reservation with usage reported by the upstream provider. */
+export async function settleUserTokenCharge(input: {
+    userId: string;
+    model: string;
+    reservedCost: number;
+    actualCost: number;
+    sourceRecordId?: string;
+    businessRequestId: string;
+    requestFingerprint?: string;
+    usage?: TokenUsage;
+    saleRates?: { input: number; output: number; cacheRead: number; cacheWrite: number };
+}) {
+    const reserved = normalizePointAmount(input.reservedCost, 0);
+    const actual = normalizePointAmount(input.actualCost, 0);
+    const billingDetail: PointRecordBillingDetail | undefined = input.usage
+        ? {
+              billingUnit: "per_1m_tokens",
+              currency: "CNY",
+              actualCost: actual,
+              inputTokens: input.usage.inputTokens,
+              outputTokens: input.usage.outputTokens,
+              cacheReadTokens: input.usage.cacheReadTokens,
+              cacheWriteTokens: input.usage.cacheWriteTokens,
+              inputRate: input.saleRates?.input,
+              outputRate: input.saleRates?.output,
+              cacheReadRate: input.saleRates?.cacheRead,
+              cacheWriteRate: input.saleRates?.cacheWrite,
+              estimated: false,
+              settlementStatus: "settled",
+          }
+        : undefined;
+    if (!input.sourceRecordId) return { adjusted: false, cost: actual };
+    if (Math.abs(reserved - actual) < 0.00000001) {
+        if (billingDetail) await updatePointRecordBillingDetail(input.userId, input.sourceRecordId, billingDetail);
+        return { adjusted: false, cost: actual, recordId: input.sourceRecordId };
+    }
+    await refundUserPoints(input.userId, input.model, reserved, "text", 1, `token-settle-refund:${input.sourceRecordId}`, input.sourceRecordId);
+    if (!actual) {
+        if (billingDetail) await updatePointRecordBillingDetail(input.userId, input.sourceRecordId, { ...billingDetail, estimated: true });
+        return { adjusted: true, cost: 0 };
+    }
+    const result = await consumeUserPoints(input.userId, input.model, actual, "text", `token-settle-consume:${input.businessRequestId}`, input.requestFingerprint, billingDetail);
+    if (billingDetail) await updatePointRecordBillingDetail(input.userId, input.sourceRecordId, { ...billingDetail, estimated: true });
+    return { adjusted: true, cost: result.cost, recordId: result.recordId };
 }
 
 export { createSession, deleteSession, deleteUserByAdmin, getUserBySession, resetPasswordByEmail, updateOwnPassword, updateOwnProfile, updateUserByAdmin, verifyUserPasswordForSensitiveAction } from "./store-account-actions";

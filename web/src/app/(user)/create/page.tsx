@@ -18,7 +18,7 @@ import { optimizePrompt } from "@/services/api/prompt-optimization";
 import { usePublicSessionStore } from "@/stores/use-public-session-store";
 import type { PublicGalleryItem } from "@/services/api/work-governance";
 import { createAgentDraftFromHash } from "@/lib/create-agent-prompt";
-import { resolveSiteTitle } from "@/lib/site-brand";
+import { DEFAULT_SUPPORT_EMAIL, resolveSiteTitle } from "@/lib/site-brand";
 
 import { CreativeComposer } from "./components/creative-composer";
 import { CreativeAssetsPanel } from "./components/creative-assets-panel";
@@ -69,6 +69,7 @@ export default function CreatePage() {
     const [awayFromLatest, setAwayFromLatest] = useState(false);
     const [composerExpanded, setComposerExpanded] = useState(true);
     const publicSettings = usePublicSessionStore((state) => state.payload?.settings);
+    const publicSessionReady = usePublicSessionStore((state) => state.ready);
     const siteTitle = resolveSiteTitle(publicSettings?.site?.title);
     const agent = useCreateAgent();
     const openAgentConversation = agent.openConversation;
@@ -76,8 +77,16 @@ export default function CreatePage() {
     const hasConversation = agent.messages.length > 0;
     const showConversation = hasConversation || agent.conversationLoading;
     const selectedSkill = skills.find((skill) => skill.id === selectedSkillId);
-    const modelOptions = useCreativeAgentModels();
+    const modelOptions = useCreativeAgentModels(["text", "image", "video", "audio"]);
     const selectedModels = modelOptions.filter((model) => selectedModelIds.includes(model.id));
+    const textModelAvailable = modelOptions.some((model) => model.capability === "text");
+    const creationCapabilityAvailable = creationMode === "agent" ? textModelAvailable : modelOptions.some((model) => model.capability === creationMode);
+
+    useEffect(() => {
+        if (creationMode === "agent" || modelOptions.some((model) => model.capability === creationMode)) return;
+        setCreationMode("agent");
+        setGenerationPreferences((current) => ({ ...current, mode: undefined }));
+    }, [creationMode, modelOptions]);
     const updatePrompt = useCallback((value: string) => {
         promptValueRef.current = value;
         promptRevisionRef.current += 1;
@@ -182,6 +191,10 @@ export default function CreatePage() {
         if (!prompt.trim()) {
             message.warning("请先描述你的创作需求");
             inputRef.current?.focus();
+            return;
+        }
+        if (creationMode === "agent" && !modelOptions.some((model) => model.capability === "text")) {
+            message.error("智能创作暂时不可用，请稍后重试或联系客服。");
             return;
         }
         if (!smartPlanning && !selectedModelIds.length) {
@@ -295,7 +308,7 @@ export default function CreatePage() {
             const mimeType = blob.type || input.mimeType || "";
             if (!isCreativeUploadMimeType(mimeType)) throw new Error("该媒体格式暂不支持作为参考素材");
             const extension = mimeType.split("/")[1]?.replace("jpeg", "jpg") || "png";
-            const referenced = await uploadAttachments([new File([blob], `${input.fileStem}.${extension}`, { type: mimeType })], "已引用到 Agent 输入框");
+            const referenced = await uploadAttachments([new File([blob], `${input.fileStem}.${extension}`, { type: mimeType })], "已引用到智能创作输入框");
             if (referenced.length) window.requestAnimationFrame(() => inputRef.current?.focus());
         } catch (error) {
             message.error(error instanceof Error ? error.message : "引用素材失败");
@@ -319,7 +332,14 @@ export default function CreatePage() {
 
     const toggleModel = (model: (typeof modelOptions)[number]) => {
         setSelectedModelIds((current) => {
-            const next = current.includes(model.id) ? current.filter((id) => id !== model.id) : [...current, model.id];
+            const next =
+                model.capability === "text"
+                    ? current.includes(model.id)
+                        ? []
+                        : [model.id]
+                    : current.includes(model.id)
+                      ? current.filter((id) => id !== model.id)
+                      : [...current.filter((id) => modelOptions.find((item) => item.id === id)?.capability !== "text"), model.id];
             setSmartPlanning(next.length === 0);
             return next;
         });
@@ -472,6 +492,8 @@ export default function CreatePage() {
             onChange={updatePrompt}
             onOptimize={() => void optimizeCurrentPrompt()}
             onSubmit={() => void submit()}
+            submitDisabled={!creationCapabilityAvailable}
+            submitDisabledReason={creationMode === "agent" ? "智能创作正在准备中" : "当前创作能力正在准备中"}
             onCancel={() => void agent.cancel().catch((error) => message.error(error instanceof Error ? error.message : "停止任务失败"))}
             attachments={agent.selectedAssets}
             skills={skills}
@@ -651,12 +673,24 @@ export default function CreatePage() {
                         ) : (
                             <div className="mx-auto flex min-h-full w-full min-w-0 max-w-[1240px] flex-col items-center px-2.5 pb-3 pt-5 sm:px-8 sm:pb-8 sm:pt-14 lg:pt-[10vh]">
                                 <div className="text-center">
-                                    <h1 className="text-[23px] font-semibold leading-tight sm:text-[31px]">{siteTitle} 创作 Agent</h1>
+                                    <h1 className="text-[23px] font-semibold leading-tight sm:text-[31px]">{siteTitle} 智能创作</h1>
                                     <p className="mt-2 text-sm text-[#8b949f] dark:text-[#7f8996]">从一个想法开始</p>
                                 </div>
+                                {publicSessionReady && !textModelAvailable ? (
+                                    <div
+                                        role="status"
+                                        className="mt-4 w-full max-w-[720px] rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3 text-center text-sm leading-6 text-amber-900 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-100"
+                                    >
+                                        当前智能创作正在准备中，请稍后再试；需要帮助时可联系{" "}
+                                        <a className="font-medium underline underline-offset-2" href={`mailto:${DEFAULT_SUPPORT_EMAIL}`}>
+                                            {DEFAULT_SUPPORT_EMAIL}
+                                        </a>
+                                        。
+                                    </div>
+                                ) : null}
                                 <div className="mt-5 w-full sm:mt-8">{composer}</div>
                                 <div className="mt-2 flex w-full min-w-0 flex-wrap justify-center gap-1.5 sm:mt-3 sm:gap-2">
-                                    {skillsLoading ? <span className="px-2 py-2 text-xs text-[#9aa2ad]">正在加载创作 Skill...</span> : null}
+                                    {skillsLoading ? <span className="px-2 py-2 text-xs text-[#9aa2ad]">正在加载创作能力...</span> : null}
                                     {skills.map((skill, index) => {
                                         const visual = skillVisual(skill, index);
                                         const Icon = visual.icon;
@@ -664,7 +698,7 @@ export default function CreatePage() {
                                             <button
                                                 key={skill.id}
                                                 type="button"
-                                                aria-label={`使用 ${skill.name} Skill`}
+                                                aria-label={`使用 ${skill.name} 创作能力`}
                                                 title={skill.description}
                                                 className="inline-flex h-9 items-center gap-2 rounded-full border border-[#e3e7eb] bg-white px-3 text-sm font-medium text-[#343b44] transition hover:border-[#cfd6dd] hover:bg-[#f7f8fa] dark:border-[#343a42] dark:bg-[#181b20] dark:text-[#dce1e7] dark:hover:border-[#4a525d] dark:hover:bg-[#20242a]"
                                                 onClick={() => selectSkill(skill)}

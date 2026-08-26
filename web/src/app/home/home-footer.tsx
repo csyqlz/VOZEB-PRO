@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ArrowRight, Mail, Send } from "lucide-react";
 
 import { SiteLogo } from "@/components/layout/site-logo";
+import { DEFAULT_SUPPORT_EMAIL } from "@/lib/site-brand";
 import { HOME_NAVIGATION, type HomeNavigationItem } from "./home-data";
 import { useHomeActions } from "./home-actions";
 import styles from "./home.module.css";
@@ -20,7 +21,7 @@ export function HomeCta() {
                 <p>加入 {site.title}，释放你的创作潜力，让 AI 成为你最强的创作伙伴。</p>
             </div>
             <button type="button" onClick={() => startCreating()}>
-                免费开始 <ArrowRight aria-hidden="true" />
+                注册后开始创作 <ArrowRight aria-hidden="true" />
             </button>
         </section>
     );
@@ -30,6 +31,7 @@ export function HomeFooter() {
     const { site, openBillingPlans, openProtectedPath } = useHomeActions();
     const friendLinks = site.friendLinks.filter((item) => item.enabled && item.label.trim() && item.url.trim());
     const socials = Object.entries(site.socials).filter(([, item]) => item.enabled && item.label.trim() && item.url.trim());
+    const supportEmail = extractMailtoAddress(site.socials.email?.url) || DEFAULT_SUPPORT_EMAIL;
     const copyright = site.footerCopyright?.trim();
     const policies = [site.privacyUrl?.trim() ? { label: "隐私政策", href: site.privacyUrl.trim() } : null, site.termsUrl?.trim() ? { label: "服务条款", href: site.termsUrl.trim() } : null].filter((item): item is { label: string; href: string } =>
         Boolean(item),
@@ -48,6 +50,11 @@ export function HomeFooter() {
                         <span>{site.title}</span>
                     </Link>
                     {site.seoDescription?.trim() ? <p>{site.seoDescription}</p> : null}
+                    {supportEmail ? (
+                        <a className="mt-3 inline-flex max-w-full break-all text-sm text-stone-500 underline-offset-4 transition hover:text-stone-950 hover:underline dark:text-stone-400 dark:hover:text-white" href={`mailto:${supportEmail}`}>
+                            客服邮箱：{supportEmail}
+                        </a>
+                    ) : null}
                     {socials.length ? (
                         <div className={styles.footerSocials}>
                             {socials.map(([key, item]) => {
@@ -121,6 +128,11 @@ function FooterColumn({ title, children }: { title: string; children: ReactNode 
 
 function externalTarget(url: string) {
     return /^(https?:)?\/\//.test(url) ? "_blank" : undefined;
+}
+
+function extractMailtoAddress(value: string | undefined) {
+    const match = value?.trim().match(/^mailto:([^?\s]+)(?:\?.*)?$/i);
+    return match?.[1] || "";
 }
 
 function socialIcon(key: string) {

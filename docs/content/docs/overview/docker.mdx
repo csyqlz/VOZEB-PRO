@@ -1,16 +1,15 @@
 ---
 title: Docker 部署
-description: 使用 Docker Compose、PostgreSQL 和发布镜像部署 VOZEB PRO
+description: 使用 Docker Compose、PostgreSQL 和发布镜像部署 星启智域
 ---
 
 # Docker 部署
 
-主 Compose 会启动 VOZEB PRO 和 PostgreSQL 16。正式部署前先复制并修改 `.env`。
+主 Compose 会启动 星启智域 和 PostgreSQL 16。正式部署前先复制并修改 `.env`。
 
 ## 安装
 
 ```bash
-git clone https://github.com/csyqlz/VOZEB-PRO.git
 cd VOZEB-PRO
 cp .env.example .env
 ```
@@ -18,7 +17,7 @@ cp .env.example .env
 必填：
 
 ```dotenv
-NEXT_PUBLIC_SITE_URL=https://vozeb-pro.example.com
+NEXT_PUBLIC_SITE_URL=https://games.xingqizhiyu.cn
 POSTGRES_PASSWORD=replace-with-a-strong-database-password
 VOZEB_PRO_ENCRYPTION_KEY=填写 openssl rand -hex 32 的输出
 ```
@@ -37,7 +36,7 @@ docker compose ps
 
 ```text
 postgres -> PostgreSQL 16，数据卷 vozeb-pro-postgres
-app      -> VOZEB PRO standalone，数据卷 vozeb-pro-data
+app      -> 星启智域 standalone，数据卷 vozeb-pro-data
 ```
 
 应用通过容器网络连接：
@@ -104,7 +103,7 @@ Token 不得写入仓库或公开日志。
 反向代理应保留 `Host`、`X-Forwarded-Proto` 和 `X-Forwarded-For`。站点地址使用真实 HTTPS 域名：
 
 ```dotenv
-NEXT_PUBLIC_SITE_URL=https://vozeb-pro.example.com
+NEXT_PUBLIC_SITE_URL=https://games.xingqizhiyu.cn
 ```
 
 ## 更新

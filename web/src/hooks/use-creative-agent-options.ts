@@ -14,7 +14,18 @@ export function useCreativeAgentModels(capabilities: CreativeAgentModelOption["c
 }
 
 export function creativeAgentModelsFromConfig(config: AiConfig, capabilities: CreativeAgentModelOption["capability"][] = ["image", "video", "audio"]) {
-    return Array.from(new Set(capabilities)).flatMap((capability) => selectableModelsByCapability(config, capability).map((id) => ({ id, name: modelOptionLabel(config, id), capability })));
+    return Array.from(new Set(capabilities)).flatMap((capability) =>
+        selectableModelsByCapability(config, capability).map((id) => ({
+            id,
+            name: modelOptionLabel(config, id),
+            capability,
+            ...(config.modelPricing[id]
+                ? { pricing: config.modelPricing[id] }
+                : capability !== "text" && config.modelPointCosts[id] !== undefined
+                  ? { pricing: { billingUnit: "per_call" as const, currency: "CNY" as const, salePrice: config.modelPointCosts[id] } }
+                  : {}),
+        })),
+    );
 }
 
 export function useCreativeAgentOptions(workspace: AgentSkillWorkspace, capabilities: CreativeAgentModelOption["capability"][] = ["image", "video", "audio"]) {

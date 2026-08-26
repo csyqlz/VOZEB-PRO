@@ -16,7 +16,7 @@ describe("create Agent home layout", () => {
             readFile(resolve(process.cwd(), "src/components/works/public-work-preview-modal.tsx"), "utf8"),
         ]);
 
-        expect(page).toContain("创作 Agent");
+        expect(page).toContain("智能创作");
         expect(page).toContain("createAgentDraftFromHash");
         expect(page).toContain("setCreationMode(incomingDraft.mode)");
         expect(page).toContain('data-testid="creative-conversation-scroll"');
@@ -54,7 +54,7 @@ describe("create Agent home layout", () => {
         expect(composer).toContain("<ComposerMediaThumbnail key={asset.id} asset={asset} compact");
         expect(composer).toContain("autoSize={compactMode ? { minRows: 1, maxRows: 5 }");
         expect(composer).toContain("<CreativeGenerationControls");
-        expect(composer).toContain("使用 Skill");
+        expect(composer).toContain("创作能力");
         expect(composer).toContain('aria-label={optimizing ? "正在优化提示词" : "优化提示词"}');
         expect(page).toContain("optimizePrompt");
         expect(page).toContain("mode: creationMode");
@@ -78,7 +78,7 @@ describe("create Agent home layout", () => {
         expect(generationControls).toContain("<GenerationPreferencesControl");
         expect(generationControls).toContain("max-w-[360px]");
         expect(generationControls).not.toContain("选择比例");
-        expect(preferences).toContain("Agent 模式");
+        expect(preferences).toContain("智能模式");
         expect(preferences).toContain("图片生成");
         expect(preferences).toContain("视频生成");
         expect(preferences).toContain("音频生成");
@@ -110,9 +110,12 @@ describe("create Agent home layout", () => {
         expect(inspiration).toContain("<LazyMediaImage");
         expect(inspiration).toContain("<PublicWorkCardTitle");
         expect(inspiration).not.toContain("href={`/share/");
-        expect(overview).toContain('aria-label="引用到 Agent"');
+        expect(overview).toContain("临时下载区");
+        expect(overview).toContain("下载全部");
+        expect(overview).toContain('aria-label={`下载：${asset.title}`}');
+        expect(overview).toContain('aria-label="引用到智能创作"');
         expect(overview.indexOf('aria-labelledby="create-assets-heading"')).toBeLessThan(overview.indexOf('aria-labelledby="create-projects-heading"'));
-        expect(overview).toContain("recentAssets.slice(0, recentAssetVisibilityClasses.length)");
+        expect(overview).toContain("availableRecentAssets.slice(0, recentAssetVisibilityClasses.length)");
         expect(overview).toContain("grid-cols-2");
         expect(overview).toContain("2xl:grid-cols-6");
         expect(overview).toContain('"hidden sm:block"');
@@ -121,12 +124,13 @@ describe("create Agent home layout", () => {
         expect(overview).not.toContain("lg:grid-cols-5");
         expect(overview).toContain('"group grid h-32');
         expect(overview).toContain("sm:h-44");
-        expect(overview).toContain('title="引用到 Agent"');
+        expect(overview).toContain('title="引用到智能创作"');
+        expect(overview).toContain("当前没有可下载的临时素材");
         expect(overview).not.toMatch(/>\s*引用\s*</);
         expect(overview).not.toContain("absolute bottom-2 right-2");
-        expect(previewModal).toContain('aria-label="引用提示词到 Agent"');
-        expect(previewModal).toContain('aria-label="引用图片到 Agent"');
-        expect(previewModal).not.toMatch(/>\s*引用到 Agent\s*</);
+        expect(previewModal).toContain('aria-label="引用提示词到智能创作"');
+        expect(previewModal).toContain('aria-label="引用图片到智能创作"');
+        expect(previewModal).not.toMatch(/>\s*引用到智能创作\s*</);
         expect(previewModal).toContain("复制提示词");
         expect(previewModal).toContain('aria-label="关闭作品详情"');
         expect(previewModal).toContain("lg:grid-cols-[minmax(0,1fr)_340px]");

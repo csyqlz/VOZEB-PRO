@@ -65,8 +65,8 @@ export function AdminUserEditorModal({ controller }: { controller: AdminDashboar
         >
             <Form form={userForm} layout="vertical" requiredMark={false} onFinish={saveUserEditor}>
                 <div className="grid gap-x-4 md:grid-cols-2">
-                    <Form.Item label="用户名" name="username" rules={[{ required: creatingUser, message: "请输入用户名" }]}>
-                        <Input disabled={!creatingUser || !canEditAccount} placeholder="用于登录的账号" />
+                    <Form.Item label="账号" name="username" rules={[{ required: creatingUser, message: "请输入账号" }]}>
+                        <Input disabled={!creatingUser || !canEditAccount} placeholder="支持中文、数字和字母" />
                     </Form.Item>
                     <Form.Item label="显示昵称" name="displayName" rules={[{ required: true, message: "请输入显示昵称" }]}>
                         <Input disabled={!canEditAccount} placeholder="显示在顶部账号菜单" />
@@ -96,8 +96,8 @@ export function AdminUserEditorModal({ controller }: { controller: AdminDashboar
                             ]}
                         />
                     </Form.Item>
-                    <Form.Item label="永久积分" name="pointsBalance" extra={editingUser ? "每日积分由系统自动结算" : undefined} rules={[{ required: true, message: "请输入永久积分" }]}>
-                        <InputNumber className="!w-full" disabled={!canManageBilling} min={0} precision={2} />
+                    <Form.Item label="永久人民币余额" name="pointsBalance" extra={editingUser ? "每日余额由系统自动结算" : undefined} rules={[{ required: true, message: "请输入人民币余额" }]}>
+                        <InputNumber className="!w-full" disabled={!canManageBilling} min={0} precision={8} prefix="¥" />
                     </Form.Item>
                 </div>
                 {selectedRole === "admin" ? (
@@ -149,7 +149,7 @@ export function AdminUserEditorModal({ controller }: { controller: AdminDashboar
                         </div>
                     ) : (
                         <div className="border-t border-stone-200 py-4 text-sm text-stone-500 dark:border-stone-800 dark:text-stone-400">
-                            该管理员的职责范围为“{adminPermissionSummary(editingUser?.adminPermissions)}”，超出当前账号权限，只能查看或调整积分。
+                            该管理员的职责范围为“{adminPermissionSummary(editingUser?.adminPermissions)}”，超出当前账号权限，只能查看或调整人民币余额。
                         </div>
                     )
                 ) : null}

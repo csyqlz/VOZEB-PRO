@@ -4,17 +4,17 @@ import { formatAgentMessageText, friendlyAgentError } from "@/components/agent/a
 describe("Canvas Agent 消息清理", () => {
     it("hides upstream JSON errors", () => {
         expect(formatAgentMessageText('{"error":{"message":"not available","code":"convert_request_failed"}}')).toBe("当前模型暂不可用，请切换模型或稍后重试。");
-        expect(formatAgentMessageText('{"error":{"message":"/backend-api/conversation failed: status=422, body="}}')).toBe("当前请求参数不被模型支持，请检查模型与生成参数。");
+        expect(formatAgentMessageText('{"error":{"message":"/backend-api/conversation failed: status=422, body="}}')).toBe("当前模型不支持这组参数，请调整参数或切换模型。");
         expect(formatAgentMessageText("<html><head><title>502 Bad Gateway</title></head><body>nginx</body></html>")).toBe("当前模型暂不可用，请切换模型或稍后重试。");
     });
 
     it("shows actionable point errors from provider-safe JSON envelopes", () => {
-        expect(formatAgentMessageText('{"error":"积分不足，当前余额 0，需要 1"}')).toBe("积分不足");
-        expect(friendlyAgentError('{"error":{"message":"积分不足，当前余额 2，需要 3"}}')).toBe("积分不足");
+        expect(formatAgentMessageText('{"error":"积分不足，当前余额 0，需要 1"}')).toBe("人民币余额不足，请先充值后再生成。");
+        expect(friendlyAgentError('{"error":{"message":"积分不足，当前余额 2，需要 3"}}')).toBe("人民币余额不足，请先充值后再生成。");
     });
 
     it("shows a safe fix for protocol mismatches", () => {
-        expect(formatAgentMessageText('{"error":{"message":"MetaJing video requests must use application/json"}}')).toBe("当前视频渠道要求 application/json，请在后台选择匹配的内置协议，或使用自定义协议配置请求模板。");
+        expect(formatAgentMessageText('{"error":{"message":"MetaJing video requests must use application/json"}}')).toBe("当前模型暂不可用，请切换模型或联系客服。");
     });
 
     it("replaces legacy task internals", () => {

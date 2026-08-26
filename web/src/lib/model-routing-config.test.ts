@@ -271,6 +271,40 @@ describe("model routing config", () => {
         });
     });
 
+    it("repairs stale billing units when loading historical model profiles", () => {
+        const channels = [channel("one", ["writer", "image-model", "video-model"]), channel("two", ["video-model-2"])]
+        const models = normalizeLogicalModelsConfig(
+            [
+                {
+                    id: "writer",
+                    name: "Writer",
+                    capability: "text",
+                    enabled: true,
+                    bindings: [{ id: "writer-binding", channelId: "one", upstreamModel: "writer", enabled: true, priority: 1, capabilityProfile: { pricing: { currency: "CNY", billingUnit: "per_call", inputCostPrice: 1, outputCostPrice: 2 } } }],
+                },
+                {
+                    id: "image-model",
+                    name: "Image",
+                    capability: "image",
+                    enabled: true,
+                    bindings: [{ id: "image-binding", channelId: "one", upstreamModel: "image-model", enabled: true, priority: 1, capabilityProfile: { pricing: { currency: "CNY", billingUnit: "per_second", costPrice: 1, salePrice: 2 } } }],
+                },
+                {
+                    id: "video-model",
+                    name: "Video",
+                    capability: "video",
+                    enabled: true,
+                    bindings: [{ id: "video-binding", channelId: "one", upstreamModel: "video-model", enabled: true, priority: 1, capabilityProfile: { pricing: { currency: "CNY", billingUnit: "per_second", costPrice: 0.2, salePrice: 0.4 } } }],
+                },
+            ],
+            channels,
+        );
+
+        expect(models.find((model) => model.id === "writer")?.bindings[0].capabilityProfile?.pricing).toMatchObject({ billingUnit: "per_1m_tokens", inputCostPrice: 1, outputCostPrice: 2 });
+        expect(models.find((model) => model.id === "image-model")?.bindings[0].capabilityProfile?.pricing?.billingUnit).toBe("per_call");
+        expect(models.find((model) => model.id === "video-model")?.bindings[0].capabilityProfile?.pricing?.billingUnit).toBe("per_second");
+    });
+
     it("reports duplicate bindings and invalid defaults", () => {
         const channels = [channel("one", ["writer"])];
         const models: LogicalModel[] = [

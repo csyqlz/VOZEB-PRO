@@ -7,7 +7,7 @@ import utc from "dayjs/plugin/utc";
 import { AuthInputError, QuotaExceededError } from "@/lib/auth/store-foundation";
 import { mutateAuthDb } from "@/lib/auth/store-repository";
 import { normalizePointAmount, resolveDefaultPlan, resolveUserPlan } from "@/lib/auth/store-normalizers";
-import type { AuthDatabase, PointUsageKind, PublicPointRecord, StoredDailyPlanPointWallet, StoredPointRecord, StoredUser } from "@/lib/auth/store-types";
+import type { AuthDatabase, PointRecordBillingDetail, PointUsageKind, PublicPointRecord, StoredDailyPlanPointWallet, StoredPointRecord, StoredUser } from "@/lib/auth/store-types";
 import { createPostgresRepositories, ensurePostgresSchema, isPostgresDatabaseEnabled, withPostgresTransaction, type QueryExecutor } from "@/lib/server/database";
 import type { AppSettingsRecord, EntitlementPlanRecord, JsonValue, UserPlanAssignmentRecord, UserRecord } from "@/lib/server/database/repository-shared";
 
@@ -75,6 +75,7 @@ type ConsumePointsInput = WalletClockInput & {
     description: string;
     idempotencyKey: string;
     requestFingerprint?: string;
+    billingDetail?: PointRecordBillingDetail;
 };
 
 type RefundPointsInput = WalletClockInput & {
@@ -86,6 +87,7 @@ type RefundPointsInput = WalletClockInput & {
     units: number;
     model?: string;
     description: string;
+    billingDetail?: PointRecordBillingDetail;
 };
 
 type WalletClock = {
@@ -126,7 +128,7 @@ export function splitPointConsumption(dailyPoints: number, permanentPoints: numb
     const dailyAvailable = nonNegativePoints(dailyPoints);
     const permanentAvailable = normalizePointAmount(permanentPoints, 0);
     const totalAvailable = Math.max(0, normalizePointAmount(dailyAvailable + permanentAvailable, 0));
-    if (cost > totalAvailable) throw new QuotaExceededError("积分不足");
+    if (cost > totalAvailable) throw new QuotaExceededError("人民币余额不足");
     const dailyDebit = Math.min(dailyAvailable, cost);
     return { cost, dailyDebit, permanentDebit: normalizePointAmount(cost - dailyDebit, 0) };
 }
@@ -139,14 +141,14 @@ export async function getPointsWalletSnapshot(userId: string, input: WalletClock
 export async function creditPermanentPoints(input: CreditPermanentPointsInput): Promise<PointsWalletMutationResult> {
     const amount = positivePoints(input.amount);
     const idempotencyKey = requiredIdempotencyKey(input.idempotencyKey);
-    if (!amount) throw new AuthInputError("积分数量必须大于零");
+    if (!amount) throw new AuthInputError("人民币余额金额必须大于零");
     if (isPostgresDatabaseEnabled()) return creditPostgresPoints({ ...input, amount, idempotencyKey });
     return mutateAuthDb((db) => creditFilePoints(db, { ...input, amount, idempotencyKey }, walletClock(input)));
 }
 
 export function creditPermanentPointsInAuthDb(db: AuthDatabase, input: CreditPermanentPointsInput): PointsWalletMutationResult {
     const amount = positivePoints(input.amount);
-    if (!amount) throw new AuthInputError("积分数量必须大于零");
+    if (!amount) throw new AuthInputError("人民币余额金额必须大于零");
     return creditFilePoints(db, { ...input, amount, idempotencyKey: requiredIdempotencyKey(input.idempotencyKey) }, walletClock(input));
 }
 
@@ -186,7 +188,7 @@ export async function consumePoints(input: ConsumePointsInput): Promise<PointsWa
     const amount = normalizePointAmount(input.amount, -1);
     const idempotencyKey = requiredIdempotencyKey(input.idempotencyKey);
     const requestFingerprint = consumptionRequestFingerprint({ ...input, amount });
-    if (amount < 0) throw new AuthInputError("本次积分消费不能小于零");
+    if (amount < 0) throw new AuthInputError("本次人民币余额消费不能小于零");
     if (isPostgresDatabaseEnabled()) return consumePostgresPoints({ ...input, amount, idempotencyKey, requestFingerprint });
     return mutateAuthDb((db) => consumeFilePoints(db, { ...input, amount, idempotencyKey, requestFingerprint }, walletClock(input)));
 }
@@ -295,7 +297,7 @@ async function consumePostgresPoints(input: ConsumePointsInput & { amount: numbe
         await assertPostgresQuota(client, context, input.usageKind, input.units, split.cost);
         if (split.dailyDebit && context.wallet) {
             const wallet = await repos.pointsWallet.updateRemaining(user.id, context.clock.date, normalizePointAmount(context.wallet.remainingPoints - split.dailyDebit, 0));
-            if (!wallet) throw new Error("更新今日套餐积分失败");
+            if (!wallet) throw new Error("更新今日套餐余额失败");
             context.wallet = wallet;
         }
         if (split.permanentDebit) {
@@ -317,6 +319,9 @@ async function consumePostgresPoints(input: ConsumePointsInput & { amount: numbe
             dailyBalanceAfter: snapshot.dailyPoints,
             description: input.description,
             model: input.model.trim(),
+            usageKind: input.usageKind,
+            units: normalizePointAmount(input.units, 0),
+            billingDetail: input.billingDetail,
             idempotencyKey: input.idempotencyKey,
             requestFingerprint: input.requestFingerprint,
             sourceDate: context.clock.date,
@@ -343,7 +348,7 @@ async function refundPostgresPoints(input: RefundPointsInput & { idempotencyKey:
         const restored = resolveRefund(source, context.clock.date, Boolean(context.wallet && context.assignment?.id === context.wallet.assignmentId), context.wallet);
         if (restored.dailyRestored && context.wallet) {
             const wallet = await repos.pointsWallet.updateRemaining(user.id, context.clock.date, normalizePointAmount(context.wallet.remainingPoints + restored.dailyRestored, 0));
-            if (!wallet) throw new Error("恢复今日套餐积分失败");
+            if (!wallet) throw new Error("恢复今日套餐余额失败");
             context.wallet = wallet;
         }
         if (restored.permanentRestored) {
@@ -363,8 +368,11 @@ async function refundPostgresPoints(input: RefundPointsInput & { idempotencyKey:
             dailyAmount: restored.dailyRestored,
             permanentBalanceAfter: snapshot.permanentPoints,
             dailyBalanceAfter: snapshot.dailyPoints,
-            description: restored.dailyExpired ? `${input.description}（${restored.dailyExpired} 今日积分已过期）` : input.description,
+            description: restored.dailyExpired ? `${input.description}（${restored.dailyExpired} 今日余额已过期）` : input.description,
             model: input.model?.trim() || source.model,
+            usageKind: input.usageKind,
+            units: normalizePointAmount(input.units, 0),
+            billingDetail: input.billingDetail || source.billingDetail,
             idempotencyKey: input.idempotencyKey,
             sourceRecordId: source.id,
             sourceDate: source.sourceDate,
@@ -521,6 +529,9 @@ function consumeFilePoints(db: AuthDatabase, input: ConsumePointsInput & { amoun
         dailyBalanceAfter: snapshot.dailyPoints,
         description: input.description,
         model: input.model.trim(),
+        usageKind: input.usageKind,
+        units: normalizePointAmount(input.units, 0),
+        billingDetail: input.billingDetail,
         idempotencyKey: input.idempotencyKey,
         requestFingerprint: input.requestFingerprint,
         sourceDate: clock.date,
@@ -563,8 +574,11 @@ function refundFilePoints(db: AuthDatabase, input: RefundPointsInput & { idempot
         dailyAmount: restored.dailyRestored,
         permanentBalanceAfter: snapshot.permanentPoints,
         dailyBalanceAfter: snapshot.dailyPoints,
-        description: restored.dailyExpired ? `${input.description}（${restored.dailyExpired} 今日积分已过期）` : input.description,
+        description: restored.dailyExpired ? `${input.description}（${restored.dailyExpired} 今日余额已过期）` : input.description,
         model: input.model?.trim() || source.model,
+        usageKind: input.usageKind,
+        units: normalizePointAmount(input.units, 0),
+        billingDetail: input.billingDetail || source.billingDetail,
         idempotencyKey: input.idempotencyKey,
         sourceRecordId: source.id,
         sourceDate: source.sourceDate,
@@ -644,20 +658,20 @@ function existingFileRefund(record: PublicPointRecord, snapshot: PointsWalletSna
 }
 
 function assertMatchingRecord(record: PublicPointRecord, userId: string, expectedType?: PublicPointRecord["type"]) {
-    if (record.userId !== userId || (expectedType && record.type !== expectedType)) throw new PointsWalletConflictError("积分幂等键已被其他业务使用");
+    if (record.userId !== userId || (expectedType && record.type !== expectedType)) throw new PointsWalletConflictError("余额幂等键已被其他业务使用");
 }
 
 function assertMatchingConsumption(record: StoredPointRecord, input: ConsumePointsInput & { amount: number; requestFingerprint: string }) {
     assertMatchingRecord(record, input.userId, "consume");
     if (normalizePointAmount(-record.amount, 0) !== input.amount || (record.model || "").trim() !== input.model.trim() || record.requestFingerprint !== input.requestFingerprint) {
-        throw new PointsWalletConflictError("积分幂等键对应的消费参数不一致");
+        throw new PointsWalletConflictError("余额幂等键对应的消费参数不一致");
     }
 }
 
 function consumptionRequestFingerprint(input: ConsumePointsInput & { amount: number }) {
     const supplied = input.requestFingerprint?.trim().toLowerCase();
     if (supplied) {
-        if (!/^[a-f0-9]{64}$/.test(supplied)) throw new AuthInputError("积分消费请求指纹无效");
+        if (!/^[a-f0-9]{64}$/.test(supplied)) throw new AuthInputError("余额消费请求指纹无效");
         return supplied;
     }
     return createHash("sha256")
@@ -676,7 +690,7 @@ async function assertPostgresQuota(client: QueryExecutor, context: PostgresWalle
     assertPlatformCostLimit(control.dailyTotalPointSpend, totals.totalPoints + cost, "平台今日生成成本保护已触发，请稍后再试");
     if (!planLimits) return;
     const usage = await createPostgresRepositories(client).points.getQuotaUsage(context.user.id, context.clock.date, usageKind);
-    assertLimit(planLimits.dailyPointSpend, totals.userPoints + cost, "今日积分消费额度");
+    assertLimit(planLimits.dailyPointSpend, totals.userPoints + cost, "今日人民币余额消费额度");
     assertLimit(planLimits[usageLimitKey(usageKind)], (usage?.units || 0) + nonNegativePoints(units), usageLimitLabel(usageKind));
 }
 
@@ -704,7 +718,7 @@ function assertFileQuota(db: AuthDatabase, user: StoredUser, date: string, usage
     if (!db.settings.entitlements.enabled) return;
     const plan = resolveUserPlan(db, user);
     const usage = db.quotaUsage.find((item) => item.userId === user.id && item.date === date && item.usageKind === usageKind);
-    assertLimit(plan.limits.dailyPointSpend, userPoints + cost, "今日积分消费额度");
+    assertLimit(plan.limits.dailyPointSpend, userPoints + cost, "今日人民币余额消费额度");
     assertLimit(plan.limits[usageLimitKey(usageKind)], (usage?.units || 0) + nonNegativePoints(units), usageLimitLabel(usageKind));
 }
 
@@ -802,7 +816,7 @@ function assertPlatformCostLimit(limit: number, next: number, message: string) {
 
 function requiredIdempotencyKey(value: string) {
     const key = value.trim().slice(0, 240);
-    if (!key) throw new AuthInputError("积分操作缺少幂等键");
+    if (!key) throw new AuthInputError("余额操作缺少幂等键");
     return key;
 }
 

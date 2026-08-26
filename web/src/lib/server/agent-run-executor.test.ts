@@ -216,6 +216,30 @@ describe("executeAgentRun backend settings", () => {
         expect(mocks.run?.status).toBe("completed");
     });
 
+    it("uses the explicitly selected text model for the Agent planning call", async () => {
+        mocks.run = runFixture({ surface: "chat", projectId: undefined, prompt: "写一句欢迎语", requestedModelIds: ["writer"] });
+        const selectedSettings = settings("image-model", "image-channel") as unknown as {
+            systemChannels: Array<{ id: string; name: string; enabled: boolean; baseUrl: string; apiKey: string; models: string[] }>;
+            logicalModels: Array<{ id: string; name: string; capability: string; enabled: boolean; bindings: Array<{ id: string; channelId: string; upstreamModel: string; enabled: boolean; priority: number }> }>;
+        };
+        selectedSettings.systemChannels.push({ id: "writer-channel", name: "写作", enabled: true, baseUrl: "https://api.example.com/v1", apiKey: "writer-secret", models: ["vendor/writer"] });
+        selectedSettings.logicalModels.push({ id: "writer", name: "写作模型", capability: "text", enabled: true, bindings: [{ id: "writer-binding", channelId: "writer-channel", upstreamModel: "vendor/writer", enabled: true, priority: 1 }] });
+        mocks.getAuthSettings.mockResolvedValue(selectedSettings as never);
+        const plan = conversationPlan("image-model", "欢迎来到星启智域。");
+        mocks.fetchInternalApi.mockImplementation(async (url: string) => {
+            if (url.endsWith("/responses")) return new Response("unsupported endpoint", { status: 404 });
+            if (url.endsWith("/chat/completions")) return Response.json({ choices: [{ message: { content: JSON.stringify(plan) } }] });
+            throw new Error(`unexpected request: ${url}`);
+        });
+
+        await executeAgentRun(mocks.run, "http://localhost", "session=test");
+
+        const planningCalls = mocks.fetchInternalApi.mock.calls.filter(([url]) => String(url).includes("/api/ai/system/"));
+        expect(planningCalls.map(([url]) => String(url))).toEqual(["http://localhost/api/ai/system/writer-channel/chat/completions"]);
+        expect(mocks.run?.plannerAudit).toMatchObject({ logicalModelId: "writer", channelId: "writer-channel", upstreamModel: "vendor/writer" });
+        expect(mocks.run?.status).toBe("completed");
+    });
+
     it("creates Canvas plan nodes when a generation model is selected explicitly", async () => {
         mocks.run = runFixture({ surface: "canvas", prompt: "生成商品主图", requestedModelIds: ["image-model"] });
         mocks.getAuthSettings.mockResolvedValue(settings("image-model", "image-channel"));
@@ -426,7 +450,7 @@ describe("executeAgentRun backend settings", () => {
                 id: "text-one",
                 title: "欢迎文案",
                 type: "text",
-                prompt: "创建一个文字节点，内容写“欢迎使用 VOZEB PRO Agent”，放在画布中央，并选中它。\n\n严格输出要求：只输出最终文本，不要标题、Markdown、解释或列表。",
+                prompt: "创建一个文字节点，内容写“欢迎使用 星启智域 Agent”，放在画布中央，并选中它。\n\n严格输出要求：只输出最终文本，不要标题、Markdown、解释或列表。",
                 count: 1,
                 dependencies: [],
                 status: "ready",
@@ -438,7 +462,7 @@ describe("executeAgentRun backend settings", () => {
         await executeAgentRun(mocks.run, "http://localhost", "session=test");
 
         expect(mocks.fetchInternalApi.mock.calls.some(([url]) => String(url).includes("/api/text-tasks"))).toBe(false);
-        expect(mocks.run?.tasks[0].result).toEqual({ content: "欢迎使用 VOZEB PRO Agent" });
+        expect(mocks.run?.tasks[0].result).toEqual({ content: "欢迎使用 星启智域 Agent" });
         const completed = mocks.events.find((event) => event.type === "task.completed") as { data?: { message?: string; ops?: Array<Record<string, unknown>> } } | undefined;
         expect(completed?.data?.message).not.toContain("无法直接操作");
         expect(completed?.data?.ops).toEqual(
@@ -448,7 +472,7 @@ describe("executeAgentRun backend settings", () => {
                     id: "output-agent-run-0-0",
                     nodeType: "text",
                     position: { x: 800, y: 96 },
-                    metadata: expect.objectContaining({ content: "欢迎使用 VOZEB PRO Agent" }),
+                    metadata: expect.objectContaining({ content: "欢迎使用 星启智域 Agent" }),
                 }),
                 { type: "select_nodes", ids: ["output-agent-run-0-0"] },
             ]),

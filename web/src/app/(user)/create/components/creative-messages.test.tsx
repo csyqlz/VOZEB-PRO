@@ -238,6 +238,7 @@ describe("CreativeMessages", () => {
         expect(markup).not.toContain("h-36 sm:h-40");
         expect(markup).toContain('aria-label="引用素材"');
         expect(markup).toContain('aria-label="下载图片"');
+        expect(markup).toContain("生成图片和视频仅在服务器保留 24 小时");
         expect(markup).toContain('aria-label="复制消息"');
         expect(markup).toContain("mt-1 flex min-h-8 items-center justify-end");
         expect(markup).not.toContain("absolute bottom-2 right-2");
@@ -416,6 +417,7 @@ describe("CreativeMessages", () => {
         expect(markup).not.toContain("重新编辑");
         expect(markup).not.toContain("再次生成");
         expect(markup).toContain("下载视频");
+        expect(markup).toContain("生成图片和视频仅在服务器保留 24 小时");
         expect(markup).toContain('aria-label="更多本轮创作操作"');
         expect(markup).toContain('preload="metadata"');
         expect(markup).toContain('aria-label="视频播放进度"');
@@ -491,7 +493,7 @@ describe("CreativeMessages", () => {
         );
 
         expect(markup).toContain('data-testid="creative-generation-waiting"');
-        expect(markup).toContain("主人，画面正在一点点显现");
+        expect(markup).toContain("画面正在一点点显现");
         expect(markup).toContain("已等待");
         expect(markup).not.toContain("已为你生成图片");
         expect(markup).not.toContain("正在处理「图片生成」");

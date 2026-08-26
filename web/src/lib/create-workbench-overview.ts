@@ -30,6 +30,7 @@ export type CreateOverviewAsset = CreateOverviewMedia & {
     id: string;
     title: string;
     createdAt: string;
+    expiresAt: string;
 };
 
 export type CreateWorkbenchOverviewPayload = {

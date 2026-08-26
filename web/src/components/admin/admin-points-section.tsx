@@ -19,6 +19,7 @@ export function AdminPointsSection({ controller }: { controller: AdminDashboardC
         saveSettings,
         updateFreeDailyPoints,
         updateModelPointCost,
+        updateModelPricing,
         updateGenerationPointMultiplier,
         deleteGenerationPointMultiplier,
         addCustomPointModel,
@@ -29,29 +30,30 @@ export function AdminPointsSection({ controller }: { controller: AdminDashboardC
     return (
         <Panel>
             <PanelHeader
-                title="积分规则"
-                description="统一配置免费用户每日额度、模型基础扣费与图片、视频参数倍率。"
+                title="人民币计费规则"
+                description="统一配置免费用户每日人民币余额、模型成本价/销售价与图片、视频参数倍率。"
                 actions={
                     <Button
                         type="primary"
                         loading={settingsLoading}
                         icon={<Save className="size-4" />}
-                        aria-label="保存积分规则"
-                        title="保存积分规则"
+                        aria-label="保存人民币计费规则"
+                        title="保存人民币计费规则"
                         onClick={() =>
                             saveSettings(
                                 {
                                     freeDailyPointsEnabled: settings.freeDailyPointsEnabled,
                                     freeDailyPoints: settings.freeDailyPoints,
                                     modelPointCosts: settings.modelPointCosts,
+                                    logicalModels: settings.logicalModels,
                                     generationPointMultipliers: settings.generationPointMultipliers,
                                 },
-                                "积分规则已保存",
+                                "人民币计费规则已保存",
                             )
                         }
                     >
                         <span className="sm:hidden">保存</span>
-                        <span className="hidden sm:inline">保存积分规则</span>
+                        <span className="hidden sm:inline">保存人民币计费规则</span>
                     </Button>
                 }
             />
@@ -64,6 +66,7 @@ export function AdminPointsSection({ controller }: { controller: AdminDashboardC
                     onFreeDailyPointsEnabledChange={(freeDailyPointsEnabled) => setSettings((current) => ({ ...current, freeDailyPointsEnabled }))}
                     onFreeDailyPointsChange={updateFreeDailyPoints}
                     onModelPointCostChange={updateModelPointCost}
+                    onModelPricingChange={updateModelPricing}
                     onModelPointCostDelete={deleteModelPointCost}
                     onGenerationPointMultiplierChange={updateGenerationPointMultiplier}
                     onGenerationPointMultiplierDelete={deleteGenerationPointMultiplier}

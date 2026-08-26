@@ -82,13 +82,13 @@ export const EMAIL_CODE_RESEND_COOLDOWN_MS = 1000 * 60;
 export const DEFAULT_USER_POINTS = 0;
 export const DEFAULT_MODEL_POINT_COST_KEY = "__default__";
 export const DEFAULT_SITE_SETTINGS: SiteSettings = {
-    title: "VOZEB PRO",
+    title: "星启智域",
     logoUrl: "/logo.svg",
-    iconUrl: "/icon.svg",
-    seoTitle: "VOZEB PRO",
-    seoDescription: "面向 Agent、图片、视频、画布与短剧生产的一体化 AI 创作工作台",
-    seoKeywords: "VOZEB PRO,AI Agent,AI 绘图,AI 视频,画布,短剧,提示词库,素材管理",
-    footerCopyright: "© 2026 VOZEB PRO. All rights reserved.",
+    iconUrl: "/sub2-logo.png",
+    seoTitle: "星启智域｜AI 创作与视觉工作台",
+    seoDescription: "星启智域是一体化 AI 创作与视觉工作台，连接文本、图片、视频、画布、短剧和素材生产。",
+    seoKeywords: "星启智域,AI 创作,AI 绘图,AI 视频,画布,短剧,素材管理",
+    footerCopyright: "© 2026 星启智域. All rights reserved.",
     termsUrl: "/terms",
     termsVersion: "1.0",
     privacyUrl: "/privacy",
@@ -104,7 +104,7 @@ export const DEFAULT_MAIL_SETTINGS: MailSettings = {
     username: "",
     password: "",
     fromEmail: "",
-    fromName: "VOZEB PRO",
+    fromName: "星启智域",
 };
 export const DEFAULT_GENERATION_POINT_MULTIPLIERS: GenerationPointMultipliers = {
     imageQuality: { auto: 1, low: 1, medium: 1, high: 1 },
@@ -180,4 +180,5 @@ export const DEFAULT_SETTINGS: AuthSettings = {
     ],
 };
 export const AUTH_DATA_FILE = "auth.json";
-export const USERNAME_PATTERN = /^[a-zA-Z0-9_.-]{3,32}$/;
+// Accounts remain URL-safe while supporting consumer-facing Chinese account names.
+export const USERNAME_PATTERN = /^[\p{Script=Han}A-Za-z0-9_.-]{2,32}$/u;

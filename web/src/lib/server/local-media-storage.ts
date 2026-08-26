@@ -6,7 +6,7 @@ import type { LocalMediaAsset, LocalMediaClass, LocalMediaType } from "@/lib/loc
 import { classifyManagedMediaType, isManagedMediaType, isMediaSourceGroup, mediaSourceGroup } from "@/lib/media-management-contract";
 import { resolveServerDataPath } from "@/lib/server/data-dir";
 import { getDatabaseProvider } from "@/lib/server/database";
-import { countLocalMediaReferences } from "@/lib/server/local-media-references";
+import { countLocalMediaReferences, type LocalMediaReferenceCountOptions } from "@/lib/server/local-media-references";
 import {
     deleteLocalMediaRegistrations,
     getLocalMediaRegistration,
@@ -22,6 +22,7 @@ import { deleteExternalMediaObject } from "@/lib/server/object-storage-service";
 export const GENERATION_MEDIA_ROOT = resolveServerDataPath("generation-assets");
 export const REFERENCE_MEDIA_ROOT = resolveServerDataPath("reference-assets");
 export const TEMPORARY_MEDIA_TTL_MS = 24 * 60 * 60 * 1000;
+type MediaDeleteResult = { deletedFiles: number; deletedBytes: number; blocked: Array<{ id: string; storageKey: string; referenceCount: number }> };
 
 export function createDatedMediaPath(storageClass: LocalMediaClass, type: LocalMediaType, extension: string, now = new Date()) {
     const year = String(now.getFullYear());
@@ -92,27 +93,24 @@ async function listRegisteredLocalMediaAssets(input: { page?: number; pageSize?:
 
 export async function cleanupExpiredLocalMediaAssets(limit?: number) {
     const registered = await listExpiredLocalMediaRegistrations(limit);
-    const registeredResult = await deleteRegisteredMediaAssets(registered);
+    const generationResult = await deleteRegisteredMediaAssets(registered.filter((asset) => asset.scope === "generation"), { includeEphemeral: false });
+    const referenceResult = await deleteRegisteredMediaAssets(registered.filter((asset) => asset.scope === "reference"));
+    const registeredResult = mergeDeleteResults(generationResult, referenceResult);
     if (getDatabaseProvider() === "postgres") return registeredResult;
     const registeredKeys = new Set(registered.map((asset) => asset.storageKey));
     const legacy = (await scanReferenceMedia()).filter((asset) => asset.storageClass === "temporary" && asset.expiresAt && Date.parse(asset.expiresAt) <= Date.now() && !registeredKeys.has(asset.storageKey));
     if (!legacy.length) return registeredResult;
-    const legacyResult = await deleteLocalMediaAssets(legacy.map((asset) => asset.id));
-    return {
-        deletedFiles: registeredResult.deletedFiles + legacyResult.deletedFiles,
-        deletedBytes: registeredResult.deletedBytes + legacyResult.deletedBytes,
-        blocked: [...registeredResult.blocked, ...legacyResult.blocked],
-    };
+    return mergeDeleteResults(registeredResult, await deleteLocalMediaAssets(legacy.map((asset) => asset.id)));
 }
 
-export async function deleteLocalMediaAssets(ids: string[]) {
+export async function deleteLocalMediaAssets(ids: string[], referenceOptions?: LocalMediaReferenceCountOptions) {
     let deletedFiles = 0;
     let deletedBytes = 0;
     const blocked: Array<{ id: string; storageKey: string; referenceCount: number }> = [];
     const targets = Array.from(new Set(ids.map((value) => value.trim()).filter(Boolean)))
         .map((id) => ({ id, target: decodeMediaId(id) }))
         .filter((item): item is { id: string; target: { scope: "generation" | "reference"; relativePath: string } } => Boolean(item.target));
-    const references = await countLocalMediaReferences(targets.map((item) => item.target.relativePath));
+    const references = await countLocalMediaReferences(targets.map((item) => item.target.relativePath), referenceOptions);
     const deletedKeys: string[] = [];
     for (const { id, target } of targets) {
         const referenceCount = references.get(target.relativePath) || 0;
@@ -155,9 +153,9 @@ export async function deleteLocalMediaAssetsByStorageKeys(storageKeys: string[],
     return { deletedFiles: result.deletedFiles + legacy.deletedFiles, deletedBytes: result.deletedBytes + legacy.deletedBytes, blocked: [...result.blocked, ...legacy.blocked] };
 }
 
-async function deleteRegisteredMediaAssets(registrations: LocalMediaRegistration[]) {
+async function deleteRegisteredMediaAssets(registrations: LocalMediaRegistration[], referenceOptions?: LocalMediaReferenceCountOptions) {
     const unique = Array.from(new Map(registrations.map((item) => [item.storageKey, item])).values());
-    const references = await countLocalMediaReferences(unique.map((item) => item.storageKey));
+    const references = await countLocalMediaReferences(unique.map((item) => item.storageKey), referenceOptions);
     const blocked: Array<{ id: string; storageKey: string; referenceCount: number }> = [];
     const deletedKeys: string[] = [];
     let deletedFiles = 0;
@@ -184,6 +182,14 @@ async function deleteRegisteredMediaAssets(registrations: LocalMediaRegistration
     }
     await deleteLocalMediaRegistrations(deletedKeys);
     return { deletedFiles, deletedBytes, blocked };
+}
+
+function mergeDeleteResults(left: MediaDeleteResult, right: MediaDeleteResult): MediaDeleteResult {
+    return {
+        deletedFiles: left.deletedFiles + right.deletedFiles,
+        deletedBytes: left.deletedBytes + right.deletedBytes,
+        blocked: [...left.blocked, ...right.blocked],
+    };
 }
 
 async function scanGenerationMedia() {

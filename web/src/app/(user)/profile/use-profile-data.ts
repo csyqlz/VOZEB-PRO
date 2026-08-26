@@ -155,7 +155,7 @@ export function useProfileData(activeSection: ProfileSectionKey) {
                 setPointRecordsTotal(payload.total);
                 setPointRecordsLoadedPage(page);
             } catch (error) {
-                message.error(error instanceof Error ? error.message : "积分记录加载失败");
+                message.error(error instanceof Error ? error.message : "余额记录加载失败");
             } finally {
                 if (pointsRequestPage.current === page) pointsRequestPage.current = null;
                 setPointRecordsLoading(false);
@@ -170,7 +170,7 @@ export function useProfileData(activeSection: ProfileSectionKey) {
             consumptionRequestPage.current = page;
             setConsumeRecordsLoading(true);
             try {
-                const payload = await listPointRecords({ page, pageSize: RECORD_PAGE_SIZE, direction: "debit" });
+                const payload = await listPointRecords({ page, pageSize: RECORD_PAGE_SIZE, direction: "debit", view: "consumption" });
                 setConsumeRecords(payload.records);
                 setConsumeRecordsTotal(payload.total);
                 setConsumeRecordsLoadedPage(page);

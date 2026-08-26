@@ -5,6 +5,8 @@ import { readGenerationLogDb, stableAssetUrl } from "@/lib/server/generation-log
 import type { StoredGenerationLog } from "@/lib/server/generation-log-types";
 import { listAgentRuns, type AgentRun } from "@/lib/server/agent-run-store";
 
+const CREATE_OVERVIEW_MEDIA_TTL_MS = 24 * 60 * 60 * 1000;
+
 export async function getCreateWorkbenchOverview(userId: string): Promise<CreateWorkbenchOverviewPayload> {
     const [latestProject, generation, agentRuns] = await Promise.all([getLatestCanvasProjectOverview(userId), getCreateGenerationOverview(userId), listAgentRuns({ userId, surface: "chat", statuses: ["planning", "running", "paused"], limit: 4 })]);
     const runningTasks = [...buildCreateAgentRunOverview(agentRuns), ...generation.runningTasks]
@@ -31,7 +33,7 @@ export function buildCreateAgentRunOverview(runs: AgentRun[]): CreateOverviewTas
     });
 }
 
-export function buildCreateGenerationOverview(logs: StoredGenerationLog[]): Pick<CreateWorkbenchOverviewPayload, "runningTasks" | "recentAssets"> {
+export function buildCreateGenerationOverview(logs: StoredGenerationLog[], now = Date.now()): Pick<CreateWorkbenchOverviewPayload, "runningTasks" | "recentAssets"> {
     const sorted = [...logs].sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
     const runningTasks = sorted
         .filter((log) => log.status === "pending")
@@ -47,17 +49,29 @@ export function buildCreateGenerationOverview(logs: StoredGenerationLog[]): Pick
     const seen = new Set<string>();
 
     for (const log of sorted) {
-        if (log.status !== "success") continue;
+        if (log.status !== "success" || isExpiredOverviewMedia(log.createdAt, now)) continue;
         for (const [index, asset] of log.assets.entries()) {
             const url = stableAssetUrl(asset).trim();
             if (!url || /^(data|blob):/i.test(url) || seen.has(url)) continue;
             seen.add(url);
-            recentAssets.push({ id: `${log.id}-${index}`, kind: asset.type, title: log.title || (asset.type === "video" ? "生成视频" : "生成图片"), url, createdAt: log.createdAt });
+            recentAssets.push({
+                id: `${log.id}-${index}`,
+                kind: asset.type,
+                title: log.title || (asset.type === "video" ? "生成视频" : "生成图片"),
+                url,
+                createdAt: log.createdAt,
+                expiresAt: new Date(Date.parse(log.createdAt) + CREATE_OVERVIEW_MEDIA_TTL_MS).toISOString(),
+            });
             if (recentAssets.length >= CREATE_OVERVIEW_RECENT_ASSET_LIMIT) return { runningTasks, recentAssets };
         }
     }
 
     return { runningTasks, recentAssets };
+}
+
+function isExpiredOverviewMedia(createdAt: string, now: number) {
+    const createdAtMs = Date.parse(createdAt);
+    return !Number.isFinite(createdAtMs) || createdAtMs + CREATE_OVERVIEW_MEDIA_TTL_MS <= now;
 }
 
 async function getCreateGenerationOverview(userId: string) {

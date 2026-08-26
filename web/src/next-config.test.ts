@@ -10,7 +10,7 @@ describe("Next response headers", () => {
         const rules = (await config.headers?.()) || [];
         const privateRule = rules.find((rule) => rule.source.includes(":section"));
 
-        expect(privateRule?.source).toBe("/:section(api|admin|assets|billing|canvas|community|create|drama|forgot-password|help|image|install|login|my-prompts|profile|prompts|register|video|works)/:path*");
+        expect(privateRule?.source).toBe("/:section(api|admin|assets|billing|canvas|community|create|drama|forgot-password|help|image|install|login|my-prompts|profile|prompts|register|service-unavailable|video|works)/:path*");
         expect(privateRule?.headers).toContainEqual({ key: "X-Robots-Tag", value: "noindex, nofollow, noarchive, nosnippet, noimageindex" });
     });
 

@@ -43,7 +43,7 @@ function configuredCost(costs: Record<string, number> | undefined, model: string
     if (!key) return undefined;
     const value = Number(costs?.[key]);
     if (!Number.isFinite(value) || value < 0) return undefined;
-    return Math.min(Number(value.toFixed(2)), 1_000_000);
+    return Math.min(Number(value.toFixed(8)), 1_000_000);
 }
 
 function sameModel(left: string, right: string) {

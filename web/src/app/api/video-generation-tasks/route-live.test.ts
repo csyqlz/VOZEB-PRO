@@ -99,7 +99,7 @@ describe("video creation protocols over a live fixture", () => {
         expect(fixture.requests).toHaveLength(1);
         expect(fixture.requests[0]?.path).toBe("/custom/videos");
         expect(fixture.requests[0]?.headers["idempotency-key"]).toBe("custom-video-request-live");
-        expect(JSON.parse(fixture.requests[0]?.body.toString("utf8") || "{}")).toEqual({ deployment: config.model, input: "animate a blue logo", seconds: 8, aspect: "9:16" });
+        expect(JSON.parse(fixture.requests[0]?.body.toString("utf8") || "{}")).toEqual({ deployment: config.model, input: "animate a blue logo", seconds: "8", aspect: "9:16" });
 
         const result = await queryVideoTaskUpstream({ config, upstream, userId: "user-live" } as unknown as VideoTask, "", "");
         expect(result).toMatchObject({ state: "result_ready", status: "completed", resultUrl: expect.stringContaining("/media/fixture.mp4") });

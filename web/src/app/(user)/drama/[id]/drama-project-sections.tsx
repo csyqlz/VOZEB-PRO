@@ -284,12 +284,12 @@ export function DramaWorkspaceHeader({
                         <span className="hidden sm:inline">版本记录</span>
                     </Button>
                 </Tooltip>
-                <Tooltip title={agentOpen ? "收起项目 Agent" : "打开项目 Agent"}>
+                <Tooltip title={agentOpen ? "收起项目智能助手" : "打开项目智能助手"}>
                     <Button
                         className={`!size-9 !min-w-9 !px-0 ${agentOpen ? "!border-violet-300 !bg-violet-50 !text-violet-700 dark:!border-violet-700 dark:!bg-violet-950/35 dark:!text-violet-300" : ""}`}
                         icon={<Bot className="size-4" />}
                         onClick={onToggleAgent}
-                        aria-label={agentOpen ? "收起项目 Agent" : "打开项目 Agent"}
+                        aria-label={agentOpen ? "收起项目智能助手" : "打开项目智能助手"}
                         aria-expanded={agentOpen}
                         data-drama-agent-trigger
                     />

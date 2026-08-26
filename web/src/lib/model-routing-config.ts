@@ -1,7 +1,8 @@
-import type { LogicalModel, LogicalModelBinding, LogicalModelCapability, LogicalModelCapabilityProfile, SystemDefaultModels, SystemModelChannel } from "@/lib/auth/store";
+import type { LogicalModel, LogicalModelBinding, LogicalModelCapability, LogicalModelCapabilityProfile, LogicalModelPricing, LogicalModelTokenPricing, SystemDefaultModels, SystemModelChannel } from "@/lib/auth/store";
 import { resolveGlobalAiOpcPreset } from "@/lib/globalaiopc-catalog";
 import { inferModelCapability, isCreativeGenerationModel, normalizeModelId } from "@/lib/model-capability";
 import { channelConnectionReady, protocolCatalogCapability, resolveChannelModelConfig } from "@/lib/channel-protocol-registry";
+import { effectiveBillingUnit } from "@/lib/model-pricing";
 
 const CAPABILITY_DEFAULT_KEYS = {
     text: "textModel",
@@ -51,10 +52,11 @@ export function synchronizeLogicalModelsWithChannels(existingModels: LogicalMode
         const existing = matchingModels.find((model) => normalizeModelName(model.id) === modelKey && !usedExistingIds.has(model.id.toLowerCase())) || matchingModels.find((model) => !usedExistingIds.has(model.id.toLowerCase()));
         if (existing) usedExistingIds.add(existing.id.toLowerCase());
         const id = uniqueLogicalModelId(existing?.id || catalogModel.upstreamModel, usedModelIds);
+        const capability = catalogModel.authoritative || !existing ? catalogModel.capability : normalizeCapability(existing.capability);
         const bindings = catalogModel.bindings
             .map(({ channel, channelIndex, upstreamModel }) => {
                 const stored = findStoredBinding(existingModels, channel.id, upstreamModel);
-                const capabilityProfile = normalizeStoredCapabilityProfile(stored?.capabilityProfile);
+                const capabilityProfile = normalizeStoredCapabilityProfile(stored?.capabilityProfile, capability);
                 const weight = clampWeight(stored?.weight);
                 return {
                     id: text(stored?.id, 120) || `${channel.id}:${rawModelName(upstreamModel)}`,
@@ -70,7 +72,7 @@ export function synchronizeLogicalModelsWithChannels(existingModels: LogicalMode
         return {
             id,
             name: text(existing?.name, 120) || catalogModel.upstreamModel,
-            capability: catalogModel.authoritative || !existing ? catalogModel.capability : normalizeCapability(existing.capability),
+            capability,
             enabled: existing?.enabled !== false,
             bindings,
         };
@@ -180,6 +182,8 @@ export function resolveLogicalModelCapabilityProfile(binding: Pick<LogicalModelB
         concurrencyLimit: positiveInteger(stored.concurrencyLimit),
         unitCost: positiveNumber(stored.unitCost),
         unitCostCurrency: text(stored.unitCostCurrency, 12) || undefined,
+        tokenPricing: normalizeTokenPricing(stored.tokenPricing),
+        pricing: normalizeModelPricing(stored.pricing, capability),
     };
 }
 
@@ -205,7 +209,7 @@ function uniqueLogicalModelId(value: string, usedIds: Set<string>) {
     return candidate;
 }
 
-function normalizeStoredCapabilityProfile(value: unknown): LogicalModelCapabilityProfile | undefined {
+function normalizeStoredCapabilityProfile(value: unknown, capability: LogicalModelCapability): LogicalModelCapabilityProfile | undefined {
     if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
     const input = value as Record<string, unknown>;
     const profile: LogicalModelCapabilityProfile = {
@@ -224,8 +228,59 @@ function normalizeStoredCapabilityProfile(value: unknown): LogicalModelCapabilit
         concurrencyLimit: positiveInteger(input.concurrencyLimit),
         unitCost: positiveNumber(input.unitCost),
         unitCostCurrency: text(input.unitCostCurrency, 12) || undefined,
+        tokenPricing: normalizeTokenPricing(input.tokenPricing),
+        pricing: normalizeModelPricing(input.pricing, capability),
     };
     return Object.values(profile).some((item) => item !== undefined && (!Array.isArray(item) || item.length > 0)) ? profile : undefined;
+}
+
+function normalizeTokenPricing(value: unknown): LogicalModelTokenPricing | undefined {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+    const input = value as Record<string, unknown>;
+    const unit = input.unit === "per_1m_tokens" ? input.unit : undefined;
+    const currency = text(input.currency, 12);
+    const pricing = {
+        unit,
+        currency: currency || undefined,
+        input: positiveNumber(input.input),
+        output: positiveNumber(input.output),
+        cacheRead: positiveNumber(input.cacheRead),
+        cacheWrite: positiveNumber(input.cacheWrite),
+        source: text(input.source, 80) || undefined,
+        upstreamGroup: text(input.upstreamGroup, 80) || undefined,
+        upstreamGroupRatio: positiveNumber(input.upstreamGroupRatio),
+        rechargeRatio: positiveNumber(input.rechargeRatio),
+        modelRatio: positiveNumber(input.modelRatio),
+        completionRatio: positiveNumber(input.completionRatio),
+    } satisfies Partial<LogicalModelTokenPricing>;
+    if (!pricing.unit || !pricing.currency || pricing.input === undefined || pricing.output === undefined) return undefined;
+    return pricing as LogicalModelTokenPricing;
+}
+
+function normalizeModelPricing(value: unknown, capability: LogicalModelCapability): LogicalModelPricing | undefined {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+    const input = value as Record<string, unknown>;
+    const configuredUnit = input.billingUnit === "per_1m_tokens" ? "per_1m_tokens" : input.billingUnit === "per_second" ? "per_second" : input.billingUnit === "per_call" ? "per_call" : undefined;
+    if (!configuredUnit) return undefined;
+    const billingUnit = effectiveBillingUnit(capability, configuredUnit);
+    const number = (key: string) => positiveOrZero(input[key]);
+    const pricing: LogicalModelPricing = {
+        currency: "CNY",
+        billingUnit,
+        costPrice: number("costPrice"),
+        salePrice: number("salePrice"),
+        inputCostPrice: number("inputCostPrice"),
+        outputCostPrice: number("outputCostPrice"),
+        cacheReadCostPrice: number("cacheReadCostPrice"),
+        cacheWriteCostPrice: number("cacheWriteCostPrice"),
+        inputSalePrice: number("inputSalePrice"),
+        outputSalePrice: number("outputSalePrice"),
+        cacheReadSalePrice: number("cacheReadSalePrice"),
+        cacheWriteSalePrice: number("cacheWriteSalePrice"),
+        source: text(input.source, 160) || undefined,
+        updatedAt: text(input.updatedAt, 40) || undefined,
+    };
+    return Object.entries(pricing).some(([key, item]) => key !== "currency" && key !== "billingUnit" && item !== undefined) ? pricing : undefined;
 }
 
 function optionalBoolean(value: unknown) {
@@ -249,6 +304,11 @@ function timeoutMilliseconds(value: unknown) {
 function positiveNumber(value: unknown) {
     const number = Number(value);
     return Number.isFinite(number) && number > 0 ? Math.min(number, 100000000) : undefined;
+}
+
+function positiveOrZero(value: unknown) {
+    const number = Number(value);
+    return Number.isFinite(number) && number >= 0 ? Math.min(number, 100000000) : undefined;
 }
 
 function normalizeAspectRatios(value: unknown) {

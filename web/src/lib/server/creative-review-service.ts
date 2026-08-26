@@ -30,7 +30,7 @@ export async function reviewCreativeOutputs(input: { origin: string; cookie: str
     if (!model || !resolved?.channel) return unavailableCreativeReview("后台没有可用的默认文本模型，生成结果已保留，但本轮未执行自动复盘。");
 
     const mode = imageInputs.length ? "visual" : "text";
-    const system = `你是 VOZEB PRO 创作质检 Agent。${mode === "visual" ? "你必须结合实际图片检查主体、构图、色彩、光线、文字可读性、参考一致性和整套视觉一致性。" : "当前只有文本结果，只能进行文本一致性检查，禁止声称看过图片或视频画面。"}只有存在明确影响使用的问题才返回 needs_revision；一般审美偏好不应触发自动重做。retryTaskIds 只能选择确实需要重做的任务。必须调用 review_creative_outputs，不得暴露隐藏思维链。`;
+    const system = `你是星启智域创作质检 Agent。${mode === "visual" ? "你必须结合实际图片检查主体、构图、色彩、光线、文字可读性、参考一致性和整套视觉一致性。" : "当前只有文本结果，只能进行文本一致性检查，禁止声称看过图片或视频画面。"}只有存在明确影响使用的问题才返回 needs_revision；一般审美偏好不应触发自动重做。retryTaskIds 只能选择确实需要重做的任务。必须调用 review_creative_outputs，不得暴露隐藏思维链。`;
     const reviewContext = JSON.stringify({ foundation: input.foundation, tasks: input.tasks.map(({ imageUrls: _imageUrls, ...task }) => task), mode });
     const responsesInput = [
         { role: "system", content: system },
@@ -55,7 +55,7 @@ export async function reviewCreativeOutputs(input: { origin: string; cookie: str
         }
         if (review) return { ...review, mode };
         if (hasSystemAiCharge(call)) await refundUserPoints(input.userId, model, call.pointsCost, "text", 1, undefined, call.pointsRecordId);
-        return unavailableCreativeReview("默认文本模型返回了无效复盘结构，相关积分已退款，生成结果已保留。");
+        return unavailableCreativeReview("默认文本模型返回了无效复盘结构，相关人民币余额已退款，生成结果已保留。");
     } catch {
         return unavailableCreativeReview("自动复盘服务暂时不可用，生成结果已保留，可稍后根据实际画面继续调整。");
     }

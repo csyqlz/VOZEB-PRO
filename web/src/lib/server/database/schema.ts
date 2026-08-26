@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS entitlement_plans (
     id text PRIMARY KEY,
     name text NOT NULL,
     enabled boolean NOT NULL DEFAULT true,
-    daily_points numeric(18, 2) NOT NULL DEFAULT 0,
+    daily_points numeric(18, 8) NOT NULL DEFAULT 0,
     limits jsonb NOT NULL DEFAULT '{}'::jsonb,
     features jsonb NOT NULL DEFAULT '[]'::jsonb,
     sort_order integer NOT NULL DEFAULT 0,
@@ -43,25 +43,33 @@ VALUES (
 )
 ON CONFLICT (id) DO NOTHING;
 
-ALTER TABLE entitlement_plans ADD COLUMN IF NOT EXISTS daily_points numeric(18, 2) NOT NULL DEFAULT 0;
+ALTER TABLE entitlement_plans ADD COLUMN IF NOT EXISTS daily_points numeric(18, 8) NOT NULL DEFAULT 0;
 
 INSERT INTO entitlement_plans (id, name, enabled, limits, features, sort_order)
 VALUES
 (
     'creator',
-    '创作者版',
+    '星启创作版',
     true,
-    '{"dailyPointSpend":800,"dailyApiCalls":0,"dailyImages":80,"dailyVideos":12,"dailyAudio":0,"dailyText":200}'::jsonb,
+    '{"dailyPointSpend":1000,"dailyApiCalls":0,"dailyImages":100,"dailyVideos":15,"dailyAudio":0,"dailyText":500}'::jsonb,
     '["system-api","points-wallet","image-workbench","video-workbench","prompt-library"]'::jsonb,
     10
 ),
 (
     'pro',
-    '专业版',
+    '星启专业版',
     true,
-    '{"dailyPointSpend":4000,"dailyApiCalls":0,"dailyImages":300,"dailyVideos":50,"dailyAudio":0,"dailyText":800}'::jsonb,
+    '{"dailyPointSpend":5000,"dailyApiCalls":0,"dailyImages":400,"dailyVideos":60,"dailyAudio":0,"dailyText":1500}'::jsonb,
     '["system-api","points-wallet","image-workbench","video-workbench","prompt-library","priority-generation"]'::jsonb,
     20
+),
+(
+    'business',
+    '星启商业版',
+    true,
+    '{"dailyPointSpend":12000,"dailyApiCalls":0,"dailyImages":1000,"dailyVideos":150,"dailyAudio":0,"dailyText":4000}'::jsonb,
+    '["system-api","points-wallet","image-workbench","video-workbench","prompt-library","priority-generation"]'::jsonb,
+    30
 )
 ON CONFLICT (id) DO NOTHING;
 
@@ -71,7 +79,7 @@ CREATE TABLE IF NOT EXISTS app_settings (
     registration_enabled boolean NOT NULL DEFAULT true,
     email_registration_enabled boolean NOT NULL DEFAULT false,
     free_daily_points_enabled boolean NOT NULL DEFAULT true,
-    free_daily_points numeric(18, 2) NOT NULL DEFAULT 0,
+    free_daily_points numeric(18, 8) NOT NULL DEFAULT 0,
     mail jsonb NOT NULL DEFAULT '{}'::jsonb,
     allow_user_api_config boolean NOT NULL DEFAULT false,
     model_point_costs jsonb NOT NULL DEFAULT '{}'::jsonb,
@@ -97,7 +105,7 @@ ON CONFLICT (id) DO NOTHING;
 ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS agent_skills jsonb NOT NULL DEFAULT '[{"id":"ecommerce-image","name":"电商生图","description":"为商品主图、场景图和详情页视觉生成结构化方案。","instructions":"识别商品卖点、目标人群、平台与画幅。优先规划白底主图、核心卖点场景图、细节特写和详情页横幅；保持商品外观、材质、颜色、Logo 与包装一致。提示词必须写清主体、构图、光线、背景、镜头、商业质感、尺寸比例与禁止变形要求。","enabled":true,"keywords":["电商","商品","主图","详情页","淘宝","京东","亚马逊"]}]'::jsonb;
 ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS logical_models jsonb NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS free_daily_points_enabled boolean NOT NULL DEFAULT true;
-ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS free_daily_points numeric(18, 2) NOT NULL DEFAULT 0;
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS free_daily_points numeric(18, 8) NOT NULL DEFAULT 0;
 ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS generation_cost_control jsonb NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS data_lifecycle jsonb NOT NULL DEFAULT '{}'::jsonb;
 
@@ -132,7 +140,7 @@ CREATE TABLE IF NOT EXISTS users (
     admin_permissions jsonb NOT NULL DEFAULT '[]'::jsonb,
     status text NOT NULL DEFAULT 'active',
     plan_id text NOT NULL DEFAULT 'free' REFERENCES entitlement_plans(id),
-    points_balance numeric(18, 2) NOT NULL DEFAULT 0,
+    points_balance numeric(18, 8) NOT NULL DEFAULT 0,
     password_hash text NOT NULL,
     mfa_secret_ciphertext text,
     mfa_enabled_at timestamptz,
@@ -599,8 +607,8 @@ CREATE TABLE IF NOT EXISTS quota_usage (
     user_id text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     date date NOT NULL,
     usage_kind text NOT NULL,
-    points_spent numeric(18, 2) NOT NULL DEFAULT 0,
-    units numeric(18, 2) NOT NULL DEFAULT 0,
+    points_spent numeric(18, 8) NOT NULL DEFAULT 0,
+    units numeric(18, 8) NOT NULL DEFAULT 0,
     updated_at timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (user_id, date, usage_kind),
     CONSTRAINT quota_usage_kind CHECK (usage_kind IN ('api', 'image', 'video', 'audio', 'text'))
@@ -612,14 +620,17 @@ CREATE TABLE IF NOT EXISTS point_records (
     id text PRIMARY KEY,
     user_id text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     type text NOT NULL,
-    amount numeric(18, 2) NOT NULL,
-    balance_after numeric(18, 2) NOT NULL,
-    permanent_amount numeric(18, 2) NOT NULL DEFAULT 0,
-    daily_amount numeric(18, 2) NOT NULL DEFAULT 0,
-    permanent_balance_after numeric(18, 2) NOT NULL DEFAULT 0,
-    daily_balance_after numeric(18, 2) NOT NULL DEFAULT 0,
+    amount numeric(18, 8) NOT NULL,
+    balance_after numeric(18, 8) NOT NULL,
+    permanent_amount numeric(18, 8) NOT NULL DEFAULT 0,
+    daily_amount numeric(18, 8) NOT NULL DEFAULT 0,
+    permanent_balance_after numeric(18, 8) NOT NULL DEFAULT 0,
+    daily_balance_after numeric(18, 8) NOT NULL DEFAULT 0,
     description text NOT NULL,
     model text,
+    usage_kind text,
+    units numeric(18, 8),
+    billing_detail jsonb,
     idempotency_key text,
     request_fingerprint text,
     source_record_id text,
@@ -628,11 +639,14 @@ CREATE TABLE IF NOT EXISTS point_records (
     CONSTRAINT point_records_type CHECK (type IN ('consume', 'refund', 'credit', 'admin-adjust'))
 );
 
-ALTER TABLE point_records ADD COLUMN IF NOT EXISTS permanent_amount numeric(18, 2) NOT NULL DEFAULT 0;
-ALTER TABLE point_records ADD COLUMN IF NOT EXISTS daily_amount numeric(18, 2) NOT NULL DEFAULT 0;
-ALTER TABLE point_records ADD COLUMN IF NOT EXISTS permanent_balance_after numeric(18, 2) NOT NULL DEFAULT 0;
-ALTER TABLE point_records ADD COLUMN IF NOT EXISTS daily_balance_after numeric(18, 2) NOT NULL DEFAULT 0;
+ALTER TABLE point_records ADD COLUMN IF NOT EXISTS permanent_amount numeric(18, 8) NOT NULL DEFAULT 0;
+ALTER TABLE point_records ADD COLUMN IF NOT EXISTS daily_amount numeric(18, 8) NOT NULL DEFAULT 0;
+ALTER TABLE point_records ADD COLUMN IF NOT EXISTS permanent_balance_after numeric(18, 8) NOT NULL DEFAULT 0;
+ALTER TABLE point_records ADD COLUMN IF NOT EXISTS daily_balance_after numeric(18, 8) NOT NULL DEFAULT 0;
 ALTER TABLE point_records ADD COLUMN IF NOT EXISTS idempotency_key text;
+ALTER TABLE point_records ADD COLUMN IF NOT EXISTS usage_kind text;
+ALTER TABLE point_records ADD COLUMN IF NOT EXISTS units numeric(18, 8);
+ALTER TABLE point_records ADD COLUMN IF NOT EXISTS billing_detail jsonb;
 ALTER TABLE point_records ADD COLUMN IF NOT EXISTS request_fingerprint text;
 ALTER TABLE point_records ADD COLUMN IF NOT EXISTS source_record_id text;
 ALTER TABLE point_records ADD COLUMN IF NOT EXISTS source_date date;
@@ -653,8 +667,8 @@ CREATE TABLE IF NOT EXISTS daily_plan_point_wallets (
     date date NOT NULL,
     plan_id text NOT NULL REFERENCES entitlement_plans(id),
     assignment_id text,
-    granted_points numeric(18, 2) NOT NULL DEFAULT 0,
-    remaining_points numeric(18, 2) NOT NULL DEFAULT 0,
+    granted_points numeric(18, 8) NOT NULL DEFAULT 0,
+    remaining_points numeric(18, 8) NOT NULL DEFAULT 0,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (user_id, date),
@@ -672,8 +686,8 @@ CREATE TABLE IF NOT EXISTS billing_products (
     description text NOT NULL DEFAULT '',
     amount_cents bigint NOT NULL DEFAULT 0,
     currency text NOT NULL DEFAULT 'CNY',
-    points_amount numeric(18, 2) NOT NULL DEFAULT 0,
-    daily_points numeric(18, 2) NOT NULL DEFAULT 0,
+    points_amount numeric(18, 8) NOT NULL DEFAULT 0,
+    daily_points numeric(18, 8) NOT NULL DEFAULT 0,
     period_days integer NOT NULL DEFAULT 30,
     enabled boolean NOT NULL DEFAULT true,
     sort_order integer NOT NULL DEFAULT 0,
@@ -691,7 +705,7 @@ CREATE INDEX IF NOT EXISTS billing_products_plan_idx ON billing_products (plan_i
 CREATE INDEX IF NOT EXISTS billing_products_enabled_idx ON billing_products (enabled, sort_order);
 
 ALTER TABLE billing_products ADD COLUMN IF NOT EXISTS product_kind text NOT NULL DEFAULT 'plan';
-ALTER TABLE billing_products ADD COLUMN IF NOT EXISTS daily_points numeric(18, 2) NOT NULL DEFAULT 0;
+ALTER TABLE billing_products ADD COLUMN IF NOT EXISTS daily_points numeric(18, 8) NOT NULL DEFAULT 0;
 ALTER TABLE billing_products ALTER COLUMN plan_id DROP NOT NULL;
 ALTER TABLE billing_products DROP CONSTRAINT IF EXISTS billing_products_kind;
 ALTER TABLE billing_products ADD CONSTRAINT billing_products_kind CHECK (product_kind IN ('plan', 'points'));
@@ -703,28 +717,41 @@ VALUES
 (
     'creator-monthly',
     'creator',
-    '创作者月卡',
-    '适合个人创作者持续使用生图、视频和提示词工作流，包含创作者版权益与积分包。',
+    '星启创作月卡',
+    '适合首次使用和个人创作，包含图片、视频、Canvas 与文本创作能力，并附带人民币余额。',
     990,
     'CNY',
-    500,
+    10,
     30,
     true,
     10,
-    '{"highlight":"个人创作入门","recommended":true}'::jsonb
+    '{"highlight":"个人创作入门","recommended":false,"features":["每日最多 100 张图片","每日最多 15 个视频任务","文本按实际 token 计费"]}'::jsonb
 ),
 (
     'pro-monthly',
     'pro',
-    '专业月卡',
-    '适合高频创作、团队试运营和商业项目交付，包含专业版权益与更高积分包。',
+    '星启专业月卡',
+    '适合高频内容生产和持续项目创作，提供更高人民币余额、优先生成和更高每日用量。',
     2990,
     'CNY',
-    2000,
+    35,
     30,
     true,
     20,
-    '{"highlight":"高频商业创作"}'::jsonb
+    '{"highlight":"高频创作首选","recommended":true,"features":["每日最多 400 张图片","每日最多 60 个视频任务","优先生成队列","文本按实际 token 计费"]}'::jsonb
+),
+(
+    'business-monthly',
+    'business',
+    '星启商业月卡',
+    '适合商业项目和团队试运营，提供更高人民币余额、优先生成和批量内容生产能力。',
+    5990,
+    'CNY',
+    75,
+    30,
+    true,
+    30,
+    '{"highlight":"商业项目与团队","features":["每日最多 1000 张图片","每日最多 150 个视频任务","优先生成队列","文本按实际 token 计费"]}'::jsonb
 )
 ON CONFLICT (id) DO NOTHING;
 
@@ -832,7 +859,7 @@ CREATE TABLE IF NOT EXISTS cdk_codes (
     code_hash text NOT NULL UNIQUE,
     code_ciphertext text NOT NULL DEFAULT '',
     code_preview text NOT NULL,
-    points numeric(18, 2) NOT NULL DEFAULT 0,
+    points numeric(18, 8) NOT NULL DEFAULT 0,
     max_redemptions integer NOT NULL DEFAULT 1,
     redeemed_count integer NOT NULL DEFAULT 0,
     status text NOT NULL DEFAULT 'active',

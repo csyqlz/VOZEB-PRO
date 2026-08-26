@@ -291,6 +291,36 @@
     position: relative;
 }
 
+.trustStrip {
+    align-items: center;
+    border-bottom: 1px solid var(--home-border);
+    border-top: 1px solid var(--home-border);
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin: 0 auto;
+    max-width: 980px;
+    padding: 16px 32px;
+}
+
+.trustStrip div {
+    align-items: center;
+    color: var(--home-muted);
+    display: flex;
+    font-size: 13px;
+    gap: 8px;
+    justify-content: center;
+    min-width: 0;
+    text-align: center;
+}
+
+.trustStrip svg {
+    color: #5668e8;
+    flex: 0 0 auto;
+    height: 17px;
+    width: 17px;
+}
+
 .section {
     margin: 0 auto;
     max-width: 1380px;
@@ -681,6 +711,23 @@
     margin-top: 18px;
     padding: 0 18px;
 }
+.galleryStateActions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: center;
+    margin-top: 18px;
+}
+.galleryState .galleryStateActions button {
+    align-items: center;
+    display: inline-flex;
+    gap: 7px;
+    margin-top: 0;
+}
+.galleryStateActions svg {
+    height: 15px;
+    width: 15px;
+}
 .galleryMore {
     display: flex;
     justify-content: center;
@@ -1050,6 +1097,15 @@
     }
     .contentBand {
         border-radius: 18px 18px 0 0;
+    }
+    .trustStrip {
+        gap: 8px;
+        grid-template-columns: 1fr;
+        padding: 13px 18px;
+    }
+    .trustStrip div {
+        justify-content: flex-start;
+        text-align: left;
     }
     .section {
         padding: 60px 14px 0;

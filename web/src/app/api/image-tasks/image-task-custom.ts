@@ -19,7 +19,7 @@ import {
     readImageTaskId,
     parseImageSubmissionJson,
     imageRequestAspectRatio,
-    resolveRequestSize,
+    resolveProviderRequestSize,
     taskFetch,
     taskHeaders,
     taskUrl,
@@ -76,7 +76,7 @@ export async function runCustomImageTask(task: ImageTask, origin: string, public
 }
 
 export function resolveDeclarativeImageSize(config: Pick<ImageTask["config"], "quality" | "size" | "advancedConfig">) {
-    const size = resolveRequestSize(config.quality, config.size || "auto") || config.size || "";
+    const size = resolveProviderRequestSize(config.quality, config.size || "auto", config.advancedConfig?.protocol) || config.size || "";
     return !size || size.toLowerCase() === "auto" ? (config.advancedConfig?.protocol === "stable-diffusion" ? "1024x1024" : "") : size;
 }
 

@@ -77,8 +77,8 @@ export async function saveReferralProgram(input: ReferralProgramInput, operatorU
             updatedByUserId: operatorUserId,
             updatedAt: now,
         };
-        if (program.enabled && program.inviterPoints <= 0) throw new BillingInputError("启用邀请奖励前，请配置大于 0 的邀请人积分");
-        if (program.enabled && program.inviteeRewardType === "points" && program.inviteePoints <= 0) throw new BillingInputError("启用邀请奖励前，请配置大于 0 的新用户积分");
+        if (program.enabled && program.inviterPoints <= 0) throw new BillingInputError("启用邀请奖励前，请配置大于 0 的邀请人余额");
+        if (program.enabled && program.inviteeRewardType === "points" && program.inviteePoints <= 0) throw new BillingInputError("启用邀请奖励前，请配置大于 0 的新用户余额");
         if (program.inviteeRewardType === "coupon") {
             if (!program.inviteeCouponTemplateId) throw new BillingInputError("请选择新用户优惠券模板");
             const template = await repos.coupons.getTemplateById(program.inviteeCouponTemplateId);
@@ -438,7 +438,7 @@ async function settleRelationshipRewards(client: QueryExecutor, relationshipId: 
                 type: "credit",
                 now: new Date(nowIso),
             });
-            if (!adjustment?.record) throw new BillingInputError("邀请积分奖励金额无效", 409);
+            if (!adjustment?.record) throw new BillingInputError("邀请余额奖励金额无效", 409);
             await repos.referrals.updateReward(reward.id, { status: "settled", walletRecordId: adjustment.record.id, settledAt: nowIso });
             settled += 1;
         }

@@ -284,11 +284,13 @@ export class GenerationLogsRepository {
                     COALESCE(NULLIF(btrim(log.title), ''), CASE WHEN asset.type = 'video' THEN '生成视频' ELSE '生成图片' END) AS title,
                     COALESCE(NULLIF(asset.server_url, ''), NULLIF(asset.url, ''), NULLIF(asset.remote_url, '')) AS url,
                     log.created_at,
+                    log.created_at + interval '24 hours' AS expires_at,
                     asset.sort_order
                 FROM generation_logs log
                 JOIN generation_log_assets asset ON asset.generation_log_id = log.id
                 WHERE log.user_id = $1
                   AND log.status = 'success'
+                  AND log.created_at > now() - interval '24 hours'
                   AND COALESCE(NULLIF(asset.server_url, ''), NULLIF(asset.url, ''), NULLIF(asset.remote_url, '')) IS NOT NULL
                   AND COALESCE(NULLIF(asset.server_url, ''), NULLIF(asset.url, ''), NULLIF(asset.remote_url, '')) !~* '^(data|blob):'
             ),
@@ -299,12 +301,13 @@ export class GenerationLogsRepository {
                     title,
                     url,
                     created_at,
+                    expires_at,
                     sort_order,
                     ROW_NUMBER() OVER (PARTITION BY url ORDER BY created_at DESC, sort_order ASC) AS duplicate_rank
                 FROM asset_candidates
             ),
             recent_rows AS (
-                SELECT id, kind, title, url, created_at, sort_order
+                SELECT id, kind, title, url, created_at, expires_at, sort_order
                 FROM ranked_assets
                 WHERE duplicate_rank = 1
                 ORDER BY created_at DESC, sort_order ASC
@@ -316,7 +319,7 @@ export class GenerationLogsRepository {
                     FROM running_rows
                 ), '[]'::jsonb) AS running_tasks,
                 COALESCE((
-                    SELECT jsonb_agg(jsonb_build_object('id', id, 'kind', kind, 'title', title, 'url', url, 'createdAt', created_at) ORDER BY created_at DESC, sort_order ASC)
+                    SELECT jsonb_agg(jsonb_build_object('id', id, 'kind', kind, 'title', title, 'url', url, 'createdAt', created_at, 'expiresAt', expires_at) ORDER BY created_at DESC, sort_order ASC)
                     FROM recent_rows
                 ), '[]'::jsonb) AS recent_assets
             `,
@@ -336,7 +339,7 @@ export class GenerationLogsRepository {
                     const id = textValue(item.id);
                     const url = textValue(item.url);
                     if (!id || !url || /^(data|blob):/i.test(url)) return [];
-                    return [{ id, kind: item.kind === "video" ? "video" : "image", title: textValue(item.title), url, createdAt: isoValue(item.createdAt) }];
+                    return [{ id, kind: item.kind === "video" ? "video" : "image", title: textValue(item.title), url, createdAt: isoValue(item.createdAt), expiresAt: isoValue(item.expiresAt) }];
                 })
                 .slice(0, CREATE_OVERVIEW_RECENT_ASSET_LIMIT),
         };

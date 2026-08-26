@@ -62,7 +62,9 @@ export async function executeAgentRun(run: AgentRun, origin: string, cookie: str
         const skillOptions = plannerAgentSkills(settings, claimed);
         const skills = selectAgentSkills(settings, claimed.surface, claimed.selectedSkillIds);
         if (!(await canContinue(run.id, executionId))) return;
-        if (claimed.requestedModelIds?.length) {
+        const selectedRequestedModels = (claimed.requestedModelIds || []).map((id) => allModels.find((item) => item.id === id)).filter((item): item is ReturnType<typeof agentModelOptions>[number] => Boolean(item));
+        const directTextModel = selectedRequestedModels.length === 1 && selectedRequestedModels[0].capability === "text" ? selectedRequestedModels[0] : undefined;
+        if (claimed.requestedModelIds?.length && !directTextModel) {
             const directModelOptions = claimed.generationPreferences?.mode ? availableModels : allModels;
             const selectedModels = claimed.requestedModelIds.map((id) => directModelOptions.find((item) => item.id === id && item.capability !== "text")).filter((item): item is ReturnType<typeof agentModelOptions>[number] => Boolean(item));
             if (selectedModels.length !== claimed.requestedModelIds.length) throw new Error("部分所选模型当前不可用，请重新选择");
@@ -80,13 +82,17 @@ export async function executeAgentRun(run: AgentRun, origin: string, cookie: str
             await executeTasks(run.id, origin, cookie, executionId, settings);
             return;
         }
-        const referencedAssets = usesMemoryCandidates ? memoryAssets : explicitAssets;
-        const referenceSource = claimed.referencedAssetIds.length ? "current-turn-explicit" : usesMemoryCandidates && referencedAssets.length ? "conversation-memory-candidates" : "none";
-        const model = settings.defaultModels.textModel;
+        const usePlannerMemory = (Boolean(directTextModel) || !directModelSelection) && claimed.surface === "chat" && claimed.referencedAssetIds.length === 0;
+        const [plannerConversationContext, plannerMemoryAssets] = directTextModel
+            ? await Promise.all([getCreativeConversationContext(claimed.conversationId, claimed.userId, claimed.id), usePlannerMemory ? listRecentCreativeMediaAssets(claimed.conversationId, claimed.userId, 6) : Promise.resolve([])])
+            : [conversationContext, memoryAssets];
+        const referencedAssets = usePlannerMemory ? plannerMemoryAssets : explicitAssets;
+        const referenceSource = claimed.referencedAssetIds.length ? "current-turn-explicit" : usePlannerMemory && referencedAssets.length ? "conversation-memory-candidates" : "none";
+        const model = directTextModel?.id || settings.defaultModels.textModel;
         const candidates = resolveLogicalModelCandidates(settings, "text", model);
         if (!model || !candidates.length) throw new Error("后台尚未配置可用的默认文本模型");
         const fallbackExample = agentPlanFallbackExample(availableModels);
-        const plannerContext = buildAgentPlannerInput(claimed, conversationContext!, referencedAssets, referenceSource, skillOptions, availableModels, settings);
+        const plannerContext = buildAgentPlannerInput(claimed, plannerConversationContext!, referencedAssets, referenceSource, skillOptions, availableModels, settings);
         if (!(await updateAgentRunById(run.id, { plannerContext: plannerContext.summary }, { type: "skills.selected", data: { skills: skills.map((skill) => ({ id: skill.id, name: skill.name })) } }, ["running"], executionId))) return;
         const planningInput = [
             {

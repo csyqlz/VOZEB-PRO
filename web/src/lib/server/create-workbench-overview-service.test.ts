@@ -12,17 +12,32 @@ describe("create workbench overview service", () => {
                 { type: "image", url: "/api/media/image-one.webp" },
                 { type: "image", url: "data:image/png;base64,abc" },
             ]),
-            generationLog("success-old", "success", "2026-07-25T12:00:00.000Z", [{ type: "image", url: "/api/media/image-one.webp" }, ...Array.from({ length: 9 }, (_, index) => ({ type: "video" as const, url: `/api/media/video-${index}.mp4` }))]),
+            generationLog("success-old", "success", "2026-07-26T11:00:00.000Z", [{ type: "image", url: "/api/media/image-one.webp" }, ...Array.from({ length: 9 }, (_, index) => ({ type: "video" as const, url: `/api/media/video-${index}.mp4` }))]),
         ];
 
-        const overview = buildCreateGenerationOverview(logs);
+        const overview = buildCreateGenerationOverview(logs, Date.parse("2026-07-26T12:01:00.000Z"));
 
         expect(overview.runningTasks).toHaveLength(4);
         expect(overview.runningTasks[0].id).toBe("pending-5");
         expect(overview.recentAssets).toHaveLength(8);
         expect(overview.recentAssets[0]).toMatchObject({ id: "success-new-0", url: "/api/media/image-one.webp" });
+        expect(overview.recentAssets[0]?.expiresAt).toBe("2026-07-27T12:00:00.000Z");
         expect(overview.recentAssets.filter((asset) => asset.url === "/api/media/image-one.webp")).toHaveLength(1);
         expect(overview.recentAssets.some((asset) => asset.url.startsWith("data:"))).toBe(false);
+    });
+
+    it("omits expired generated media from the temporary download area", () => {
+        const overview = buildCreateGenerationOverview(
+            [
+                generationLog("expired", "success", "2026-07-25T12:00:00.000Z", [{ type: "image", url: "/api/media/expired.webp" }]),
+                generationLog("available", "success", "2026-07-26T11:30:00.000Z", [{ type: "video", url: "/api/media/available.mp4" }]),
+            ],
+            Date.parse("2026-07-26T12:00:00.000Z"),
+        );
+
+        expect(overview.recentAssets).toEqual([
+            expect.objectContaining({ id: "available-0", url: "/api/media/available.mp4", expiresAt: "2026-07-27T11:30:00.000Z" }),
+        ]);
     });
 
     it("keeps active Agent runs linked to their original conversation", () => {

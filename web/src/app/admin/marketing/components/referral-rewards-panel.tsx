@@ -188,7 +188,11 @@ export function ReferralRewardsPanel() {
         modal.confirm({
             title: `${action}这条邀请关系？`,
             content:
-                next === "rejected" ? "拒绝后，未结算奖励会终止，已发积分和可安全撤销的优惠券会同步撤销；已锁定或已核销优惠券进入人工复核。" : next === "clear" ? "恢复后，到期的待结算奖励会在下一次结算任务中继续处理。" : "冻结后，待结算奖励会暂停发放。",
+                next === "rejected"
+                    ? "拒绝后，未结算奖励会终止，已发人民币余额和可安全撤销的优惠券会同步撤销；已锁定或已核销优惠券进入人工复核。"
+                    : next === "clear"
+                      ? "恢复后，到期的待结算奖励会在下一次结算任务中继续处理。"
+                      : "冻结后，待结算奖励会暂停发放。",
             okText: action,
             okButtonProps: next === "rejected" ? { danger: true } : undefined,
             cancelText: "取消",
@@ -249,8 +253,8 @@ export function ReferralRewardsPanel() {
                         <p className="mt-1 text-sm text-muted-foreground">启用前必须配置有效奖励；单一网络信号只会进入复核或冻结。</p>
                     </div>
                     <div className="grid grid-cols-2 gap-x-5 gap-y-1 text-xs text-muted-foreground sm:grid-cols-4">
-                        <RuleFact label="邀请人" value={`${program?.inviterPoints || 0} 积分`} />
-                        <RuleFact label="新用户" value={program?.inviteeRewardType === "coupon" ? "优惠券" : `${program?.inviteePoints || 0} 积分`} />
+                        <RuleFact label="邀请人" value={`¥${program?.inviterPoints || 0} 余额`} />
+                        <RuleFact label="新用户" value={program?.inviteeRewardType === "coupon" ? "优惠券" : `¥${program?.inviteePoints || 0} 余额`} />
                         <RuleFact label="最低实付" value={formatMoney(program?.minimumPaidCents || 0)} />
                         <RuleFact label="冷静期" value={`${program?.coolingOffDays || 0} 天`} />
                     </div>
@@ -354,13 +358,13 @@ export function ReferralRewardsPanel() {
                         <Form.Item name="autoFreezeRisk" label="异常自动冻结" valuePropName="checked">
                             <Switch checkedChildren="开启" unCheckedChildren="关闭" />
                         </Form.Item>
-                        <Form.Item name="inviterPoints" label="邀请人奖励积分" rules={[{ required: true, message: "请填写邀请人奖励" }]}>
-                            <InputNumber className="w-full" min={0} max={1_000_000} precision={2} />
+                        <Form.Item name="inviterPoints" label="邀请人奖励余额（元）" rules={[{ required: true, message: "请填写邀请人奖励" }]}>
+                            <InputNumber className="w-full" min={0} max={1_000_000} precision={8} prefix="¥" />
                         </Form.Item>
                         <Form.Item name="inviteeRewardType" label="新用户奖励类型" rules={[{ required: true }]}>
                             <Select
                                 options={[
-                                    { value: "points", label: "永久积分" },
+                                    { value: "points", label: "永久人民币余额" },
                                     { value: "coupon", label: "优惠券" },
                                 ]}
                             />
@@ -389,8 +393,8 @@ export function ReferralRewardsPanel() {
                                 />
                             </Form.Item>
                         ) : (
-                            <Form.Item name="inviteePoints" label="新用户奖励积分" rules={[{ required: true, message: "请填写新用户奖励" }]}>
-                                <InputNumber className="w-full" min={0} max={1_000_000} precision={2} />
+                            <Form.Item name="inviteePoints" label="新用户奖励余额（元）" rules={[{ required: true, message: "请填写新用户奖励" }]}>
+                                <InputNumber className="w-full" min={0} max={1_000_000} precision={8} prefix="¥" />
                             </Form.Item>
                         )}
                         <Form.Item name="minimumPaidYuan" label="首单最低实付">
@@ -488,7 +492,7 @@ function RewardRow({ item }: { item: ReferralReward }) {
                     {item.reason ? ` · ${item.reason}` : ""}
                 </div>
             </div>
-            <div className="text-sm font-semibold">{item.rewardType === "coupon" ? "优惠券" : `${item.pointsAmount} 积分`}</div>
+            <div className="text-sm font-semibold">{item.rewardType === "coupon" ? "优惠券" : `¥${item.pointsAmount} 余额`}</div>
         </article>
     );
 }

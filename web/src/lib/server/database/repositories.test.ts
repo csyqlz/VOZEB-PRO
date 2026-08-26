@@ -595,7 +595,7 @@ describe("split Postgres repositories", () => {
 
         expect(result).toMatchObject({ total: 17, page: 2, pageSize: 8, items: [{ id: "point-one", amount: -20 }] });
         expect(queryArgs(query, 0)[0]).toContain("$2 = 'debit' AND amount < 0");
-        expect(queryArgs(query, 0)[1]).toEqual(["user-one", "debit", 8, 8]);
+        expect(queryArgs(query, 0)[1]).toEqual(["user-one", "debit", null, 8, 8]);
     });
 
     it("creates one daily plan wallet and can lock the existing row", async () => {
@@ -932,7 +932,7 @@ describe("split Postgres repositories", () => {
             [
                 {
                     running_tasks: [{ id: "pending-one", kind: "video", source: "agent", title: "生成短片", createdAt: timestamp }],
-                    recent_assets: [{ id: "success-one-0", kind: "image", title: "商品图", url: "/api/media/image.webp", createdAt: timestamp }],
+                    recent_assets: [{ id: "success-one-0", kind: "image", title: "商品图", url: "/api/media/image.webp", createdAt: timestamp, expiresAt: "2026-07-27T12:00:00.000Z" }],
                 },
             ],
         ]);
@@ -941,12 +941,14 @@ describe("split Postgres repositories", () => {
 
         expect(overview).toEqual({
             runningTasks: [{ id: "pending-one", kind: "video", source: "agent", title: "生成短片", createdAt: timestamp }],
-            recentAssets: [{ id: "success-one-0", kind: "image", title: "商品图", url: "/api/media/image.webp", createdAt: timestamp }],
+            recentAssets: [{ id: "success-one-0", kind: "image", title: "商品图", url: "/api/media/image.webp", createdAt: timestamp, expiresAt: "2026-07-27T12:00:00.000Z" }],
         });
         expect(query).toHaveBeenCalledTimes(1);
         const [statement, params] = queryArgs(query, 0);
         expect(String(statement)).toContain("LIMIT 4");
         expect(String(statement)).toContain("LIMIT $2::integer");
+        expect(String(statement)).toContain("log.created_at > now() - interval '24 hours'");
+        expect(String(statement)).toMatch(/ranked_assets\s+AS\s*\(\s*SELECT[\s\S]*?created_at,\s*expires_at,\s*sort_order/s);
         expect(String(statement)).not.toMatch(/SELECT\s+\*|\bprompt\b|\berror\b/i);
         expect(params).toEqual(["user-one", 8]);
     });

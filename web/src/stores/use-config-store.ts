@@ -9,6 +9,8 @@ import type { GlobalAiOpcPresetId } from "@/lib/globalaiopc-catalog";
 import { resolveChannelModelAdvancedConfig } from "@/lib/channel-protocol-registry";
 import { inferModelCapability, normalizeModelId } from "@/lib/model-capability";
 import { materializeLogicalModelPointCosts } from "@/lib/model-point-cost";
+import { consumerModelLabel } from "@/lib/consumer-model-label";
+import type { ConsumerModelPricing } from "@/lib/consumer-model-price";
 
 type ApiCallFormat = "openai" | "gemini";
 type SystemChannelProtocol = "auto" | "openai" | "yumeng" | "gemini" | "sub2api" | "newapi" | "vozeb-recommended" | "globalaiopc" | "seedance" | "stable-diffusion" | "volcengine-video" | "seedance-special" | "custom" | "compatible";
@@ -107,6 +109,7 @@ export type AiConfig = {
     count: string;
     canvasImageCount: string;
     modelPointCosts: Record<string, number>;
+    modelPricing: Record<string, ConsumerModelPricing>;
     generationPointMultipliers: GenerationPointMultipliers;
     generationConcurrency: GenerationConcurrencySettings;
     advancedConfig?: SystemChannelAdvancedConfig;
@@ -129,6 +132,7 @@ type GenerationConcurrencySettings = {
 
 export type PublicSystemSettings = {
     modelPointCosts?: Record<string, number>;
+    modelPricing?: Record<string, ConsumerModelPricing>;
     generationPointMultipliers?: GenerationPointMultipliers;
     generationConcurrency?: GenerationConcurrencySettings;
     generationDefaults?: {
@@ -187,6 +191,7 @@ export const defaultConfig: AiConfig = {
     count: "1",
     canvasImageCount: "1",
     modelPointCosts: {},
+    modelPricing: {},
     generationPointMultipliers: {
         imageQuality: { auto: 1, low: 1, medium: 1, high: 1 },
         videoQuality: { "480": 1, "720": 1, "1080": 1 },
@@ -283,6 +288,7 @@ export function applyPublicSystemSettings(config: AiConfig, settings?: PublicSys
         systemPrompt: "",
         audioInstructions: "",
         modelPointCosts: materializeLogicalModelPointCosts(settings?.modelPointCosts, logicalModels),
+        modelPricing: settings?.modelPricing || {},
         generationPointMultipliers: normalizeGenerationPointMultipliers(settings?.generationPointMultipliers),
         generationConcurrency: normalizeGenerationConcurrency(settings?.generationConcurrency),
         canvasImageCount: normalizeCanvasImageCount(settings?.generationDefaults?.canvasImageCount),
@@ -399,11 +405,11 @@ export function modelOptionName(value: string) {
 
 export function modelOptionLabel(config: AiConfig, value: string) {
     const logical = config.logicalModels.find((model) => model.id.toLowerCase() === value.toLowerCase());
-    if (logical) return logical.name;
+    if (logical) return logical.name.trim() && logical.name.toLowerCase() !== logical.id.toLowerCase() ? logical.name : consumerModelLabel(logical.id);
     const decoded = decodeChannelModel(value);
-    if (!decoded) return value;
-    const channel = config.channels.find((item) => item.id === decoded.channelId);
-    return channel ? `${decoded.model}（${channel.name}）` : decoded.model;
+    if (!decoded) return consumerModelLabel(value);
+    // Channel identities are an implementation detail. Consumers only need the model capability label.
+    return consumerModelLabel(decoded.model);
 }
 
 function modelOptionsFromChannels(channels: ModelChannel[]) {

@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/auth/store", () => ({
-    DEFAULT_SITE_SETTINGS: { title: "VOZEB PRO", logoUrl: "/logo.svg" },
+    DEFAULT_SITE_SETTINGS: { title: "星启智域", logoUrl: "/logo.svg" },
     getPublicUserSummary: mocks.getPublicUserSummary,
 }));
 

@@ -7,6 +7,7 @@ import { describeDramaAnalysisCandidate, describeDramaModelOutput, dramaContentT
 import { resolveInternalOrigin } from "@/lib/server/internal-origin";
 import { resolveLogicalModelCandidates } from "@/lib/server/logical-model-router";
 import { checkRateLimit } from "@/lib/server/security";
+import { toSafeGenerationErrorMessage } from "@/lib/server/generation-errors";
 import { hasSystemAiCharge, readSystemAiBilling, systemAiBillingHeaders, systemAiIdempotencyKey, type SystemAiBilling } from "@/lib/server/system-ai-billing";
 import { rankTextPlanningCandidates, requestStructuredText, type TextPlanningCandidate } from "@/lib/server/text-planning-runtime";
 import { dramaAnalysisText, normalizeDramaVisualInput, type DramaAnalyzeBody } from "@/lib/server/drama-analysis-input";
@@ -86,7 +87,7 @@ export async function POST(request: Request) {
         }
         throw latestError instanceof Error ? latestError : new Error("没有可用的文本模型渠道");
     } catch (error) {
-        const response = NextResponse.json({ code: 502, data: null, msg: error instanceof Error ? error.message : "剧本分析失败" }, { status: 502 });
+        const response = NextResponse.json({ code: 502, data: null, msg: toSafeGenerationErrorMessage(error, "剧本分析失败") }, { status: 502 });
         if (typeof refundedPointsRemaining === "number") response.headers.set("x-vozeb-pro-points-remaining", String(refundedPointsRemaining));
         return response;
     }

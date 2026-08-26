@@ -4,6 +4,7 @@ import { App, Button, Empty, Popover, QRCode, Spin, Tag } from "antd";
 import { ArrowLeft, Check, CheckCircle2, ChevronDown, Copy, CreditCard, ExternalLink, FileText, Landmark, LockKeyhole, Minus, Plus, QrCode, ReceiptText, RefreshCw, ShieldCheck, TicketPercent, WalletCards } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 
 import { CreditSymbol, formatCreditAmount } from "@/constant/credits";
 import { useCopyText } from "@/hooks/use-copy-text";
@@ -15,11 +16,12 @@ const providers = [
     { label: "支付宝", value: "alipay", icon: Landmark, description: "支付宝安全支付" },
     { label: "微信支付", value: "wechat", icon: QrCode, description: "微信扫码支付" },
     { label: "PayPly", value: "payply", icon: WalletCards, description: "自定义支付接口" },
-    { label: "人工确认", value: "manual", icon: FileText, description: "线下转账或人工开通" },
+    { label: "客服确认", value: "manual", icon: FileText, description: "提交订单后由客服核实开通" },
 ] as const;
 
-export function BillingCheckoutPage({ productId }: { productId: string }) {
+export function BillingCheckoutPage({ productId, supportEmail }: { productId: string; supportEmail?: string }) {
     const { message } = App.useApp();
+    const router = useRouter();
     const copyText = useCopyText();
     const [product, setProduct] = useState<BillingProduct | null>(null);
     const [paymentProviders, setPaymentProviders] = useState<string[]>([]);
@@ -38,6 +40,7 @@ export function BillingCheckoutPage({ productId }: { productId: string }) {
     const [checkout, setCheckout] = useState<PaymentCheckout | null>(null);
     const quoteRequest = useRef(0);
     const availableProviders = useMemo(() => providers.filter((item) => paymentProviders.includes(item.value)), [paymentProviders]);
+    const hasAutomaticPayment = availableProviders.some((item) => item.value !== "manual");
     const selectedCoupon = useMemo(() => coupons.find((coupon) => coupon.id === selectedCouponId), [coupons, selectedCouponId]);
 
     const loadCoupons = useCallback(async () => {
@@ -130,7 +133,7 @@ export function BillingCheckoutPage({ productId }: { productId: string }) {
         const result = openPaymentCheckoutWindow(checkout);
         if (result.status === "opened") return;
         if (result.status === "manual") {
-            message.info("该订单需要管理员人工确认");
+            message.info("该订单需要客服人工确认");
             return;
         }
         if (result.fallbackValue) copyText(result.fallbackValue, result.status === "blocked" ? "支付信息已复制，请粘贴到浏览器打开" : "支付信息已复制");
@@ -171,7 +174,7 @@ export function BillingCheckoutPage({ productId }: { productId: string }) {
                         <ArrowLeft className="size-4" /> 返回套餐中心
                     </Link>
                     <span className="inline-flex size-9 items-center justify-center rounded-xl border border-stone-200 bg-white text-stone-600 sm:h-auto sm:w-auto sm:gap-1.5 sm:rounded-full sm:px-3 sm:py-1.5 sm:text-xs sm:font-medium dark:border-stone-800 dark:bg-stone-950 dark:text-stone-300">
-                        <ShieldCheck className="size-4 text-emerald-600 sm:size-3.5 dark:text-emerald-300" /> <span className="hidden sm:inline">VOZEB 安全结算</span>
+                        <ShieldCheck className="size-4 text-emerald-600 sm:size-3.5 dark:text-emerald-300" /> <span className="hidden sm:inline">星启智域订单结算</span>
                     </span>
                 </header>
 
@@ -200,7 +203,7 @@ export function BillingCheckoutPage({ productId }: { productId: string }) {
                     <section className={`${mobileSection === "summary" ? "block" : "hidden"} relative overflow-hidden bg-stone-950 p-2.5 text-white sm:block sm:p-8 lg:min-h-[34rem] dark:bg-stone-100 dark:text-stone-950`}>
                         <div className="pointer-events-none absolute -left-24 -top-24 size-72 rounded-full bg-[#66758e]/30 blur-3xl dark:bg-[#66758e]/20" />
                         <div className="relative">
-                            <div className="text-[11px] font-semibold tracking-[0.2em] text-[#b8c4d6] dark:text-[#66758e]">VOZEB CHECKOUT</div>
+                            <div className="text-[11px] font-semibold tracking-[0.2em] text-[#b8c4d6] dark:text-[#66758e]">星启智域 · 安全结算</div>
                             <h1 className="mt-3 text-2xl font-semibold tracking-tight sm:mt-5 sm:text-3xl">{product.name}</h1>
                             <p className="mt-3 max-w-md text-sm leading-6 text-stone-300 dark:text-stone-600">{product.description}</p>
 
@@ -216,13 +219,13 @@ export function BillingCheckoutPage({ productId }: { productId: string }) {
                                 {pricing.promotionDiscountCents > 0 ? <SummaryRow label={pricing.promotion?.label || "活动优惠"} value={`- ¥ ${formatYuan(pricing.promotionDiscountCents)}`} /> : null}
                                 {pricing.couponDiscountCents > 0 ? <SummaryRow label="优惠券" value={`- ¥ ${formatYuan(pricing.couponDiscountCents)}`} /> : null}
                                 <SummaryRow label="应付金额" value={`¥ ${formatYuan(pricing.payableAmountCents)}`} />
-                                <SummaryRow label={product.productKind === "points" ? "充值积分" : "创作积分"} value={`${formatCreditAmount(product.pointsAmount * quantity)} 积分`} icon={<CreditSymbol />} />
+                                <SummaryRow label="充值人民币余额" value={`¥${formatCreditAmount(product.pointsAmount * quantity)}`} icon={<CreditSymbol />} />
                                 <SummaryRow label="权益周期" value={product.productKind === "points" ? "一次性到账" : product.periodDays ? `${product.periodDays * quantity} 天` : "长期有效"} />
                             </div>
 
                             <div className="mt-6 flex items-start gap-2 text-xs leading-5 text-stone-400 dark:text-stone-600">
                                 <ReceiptText className="mt-0.5 size-4 shrink-0 text-[#b8c4d6] dark:text-[#66758e]" />
-                                订单创建后可在个人中心查看状态；支付成功后套餐与积分自动更新。
+                                订单创建后可在个人中心查看状态；支付成功后套餐与人民币余额自动更新。
                             </div>
                         </div>
                     </section>
@@ -246,7 +249,7 @@ export function BillingCheckoutPage({ productId }: { productId: string }) {
                                         <h2 className="text-xl font-semibold tracking-tight sm:text-2xl">选择支付方式</h2>
                                         <Tag color="green" className="m-0">
                                             <span className="inline-flex items-center gap-1">
-                                                <LockKeyhole className="size-3" /> 安全加密
+                                                <LockKeyhole className="size-3" /> {hasAutomaticPayment ? "支付信息加密" : "客服确认"}
                                             </span>
                                         </Tag>
                                     </div>
@@ -331,7 +334,7 @@ export function BillingCheckoutPage({ productId }: { productId: string }) {
                                     <label className="flex items-center justify-between gap-5">
                                         <span className="min-w-0">
                                             <span className="block text-sm font-semibold">购买数量</span>
-                                            <span className="mt-1 block text-xs text-stone-500 dark:text-stone-400">积分和权益按数量累计</span>
+                                            <span className="mt-1 block text-xs text-stone-500 dark:text-stone-400">人民币余额和权益按数量累计</span>
                                         </span>
                                         <div className="grid h-9 shrink-0 grid-cols-[2rem_2.5rem_2rem] overflow-hidden rounded-xl border border-stone-200 bg-white shadow-sm dark:border-stone-800 dark:bg-stone-950">
                                             <button
@@ -363,10 +366,10 @@ export function BillingCheckoutPage({ productId }: { productId: string }) {
                                     <div className="mt-4 border-t border-dashed border-stone-200 pt-4 sm:mt-7 sm:pt-6 dark:border-stone-800">
                                         <Button block type="primary" size="large" className="profile-primary-button !h-10 sm:!h-12" loading={submitting} disabled={!provider || quoteLoading || Boolean(quoteError)} onClick={() => void submit()}>
                                             <span className="inline-flex items-center gap-2">
-                                                <LockKeyhole className="size-4" /> 确认订单并继续支付
+                                                <LockKeyhole className="size-4" /> {provider === "manual" ? "提交订单等待确认" : "确认订单并继续支付"}
                                             </span>
                                         </Button>
-                                        <p className="mt-3 text-center text-xs leading-5 text-stone-500 dark:text-stone-400">仅创建支付订单，支付成功后才会开通权益。</p>
+                                        <p className="mt-3 text-center text-xs leading-5 text-stone-500 dark:text-stone-400">{provider === "manual" ? "提交后订单进入待确认状态，客服核实后开通权益。" : "仅创建支付订单，支付完成后才会开通权益。"}</p>
                                     </div>
                                 </div>
                             </>
@@ -375,15 +378,39 @@ export function BillingCheckoutPage({ productId }: { productId: string }) {
                                 <span className="grid size-16 place-items-center rounded-2xl bg-[#eef2f7] text-[#52627a] dark:bg-[#66758e]/15 dark:text-[#d8dee8]">
                                     <CheckCircle2 className="size-8" />
                                 </span>
-                                <h2 className="mt-5 text-2xl font-semibold">支付订单已创建</h2>
-                                <p className="mt-2 text-sm text-stone-500 dark:text-stone-400">订单号 {checkout.orderNo}</p>
+                                <h2 className="mt-5 text-2xl font-semibold">{checkout.kind === "manual" ? "订单已提交" : "支付订单已创建"}</h2>
+                                <p className="mt-2 text-sm text-stone-500 dark:text-stone-400">
+                                    订单号 {checkout.orderNo}
+                                    {checkout.kind === "manual" ? "，客服确认后开通权益" : ""}
+                                </p>
                                 {checkout.qrContent ? <QRCode className="mt-6" value={checkout.qrContent} size={190} /> : null}
+                                {checkout.kind === "manual" ? (
+                                    <div className="mt-6 w-full max-w-md rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-left text-xs leading-5 text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-100">
+                                        请将订单号提供给客服，客服确认收款后会开通套餐和人民币余额。
+                                        {supportEmail ? (
+                                            <a className="mt-1 block break-all font-semibold underline underline-offset-2" href={`mailto:${supportEmail}`}>
+                                                客服邮箱：{supportEmail}
+                                            </a>
+                                        ) : null}
+                                    </div>
+                                ) : null}
                                 <div className="mt-7 grid w-full max-w-md gap-3 sm:grid-cols-2">
-                                    <Button icon={<Copy className="size-4" />} onClick={() => copyText(checkout.qrContent || checkout.url || checkout.orderNo, "支付信息已复制")}>
-                                        复制支付信息
+                                    <Button icon={<Copy className="size-4" />} onClick={() => copyText(checkout.qrContent || checkout.url || checkout.orderNo, checkout.kind === "manual" ? "订单号已复制" : "支付信息已复制")}>
+                                        {checkout.kind === "manual" ? "复制订单号" : "复制支付信息"}
                                     </Button>
-                                    <Button type="primary" className="profile-primary-button" icon={<ExternalLink className="size-4" />} onClick={openCheckout}>
-                                        {checkout.kind === "manual" ? "查看订单说明" : "前往支付"}
+                                    <Button
+                                        type="primary"
+                                        className="profile-primary-button"
+                                        icon={<ExternalLink className="size-4" />}
+                                        onClick={() => {
+                                            if (checkout.kind === "manual") {
+                                                router.push("/profile?section=orders");
+                                                return;
+                                            }
+                                            openCheckout();
+                                        }}
+                                    >
+                                        {checkout.kind === "manual" ? "查看订单状态" : "前往支付"}
                                     </Button>
                                 </div>
                                 <Link href="/profile?section=orders" className="mt-5 text-sm font-medium text-stone-500 hover:text-stone-950 dark:text-stone-400 dark:hover:text-white">

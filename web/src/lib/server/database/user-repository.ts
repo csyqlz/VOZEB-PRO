@@ -647,7 +647,7 @@ export class PointsRepository {
         const permanentBalanceAfter = record.permanentBalanceAfter ?? record.balanceAfter;
         const dailyBalanceAfter = record.dailyBalanceAfter ?? 0;
         const result = await this.db.query(
-            "INSERT INTO point_records (id, user_id, type, amount, balance_after, permanent_amount, daily_amount, permanent_balance_after, daily_balance_after, description, model, idempotency_key, request_fingerprint, source_record_id, source_date, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING *",
+            "INSERT INTO point_records (id, user_id, type, amount, balance_after, permanent_amount, daily_amount, permanent_balance_after, daily_balance_after, description, model, usage_kind, units, billing_detail, idempotency_key, request_fingerprint, source_record_id, source_date, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) RETURNING *",
             [
                 record.id,
                 record.userId,
@@ -660,6 +660,9 @@ export class PointsRepository {
                 dailyBalanceAfter,
                 record.description,
                 record.model || null,
+                record.usageKind || null,
+                record.units ?? null,
+                record.billingDetail ? JSON.stringify(record.billingDetail) : null,
                 record.idempotencyKey || null,
                 record.requestFingerprint || null,
                 record.sourceRecordId || null,
@@ -670,24 +673,31 @@ export class PointsRepository {
         return mapPointRecord(result.rows[0]);
     }
 
-    async listRecords(userId: string, input: PageInput & { direction?: "credit" | "debit" } = {}): Promise<PageResult<PointRecord>> {
+    async listRecords(userId: string, input: PageInput & { direction?: "credit" | "debit"; view?: "balance" | "consumption" } = {}): Promise<PageResult<PointRecord>> {
         const page = normalizePage(input.page);
         const pageSize = normalizePageSize(input.pageSize);
         const direction = input.direction === "credit" || input.direction === "debit" ? input.direction : null;
+        const view = input.view === "consumption" ? input.view : null;
         const result = await this.db.query(
             `SELECT *, count(*) OVER() AS total_count
              FROM point_records
              WHERE user_id = $1
                AND ($2::text IS NULL OR ($2 = 'credit' AND amount > 0) OR ($2 = 'debit' AND amount < 0))
+               AND ($3::text IS NULL OR NOT (COALESCE(billing_detail->>'estimated', 'false') = 'true' AND COALESCE(billing_detail->>'settlementStatus', '') = 'settled'))
              ORDER BY created_at DESC
-             LIMIT $3 OFFSET $4`,
-            [userId, direction, pageSize, (page - 1) * pageSize],
+             LIMIT $4 OFFSET $5`,
+            [userId, direction, view, pageSize, (page - 1) * pageSize],
         );
         return pageResult(result.rows.map(mapPointRecord), Number(result.rows[0]?.total_count || 0), page, pageSize);
     }
 
     async getRecordById(id: string) {
         const result = await this.db.query("SELECT * FROM point_records WHERE id = $1", [id]);
+        return result.rows[0] ? mapPointRecord(result.rows[0]) : null;
+    }
+
+    async updateBillingDetail(id: string, userId: string, billingDetail: PointRecord["billingDetail"]) {
+        const result = await this.db.query("UPDATE point_records SET billing_detail = $3 WHERE id = $1 AND user_id = $2 RETURNING *", [id, userId, billingDetail ? JSON.stringify(billingDetail) : null]);
         return result.rows[0] ? mapPointRecord(result.rows[0]) : null;
     }
 

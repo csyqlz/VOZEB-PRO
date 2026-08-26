@@ -54,7 +54,7 @@ export function AdminCdkSection({ controller }: { controller: AdminDashboardCont
         <Panel>
             <PanelHeader
                 title="CDK 兑换"
-                description="生成积分或套餐兑换码，用于活动发放、客服补偿和私域转化；后台可复制、导出、查看兑换明细并删除密钥。"
+                description="生成人民币余额或套餐兑换码，用于活动发放、客服补偿和私域转化；后台可复制、导出、查看兑换明细并删除密钥。"
                 actions={
                     <Button icon={<RefreshCw className="size-4" />} loading={cdkLoading} onClick={() => void loadCdkCodes()}>
                         刷新
@@ -69,8 +69,8 @@ export function AdminCdkSection({ controller }: { controller: AdminDashboardCont
                             <LabeledControl label="生成数量">
                                 <InputNumber className="!w-full" min={1} max={100} precision={0} value={cdkForm.count} onChange={(value) => setCdkForm((current) => ({ ...current, count: clampInteger(value, 1, 100, 1) }))} />
                             </LabeledControl>
-                            <LabeledControl label="每次兑换积分">
-                                <InputNumber className="!w-full" min={0} precision={0} value={cdkForm.points} onChange={(value) => setCdkForm((current) => ({ ...current, points: toNumberOrZero(value) }))} />
+                            <LabeledControl label="每次兑换人民币余额">
+                                <InputNumber className="!w-full" min={0} precision={8} prefix="¥" value={cdkForm.points} onChange={(value) => setCdkForm((current) => ({ ...current, points: toNumberOrZero(value) }))} />
                             </LabeledControl>
                             <LabeledControl label="每个密钥可兑换次数">
                                 <InputNumber className="!w-full" min={1} max={10000} precision={0} value={cdkForm.maxRedemptions} onChange={(value) => setCdkForm((current) => ({ ...current, maxRedemptions: clampInteger(value, 1, 10000, 1) }))} />
@@ -151,7 +151,7 @@ export function AdminCdkSection({ controller }: { controller: AdminDashboardCont
                                         <div className="min-w-0">
                                             <div className="break-all font-mono text-sm font-semibold text-stone-900 dark:text-stone-100">{code.code}</div>
                                             <div className="mt-1 text-xs text-stone-500 dark:text-stone-400">
-                                                {formatCreditAmount(code.points)} 积分 / 可兑 {code.maxRedemptions} 次{code.expiresAt ? ` / ${new Date(code.expiresAt).toLocaleDateString("zh-CN")} 过期` : " / 长期有效"}
+                                                ¥{formatCreditAmount(code.points)} 余额 / 可兑 {code.maxRedemptions} 次{code.expiresAt ? ` / ${new Date(code.expiresAt).toLocaleDateString("zh-CN")} 过期` : " / 长期有效"}
                                             </div>
                                         </div>
                                         <Space size={6}>
@@ -176,7 +176,7 @@ export function AdminCdkSection({ controller }: { controller: AdminDashboardCont
                     <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                         <div className="min-w-0">
                             <SectionTitle icon={<Database className="size-4" />} title="CDK 密钥管理" />
-                            <p className="mt-2 text-xs leading-5 text-stone-500 dark:text-stone-400">这里管理的是可兑换密钥本身；可搜索、复制、查看明细、勾选批量删除，已兑换流水会保留在用户积分记录中。</p>
+                            <p className="mt-2 text-xs leading-5 text-stone-500 dark:text-stone-400">这里管理的是可兑换密钥本身；可搜索、复制、查看明细、勾选批量删除，已兑换流水会保留在用户余额记录中。</p>
                             <div className="mt-2 flex flex-wrap gap-2 text-xs text-stone-500 dark:text-stone-400">
                                 <Tag className="m-0">总数 {cdkStats.total}</Tag>
                                 <Tag className="m-0">已兑换 {cdkStats.redeemed}</Tag>
@@ -212,7 +212,7 @@ export function AdminCdkSection({ controller }: { controller: AdminDashboardCont
                                     ]}
                                 />
                             </div>
-                            <Popconfirm title="批量删除选中 CDK？" description="删除后用户将不能再兑换这些密钥，已有积分流水不会被删除。" okText="删除" cancelText="取消" onConfirm={() => void bulkDeleteCdkCodes()}>
+                            <Popconfirm title="批量删除选中 CDK？" description="删除后用户将不能再兑换这些密钥，已有余额流水不会被删除。" okText="删除" cancelText="取消" onConfirm={() => void bulkDeleteCdkCodes()}>
                                 <Button danger disabled={!selectedCdkIds.length} loading={bulkDeletingCdk} icon={<Trash2 className="size-4" />}>
                                     批量删除
                                 </Button>
@@ -251,7 +251,7 @@ export function AdminCdkSection({ controller }: { controller: AdminDashboardCont
                                                     <div>
                                                         <div className="text-stone-400 dark:text-stone-500">兑换规则</div>
                                                         <div className="mt-0.5 font-medium text-stone-800 dark:text-stone-100">
-                                                            {formatCreditAmount(code.points)} 积分 · {code.redeemedCount}/{code.maxRedemptions}
+                                                            ¥{formatCreditAmount(code.points)} 余额 · {code.redeemedCount}/{code.maxRedemptions}
                                                         </div>
                                                     </div>
                                                     <div>
