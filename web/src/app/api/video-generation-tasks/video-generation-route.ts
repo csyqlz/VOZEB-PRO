@@ -171,59 +171,9 @@ export async function POST(request: Request) {
                     });
                     localTask = { ...localTask, config: channel, upstream: pendingUpstream, requestedDurationSeconds: parameters.videoSeconds === -1 ? undefined : parameters.videoSeconds, attempts };
                 }
-            } catch (error) {
-                capabilityError = error;
-                continue;
-            }
-            const started = startGenerationAttempt(attempts, { channelId: channel.channelId, model: generationModelId(channel), capability: "video" });
-            attempts = started.attempts;
-            const pendingUpstream = {
-                id: "",
-                provider: "generation" as const,
-                model: channel.model,
-                pollPath: geminiVideo ? geminiVideoCreatePath(channel.model) : channel.advancedConfig?.queryPath || channel.advancedConfig?.createPath || CREATE_PATHS[0],
-            };
-            if (!localTask) {
-                localTask = await createVideoTask({
-                    userId: user.id,
-                    username: user.username,
-                    displayName: user.displayName,
-                    title: prompt.slice(0, 36) || "视频生成",
-                    config: channel,
-                    upstream: pendingUpstream,
-                    requestedDurationSeconds: parameters.videoSeconds === -1 ? undefined : parameters.videoSeconds,
-                    prompt,
-                    source: mediaTaskSource(body.source, body.context, "video-task"),
-                    attempts,
-                    ...(body.context || {}),
-                });
-                await linkStoredGenerationTask("video", localTask.id, body.context || {});
-            } else {
-                await updateVideoTask(localTask.id, {
-                    config: channel,
-                    upstream: pendingUpstream,
-                    requestedDurationSeconds: parameters.videoSeconds === -1 ? undefined : parameters.videoSeconds,
-                    attempts,
-                });
-                localTask = { ...localTask, config: channel, upstream: pendingUpstream, requestedDurationSeconds: parameters.videoSeconds === -1 ? undefined : parameters.videoSeconds, attempts };
-            }
-            const submissionStartedAt = Date.now();
-            await scheduleGenerationTask("video", localTask.id, {
-                executionPhase: "submitting",
-                channelId: channel.channelId,
-                provider: channel.advancedConfig?.protocol || channel.apiFormat,
-                queryPath: channel.advancedConfig?.queryPath,
-                nextPollAt: submissionStartedAt + resolveModelRequestTimeoutMs(channel, "video"),
-                lastUpstreamStatus: "submitting",
-            });
-            try {
-                const upstream = await createUpstream(user.id, origin, cookie, channel, providerPrompt, parameters, references, settings.generationPointMultipliers, billingRequestId);
-                await updateVideoTask(localTask.id, { config: channel, upstream, requestedDurationSeconds: parameters.videoSeconds === -1 ? undefined : parameters.videoSeconds, attempts });
-                const task = { ...localTask, config: channel, upstream, requestedDurationSeconds: parameters.videoSeconds === -1 ? undefined : parameters.videoSeconds, attempts };
-                const submittedAt = Date.now();
-                await scheduleGenerationTask("video", task.id, {
-                    executionPhase: "submitted",
-                    upstreamTaskId: task.upstream.id,
+                const submissionStartedAt = Date.now();
+                await scheduleGenerationTask("video", localTask.id, {
+                    executionPhase: "submitting",
                     channelId: channel.channelId,
                     provider: channel.advancedConfig?.protocol || channel.apiFormat,
                     queryPath: channel.advancedConfig?.queryPath,
@@ -428,18 +378,7 @@ export async function createUpstream(
                   })
                 : buildVideoProviderRequest(channel.advancedConfig?.requestTemplate, defaults, values);
     const requestBody = multipart
-        ? await buildOpenAiVideoFormData({
-              model: channel.model,
-              prompt,
-              seconds: values.seconds as number,
-              width: dimensions.width,
-              height: dimensions.height,
-              aspectRatio: values.aspect_ratio as string,
-              quality: values.resolution as string,
-              imageUrls: firstFrameUrl ? [firstFrameUrl] : images,
-              origin,
-              cookie,
-          })
+        ? await buildOpenAiVideoFormData({ model: channel.model, prompt, seconds: values.seconds as number, width: dimensions.width, height: dimensions.height, aspectRatio: values.aspect_ratio as string, quality: values.resolution as string, imageUrls: firstFrameUrl ? [firstFrameUrl] : images, origin, cookie })
         : JSON.stringify(payload);
     const imageToVideoPath = images.length || firstFrameUrl ? channel.advancedConfig?.imageToVideoPath?.trim() : "";
     const createPaths = globalPreset ? [globalPreset.createPath] : imageToVideoPath ? [imageToVideoPath] : resolvedProviderCreatePaths(channel.advancedConfig, "video", CREATE_PATHS);
@@ -465,10 +404,7 @@ export async function createUpstream(
         try {
             data = parseVideoProviderJson(text);
         } catch (error) {
-            const pointsCost = billedPointsCost(response.headers.get("x-vozeb-pro-points-cost"));
-            const pointsRecordId = response.headers.get("x-vozeb-pro-points-record-id") || undefined;
-            if (pointsCost !== undefined && pointsRecordId) await refundUserPoints(userId, generationModelId(channel), pointsCost, "video", videoUnits(raw, multipliers, channel), undefined, pointsRecordId);
-            throw error instanceof Error ? error : new Error("视频接口返回了无效 JSON");
+            throw new VideoSubmissionUncertainError(error instanceof Error ? error.message : "视频接口返回了无效 JSON", videoSubmissionBilling(response.headers, raw, multipliers, channel));
         }
         const providerError = readProviderError(data);
         if (isProviderBusinessError(data)) {
@@ -480,17 +416,14 @@ export async function createUpstream(
         const resultUrl = readVideoProviderUrl(data, channel.advancedConfig?.resultField);
         const id = readVideoProviderId(data) || (resultUrl ? `direct:${Date.now()}` : "");
         if (!id) {
-            const pointsCost = billedPointsCost(response.headers.get("x-vozeb-pro-points-cost"));
-            const pointsRecordId = response.headers.get("x-vozeb-pro-points-record-id") || undefined;
-            if (pointsCost !== undefined && pointsRecordId) await refundUserPoints(userId, generationModelId(channel), pointsCost, "video", videoUnits(raw, multipliers, channel), undefined, pointsRecordId);
-            throw new Error(providerError || "视频接口没有返回任务 ID");
+            throw new VideoSubmissionUncertainError(providerError || "视频接口没有返回任务 ID", videoSubmissionBilling(response.headers, raw, multipliers, channel));
         }
         return {
             id,
             provider: "generation" as const,
             model: channel.model,
             pollPath: path,
-            queryPath: channel.advancedConfig?.queryPath,
+            queryPath: undefined,
             resultUrl: resultUrl || undefined,
             pointsCost: billedPointsCost(response.headers.get("x-vozeb-pro-points-cost")),
             pointsUnits: videoUnits(raw, multipliers, channel),
@@ -544,7 +477,7 @@ async function createGeminiVideoUpstream(input: {
     try {
         data = parseVideoProviderJson(text);
     } catch (error) {
-        throw new VideoSubmissionUncertainError(error instanceof Error ? error.message : "Gemini Veo 返回了无效 JSON", videoSubmissionBilling(response.headers, input.raw, input.multipliers));
+        throw new VideoSubmissionUncertainError(error instanceof Error ? error.message : "Gemini Veo 返回了无效 JSON", videoSubmissionBilling(response.headers, input.raw, input.multipliers, input.channel));
     }
     const created = parseGeminiVideoCreateResponse(data, input.channel.model);
     const pointsCost = billedPointsCost(response.headers.get("x-vozeb-pro-points-cost"));
@@ -555,7 +488,7 @@ async function createGeminiVideoUpstream(input: {
         }
         throw new SafeCandidateFailure(created.error);
     }
-    if (!created.id) throw new VideoSubmissionUncertainError("Gemini Veo 没有返回 operation ID", videoSubmissionBilling(response.headers, input.raw, input.multipliers));
+    if (!created.id) throw new VideoSubmissionUncertainError("Gemini Veo 没有返回 operation ID", videoSubmissionBilling(response.headers, input.raw, input.multipliers, input.channel));
     return {
         id: created.id,
         provider: "generation" as const,
@@ -620,6 +553,22 @@ function billedPointsCost(value: unknown) {
     if (value === null || value === undefined || value === "") return undefined;
     const number = Number(value);
     return Number.isFinite(number) && number >= 0 ? number : undefined;
+}
+
+function videoSubmissionBilling(headers: Headers, raw: Record<string, unknown>, multipliers: Awaited<ReturnType<typeof getAuthSettings>>["generationPointMultipliers"], channel?: NonNullable<ReturnType<typeof toSystemGenerationChannel>>) {
+    const pointsCost = billedPointsCost(headers.get("x-vozeb-pro-points-cost"));
+    const pointsRecordId = headers.get("x-vozeb-pro-points-record-id") || undefined;
+    return pointsCost !== undefined && pointsRecordId ? { pointsCost, pointsUnits: videoUnits(raw, multipliers, channel), pointsRecordId, refunded: false } : undefined;
+}
+
+class VideoSubmissionUncertainError extends Error {
+    constructor(
+        message: string,
+        readonly billing?: Pick<VideoTask["upstream"], "pointsCost" | "pointsUnits" | "pointsRecordId" | "refunded">,
+    ) {
+        super(message);
+        this.name = "VideoSubmissionUncertainError";
+    }
 }
 function videoUnits(raw: Record<string, unknown>, multipliers: Awaited<ReturnType<typeof getAuthSettings>>["generationPointMultipliers"], channel?: NonNullable<ReturnType<typeof toSystemGenerationChannel>>) {
     const configuredUnit = channel?.capabilityProfile?.pricing?.billingUnit;

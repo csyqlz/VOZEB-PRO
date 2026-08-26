@@ -138,7 +138,7 @@ async function proxySystemRequest(request: Request, context: RouteContext) {
     });
     if (!access.allowed) return NextResponse.json({ error: access.error }, { status: access.status });
     const billingModel = access.logicalModelId || upstreamModel;
-    const billingPricing = pointsRequest?.usageKind === "video" ? resolveLogicalModelPricing(settings.logicalModels, billingModel, channel.id) : undefined;
+    const billingPricing = pointsRequest?.usageKind === "video" ? resolveLogicalModelPricing(settings.logicalModels, upstreamModel, channel.id) || resolveLogicalModelPricing(settings.logicalModels, billingModel, channel.id) : undefined;
     const billingUnit = billingPricing ? effectiveBillingUnit("video", billingPricing.billingUnit) : undefined;
     const requestPayload = readRequestBody(contentType, requestBody.pointsPayload);
     const tokenPricing = pointsRequest?.usageKind === "text" ? resolveTextPricing(settings.logicalModels, billingModel, channel.id) : undefined;
@@ -227,7 +227,6 @@ async function proxySystemRequest(request: Request, context: RouteContext) {
     if (isRedirectStatus(upstream.status)) {
         return NextResponse.json({ error: "上游接口不允许重定向，请检查后台渠道地址" }, { status: 502, headers: responseHeaders(new Headers(), null, refundedPointsRemaining) });
     }
-    if (upstream.ok) pointsSettled = true;
     let settledTextCost: number | undefined;
     if (upstream.ok && tokenSettlement && pointsResult?.recordId) {
         const bytes = await upstream.arrayBuffer();
@@ -255,13 +254,19 @@ async function proxySystemRequest(request: Request, context: RouteContext) {
                     console.error("Token billing settlement failed; reservation retained", error instanceof Error ? error.message : error);
                     settledTextCost = tokenSettlement.reservedCost;
                 }
+                pointsSettled = true;
             }
         }
         upstream = new Response(bytes, { status: upstream.status, statusText: upstream.statusText, headers: upstream.headers });
     }
     if (globalAdaptation && upstream.ok) {
         const payload = await upstream.json().catch(() => null);
-        if (!payload) return NextResponse.json({ error: "上游文本接口返回了无效 JSON" }, { status: 502, headers: responseHeaders(upstream.headers, pointsResult, refundedPointsRemaining, target, settledTextCost, billingUnit) });
+        if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+            await refundConsumedPoints();
+            pointsResult = null;
+            return NextResponse.json({ error: "上游文本接口返回了无效 JSON" }, { status: 502, headers: responseHeaders(upstream.headers, null, refundedPointsRemaining, target, settledTextCost, billingUnit) });
+        }
+        pointsSettled = true;
         return NextResponse.json(adaptGlobalAiOpcTextResponse(globalAdaptation.adapter, payload), { status: upstream.status, headers: responseHeaders(upstream.headers, pointsResult, refundedPointsRemaining, target, settledTextCost, billingUnit) });
     }
     if (isJsonResponse(upstream)) {
@@ -271,7 +276,7 @@ async function proxySystemRequest(request: Request, context: RouteContext) {
             return new Response(body, {
                 status: upstream.status,
                 statusText: upstream.statusText,
-                headers: responseHeaders(upstream.headers, pointsResult, refundedPointsRemaining, target),
+                headers: responseHeaders(upstream.headers, pointsResult, refundedPointsRemaining, target, settledTextCost, billingUnit),
             });
         } catch (error) {
             await refundConsumedPoints();
@@ -287,6 +292,10 @@ async function proxySystemRequest(request: Request, context: RouteContext) {
         statusText: upstream.statusText,
         headers: responseHeaders(upstream.headers, pointsResult, refundedPointsRemaining, target, settledTextCost, billingUnit),
     });
+}
+
+function isJsonResponse(response: Response) {
+    return /^\s*(?:application|text)\/(?:[a-z0-9.+-]+\+)?json\b/i.test(response.headers.get("content-type") || "");
 }
 
 function parseJson(value: string) {

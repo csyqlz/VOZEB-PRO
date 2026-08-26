@@ -191,6 +191,19 @@ function normalizePublicModelName(model: string) {
     return model.replace(/^models\//i, "").trim().toLowerCase();
 }
 
+function publicCapabilityProfile(profile: AuthSettings["logicalModels"][number]["bindings"][number]["capabilityProfile"]) {
+    if (!profile) return undefined;
+    const result = {
+        aspectRatios: profile.aspectRatios?.slice(),
+        resolutions: profile.resolutions?.slice(),
+        durationSeconds: profile.durationSeconds?.slice(),
+        minDurationSeconds: profile.minDurationSeconds,
+        maxDurationSeconds: profile.maxDurationSeconds,
+        maxBatchSize: profile.maxBatchSize,
+    };
+    return Object.values(result).some((value) => value !== undefined && (!Array.isArray(value) || value.length)) ? result : undefined;
+}
+
 function publicModelPricing(model: AuthSettings["logicalModels"][number]) {
     const pricing = model.bindings.find((binding) => binding.enabled && binding.capabilityProfile?.pricing)?.capabilityProfile?.pricing;
     if (!pricing) return undefined;

@@ -3,6 +3,7 @@ import { readProviderError } from "@/lib/server/provider-task-config";
 import { GenerationSubmissionUncertainError } from "@/lib/server/generation-submission-error";
 
 export const DEFAULT_CHANNEL_CONNECT_ERROR = "模型服务暂时无法连接，请稍后重试。";
+export const UNKNOWN_SUBMISSION_REVIEW_ERROR = "上游提交结果不确定，未取得可查询的任务 ID；为避免重复生成和扣费，系统已停止自动重试。";
 
 export type GenerationErrorCategory =
     | "auth"
@@ -68,6 +69,11 @@ export function toSafeGenerationErrorMessage(error: unknown, fallback: string) {
     if (isHtmlGatewayError(message)) return DEFAULT_CHANNEL_CONNECT_ERROR;
     if (containsInfrastructureDetails(message)) return /参考|素材|公网/i.test(message) ? "参考素材暂时无法提交，请重新上传或稍后重试。" : "当前模型暂不可用，请切换模型或联系客服。";
     return message || fallback;
+}
+
+export function toSafeGenerationReviewReason(error: unknown, fallback: string) {
+    if (error instanceof GenerationSubmissionUncertainError) return UNKNOWN_SUBMISSION_REVIEW_ERROR;
+    return toSafeGenerationErrorMessage(error, fallback);
 }
 
 function isUpstreamUnavailable(message: string) {

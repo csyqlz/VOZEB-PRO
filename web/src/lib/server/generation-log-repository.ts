@@ -7,6 +7,7 @@ import type { GenerationLogReferenceSnapshot, GenerationLogRequestSnapshot, Gene
 import { isPostgresDatabaseEnabled, type QueryExecutor } from "@/lib/server/database";
 import { readJsonDataFile, withJsonDataFileLock, writeJsonDataFile } from "@/lib/server/data-adapter";
 import { normalizeGeneratedImageBytes } from "@/lib/server/generated-image-normalizer";
+import { resolveMediaMimeType } from "@/lib/server/media-content-type";
 import { createDatedMediaPath, GENERATION_MEDIA_ROOT, TEMPORARY_MEDIA_TTL_MS } from "@/lib/server/local-media-storage";
 import { deleteLocalMediaRegistrations, getLocalMediaRegistration, registerLocalMediaAsset } from "@/lib/server/local-media-registry";
 import { deleteExternalMediaObject, persistExternalMediaIfEnabled } from "@/lib/server/object-storage-service";

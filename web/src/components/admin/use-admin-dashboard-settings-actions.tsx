@@ -76,11 +76,7 @@ export function useAdminDashboardSettingsActions({ state, data }: { state: Admin
     };
 
     const deleteChannel = async (id: string) => {
-        const current = latestSettingsRef.current;
-        const systemChannels = current.systemChannels.filter((channel) => channel.id !== id);
-        const logicalModels = synchronizeLogicalModelsWithChannels(current.logicalModels, systemChannels);
-        const defaultModels = normalizeDefaultModelsConfig(current.defaultModels, logicalModels, systemChannels);
-        return saveSettings({ systemChannels, logicalModels, defaultModels }, "渠道已删除");
+        return saveSettings((current) => removeChannelFromWorkspace(current, id), "渠道已删除");
     };
 
     const updateFreeDailyPoints = (value: number | null) => {

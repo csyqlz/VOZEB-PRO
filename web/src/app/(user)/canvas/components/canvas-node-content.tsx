@@ -203,6 +203,9 @@ export function ReviewContent({ node, theme, onRetry }: Pick<NodeContentRenderer
             <div className="max-h-[55%] max-w-[280px] overflow-y-auto text-xs leading-5" style={{ color: theme.node.text }}>
                 {node.metadata?.errorDetails || "任务状态暂待确认，系统未重复提交。"}
             </div>
+            <span className="text-[11px]" style={{ color: theme.node.warningText }}>
+                等待状态确认
+            </span>
             <button
                 type="button"
                 className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-3 text-xs font-medium transition hover:brightness-95"

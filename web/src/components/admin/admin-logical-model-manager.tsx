@@ -291,6 +291,20 @@ function BindingEditor({ binding, capability, channels, onChange }: { binding: L
                 .map((item) => item.trim())
                 .filter(Boolean),
         });
+    const updateResolutions = (value: string) =>
+        updateProfile({
+            resolutions: value
+                .split(",")
+                .map((item) => item.trim())
+                .filter(Boolean),
+        });
+    const updateDurations = (value: string) =>
+        updateProfile({
+            durationSeconds: value
+                .split(",")
+                .map((item) => Number(item.trim()))
+                .filter((item) => Number.isSafeInteger(item) && item > 0),
+        });
     const pricing = profile.pricing || { currency: "CNY" as const, billingUnit: effectiveBillingUnit(capability, undefined) };
     const unit = effectiveBillingUnit(capability, pricing.billingUnit);
     const updatePricing = (patch: Partial<LogicalModelPricing>) => updateProfile({ pricing: { ...pricing, ...patch, billingUnit: effectiveBillingUnit(capability, patch.billingUnit || pricing.billingUnit), currency: "CNY" } });

@@ -9,7 +9,7 @@ import { useRouter } from "next/navigation";
 import { CREATIVE_UPLOAD_ACCEPT, CREATIVE_UPLOAD_MAX_BYTES, isCreativeUploadMimeType } from "@/lib/creative-upload";
 import type { CreateOverviewAsset } from "@/lib/create-workbench-overview";
 import type { CreativeAsset, CreativeGenerationMode, CreativeGenerationPreferences, CreativeMessage } from "@/lib/creative-runtime-contract";
-import { reconcileCreativeGenerationPreferences } from "@/lib/creative-model-capabilities";
+import { reconcileCreativeGenerationPreferences, type CreativeModelCapabilityOption } from "@/lib/creative-model-capabilities";
 import { cn } from "@/lib/utils";
 import type { VideoReferenceRole } from "@/lib/video-reference-contract";
 import { useCreativeAgentModels } from "@/hooks/use-creative-agent-options";
@@ -352,7 +352,7 @@ export default function CreatePage() {
             setGenerationPreferences((preferences) =>
                 reconcileCreativeGenerationPreferences(
                     preferences,
-                    modelOptions.filter((option) => next.includes(option.id)),
+                    modelOptions.filter((option): option is CreativeModelCapabilityOption => option.capability !== "text" && next.includes(option.id)),
                 ),
             );
             return next;
@@ -739,7 +739,9 @@ export default function CreatePage() {
                                         。
                                     </div>
                                 ) : null}
-                                <div className="mt-5 w-full sm:mt-8">{composer}</div>
+                                <div ref={composerHostRef} data-testid="creative-composer-dock" data-compact="false" className="mt-5 w-full sm:mt-8">
+                                    {composer}
+                                </div>
                                 <div className="mt-2 flex w-full min-w-0 flex-wrap justify-center gap-1.5 sm:mt-3 sm:gap-2">
                                     {skillsLoading ? <span className="px-2 py-2 text-xs text-[#9aa2ad]">正在加载创作能力...</span> : null}
                                     {skills.map((skill, index) => {

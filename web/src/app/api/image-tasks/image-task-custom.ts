@@ -19,7 +19,7 @@ import {
     readImageTaskId,
     parseImageSubmissionJson,
     imageRequestAspectRatio,
-    resolveProviderRequestSize,
+    resolveRequestSize,
     taskFetch,
     taskHeaders,
     taskUrl,
@@ -84,8 +84,8 @@ export async function runCustomImageTask(task: ImageTask, origin: string, public
 }
 
 export function resolveDeclarativeImageSize(config: Pick<ImageTask["config"], "quality" | "size" | "advancedConfig">) {
-    const size = resolveProviderRequestSize(config.quality, config.size || "auto", config.advancedConfig?.protocol) || config.size || "";
-    return !size || size.toLowerCase() === "auto" ? (config.advancedConfig?.protocol === "stable-diffusion" ? "1024x1024" : "") : size;
+    const size = resolveRequestSize(config.quality, config.size || "auto") || config.size || "";
+    return !size || size.toLowerCase() === "auto" ? "" : size;
 }
 
 export async function pollCustomImageTask(task: ImageTask, taskId: string, mediaBaseUrl: string, pollBaseUrl: string, cookie: string, singleStep = false) {

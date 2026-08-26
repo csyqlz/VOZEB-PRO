@@ -64,7 +64,7 @@ describe("agent message controls", () => {
         expect(agentMediaDownloadName("image", "海报.webp", "/api/reference-assets/image.webp", "image/png")).toMatch(/^\d{8}-\d{6}-[a-f0-9]{8}\.png$/);
         expect(imageName).not.toBe(videoName);
         expect(formatAgentMessageText('{"error":{"message":"/backend-anon/conversation failed: status=403"}}')).toBe("当前模型渠道暂时无法使用，请联系管理员。");
-        expect(formatAgentMessageText('{"error":{"message":"/backend-api/conversation failed: status=422, body="}}')).toBe("当前参数不符合模型要求，请调整后重试。");
+        expect(formatAgentMessageText('{"error":{"message":"/backend-api/conversation failed: status=422, body="}}')).toBe("当前模型不支持这组参数，请调整参数或切换模型。");
         expect(formatAgentMessageText('{"error":"当前渠道无法读取站内参考素材，请联系管理员检查站点部署地址"}')).toBe("参考素材暂时无法提交，请重新上传或稍后重试。");
         expect(formatAgentMessageText('{"error":"当前服务无法读取参考素材，请重新上传或稍后重试"}')).toBe("参考素材暂时无法提交，请重新上传或稍后重试。");
         expect(formatAgentMessageText('{"code":400,"data":null,"msg":"人民币余额不足，无法生成"}')).toBe("人民币余额不足，请先充值后再生成。");

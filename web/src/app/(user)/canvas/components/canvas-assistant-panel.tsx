@@ -129,6 +129,8 @@ export function CanvasAssistantPanel({ nodes, selectedNodeIds, snapshot, session
     const { scrollRef, showLatestButton, requestLatest, scrollToLatest, handleScroll } = useCanvasAgentMessageScroll(view === "chat", messageScrollKey, messages.length ? "latest" : "top");
     const selectedSkill = skills.find((skill) => skill.id === selectedSkillId);
     const selectedModels = models.filter((model) => selectedModelIds.includes(model.id));
+    const mediaModels = models.filter((model): model is import("@/lib/creative-model-capabilities").CreativeModelCapabilityOption => model.capability !== "text");
+    const selectedMediaModels = selectedModels.filter((model): model is import("@/lib/creative-model-capabilities").CreativeModelCapabilityOption => model.capability !== "text");
     const iconButtonStyle = { color: theme.node.muted };
     const controlTheme = { panel: theme.toolbar.panel, border: theme.node.stroke, text: theme.node.text, muted: theme.node.muted, activeBackground: theme.toolbar.activeBg, activeText: theme.toolbar.activeText };
 
@@ -450,7 +452,7 @@ export function CanvasAssistantPanel({ nodes, selectedNodeIds, snapshot, session
             setGenerationPreferences((preferences) =>
                 reconcileCreativeGenerationPreferences(
                     preferences,
-                    models.filter((option) => next.includes(option.id)),
+                    mediaModels.filter((option) => next.includes(option.id)),
                 ),
             );
             return next;
@@ -700,7 +702,7 @@ export function CanvasAssistantPanel({ nodes, selectedNodeIds, snapshot, session
                                 models={models}
                                 selectedModels={selectedModels}
                                 smartPlanning={smartPlanning}
-                                middle={<CanvasAgentGenerationSettings preferences={generationPreferences} models={selectedModels} onChange={setGenerationPreferences} />}
+                                middle={<CanvasAgentGenerationSettings preferences={generationPreferences} models={selectedMediaModels} onChange={setGenerationPreferences} />}
                                 onSelectSkill={(skill) => setSelectedSkillId(skill.id)}
                                 onToggleModel={toggleModel}
                                 onClearModels={enableSmartPlanning}

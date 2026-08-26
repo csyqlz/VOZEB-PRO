@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { classifyGenerationError, DEFAULT_CHANNEL_CONNECT_ERROR, generationErrorCategoryLabel, toSafeGenerationErrorMessage } from "./generation-errors";
+import { GenerationSubmissionUncertainError } from "./generation-submission-error";
+import { classifyGenerationError, DEFAULT_CHANNEL_CONNECT_ERROR, UNKNOWN_SUBMISSION_REVIEW_ERROR, generationErrorCategoryLabel, toSafeGenerationErrorMessage, toSafeGenerationReviewReason } from "./generation-errors";
 
 describe("generation error messages", () => {
     it("keeps actionable business errors", () => {

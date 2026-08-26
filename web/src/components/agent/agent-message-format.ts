@@ -72,6 +72,7 @@ function classifiedTechnicalError(value: string) {
     if (/内容政策|内容审核|安全审核|未通过.*审核|content policy|policy violation|moderation|safety filter/i.test(message)) return "内容未通过模型安全审核，请修改描述后重试。";
     if (/status\s*[=:]\s*(401|403)|invalid token|api key required|authentication failed|unauthorized|forbidden|鉴权失败|api\s*key|密钥/i.test(message)) return "当前模型渠道暂时无法使用，请联系管理员。";
     if (/\b(?:not found|model .*does not exist|unknown model|no such model)\b|模型不存在|模型.*(?:下架|不存在)/i.test(message)) return "该模型暂时不可用，请切换其他模型。";
+    if (/backend-(?:anon|api)\/conversation failed.*status=422/i.test(message)) return "当前模型不支持这组参数，请调整参数或切换模型。";
     if (/invalid image size|edges must be multiples|cannot unmarshal|application\/json/i.test(message)) return "当前参数不符合模型要求，请调整后重试。";
     if (/status\s*[=:]\s*429|rate.?limit|限流|请求过于频繁/i.test(message)) return "请求过于频繁，请稍后重试。";
     if (/timeout|timed\s*out|超时|响应超时/i.test(message)) return "模型响应超时，请稍后重试。";
@@ -104,7 +105,7 @@ function objectMessage(value: unknown) {
 
 function normalizeActionableError(message: string) {
     if (/积分不足|余额不足/.test(message)) return "人民币余额不足，请先充值后再生成。";
-    if (/must use application\/json|requires? application\/json|content[- ]type[^\n]*application\/json/i.test(message)) return "当前参数不符合模型要求，请调整后重试。";
+    if (/must use application\/json|requires? application\/json|content[- ]type[^\n]*application\/json/i.test(message)) return "当前模型暂不可用，请切换模型或联系客服。";
     if (/\b(?:unauthorized|forbidden|permission denied|invalid token)\b|未授权|权限不足|无权调用/i.test(message)) return "当前模型渠道暂时无法使用，请联系管理员。";
     if (/\b(?:invalid|unsupported) (?:request|parameter|field|argument)\b|参数(?:错误|无效|不支持)|不支持的参数/i.test(message)) return "当前参数不符合模型要求，请调整后重试。";
     if (/当前渠道无法读取站内参考素材|当前服务无法读取参考素材|站点部署地址|公网图片 URL|参考素材暂时无法提交/i.test(message)) return "参考素材暂时无法提交，请重新上传或稍后重试。";

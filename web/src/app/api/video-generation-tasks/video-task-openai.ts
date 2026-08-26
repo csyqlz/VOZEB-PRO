@@ -4,8 +4,8 @@ type OpenAiVideoFormInput = {
     model: string;
     prompt: string;
     seconds: number;
-    width: number;
-    height: number;
+    width?: number;
+    height?: number;
     aspectRatio: string;
     quality: string;
     imageUrls: string[];
@@ -23,7 +23,7 @@ export async function buildOpenAiVideoFormData(input: OpenAiVideoFormInput) {
         formData.set("aspect_ratio", input.aspectRatio);
         formData.set("size", input.quality.toUpperCase());
     } else {
-        formData.set("size", `${input.width}x${input.height}`);
+        if (input.width && input.height) formData.set("size", `${input.width}x${input.height}`);
     }
     if (input.imageUrls[0]) {
         const file = await imageReferenceToFile({ dataUrl: input.imageUrls[0], url: input.imageUrls[0] }, "input-reference.png", input.origin, input.cookie);

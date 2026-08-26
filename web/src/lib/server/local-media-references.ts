@@ -42,6 +42,23 @@ export async function countLocalMediaReferences(storageKeys: string[], options: 
                  JOIN creative_assets a ON a.status <> 'deleted'
                      AND (a.storage_key = r.storage_key OR position(r.storage_key in COALESCE(a.server_url, '')) > 0)
                  GROUP BY r.storage_key`,
+                `SELECT r.storage_key, count(*)::int
+                 FROM requested r
+                 JOIN creative_messages m ON position(r.storage_key in COALESCE(m.content, '')) > 0
+                     OR position(r.storage_key in COALESCE(m.metadata::text, '')) > 0
+                 GROUP BY r.storage_key`,
+                `SELECT r.storage_key, count(*)::int
+                 FROM requested r
+                 JOIN creative_run_events e ON position(r.storage_key in COALESCE(e.data::text, '')) > 0
+                 GROUP BY r.storage_key`,
+                `SELECT r.storage_key, count(*)::int
+                 FROM requested r
+                 JOIN drama_project_versions v ON position(r.storage_key in COALESCE(v.snapshot::text, '')) > 0
+                 GROUP BY r.storage_key`,
+                `SELECT r.storage_key, count(*)::int
+                 FROM requested r
+                 JOIN generation_logs l ON position(r.storage_key in COALESCE(l.request_snapshot::text, '')) > 0
+                 GROUP BY r.storage_key`,
             );
             referenceQueries.splice(
                 4,

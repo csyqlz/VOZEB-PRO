@@ -48,6 +48,8 @@ export function CreativeGenerationControls({
     const activeCapability = creationMode === "agent" ? (modelCapabilities.includes(preferredCapability) ? preferredCapability : selectedModels[0]?.capability || modelCapabilities[0] || "text") : creationMode;
     const activeMediaCapability = isMediaCapability(activeCapability) ? activeCapability : mediaCapabilities[0] || "image";
     const preferenceCapabilities = creationMode === "agent" ? (mediaCapabilities.length ? mediaCapabilities : [activeMediaCapability]) : [creationMode];
+    const selectedMediaModels = selectedModels.filter((model): model is CreativeModelCapabilityOption => model.capability !== "text");
+    const capabilityProfile = creativeSelectedModelProfile(selectedMediaModels, activeMediaCapability);
     const modelSummary = selectedModels.length === 0 ? (smartPlanning ? "智能模型" : "选择模型") : selectedModels.length === 1 ? selectedModels[0].name : `${selectedModels[0].name} +${selectedModels.length - 1}`;
 
     return (
