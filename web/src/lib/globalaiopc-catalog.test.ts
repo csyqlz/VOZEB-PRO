@@ -32,6 +32,8 @@ describe("GlobalAiOpc catalog", () => {
 
         expect(buildGlobalAiOpcImageRequest(gptImage, input)).toEqual({ model: "image-model", prompt: "test", image_urls: input.imageUrls, quality: "high", ratio: "16:9", resolution: "2k" });
         expect(buildGlobalAiOpcImageRequest(banana, input)).toEqual({ model: "image-model", prompt: "test", image_urls: input.imageUrls, resolution: "2k", size: "16:9" });
+        expect(buildGlobalAiOpcImageRequest(gptImage, { model: "image-model", prompt: "test", imageUrls: [] })).toEqual({ model: "image-model", prompt: "test", image_urls: [] });
+        expect(buildGlobalAiOpcImageRequest(banana, { model: "image-model", prompt: "test", imageUrls: [] })).toEqual({ model: "image-model", prompt: "test", image_urls: [] });
     });
 
     it("uses content entries for Seedance and endpoint-specific fields for Sora", () => {

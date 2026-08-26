@@ -146,6 +146,21 @@ describe("client store session isolation", () => {
         expect(useCanvasStore.getState().summaries).toEqual([summarizeCanvasProjectRecord(freshProject)]);
     });
 
+    it("forces a fresh Canvas detail and ignores the older overlapping response", async () => {
+        const staleRequest = deferred<CanvasProject>();
+        const freshProject = canvasProject("canvas-shared", "服务端最新画布");
+        mocks.getCanvasProject.mockReturnValueOnce(staleRequest.promise).mockResolvedValueOnce(freshProject);
+        useUserStore.getState().setUser(user("user-a"));
+
+        const staleLoad = useCanvasStore.getState().loadProject("canvas-shared");
+        const freshLoad = useCanvasStore.getState().loadProject("canvas-shared", true);
+        staleRequest.resolve(canvasProject("canvas-shared", "旧缓存画布"));
+        await Promise.all([staleLoad, freshLoad]);
+
+        expect(mocks.getCanvasProject).toHaveBeenCalledTimes(2);
+        expect(useCanvasStore.getState().projects).toEqual([freshProject]);
+    });
+
     it("clamps a stale Canvas page to the last available server page", async () => {
         const firstPage = [summarizeCanvasProjectRecord(canvasProject("canvas-a", "画布一"))];
         mocks.listCanvasProjectSummaries.mockResolvedValueOnce({ projects: [], total: 1, page: 2, pageSize: 12 }).mockResolvedValueOnce({ projects: firstPage, total: 1, page: 1, pageSize: 12 });

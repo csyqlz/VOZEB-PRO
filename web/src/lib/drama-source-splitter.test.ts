@@ -32,6 +32,17 @@ describe("splitDramaSource", () => {
         expect(longDrafts[0]?.script).toBe(longSource);
     });
 
+    it("keeps each detected chapter as one episode even when it exceeds the fallback target", () => {
+        const source = [`第 1 章 归来\n${"甲".repeat(1200)}`, `第2章 真相\n${"乙".repeat(1400)}`].join("\n\n");
+        const result = splitDramaSource(source, 100);
+
+        expect(result).toHaveLength(2);
+        expect(result[0]?.sourceRange).toBe("第 1 章 归来");
+        expect(result[1]?.sourceRange).toBe("第2章 真相");
+        expect(result[0]?.script).toContain("甲".repeat(1200));
+        expect(result[1]?.script).toContain("乙".repeat(1400));
+    });
+
     it("uses the caller's positive split target without platform clamping", () => {
         expect(splitDramaSource("甲".repeat(201), 100).map((item) => item.script.length)).toEqual([100, 100, 1]);
         expect(splitDramaSource("乙".repeat(13_000), 20_000)).toHaveLength(1);

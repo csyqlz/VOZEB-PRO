@@ -16,3 +16,14 @@ export class GenerationTaskNeedsReviewError extends Error {
 export function isGenerationTaskNeedsReviewError(error: unknown) {
     return error instanceof GenerationTaskNeedsReviewError || (error instanceof Error && error.message === GENERATION_TASK_NEEDS_REVIEW_MESSAGE);
 }
+
+export class GenerationTaskTerminalError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = "GenerationTaskTerminalError";
+    }
+}
+
+export function isGenerationTaskTerminalError(error: unknown) {
+    return error instanceof GenerationTaskTerminalError;
+}

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 
 import { DeleteObjectsCommand, GetObjectCommand, HeadObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client, type ObjectIdentifier } from "@aws-sdk/client-s3";
@@ -26,9 +27,29 @@ export function createObjectStorageClient(config: ObjectStorageRuntimeConfig) {
 
 export async function testObjectStorageConnection(config: ObjectStorageRuntimeConfig) {
     const client = createObjectStorageClient(config);
+    const probeKey = `${config.prefix ? `${config.prefix}/` : ""}media/.vozeb-healthcheck/${randomUUID()}.txt`;
+    let uploaded = false;
     try {
-        await client.send(new ListObjectsV2Command({ Bucket: config.bucket, Prefix: config.prefix ? `${config.prefix}/` : undefined, MaxKeys: 1 }));
+        try {
+            await client.send(new ListObjectsV2Command({ Bucket: config.bucket, Prefix: config.prefix ? `${config.prefix}/` : undefined, MaxKeys: 1 }));
+        } catch (error) {
+            throw objectStorageOperationError("对象列表检查失败", error);
+        }
+        try {
+            const body = Buffer.from("vozeb-pro-storage-check");
+            await client.send(new PutObjectCommand({ Bucket: config.bucket, Key: probeKey, Body: body, ContentLength: body.length, ContentType: "text/plain" }));
+            uploaded = true;
+        } catch (error) {
+            throw objectStorageOperationError("对象写入检查失败", error);
+        }
+        try {
+            await deleteObjectBatch(client, config.bucket, [probeKey]);
+            uploaded = false;
+        } catch (error) {
+            throw objectStorageOperationError("对象删除检查失败", error);
+        }
     } finally {
+        if (uploaded) await deleteObjectBatch(client, config.bucket, [probeKey]).catch(() => undefined);
         client.destroy();
     }
 }
@@ -112,13 +133,57 @@ export async function deleteObjects(config: ObjectStorageRuntimeConfig, keys: st
     const client = createObjectStorageClient(config);
     try {
         for (let offset = 0; offset < unique.length; offset += 1000) {
-            const objects: ObjectIdentifier[] = unique.slice(offset, offset + 1000).map((Key) => ({ Key }));
-            const result = await client.send(new DeleteObjectsCommand({ Bucket: config.bucket, Delete: { Objects: objects, Quiet: true } }));
-            if (result.Errors?.length) throw new Error(result.Errors.map((error) => `${error.Key || "对象"}: ${error.Message || error.Code || "删除失败"}`).join("；"));
+            await deleteObjectBatch(client, config.bucket, unique.slice(offset, offset + 1000));
         }
     } finally {
         client.destroy();
     }
+}
+
+export function objectStorageErrorMessage(error: unknown) {
+    const value = error && typeof error === "object" ? (error as { name?: unknown; Code?: unknown; code?: unknown; message?: unknown; $metadata?: { httpStatusCode?: unknown } }) : undefined;
+    const code = firstText(value?.Code, value?.code, value?.name);
+    const status = Number(value?.$metadata?.httpStatusCode) || undefined;
+    const marker = [code && code !== "Error" ? code : "", status ? String(status) : ""].filter(Boolean).join("/");
+    if (/SignatureDoesNotMatch|InvalidAccessKeyId|AuthorizationHeaderMalformed|InvalidToken/i.test(code)) return `签名或凭据校验失败${marker ? `（${marker}）` : ""}，请检查 Access Key、Secret Key、Region、Endpoint 和服务器时间`;
+    if (status === 401 || status === 403 || /AccessDenied|Forbidden|Unauthorized/i.test(code)) return `权限不足${marker ? `（${marker}）` : ""}，请确认凭据拥有当前 Bucket 的列表、读取、写入和删除权限`;
+    if (status === 404 || /NoSuchBucket|NotFound/i.test(code)) return `Bucket 不存在或当前凭据无法访问${marker ? `（${marker}）` : ""}，请检查 Bucket 和 Endpoint`;
+    if (/PermanentRedirect|MovedPermanently|IncorrectEndpoint/i.test(code)) return `Endpoint 或 Region 不匹配${marker ? `（${marker}）` : ""}，请检查服务商提供的 S3 Endpoint、Region 和 Path-style 设置`;
+    if (/ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|Timeout|NetworkingError/i.test(code)) return `无法连接外部存储${marker ? `（${marker}）` : ""}，请检查 Endpoint、网络、防火墙和代理配置`;
+    const message = sanitizeProviderMessage(firstText(value?.message, error));
+    if (marker && message && message !== code) return `${marker}：${message}`;
+    return message || marker || "外部存储请求失败";
+}
+
+async function deleteObjectBatch(client: S3Client, bucket: string, keys: string[]) {
+    const objects: ObjectIdentifier[] = keys.map((Key) => ({ Key }));
+    const result = await client.send(new DeleteObjectsCommand({ Bucket: bucket, Delete: { Objects: objects, Quiet: true } }));
+    if (result.Errors?.length) throw new Error(result.Errors.map((error) => `${error.Key || "对象"}: ${error.Message || error.Code || "删除失败"}`).join("；"));
+}
+
+function objectStorageOperationError(operation: string, error: unknown) {
+    return new Error(`${operation}：${objectStorageErrorMessage(error)}`, { cause: error });
+}
+
+function firstText(...values: unknown[]) {
+    for (const value of values) {
+        if (typeof value === "string" && value.trim()) return value.trim();
+    }
+    return "";
+}
+
+function sanitizeProviderMessage(value: string) {
+    return value
+        .replace(/https?:\/\/[^\s)]+/gi, (candidate) => {
+            try {
+                const url = new URL(candidate);
+                return `${url.protocol}//${url.host}${url.pathname}`;
+            } catch {
+                return "外部存储地址";
+            }
+        })
+        .replace(/\s+/g, " ")
+        .slice(0, 360);
 }
 
 function isMissingObjectError(error: unknown) {

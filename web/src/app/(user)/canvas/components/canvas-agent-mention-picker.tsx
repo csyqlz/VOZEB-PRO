@@ -88,28 +88,24 @@ export function CanvasAgentMentionPicker({ assets, selectedNodeIds, theme, onSel
 
 export function CanvasAgentMentionPreview({ segments, assetsById, previewRef, theme }: { segments: CanvasAgentMentionSegment[]; assetsById: ReadonlyMap<string, CanvasAgentMentionAsset>; previewRef: RefObject<HTMLDivElement | null>; theme: CanvasTheme }) {
     return (
-        <div
-            ref={previewRef}
-            data-testid="canvas-agent-mention-preview"
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-0 z-0 overflow-hidden whitespace-pre-wrap break-words px-1 py-1 text-sm leading-5 [font-family:inherit]"
-            style={{ color: theme.node.text }}
-        >
-            {segments.map((segment, index) => {
-                const asset = segment.nodeId ? assetsById.get(segment.nodeId) : undefined;
-                if (!segment.referenced || !asset) return <span key={`${index}-${segment.text}`}>{segment.text}</span>;
-                return (
-                    <span key={`${asset.id}-${index}`} data-testid="canvas-agent-reference-token" data-node-id={asset.id} title={asset.title} className="relative inline-block align-baseline font-normal text-transparent">
-                        <span data-mention-token-width className="whitespace-pre">
-                            {segment.text}
+        <div data-testid="canvas-agent-mention-preview" aria-hidden="true" className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
+            <div ref={previewRef} data-canvas-agent-mention-scroll-layer className="whitespace-pre-wrap break-words px-1 py-1 text-sm leading-5 [font-family:inherit]" style={{ color: theme.node.text }}>
+                {segments.map((segment, index) => {
+                    const asset = segment.nodeId ? assetsById.get(segment.nodeId) : undefined;
+                    if (!segment.referenced || !asset) return <span key={`${index}-${segment.text}`}>{segment.text}</span>;
+                    return (
+                        <span key={`${asset.id}-${index}`} data-testid="canvas-agent-reference-token" data-node-id={asset.id} title={asset.title} className="relative inline-block align-baseline font-normal text-transparent">
+                            <span data-mention-token-width className="whitespace-pre">
+                                {segment.text}
+                            </span>
+                            <span className="absolute inset-0 inline-flex min-w-0 items-center gap-0.5 overflow-hidden" style={{ color: theme.node.text }}>
+                                {asset.type === "image" ? <img src={imagePreviewUrl(asset.url, 80)} alt="" className="size-3 shrink-0 rounded-sm object-cover" /> : <FileVideo className="size-3 shrink-0" />}
+                                <span className="min-w-0 truncate text-xs font-medium">{segment.text.slice(1)}</span>
+                            </span>
                         </span>
-                        <span className="absolute inset-0 inline-flex min-w-0 items-center gap-0.5 overflow-hidden" style={{ color: theme.node.text }}>
-                            {asset.type === "image" ? <img src={imagePreviewUrl(asset.url, 80)} alt="" className="size-3 shrink-0 rounded-sm object-cover" /> : <FileVideo className="size-3 shrink-0" />}
-                            <span className="min-w-0 truncate text-xs font-medium">{segment.text.slice(1)}</span>
-                        </span>
-                    </span>
-                );
-            })}
+                    );
+                })}
+            </div>
         </div>
     );
 }

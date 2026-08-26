@@ -56,6 +56,26 @@ describe("admin settings model routing", () => {
         expect(mocks.setAuthSettings).toHaveBeenCalledWith(expect.objectContaining({ systemChannels: [], logicalModels: [], defaultModels: { textModel: "", imageModel: "", videoModel: "", audioModel: "" } }));
     });
 
+    it("keeps channel deletion and addition visible to an immediate fresh read", async () => {
+        let persisted = structuredClone(savedSettings);
+        mocks.getFreshAuthSettings.mockImplementation(async () => persisted);
+        mocks.setAuthSettings.mockImplementation(async (patch) => {
+            persisted = { ...persisted, ...patch };
+            return persisted;
+        });
+
+        const deleted = await PATCH(request({ systemChannels: [], logicalModels: [], defaultModels: { textModel: "", imageModel: "", videoModel: "", audioModel: "" } }));
+        expect(deleted.status).toBe(200);
+        const afterDelete = (await (await GET()).json()) as { settings: typeof savedSettings };
+        expect(afterDelete.settings.systemChannels).toEqual([]);
+
+        const addedChannel = { id: "two", name: "备用渠道", baseUrl: "https://backup.example.com/v1", apiKey: "new-secret", apiFormat: "openai", models: ["vendor/backup"], enabled: true };
+        const added = await PATCH(request({ systemChannels: [addedChannel], logicalModels: [], defaultModels: { textModel: "", imageModel: "", videoModel: "", audioModel: "" } }));
+        expect(added.status).toBe(200);
+        const afterAdd = (await (await GET()).json()) as { settings: typeof savedSettings };
+        expect(afterAdd.settings.systemChannels).toEqual([expect.objectContaining({ id: "two", name: "备用渠道" })]);
+    });
+
     it("rebuilds an explicitly empty logical model catalog from channels", async () => {
         const response = await PATCH(request({ logicalModels: [], defaultModels: { ...savedSettings.defaultModels, textModel: "" } }));
 

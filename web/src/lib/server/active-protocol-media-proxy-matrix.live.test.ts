@@ -343,7 +343,7 @@ function imageTask(channel: ProxyChannel, edit: boolean): ImageTask {
 async function runImage(task: ImageTask, protocol: SystemChannelProtocol) {
     const declarative = protocol === "custom" || protocol === "stable-diffusion" || protocol === "yumeng";
     const submitted = declarative ? await runCustomImageTask(task, INTERNAL_ORIGIN, fixtureOrigin, "", true) : await runOpenAiImageTask(task, INTERNAL_ORIGIN, fixtureOrigin, "", true);
-    return submitted.pending ? pollCustomImageTask(task, submitted.pending.id, submitted.pending.pollBaseUrl, "", true) : submitted;
+    return submitted.pending ? pollCustomImageTask(task, submitted.pending.id, submitted.pending.mediaBaseUrl, submitted.pending.pollBaseUrl, "", true) : submitted;
 }
 
 function videoParameters() {

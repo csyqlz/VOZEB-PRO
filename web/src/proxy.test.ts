@@ -23,8 +23,9 @@ describe("application proxy security", () => {
 
         const policy = proxy(new NextRequest("https://app.example.com/create")).headers.get("content-security-policy") || "";
 
-        expect(policy).toMatch(/script-src 'self' 'nonce-[a-f0-9]+' 'strict-dynamic'/);
+        expect(policy).toMatch(/script-src 'self' 'nonce-[a-f0-9]+' 'strict-dynamic' 'wasm-unsafe-eval'/);
         expect(policy).not.toMatch(/script-src[^;]*'unsafe-inline'/);
+        expect(policy).not.toMatch(/script-src[^;]* 'unsafe-eval'/);
         expect(policy).toContain("connect-src 'self' https:");
         expect(policy).not.toMatch(/connect-src[^;]*http:/);
         expect(policy).toContain("upgrade-insecure-requests");

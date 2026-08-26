@@ -10,6 +10,7 @@ import { generationModelId } from "@/lib/server/generation-channel";
 import { cancellationExecutionPatch, type GenerationCancellationTarget } from "@/lib/server/generation-task-cancellation-service";
 import { refundTextTask } from "@/lib/server/text-task-refund";
 import { getStoredGenerationTaskRecord } from "@/lib/server/generation-task-store";
+import { recoverGenerationTaskFromUpstream } from "@/lib/server/generation-task-user-recovery";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,10 +29,6 @@ export async function GET(request: Request, context: RouteContext) {
     if (!task || (task.userId !== currentUser.id && currentUser.role !== "admin")) return NextResponse.json({ error: "任务不存在或已过期" }, { status: 404 });
     const schedule = await getStoredGenerationTaskRecord("text", task.id);
     const executionPhase = schedule?.executionPhase || settledExecutionPhase(task.status);
-    if (((task.status === "pending" || task.status === "running") && executionPhase !== "needs_review") || (task.status === "cancelled" && (executionPhase === "cancel_requested" || executionPhase === "cancel_polling"))) {
-        const origin = resolveInternalOrigin(new URL(request.url).origin);
-        after(() => runGenerationTaskRecoveryBatch({ origin, cookie: request.headers.get("cookie") || "", limit: 1, taskIds: [task.id] }));
-    }
 
     const shouldRefund = Boolean(task.billing?.pointsRecordId && !task.billing.refunded && task.status === "error");
     const settledTask = shouldRefund ? await refundTextTask(task) : task;
@@ -50,6 +47,40 @@ export async function GET(request: Request, context: RouteContext) {
             },
         },
         { headers: pointsResponseHeaders(refreshedUser) },
+    );
+}
+
+export async function POST(request: Request, context: RouteContext) {
+    const user = await getCurrentUser(request);
+    const task = user ? await getTextTask((await context.params).id) : null;
+    if (!user || !task || (task.userId !== user.id && user.role !== "admin")) return NextResponse.json({ error: "任务不存在或已过期" }, { status: user ? 404 : 401 });
+    const parsed = await readJsonBodyResult<{ action?: string }>(request);
+    if (!parsed.ok) return NextResponse.json({ error: parsed.message }, { status: parsed.status });
+    if (parsed.data.action !== "recover") return NextResponse.json({ error: "不支持的文本任务操作" }, { status: 400 });
+    if (task.status === "success") return NextResponse.json({ task: publicTask(task) }, { headers: pointsResponseHeaders(user) });
+    if (task.status !== "running") return NextResponse.json({ error: "当前文本任务无法继续检查" }, { status: 409 });
+
+    const schedule = await getStoredGenerationTaskRecord("text", task.id);
+    const upstreamTaskId = task.upstream?.id || schedule?.upstreamTaskId;
+    if (!upstreamTaskId) return NextResponse.json({ error: "原任务没有保存上游任务 ID，无法安全追回结果" }, { status: 409 });
+    const recovered = await recoverGenerationTaskFromUpstream({
+        type: "text",
+        id: task.id,
+        upstreamTaskId,
+        channelId: task.config.channelId,
+        provider: task.config.advancedConfig?.protocol || task.config.apiFormat,
+        queryPath: schedule?.queryPath || task.config.advancedConfig?.queryPath,
+        submittedAt: schedule?.submittedAt || task.createdAt,
+        origin: resolveInternalOrigin(new URL(request.url).origin),
+        cookie: request.headers.get("cookie") || "",
+    });
+    if (!recovered) return NextResponse.json({ error: "文本任务状态已变化，请刷新后重试" }, { status: 409 });
+    const latest = await getTextTask(task.id);
+    const latestSchedule = await getStoredGenerationTaskRecord("text", task.id);
+    if (!latest) return NextResponse.json({ error: "任务不存在或已过期" }, { status: 404 });
+    return NextResponse.json(
+        { task: { ...publicTask(latest), needsReview: latestSchedule?.executionPhase === "needs_review", reviewReason: latestSchedule?.executionPhase === "needs_review" ? latest.reviewReason : undefined, executionPhase: latestSchedule?.executionPhase } },
+        { headers: pointsResponseHeaders(latest.status === "error" ? await getCurrentUser(request) : user) },
     );
 }
 
@@ -82,4 +113,8 @@ export async function PATCH(request: Request, context: RouteContext) {
 
 function settledExecutionPhase(status: string) {
     return status === "pending" || status === "running" ? "created" : "completed";
+}
+
+function publicTask(task: NonNullable<Awaited<ReturnType<typeof getTextTask>>>) {
+    return { id: task.id, status: task.status, model: generationModelId(task.config), result: task.result, error: task.error };
 }

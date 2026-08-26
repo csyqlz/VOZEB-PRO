@@ -25,11 +25,12 @@ describe("GET /api/text-tasks/[id]", () => {
         mocks.getSchedule.mockResolvedValue({ executionPhase: "polling" });
     });
 
-    it("schedules a low-cost recovery wakeup for a running task", async () => {
+    it("reads a running task without running recovery work", async () => {
         const response = await GET(new Request("http://localhost/api/text-tasks/text-one"), { params: Promise.resolve({ id: "text-one" }) });
 
         expect(response.status).toBe(200);
-        expect(after).toHaveBeenCalledOnce();
+        expect(after).not.toHaveBeenCalled();
+        expect(mocks.recover).not.toHaveBeenCalled();
     });
 
     it("does not wake a completed task", async () => {

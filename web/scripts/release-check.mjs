@@ -4,6 +4,7 @@ import { rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 import { validateComposeContracts, validateDocsComposeContracts } from "./compose-contract.mjs";
+import { validateNginxContract } from "./nginx-contract.mjs";
 import { validateRenderBlueprint } from "./render-contract.mjs";
 import { prepareStandaloneAssets } from "./standalone-assets.mjs";
 
@@ -20,6 +21,8 @@ try {
     console.log("\n> Docker Compose 结构与部署边界检查");
     validateComposeContracts({ repoRoot });
     validateDocsComposeContracts({ repoRoot });
+    console.log("\n> Nginx HTTPS、压缩与静态资源缓存检查");
+    validateNginxContract({ repoRoot });
     console.log("\n> Render Blueprint 结构与运行边界检查");
     validateRenderBlueprint({ repoRoot });
     const trackedProtected = run("git", ["ls-files", ...protectedPaths], repoRoot, "检查数据库和构建产物未被跟踪", { capture: true });

@@ -64,13 +64,15 @@ export type CreativeRunBundleResult<T extends AgentRunBase> = {
 
 const RUNTIME_FILE = "creative-runtime.json";
 const CREATIVE_RUN_NOTIFY_CHANNEL = "vozeb_pro_run_events";
+export const CREATIVE_CONVERSATION_CONTEXT_MESSAGE_LIMIT = 12;
 
 export async function createPostgresRunBundle<T extends AgentRunBase>(userId: string, input: CreateRunBundleInput<T>) {
     await ensurePostgresSchema();
     return withPostgresTransaction(async (client) => {
         const existing = await client.query<{ payload: T }>("SELECT payload FROM generation_tasks WHERE user_id = $1 AND client_request_id = $2 AND task_type = 'agent'", [userId, input.run.clientRequestId]);
         if (existing.rows[0]) return { run: existing.rows[0].payload, created: false };
-        const conversation = await resolvePostgresConversation(client, userId, input);
+        let conversation = await resolvePostgresConversation(client, userId, input);
+        if (input.conversationId) conversation = await rollPostgresConversationContext(client, conversation);
         await validatePostgresAssets(client, input.assetIds, userId);
         const sequenceResult = await client.query<{ sequence: number }>("SELECT COALESCE(MAX(sequence), 0)::int AS sequence FROM creative_messages WHERE conversation_id = $1", [conversation.id]);
         const sequence = Number(sequenceResult.rows[0]?.sequence || 0) + 1;
@@ -430,15 +432,94 @@ export function emptyRuntimeDb(): RuntimeFileDatabase {
 }
 
 export function prepareConversationContext(conversation: CreativeConversation, messages: CreativeMessage[]) {
-    const ordered = messages.filter((item) => item.content.trim()).sort((a, b) => a.sequence - b.sequence);
+    const ordered = messages.filter((item) => item.role === "user" || item.role === "assistant").sort((a, b) => a.sequence - b.sequence);
+    const completed = ordered.filter((item) => item.status !== "running" && item.content.trim());
+    const recentMessages = completed.slice(-CREATIVE_CONVERSATION_CONTEXT_MESSAGE_LIMIT);
+    const summaryCutoff = recentMessages.length ? recentMessages[0].sequence - 1 : completed.at(-1)?.sequence || 0;
+    const runningBarrier = ordered.find((item) => item.sequence > conversation.contextSummaryThroughSequence && item.status === "running")?.sequence;
+    const safeSummaryCutoff = runningBarrier ? Math.min(summaryCutoff, runningBarrier - 1) : summaryCutoff;
+    const additions = completed.filter((item) => item.sequence > conversation.contextSummaryThroughSequence && item.sequence <= safeSummaryCutoff);
+    if (!additions.length)
+        return {
+            conversation,
+            context: {
+                summary: conversation.contextSummary,
+                summaryThroughSequence: conversation.contextSummaryThroughSequence,
+                recentMessages,
+            },
+        };
+    const summary = trimContextSummary([conversation.contextSummary, ...additions.map(conversationSummaryLine)].filter(Boolean).join("\n"));
+    const nextConversation = { ...conversation, contextSummary: summary, contextSummaryThroughSequence: additions.at(-1)!.sequence };
     return {
-        conversation,
+        conversation: nextConversation,
         context: {
-            summary: conversation.contextSummary,
-            summaryThroughSequence: conversation.contextSummaryThroughSequence,
-            recentMessages: ordered,
+            summary,
+            summaryThroughSequence: nextConversation.contextSummaryThroughSequence,
+            recentMessages,
         },
     };
+}
+
+export async function rollPostgresConversationContext(client: QueryExecutor, conversation: CreativeConversation) {
+    const result = await client.query<{ summary_additions: unknown; summary_through_sequence: unknown }>(
+        `WITH context_messages AS (
+             SELECT message.sequence, message.role, message.status, message.content, message.metadata
+             FROM creative_messages message
+             WHERE message.conversation_id = $1
+               AND message.sequence > $2
+               AND message.role IN ('user', 'assistant')
+         ), recent_cutoff AS (
+             SELECT message.sequence
+             FROM context_messages message
+             WHERE message.status <> 'running' AND btrim(message.content) <> ''
+             ORDER BY message.sequence DESC
+             OFFSET $3 LIMIT 1
+         ), summary_limit AS (
+             SELECT CASE
+                        WHEN recent_cutoff.sequence IS NULL THEN NULL
+                        ELSE LEAST(
+                            recent_cutoff.sequence,
+                            COALESCE((SELECT MIN(message.sequence) - 1 FROM context_messages message WHERE message.status = 'running'), recent_cutoff.sequence)
+                        )
+                    END AS sequence
+             FROM (SELECT (SELECT sequence FROM recent_cutoff) AS sequence) recent_cutoff
+         ), summary_messages AS (
+             SELECT message.*
+             FROM context_messages message
+             WHERE message.status <> 'running'
+               AND message.sequence <= (SELECT sequence FROM summary_limit)
+         )
+         SELECT COALESCE(
+                    string_agg(
+                        CASE WHEN btrim(message.content) = '' THEN NULL ELSE
+                            (CASE WHEN message.role = 'user' THEN '用户：' ELSE '助手：' END) ||
+                            btrim(regexp_replace(message.content, '[[:space:]]+', ' ', 'g')) ||
+                            COALESCE((
+                                SELECT '；产物：' || string_agg(asset.id, '、' ORDER BY asset.ordinality)
+                                FROM jsonb_array_elements_text(
+                                    CASE WHEN jsonb_typeof(message.metadata -> 'assetIds') = 'array'
+                                         THEN message.metadata -> 'assetIds'
+                                         ELSE '[]'::jsonb
+                                    END
+                                ) WITH ORDINALITY AS asset(id, ordinality)
+                                WHERE btrim(asset.id) <> ''
+                            ), '')
+                        END,
+                        E'\n' ORDER BY message.sequence
+                    ),
+                    ''
+                ) AS summary_additions,
+                COALESCE(MAX(message.sequence), $2)::int AS summary_through_sequence
+         FROM summary_messages message`,
+        [conversation.id, conversation.contextSummaryThroughSequence, CREATIVE_CONVERSATION_CONTEXT_MESSAGE_LIMIT],
+    );
+    const row = result.rows[0];
+    const summaryThroughSequence = Math.max(conversation.contextSummaryThroughSequence, Number(row?.summary_through_sequence) || 0);
+    if (summaryThroughSequence <= conversation.contextSummaryThroughSequence) return conversation;
+    const additions = typeof row?.summary_additions === "string" ? row.summary_additions.trim() : "";
+    const contextSummary = trimContextSummary([conversation.contextSummary, additions].filter(Boolean).join("\n"));
+    await client.query("UPDATE creative_conversations SET context_summary = $2, context_summary_through_sequence = $3 WHERE id = $1", [conversation.id, contextSummary, summaryThroughSequence]);
+    return { ...conversation, contextSummary, contextSummaryThroughSequence: summaryThroughSequence };
 }
 
 export function conversationSummaryLine(message: CreativeMessage) {

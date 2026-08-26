@@ -9,7 +9,7 @@ import { Panel, PanelHeader } from "@/components/admin/admin-panel";
 import { AdminUserIdentity } from "@/components/admin/admin-user-identity";
 import type { AdminGenerationOperationsPayload, AdminGenerationTask } from "@/lib/admin-generation-operations";
 import { GenerationChannelStatus } from "./generation-channel-status";
-import { AgentPlannerAuditSummary, executionPhaseLabel, GenerationTaskRuntimeSummary, generationTaskPointsLabel } from "./generation-operation-task-details";
+import { AgentFailureSummary, AgentPlannerAuditSummary, executionPhaseLabel, GenerationTaskRuntimeSummary, generationTaskPointsLabel } from "./generation-operation-task-details";
 import { generationOperationStatusTagClass, generationOperationThemeClasses } from "./generation-operations-theme";
 
 const PAGE_SIZE = 20;
@@ -162,7 +162,12 @@ export function GenerationOperationsClient() {
             {
                 title: "执行诊断",
                 width: 220,
-                render: (_, task) => <GenerationTaskRuntimeSummary task={task} />,
+                render: (_, task) => (
+                    <div>
+                        <GenerationTaskRuntimeSummary task={task} />
+                        <AgentFailureSummary task={task} />
+                    </div>
+                ),
             },
             {
                 title: "操作",
@@ -435,6 +440,7 @@ function TaskCard({ task, actingId, onAction, onReview }: { task: AdminGeneratio
                 <TaskCardFact label="余额" value={generationTaskPointsLabel(task)} />
             </div>
             <AgentPlannerAuditSummary task={task} />
+            <AgentFailureSummary task={task} />
             <GenerationTaskRuntimeSummary task={task} compact />
             <div className="mt-3">
                 <div className="text-[11px] font-medium text-zinc-400 dark:text-zinc-500">请求摘要</div>

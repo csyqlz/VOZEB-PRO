@@ -71,7 +71,9 @@ describe("CanvasNode image border", () => {
         expect(markup).toContain(`border-color:${canvasThemes.light.node.stroke}`);
         expect(markup).toContain("rounded-3xl border-2");
         expect(markup).toContain("overflow-hidden rounded-3xl");
-        expect(markup).toContain("/api/reference-assets/permanent/generated-image.png?format=webp&amp;width=1920");
+        expect(markup).toContain("/api/reference-assets/permanent/generated-image.png?format=webp&amp;width=320");
+        expect(markup).toContain('loading="lazy"');
+        expect(markup).toContain('decoding="async"');
     });
 
     it("keeps the blue active border when the image is selected", () => {
@@ -88,6 +90,37 @@ describe("CanvasNode image border", () => {
         const markup = renderImageNode({ data: batchChild, isRelated: true });
 
         expect(markup).toContain(`class="relative h-full w-full overflow-visible rounded-3xl border-2" style="background:transparent;border-color:${canvasThemes.light.node.stroke}"`);
+    });
+
+    it("透明主体图层使用干净预览且继续使用原图片地址", () => {
+        const subject = renderContent({ ...imageNode, metadata: { ...imageNode.metadata, layerName: "主体" } }, canvasThemes.light);
+        const removedBackground = renderContent({ ...imageNode, metadata: { ...imageNode.metadata, layerName: "主体（透明背景）" } }, canvasThemes.light);
+        const background = renderContent({ ...imageNode, metadata: { ...imageNode.metadata, layerName: "背景" } }, canvasThemes.light);
+        const ordinary = renderContent(imageNode, canvasThemes.light);
+
+        expect(subject).not.toContain('data-canvas-transparent-preview="true"');
+        expect(removedBackground).not.toContain('data-canvas-transparent-preview="true"');
+        expect(subject).not.toContain("background-image:linear-gradient");
+        expect(subject).toContain("/api/reference-assets/permanent/generated-image.png?format=webp&amp;width=320");
+        expect(background).not.toContain("data-canvas-transparent-preview");
+        expect(ordinary).not.toContain("data-canvas-transparent-preview");
+    });
+
+    it("分层图片使用干净预览，不渲染文字编辑框", () => {
+        const markup = renderContent(
+            {
+                ...imageNode,
+                metadata: {
+                    ...imageNode.metadata,
+                    layerName: "主标题",
+                    imageLayer: { kind: "headline", bbox: { x: 20, y: 20, width: 180, height: 40 }, zIndex: 2, sourceWidth: 1000, sourceHeight: 800 },
+                },
+            },
+            canvasThemes.light,
+        );
+
+        expect(markup).not.toContain('data-canvas-transparent-preview="true"');
+        expect(markup).not.toContain("编辑主标题");
     });
 });
 
@@ -195,6 +228,7 @@ describe("CanvasNode error content", () => {
         const markup = renderImageNode({ data: reviewNode, onRetry: noop });
 
         expect(markup).toContain("上游创建状态待确认");
+        expect(markup).toContain("等待状态确认");
         expect(markup).toContain("检查状态");
         expect(markup).not.toContain(">重试<");
     });

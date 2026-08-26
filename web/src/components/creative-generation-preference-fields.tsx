@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 
 import { cn } from "@/lib/utils";
 
-export function VideoQualityField({ value, options, onChange }: { value: string; options: readonly { value: string; label: string; shortLabel?: string }[]; onChange: (value: string) => void }) {
+export function VideoQualityField({ value, options, allowCustom = true, onChange }: { value: string; options: readonly { value: string; label: string; shortLabel?: string }[]; allowCustom?: boolean; onChange: (value: string) => void }) {
     const customSelected = !options.some((option) => option.value === value);
     const [draft, setDraft] = useState(customSelected ? value : "");
 
@@ -16,33 +16,35 @@ export function VideoQualityField({ value, options, onChange }: { value: string;
     return (
         <div className="grid gap-1.5">
             <p className="text-[11px] font-medium text-[#7b8591] dark:text-[#98a2ae]">清晰度</p>
-            <div className="grid grid-cols-4 gap-1" role="group" aria-label="选择视频清晰度">
+            <div className="grid gap-1" style={optionGridStyle(options.length)} role="group" aria-label="选择视频清晰度">
                 {options.map((option) => (
                     <OptionButton key={option.value} selected={value === option.value} label={option.shortLabel || option.label} ariaLabel={`选择视频清晰度 ${option.label}`} onClick={() => onChange(option.value)} />
                 ))}
             </div>
-            <label
-                className={cn(
-                    "grid min-w-0 grid-cols-[1fr_auto] items-center rounded-lg border px-2 transition",
-                    customSelected
-                        ? "border-[#9bbdce] bg-[#f2f8fb] text-[#315d78] dark:border-[#557f96] dark:bg-[#20333d] dark:text-[#a8c8dc]"
-                        : "border-[#dce2e7] bg-white text-[#687481] focus-within:border-[#7da6ba] focus-within:ring-2 focus-within:ring-[#7da6ba]/15 dark:border-[#3e4650] dark:bg-[#181b20] dark:text-[#a6afb9]",
-                )}
-            >
-                <input
-                    aria-label="输入自定义视频清晰度"
-                    value={draft}
-                    placeholder="自定义，例如 2160 或 4K"
-                    onChange={(event) => {
-                        const next = event.target.value;
-                        setDraft(next);
-                        const normalized = normalizeVideoQuality(next);
-                        if (normalized) onChange(normalized);
-                    }}
-                    className="h-8 min-w-0 bg-transparent text-xs outline-none placeholder:text-[#aeb6be] dark:placeholder:text-[#697480]"
-                />
-                <span className="text-[10px] text-[#9aa4ae]">建议值可直接选择</span>
-            </label>
+            {allowCustom ? (
+                <label
+                    className={cn(
+                        "grid min-w-0 grid-cols-[1fr_auto] items-center rounded-lg border px-2 transition",
+                        customSelected
+                            ? "border-[#9bbdce] bg-[#f2f8fb] text-[#315d78] dark:border-[#557f96] dark:bg-[#20333d] dark:text-[#a8c8dc]"
+                            : "border-[#dce2e7] bg-white text-[#687481] focus-within:border-[#7da6ba] focus-within:ring-2 focus-within:ring-[#7da6ba]/15 dark:border-[#3e4650] dark:bg-[#181b20] dark:text-[#a6afb9]",
+                    )}
+                >
+                    <input
+                        aria-label="输入自定义视频清晰度"
+                        value={draft}
+                        placeholder="自定义，例如 2160 或 4K"
+                        onChange={(event) => {
+                            const next = event.target.value;
+                            setDraft(next);
+                            const normalized = normalizeVideoQuality(next);
+                            if (normalized) onChange(normalized);
+                        }}
+                        className="h-8 min-w-0 bg-transparent text-xs outline-none placeholder:text-[#aeb6be] dark:placeholder:text-[#697480]"
+                    />
+                    <span className="text-[10px] text-[#9aa4ae]">建议值可直接选择</span>
+                </label>
+            ) : null}
         </div>
     );
 }
@@ -53,6 +55,9 @@ export function SuggestedPositiveIntegerField({
     value,
     suffix,
     options,
+    allowCustom = true,
+    min,
+    max,
     onChange,
 }: {
     label: string;
@@ -60,31 +65,37 @@ export function SuggestedPositiveIntegerField({
     value: number;
     suffix: string;
     options: readonly { value: number; label: string }[];
+    allowCustom?: boolean;
+    min?: number;
+    max?: number;
     onChange: (value: number) => void;
 }) {
     const customSelected = !options.some((option) => option.value === value);
     return (
         <div className="grid gap-1.5">
             <p className="text-[11px] font-medium text-[#7b8591] dark:text-[#98a2ae]">{label}</p>
-            <div className="grid grid-cols-[repeat(2,minmax(0,1fr))_minmax(0,1.35fr)] gap-1">
+            <div className="grid gap-1" style={optionGridStyle(options.length + (allowCustom ? 1 : 0))}>
                 {options.map((option) => (
                     <OptionButton key={option.value} selected={value === option.value} label={option.label} ariaLabel={`${ariaLabel} ${option.label}`} onClick={() => onChange(option.value)} />
                 ))}
-                <Space.Compact block className="min-w-0">
-                    <InputNumber
-                        aria-label={ariaLabel}
-                        controls={false}
-                        min={1}
-                        value={customSelected ? value : null}
-                        placeholder="自定义"
-                        onChange={(next) => {
-                            const normalized = normalizePositiveInteger(next);
-                            if (normalized) onChange(normalized);
-                        }}
-                        className="min-w-0 flex-1"
-                    />
-                    <Space.Addon>{suffix}</Space.Addon>
-                </Space.Compact>
+                {allowCustom ? (
+                    <Space.Compact block className="min-w-0">
+                        <InputNumber
+                            aria-label={ariaLabel}
+                            controls={false}
+                            min={min || 1}
+                            max={max}
+                            value={customSelected ? value : null}
+                            placeholder="自定义"
+                            onChange={(next) => {
+                                const normalized = normalizePositiveInteger(next);
+                                if (normalized && (!min || normalized >= min) && (!max || normalized <= max)) onChange(normalized);
+                            }}
+                            className="min-w-0 flex-1"
+                        />
+                        <Space.Addon>{suffix}</Space.Addon>
+                    </Space.Compact>
+                ) : null}
             </div>
         </div>
     );
@@ -151,4 +162,8 @@ function OptionButton({ selected, label, ariaLabel, onClick }: { selected: boole
             {label}
         </button>
     );
+}
+
+function optionGridStyle(itemCount: number) {
+    return { gridTemplateColumns: `repeat(${Math.max(1, Math.min(itemCount, 4))}, minmax(0, 1fr))` };
 }

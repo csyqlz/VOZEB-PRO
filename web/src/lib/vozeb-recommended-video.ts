@@ -2,8 +2,8 @@ type VozebRecommendedVideoInput = {
     model: string;
     prompt: string;
     duration: number;
-    aspectRatio: string;
-    resolution: string;
+    aspectRatio?: string;
+    resolution?: string;
     generateAudio: boolean;
     images: string[];
     videos: string[];
@@ -25,10 +25,9 @@ export function buildVozebRecommendedVideoRequest(input: VozebRecommendedVideoIn
         model: input.model,
         prompt: input.prompt,
         duration: Math.min(15, Math.max(5, Math.trunc(input.duration) || 5)),
-        resolution,
-        metadata: { resolution },
+        ...(resolution ? { resolution, metadata: { resolution } } : {}),
         generate_audio: seedanceFast720p ? false : input.generateAudio,
-        aspect_ratio: input.aspectRatio,
+        ...(input.aspectRatio ? { aspect_ratio: input.aspectRatio } : {}),
     };
     if (input.images.length) payload.images = input.images.slice(0, 9);
     if (input.videos.length) payload.videos = input.videos.slice(0, 3);

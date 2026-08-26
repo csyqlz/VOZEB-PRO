@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
     configured: vi.fn(),
     authorized: vi.fn(),
     recover: vi.fn(),
+    nextDueAt: vi.fn(),
     install: vi.fn(),
 }));
 
@@ -12,6 +13,7 @@ vi.mock("@/lib/server/maintenance-auth", () => ({
     isAuthorizedWorkerRequest: mocks.authorized,
 }));
 vi.mock("@/lib/server/generation-task-recovery-service", () => ({ runGenerationTaskRecoveryBatch: mocks.recover }));
+vi.mock("@/lib/server/generation-task-scheduler", () => ({ getNextGenerationTaskDueAt: mocks.nextDueAt }));
 vi.mock("@/lib/server/internal-origin", () => ({ resolveInternalOrigin: vi.fn(() => "http://internal:3000") }));
 vi.mock("@/lib/server/install-status", () => ({ getInstallStatus: mocks.install }));
 
@@ -24,6 +26,7 @@ describe("POST /api/maintenance/generation-tasks/run", () => {
         mocks.configured.mockReturnValue(true);
         mocks.authorized.mockReturnValue(true);
         mocks.recover.mockResolvedValue({ claimed: 0 });
+        mocks.nextDueAt.mockResolvedValue(undefined);
         mocks.install.mockResolvedValue({ database: { schemaReady: true } });
     });
 
@@ -47,11 +50,12 @@ describe("POST /api/maintenance/generation-tasks/run", () => {
 
     it("passes the stable worker identity and server-only origins to the recovery batch", async () => {
         mocks.recover.mockResolvedValue({ claimed: 2 });
+        mocks.nextDueAt.mockResolvedValue(5_000);
         const response = await POST(request("worker-one"));
 
         expect(response.status).toBe(200);
         expect(mocks.recover).toHaveBeenCalledWith({ origin: "http://internal:3000", publicOrigin: "https://vozeb.example", limit: 50, workerId: "worker-one" });
-        expect(await response.json()).toMatchObject({ code: 0, data: { claimed: 2 } });
+        expect(await response.json()).toMatchObject({ code: 0, data: { claimed: 2, nextDueAt: 5_000 } });
     });
 
     it("waits quietly before the database is initialized", async () => {

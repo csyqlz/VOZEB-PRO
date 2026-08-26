@@ -5,6 +5,7 @@ import { toSafeGenerationErrorMessage } from "@/lib/server/generation-errors";
 import { resolveLogicalModelCandidates } from "@/lib/server/logical-model-router";
 import { hasSystemAiCharge, readSystemAiBilling, systemAiBillingHeaders, systemAiIdempotencyKey } from "@/lib/server/system-ai-billing";
 import { rankTextPlanningCandidates, requestStructuredText } from "@/lib/server/text-planning-runtime";
+import { resolveSiteTitle } from "@/lib/site-brand";
 
 type PromptOptimizationMode = "agent" | CreativeGenerationMode;
 
@@ -33,7 +34,7 @@ export async function optimizeCreativePrompt(input: { origin: string; cookie: st
                 cookie: input.cookie,
                 candidate,
                 messages: [
-                    { role: "system", content: promptOptimizationInstruction(input.mode) },
+                    { role: "system", content: promptOptimizationInstruction(input.mode, settings.site.title) },
                     { role: "user", content: input.prompt },
                 ],
                 tool: promptOptimizationTool,
@@ -58,7 +59,7 @@ export async function optimizeCreativePrompt(input: { origin: string; cookie: st
     throw new PromptOptimizationError(toSafeGenerationErrorMessage(latestError, "提示词优化失败，请稍后重试"));
 }
 
-function promptOptimizationInstruction(mode: PromptOptimizationMode) {
+function promptOptimizationInstruction(mode: PromptOptimizationMode, siteTitle: string) {
     const target = mode === "image" ? "图片" : mode === "video" ? "视频" : mode === "audio" ? "音频" : "创作";
     return `你是星启智域提示词编辑器。把用户原文改写为清晰、紧凑、可直接发送的中文${target}提示词。保留主体、人名、品牌、数量、尺寸、比例、时长、文字内容、参考素材要求和否定要求；不得改变用户意图，不得虚构事实或添加用户没有要求的复杂设定。只返回优化后的公开提示词，不解释修改过程，不输出内部规划、模型选择理由或思维链。`;
 }

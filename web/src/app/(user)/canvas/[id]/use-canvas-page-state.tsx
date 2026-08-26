@@ -81,6 +81,7 @@ export function useCanvasPageState() {
     const [splitNodeId, setSplitNodeId] = useState<string | null>(null);
     const [upscaleNodeId, setUpscaleNodeId] = useState<string | null>(null);
     const [angleNodeId, setAngleNodeId] = useState<string | null>(null);
+    const [emotionNodeId, setEmotionNodeId] = useState<string | null>(null);
     const [previewNodeId, setPreviewNodeId] = useState<string | null>(null);
     const [assistantCollapsed, setAssistantCollapsed] = useState(true);
     const [assistantMounted, setAssistantMounted] = useState(false);
@@ -199,6 +200,8 @@ export function useCanvasPageState() {
         setUpscaleNodeId,
         angleNodeId,
         setAngleNodeId,
+        emotionNodeId,
+        setEmotionNodeId,
         previewNodeId,
         setPreviewNodeId,
         assistantCollapsed,

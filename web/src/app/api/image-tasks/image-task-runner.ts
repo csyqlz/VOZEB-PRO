@@ -8,12 +8,35 @@ export function stableMediaUrl(value?: string) {
     return value && !value.startsWith("data:") && !value.startsWith("blob:") ? value : "";
 }
 
-export async function writeImageGenerationLog(task: ImageTask, status: "success" | "failed", result: Array<{ dataUrl?: string; remoteUrl?: string }> | { dataUrl?: string; remoteUrl?: string } | string, durationMs: number, error?: string) {
+export async function writeImageGenerationLog(
+    task: ImageTask,
+    status: "success" | "failed",
+    result: Array<{ dataUrl?: string; remoteUrl?: string; width?: number; height?: number; bytes?: number; mimeType?: string }> | { dataUrl?: string; remoteUrl?: string; width?: number; height?: number; bytes?: number; mimeType?: string } | string,
+    durationMs: number,
+    error?: string,
+) {
     const results = Array.isArray(result) ? result : [result];
-    const targetSize = resolveResultSize(task.config.quality, task.config.size || "auto");
+    const targetSize = task.config.outputMode === "layers" ? undefined : resolveResultSize(task.config.quality, task.config.size || "auto");
     const assets = results.flatMap((item) => {
         const resultUrl = typeof item === "string" ? item : item.remoteUrl || item.dataUrl || "";
-        return resultUrl ? [{ type: "image" as const, url: resultUrl, remoteUrl: typeof item === "string" ? undefined : item.remoteUrl, targetSize }] : [];
+        return resultUrl
+            ? [
+                  {
+                      type: "image" as const,
+                      url: resultUrl,
+                      remoteUrl: typeof item === "string" ? undefined : item.remoteUrl,
+                      ...(typeof item === "string"
+                          ? {}
+                          : {
+                                width: item.width,
+                                height: item.height,
+                                bytes: item.bytes,
+                                mimeType: item.mimeType,
+                            }),
+                      ...(targetSize ? { targetSize } : {}),
+                  },
+              ]
+            : [];
     });
     return recordGenerationTaskLogResult({
         logId: task.generationLogId,

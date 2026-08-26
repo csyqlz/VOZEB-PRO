@@ -14,7 +14,7 @@ import type { AdminSetupSummary } from "@/lib/server/admin-setup-status";
 import type { StoredGenerationLog } from "@/lib/server/generation-log-store";
 import type { Prompt } from "@/services/api/prompts";
 import { applyPublicSiteSettings, notifyPublicSettingsChanged } from "@/stores/use-public-session-store";
-import { beginAdminSettingsSave, createAdminSettingsSaveSnapshot, finishAdminSettingsSave, mergeAdminSettingsSaveResponse } from "./admin-settings-save";
+import { applyAdminSettingsSaveSnapshot, beginAdminSettingsSave, createAdminSettingsSaveQueue, createAdminSettingsSaveSnapshot, finishAdminSettingsSave, mergeAdminSettingsSaveResponse, restoreAdminSettingsSaveFailure } from "./admin-settings-save";
 import { downloadTextFile, formatCreatedCdkExport, splitTags } from "./admin-dashboard-elements";
 
 export type AdminDashboardProps = {
@@ -47,8 +47,11 @@ import type { AdminDashboardState, UserEditorValue } from "./use-admin-dashboard
 
 export function useAdminDashboardDataActions({ state }: { state: AdminDashboardState }) {
     const settingsSaveCountRef = useRef(0);
+    const settingsSaveQueueRef = useRef(createAdminSettingsSaveQueue());
+    const cdkRequestIdRef = useRef(0);
     const {
         currentUser,
+        setupSummary,
         message,
         promptForm,
         promptRequestIdRef,
@@ -64,6 +67,7 @@ export function useAdminDashboardDataActions({ state }: { state: AdminDashboardS
         setUserTotal,
         settings,
         setSettings,
+        getSettings,
         prompts,
         setPrompts,
         setPromptCount,
@@ -177,24 +181,32 @@ export function useAdminDashboardDataActions({ state }: { state: AdminDashboardS
         }
     };
 
-    const saveSettings = async (patch: Partial<AuthSettings>, successText = "设置已保存") => {
+    const saveSettings = async (input: Partial<AuthSettings> | ((current: AuthSettings) => Partial<AuthSettings>), successText = "设置已保存") => {
+        const patch = typeof input === "function" ? input(getSettings()) : input;
         const snapshot = createAdminSettingsSaveSnapshot(patch);
+        const current = getSettings();
+        const previous = createAdminSettingsSaveSnapshot(Object.fromEntries(snapshot.keys.map((key) => [key, current[key]])) as Partial<AuthSettings>);
+        setSettings((current) => applyAdminSettingsSaveSnapshot(current, snapshot));
         settingsSaveCountRef.current = beginAdminSettingsSave(settingsSaveCountRef.current);
         setSettingsLoading(true);
         try {
-            const response = await fetch("/api/admin/settings", {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(patch),
+            const payload = await settingsSaveQueueRef.current.run(async () => {
+                const response = await fetch("/api/admin/settings", {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(patch),
+                });
+                const result = (await response.json()) as { settings?: AuthSettings; error?: string };
+                if (!response.ok || !result.settings) throw new Error(result.error || "更新设置失败");
+                return result as { settings: AuthSettings };
             });
-            const payload = (await response.json()) as { settings?: AuthSettings; error?: string };
-            if (!response.ok || !payload.settings) throw new Error(payload.error || "更新设置失败");
             setSettings((current) => mergeAdminSettingsSaveResponse(current, payload.settings!, snapshot));
             if (patch.site) applyPublicSiteSettings(payload.settings.site);
             notifyPublicSettingsChanged();
             message.success(successText);
             return true;
         } catch (error) {
+            setSettings((current) => restoreAdminSettingsSaveFailure(current, previous, snapshot));
             message.error(error instanceof Error ? error.message : "更新设置失败");
             return false;
         } finally {
@@ -205,6 +217,11 @@ export function useAdminDashboardDataActions({ state }: { state: AdminDashboardS
     };
 
     const loadBillingSummary = async () => {
+        if (setupSummary?.databaseProvider === "file") {
+            setBillingSummary(null);
+            setBillingSummaryLoading(false);
+            return;
+        }
         setBillingSummaryLoading(true);
         try {
             const response = await fetch("/api/admin/billing/summary", { cache: "no-store" });
@@ -535,6 +552,8 @@ export function useAdminDashboardDataActions({ state }: { state: AdminDashboardS
     };
 
     const loadCdkCodes = async (override?: { page?: number; keyword?: string; filter?: typeof cdkFilter }) => {
+        const requestId = cdkRequestIdRef.current + 1;
+        cdkRequestIdRef.current = requestId;
         setCdkLoading(true);
         try {
             const nextPage = override?.page ?? cdkPage;
@@ -555,15 +574,16 @@ export function useAdminDashboardDataActions({ state }: { state: AdminDashboardS
                 error?: string;
             };
             if (!response.ok || !payload.codes) throw new Error(payload.error || "加载 CDK 失败");
+            if (requestId !== cdkRequestIdRef.current) return;
             setCdkCodes(payload.codes);
             setCdkTotal(payload.total || 0);
             setCdkStats(payload.stats || { total: 0, redeemed: 0, unused: 0, expired: 0 });
             if (payload.page && payload.page !== cdkPage) setCdkPage(payload.page);
             setSelectedCdkIds((current) => current.filter((id) => payload.codes!.some((code) => code.id === id)));
         } catch (error) {
-            message.error(error instanceof Error ? error.message : "加载 CDK 失败");
+            if (requestId === cdkRequestIdRef.current) message.error(error instanceof Error ? error.message : "加载 CDK 失败");
         } finally {
-            setCdkLoading(false);
+            if (requestId === cdkRequestIdRef.current) setCdkLoading(false);
         }
     };
 

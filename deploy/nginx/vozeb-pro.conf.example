@@ -1,0 +1,57 @@
+# 将域名和证书路径替换为真实值后，放入 Nginx 的 http 配置范围（如 conf.d/）。
+upstream vozeb_pro_app {
+    server 127.0.0.1:3000;
+    keepalive 32;
+}
+
+server {
+    listen 80;
+    server_name vozeb-pro.example.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name vozeb-pro.example.com;
+
+    ssl_certificate /www/server/panel/vhost/cert/vozeb-pro.example.com/fullchain.pem;
+    ssl_certificate_key /www/server/panel/vhost/cert/vozeb-pro.example.com/privkey.pem;
+
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_min_length 1024;
+    gzip_types text/plain text/css application/json application/javascript application/manifest+json image/svg+xml;
+
+    location ^~ /_next/static/ {
+        proxy_pass http://vozeb_pro_app;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_hide_header Cache-Control;
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+    }
+
+    location ~ ^/api/agent/runs/[^/]+/events$ {
+        proxy_pass http://vozeb_pro_app;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_buffering off;
+        proxy_cache off;
+    }
+
+    location / {
+        proxy_pass http://vozeb_pro_app;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}

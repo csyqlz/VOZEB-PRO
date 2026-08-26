@@ -3,12 +3,13 @@
 import { App, Button, Drawer, Grid } from "antd";
 import type { TextAreaRef } from "antd/es/input/TextArea";
 import { ChevronsDown, Clapperboard, FolderOpen, History, Play, Plus, ScanFace, ShoppingBag, Sparkles, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { CREATIVE_UPLOAD_ACCEPT, CREATIVE_UPLOAD_MAX_BYTES, isCreativeUploadMimeType } from "@/lib/creative-upload";
 import type { CreateOverviewAsset } from "@/lib/create-workbench-overview";
 import type { CreativeAsset, CreativeGenerationMode, CreativeGenerationPreferences, CreativeMessage } from "@/lib/creative-runtime-contract";
+import { reconcileCreativeGenerationPreferences } from "@/lib/creative-model-capabilities";
 import { cn } from "@/lib/utils";
 import type { VideoReferenceRole } from "@/lib/video-reference-contract";
 import { useCreativeAgentModels } from "@/hooks/use-creative-agent-options";
@@ -29,6 +30,7 @@ import { CreativeMessages } from "./components/creative-messages";
 import { CreateWorkbenchOverview } from "./components/create-workbench-overview";
 import { publicCreativeAssetPrompt, remapCreativeAssetReferences } from "./components/creative-asset-mention";
 import { createConversationHref, createConversationIdFromSearch } from "./create-conversation-navigation";
+import { creativeConversationScrollTransition } from "./create-conversation-scroll";
 import { useCreateAgent } from "./use-create-agent";
 
 const SKILL_VISUALS = [
@@ -49,9 +51,13 @@ export default function CreatePage() {
     const initialConversationRestoredRef = useRef(false);
     const initialPromptRestoredRef = useRef(false);
     const conversationScrollRef = useRef<HTMLElement>(null);
+    const composerHostRef = useRef<HTMLDivElement>(null);
+    const composerLayoutRef = useRef<DOMRect | null>(null);
     const conversationWasLoadingRef = useRef(false);
     const previousScrollTopRef = useRef(0);
     const awayFromLatestRef = useRef(false);
+    const scrollingAwayFromLatestRef = useRef(false);
+    const touchScrollYRef = useRef<number | undefined>(undefined);
     const promptValueRef = useRef("");
     const promptRevisionRef = useRef(0);
     const optimizingRef = useRef(false);
@@ -144,6 +150,8 @@ export default function CreatePage() {
     useEffect(() => {
         previousScrollTopRef.current = 0;
         awayFromLatestRef.current = false;
+        scrollingAwayFromLatestRef.current = false;
+        touchScrollYRef.current = undefined;
         setAwayFromLatest(false);
         setComposerExpanded(true);
     }, [agent.conversationId]);
@@ -341,6 +349,12 @@ export default function CreatePage() {
                       ? current.filter((id) => id !== model.id)
                       : [...current.filter((id) => modelOptions.find((item) => item.id === id)?.capability !== "text"), model.id];
             setSmartPlanning(next.length === 0);
+            setGenerationPreferences((preferences) =>
+                reconcileCreativeGenerationPreferences(
+                    preferences,
+                    modelOptions.filter((option) => next.includes(option.id)),
+                ),
+            );
             return next;
         });
         window.requestAnimationFrame(() => inputRef.current?.focus());
@@ -453,15 +467,26 @@ export default function CreatePage() {
     const updateConversationScrollState = (element: HTMLElement) => {
         const scrollTop = element.scrollTop;
         const distanceFromLatest = Math.max(0, element.scrollHeight - element.clientHeight - scrollTop);
-        const scrollingUp = scrollTop < previousScrollTopRef.current - 3;
-        const away = scrollingUp ? true : distanceFromLatest > 48 ? awayFromLatestRef.current : false;
+        const transition = creativeConversationScrollTransition({
+            scrollTop,
+            previousScrollTop: previousScrollTopRef.current,
+            distanceFromLatest,
+            userScrollingAway: scrollingAwayFromLatestRef.current,
+        });
+        if (Math.abs(scrollTop - previousScrollTopRef.current) > 3) scrollingAwayFromLatestRef.current = false;
         previousScrollTopRef.current = scrollTop;
-        setAwayFromLatestState(away);
-        if (!away) setComposerExpanded(true);
-        else if (scrollingUp) setComposerExpanded(false);
+        if (transition === "collapse") {
+            setAwayFromLatestState(true);
+            setComposerExpanded(false);
+        } else if (transition === "expand") {
+            scrollingAwayFromLatestRef.current = false;
+            setAwayFromLatestState(false);
+            setComposerExpanded(true);
+        }
     };
 
     const scrollToLatest = () => {
+        scrollingAwayFromLatestRef.current = false;
         awayFromLatestRef.current = false;
         setAwayFromLatest(false);
         setComposerExpanded(true);
@@ -482,6 +507,16 @@ export default function CreatePage() {
     };
 
     const composerCompact = showConversation && awayFromLatest && !composerExpanded;
+    useLayoutEffect(() => {
+        const host = composerHostRef.current;
+        if (!host) return;
+        const next = host.getBoundingClientRect();
+        const previous = composerLayoutRef.current;
+        if (previous && (Math.abs(previous.top - next.top) > 1 || Math.abs(previous.left - next.left) > 1)) {
+            host.animate([{ transform: `translate(${previous.left - next.left}px, ${previous.top - next.top}px)` }, { transform: "translate(0, 0)" }], { duration: 280, easing: "cubic-bezier(.2,.8,.2,1)" });
+        }
+        composerLayoutRef.current = next;
+    }, [showConversation]);
     const composer = (
         <CreativeComposer
             inputRef={inputRef}
@@ -646,10 +681,26 @@ export default function CreatePage() {
                         className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
                         onScroll={(event) => updateConversationScrollState(event.currentTarget)}
                         onWheelCapture={(event) => {
-                            if (event.deltaY < 0) {
-                                setAwayFromLatestState(true);
-                                setComposerExpanded(false);
-                            }
+                            if (event.deltaY < 0) scrollingAwayFromLatestRef.current = true;
+                            else if (event.deltaY > 0) scrollingAwayFromLatestRef.current = false;
+                        }}
+                        onTouchStart={(event) => {
+                            touchScrollYRef.current = event.touches[0]?.clientY;
+                        }}
+                        onTouchMove={(event) => {
+                            const nextY = event.touches[0]?.clientY;
+                            const previousY = touchScrollYRef.current;
+                            if (nextY === undefined || previousY === undefined) return;
+                            if (nextY > previousY) scrollingAwayFromLatestRef.current = true;
+                            else if (nextY < previousY) scrollingAwayFromLatestRef.current = false;
+                            touchScrollYRef.current = nextY;
+                        }}
+                        onTouchEnd={() => {
+                            touchScrollYRef.current = undefined;
+                        }}
+                        onKeyDownCapture={(event) => {
+                            if (["ArrowUp", "PageUp", "Home"].includes(event.key) || (event.key === " " && event.shiftKey)) scrollingAwayFromLatestRef.current = true;
+                            else if (["ArrowDown", "PageDown", "End"].includes(event.key) || event.key === " ") scrollingAwayFromLatestRef.current = false;
                         }}
                     >
                         {showConversation ? (
@@ -716,7 +767,12 @@ export default function CreatePage() {
                     </section>
 
                     {showConversation ? (
-                        <div data-testid="creative-composer-dock" data-compact={composerCompact ? "true" : "false"} className={cn("relative shrink-0", composerCompact && "pointer-events-none absolute inset-x-0 bottom-0 z-20 bg-transparent")}>
+                        <div
+                            ref={composerHostRef}
+                            data-testid="creative-composer-dock"
+                            data-compact={composerCompact ? "true" : "false"}
+                            className={cn("relative shrink-0", composerCompact && "pointer-events-none absolute inset-x-0 bottom-0 z-20 bg-transparent")}
+                        >
                             {awayFromLatest ? (
                                 <Button
                                     type="text"

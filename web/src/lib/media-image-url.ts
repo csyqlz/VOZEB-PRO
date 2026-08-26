@@ -12,6 +12,14 @@ export function imagePreviewUrl(url: string, width = 1600) {
     });
 }
 
+export function originalImageSourceUrl(url: string) {
+    return withLocalMediaParams(url, IMAGE_PREVIEW_ROUTES, (params) => {
+        params.delete("format");
+        params.delete("width");
+        params.delete("download");
+    });
+}
+
 export function originalImageDownloadUrl(url: string) {
     return originalMediaDownloadUrl(url);
 }
@@ -36,6 +44,8 @@ function withLocalMediaParams(value: string, routes: string[], update: (params: 
         const parsed = new URL(url, "http://vozeb.local");
         if (!routes.some((route) => parsed.pathname.startsWith(route))) return url;
         update(parsed.searchParams);
+        parsed.searchParams.sort();
+        parsed.hash = "";
         return absolute ? parsed.toString() : `${parsed.pathname}${parsed.search}${parsed.hash}`;
     } catch {
         return url;

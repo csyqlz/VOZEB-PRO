@@ -135,6 +135,7 @@ export type DramaVisualReview = {
 
 export type DramaEpisode = {
     id: string;
+    episodeNumber?: number;
     title: string;
     script: string;
     scriptRichContent?: import("@/lib/drama-script-rich-content").DramaScriptRichContent;

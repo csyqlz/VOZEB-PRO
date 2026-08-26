@@ -2,7 +2,7 @@
 
 import { App, Modal, Spin } from "antd";
 import { BadgeCheck, Sparkles, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { BillingPlanGrid } from "@/components/billing/billing-plan-grid";
 import { DEFAULT_SUPPORT_EMAIL } from "@/lib/site-brand";
@@ -13,9 +13,11 @@ export function BillingPlansModal({ open, onClose, onSelect }: { open: boolean; 
     const [products, setProducts] = useState<BillingProduct[]>([]);
     const [paymentProviders, setPaymentProviders] = useState<string[]>([]);
     const [loading, setLoading] = useState(false);
+    const loadedRef = useRef(false);
 
     useEffect(() => {
-        if (!open || products.length || loading) return;
+        if (!open || loadedRef.current) return;
+        loadedRef.current = true;
         setLoading(true);
         void listBillingProducts()
             .then((payload) => {

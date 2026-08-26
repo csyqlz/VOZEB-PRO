@@ -92,11 +92,20 @@ import {
     formatTime,
 } from "./billing-operation-elements";
 
-export function BillingOperations({ initialTab = "orders", initialPaymentConfig, embedded = false, hideTabs = false }: { initialTab?: AdminBillingTab; initialPaymentConfig?: PaymentConfigSummary; embedded?: boolean; hideTabs?: boolean }) {
+type BillingOperationsProps = {
+    databaseProvider: "file" | "postgres";
+    initialTab?: AdminBillingTab;
+    initialPaymentConfig?: PaymentConfigSummary;
+    embedded?: boolean;
+    hideTabs?: boolean;
+};
+
+export function BillingOperations({ databaseProvider, initialTab = "orders", initialPaymentConfig, embedded = false, hideTabs = false }: BillingOperationsProps) {
     const { message, modal } = App.useApp();
     const currentUser = useUserStore((state) => state.user);
     const allowedTabs = useMemo(() => allowedAdminBillingTabs(currentUser), [currentUser]);
     const availableTabOptions = useMemo(() => tabOptions.filter((option) => allowedTabs.includes(option.value)), [allowedTabs]);
+    const commercialOperationsAvailable = databaseProvider === "postgres";
     const [productForm] = Form.useForm<ProductFormValue>();
     const [activeTab, setActiveTab] = useState<AdminBillingTab>(initialTab);
     const [summary, setSummary] = useState<BillingSummary | null>(null);
@@ -114,8 +123,8 @@ export function BillingOperations({ initialTab = "orders", initialPaymentConfig,
     const [keyword, setKeyword] = useState("");
     const [submittedKeyword, setSubmittedKeyword] = useState("");
     const [range, setRange] = useState<[Dayjs | null, Dayjs | null] | null>(null);
-    const [loading, setLoading] = useState(initialTab === "orders");
-    const [productsLoading, setProductsLoading] = useState(initialTab !== "payments");
+    const [loading, setLoading] = useState(commercialOperationsAvailable && initialTab === "orders");
+    const [productsLoading, setProductsLoading] = useState(commercialOperationsAvailable && initialTab !== "payments");
     const [actionOrderId, setActionOrderId] = useState("");
     const [deletingProductId, setDeletingProductId] = useState("");
     const productKind = Form.useWatch("productKind", productForm) || "plan";
@@ -178,12 +187,12 @@ export function BillingOperations({ initialTab = "orders", initialPaymentConfig,
     }, [endDate, message, page, startDate, status, submittedKeyword]);
 
     useEffect(() => {
-        if (allowedTabs.includes(activeTab) && (activeTab === "orders" || activeTab === "products" || activeTab === "promotions" || activeTab === "coupons")) void loadProducts();
-    }, [activeTab, allowedTabs, loadProducts]);
+        if (commercialOperationsAvailable && allowedTabs.includes(activeTab) && (activeTab === "orders" || activeTab === "products" || activeTab === "promotions" || activeTab === "coupons")) void loadProducts();
+    }, [activeTab, allowedTabs, commercialOperationsAvailable, loadProducts]);
 
     useEffect(() => {
-        if (allowedTabs.includes(activeTab) && activeTab === "orders") void loadDashboard();
-    }, [activeTab, allowedTabs, loadDashboard]);
+        if (commercialOperationsAvailable && allowedTabs.includes(activeTab) && activeTab === "orders") void loadDashboard();
+    }, [activeTab, allowedTabs, commercialOperationsAvailable, loadDashboard]);
 
     useEffect(() => {
         const nextTab = allowedTabs.includes(initialTab) ? initialTab : allowedTabs[0];
@@ -439,7 +448,20 @@ export function BillingOperations({ initialTab = "orders", initialPaymentConfig,
                 </section>
             ) : null}
 
-            {allowedTabs.includes(activeTab) && activeTab === "orders" ? (
+            {allowedTabs.includes(activeTab) && activeTab !== "payments" && !commercialOperationsAvailable ? (
+                <section data-billing-database-required className="flex min-h-56 flex-col items-center justify-center rounded-lg border border-stone-200 bg-white px-5 py-10 text-center dark:border-stone-800 dark:bg-stone-950">
+                    <span className="flex size-10 items-center justify-center rounded-md bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
+                        <Landmark className="size-5" />
+                    </span>
+                    <h2 className="mt-4 text-base font-semibold text-stone-950 dark:text-stone-100">商业运营需要启用 PostgreSQL</h2>
+                    <p className="mt-2 max-w-lg text-sm leading-6 text-stone-500 dark:text-stone-400">订单、套餐商品、促销和优惠券依赖数据库事务与并发约束。切换数据库后即可使用，文件模式下不会发起无效请求。</p>
+                    <Button className="mt-5" href="/admin/setup" icon={<Settings2 className="size-4" />}>
+                        前往初始化
+                    </Button>
+                </section>
+            ) : null}
+
+            {commercialOperationsAvailable && allowedTabs.includes(activeTab) && activeTab === "orders" ? (
                 <>
                     <section className="grid grid-cols-2 gap-2 sm:gap-3 md:grid-cols-2 xl:grid-cols-4">
                         <Metric title="实收金额" value={formatMoney(summary?.orders.paidAmountCents || 0)} icon={<CircleDollarSign className="size-4" />} tone="emerald" />
@@ -530,7 +552,7 @@ export function BillingOperations({ initialTab = "orders", initialPaymentConfig,
                 </>
             ) : null}
 
-            {allowedTabs.includes(activeTab) && activeTab === "products" ? (
+            {commercialOperationsAvailable && allowedTabs.includes(activeTab) && activeTab === "products" ? (
                 <>
                     <section className="grid min-w-0 items-start gap-4">
                         <div
@@ -684,9 +706,9 @@ export function BillingOperations({ initialTab = "orders", initialPaymentConfig,
                 </>
             ) : null}
 
-            {allowedTabs.includes(activeTab) && activeTab === "promotions" ? <PromotionCampaignPanel products={products} productsLoading={productsLoading} /> : null}
+            {commercialOperationsAvailable && allowedTabs.includes(activeTab) && activeTab === "promotions" ? <PromotionCampaignPanel products={products} productsLoading={productsLoading} /> : null}
 
-            {allowedTabs.includes(activeTab) && activeTab === "coupons" ? <CouponTemplatePanel products={products} productsLoading={productsLoading} /> : null}
+            {commercialOperationsAvailable && allowedTabs.includes(activeTab) && activeTab === "coupons" ? <CouponTemplatePanel products={products} productsLoading={productsLoading} /> : null}
 
             {allowedTabs.includes(activeTab) && activeTab === "payments" ? (
                 <PaymentConfigPanel paymentConfig={paymentConfig} loading={paymentConfigLoading} embedded={embedded} onRefresh={loadPaymentConfig} onCopy={(value) => void copyText(value, message)} />

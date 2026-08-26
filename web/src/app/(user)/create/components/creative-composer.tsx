@@ -141,6 +141,7 @@ export function CreativeComposer({
     const allMediaAttachments = attachments.filter((asset) => (asset.type === "image" || asset.type === "video") && Boolean(asset.serverUrl || asset.remoteUrl));
     const visibleAttachments = attachments.filter((asset) => !showVideoFrames || !frameAssetIds.has(asset.id));
     const mediaAttachments = visibleAttachments.filter((asset) => (asset.type === "image" || asset.type === "video") && Boolean(asset.serverUrl || asset.remoteUrl));
+    const inputMediaAttachments = compact ? allMediaAttachments.filter((asset) => !frameAssetIds.has(asset.id)) : mediaAttachments;
     const otherAttachments = visibleAttachments.filter((asset) => !mediaAttachments.some((media) => media.id === asset.id));
 
     useEffect(() => setReady(true), []);
@@ -211,7 +212,7 @@ export function CreativeComposer({
                     ref={inputRef}
                     value={value}
                     maxLength={4000}
-                    autoSize={compactMode ? { minRows: 1, maxRows: 5 } : { minRows: centered ? 4 : 2, maxRows: 8 }}
+                    autoSize={compactMode ? { minRows: 1, maxRows: 1 } : { minRows: centered ? 4 : 2, maxRows: 8 }}
                     variant="borderless"
                     className={cn(
                         "creative-composer-input relative z-[1] min-w-0 !border-0 !bg-transparent !px-1 !py-1 !text-[15px] !leading-7 !shadow-none !outline-none sm:!px-2",
@@ -345,14 +346,18 @@ export function CreativeComposer({
     }
 
     return (
-        <div className={cn("mx-auto w-full", centered ? "max-w-[1080px]" : "max-w-[1120px] px-3 pb-3 sm:px-6 sm:pb-5")}>
+        <div className={cn("pointer-events-auto mx-auto w-full overflow-hidden", compact ? "max-w-[1036px] px-3 pb-3 sm:px-6 sm:pb-4" : centered ? "max-w-[1080px]" : "mb-3 max-w-[1120px] px-3 sm:mb-5 sm:px-6")}>
             <div
                 data-ready={ready}
-                data-compact="false"
-                className={cn("creative-composer border border-[#e2e6ea] bg-white shadow-[0_10px_32px_rgba(32,36,42,0.06)] dark:border-[#30363e] dark:bg-[#181b20] dark:shadow-black/24", centered ? "rounded-[22px] p-3 sm:p-4" : "rounded-2xl p-2.5")}
+                data-compact={compact ? "true" : "false"}
+                className={cn(
+                    "creative-composer border border-[#e2e6ea] bg-white shadow-[0_10px_32px_rgba(32,36,42,0.06)] transition-[border-radius,padding,box-shadow] duration-200 dark:border-[#30363e] dark:bg-[#181b20] dark:shadow-black/24",
+                    compact ? "h-[60px] min-h-[60px] max-h-[60px] rounded-[20px] p-2" : centered ? "rounded-[22px] p-3 sm:p-4" : "rounded-2xl p-2.5",
+                )}
+                onClick={compact ? onExpand : undefined}
             >
                 {selectedSkill || otherAttachments.length ? (
-                    <div className="flex gap-2 overflow-x-auto px-2 pb-1 pt-1">
+                    <div className={cn("gap-2 overflow-hidden px-2 pb-1 pt-1", compact ? "hidden" : "flex")}>
                         {selectedSkill ? (
                             <span className="flex h-9 max-w-60 shrink-0 items-center gap-2 rounded-lg border border-[#d6dee8] bg-[#f1f4f8] px-2.5 text-xs font-medium text-[#344152] shadow-[0_2px_8px_rgba(38,49,65,0.07)] dark:border-[#3b4653] dark:bg-[#252b33] dark:text-[#edf1f5] dark:shadow-black/20">
                                 <span className="grid size-5 shrink-0 place-items-center rounded-md bg-[#d3a44f]/16 text-[#95681d] dark:bg-[#e4bb70]/14 dark:text-[#e4bb70]">
@@ -389,8 +394,8 @@ export function CreativeComposer({
                         })}
                     </div>
                 ) : null}
-                <div data-testid="creative-composer-input-row" className={cn("flex min-w-0 items-start gap-2 sm:gap-3", centered ? "min-h-[112px]" : "min-h-[64px]")}>
-                    <div className="hide-scrollbar flex max-w-[46%] shrink-0 items-start gap-1.5 overflow-x-auto px-1 pb-1 pt-1 sm:max-w-[320px]">
+                <div data-testid="creative-composer-input-row" className={cn("flex min-w-0 items-center gap-2 sm:gap-3", compact ? "h-11 min-h-11 max-h-11" : centered ? "min-h-[112px] items-start" : "min-h-[64px] items-start")}>
+                    <div className={cn("hide-scrollbar flex shrink-0 gap-1.5 overflow-x-auto", compact ? "max-w-[42%] items-center overflow-y-hidden pl-1" : "max-w-[46%] items-start px-1 pb-1 pt-1 sm:max-w-[320px]")}>
                         {showVideoFrames ? (
                             <CreativeVideoFrameControls
                                 mode={frameMode}
@@ -405,15 +410,21 @@ export function CreativeComposer({
                             />
                         ) : (
                             <>
-                                {mediaAttachments.map((asset) => {
-                                    return <ComposerMediaThumbnail key={asset.id} asset={asset} onRemove={onRemoveAttachment} />;
+                                {inputMediaAttachments.map((asset) => {
+                                    return <ComposerMediaThumbnail key={asset.id} asset={asset} compact={compact} onRemove={onRemoveAttachment} />;
                                 })}
                                 <Tooltip title={mediaAttachments.length ? "继续添加参考素材" : "添加素材"}>
                                     <Button
                                         type="text"
                                         className={cn(
                                             "mt-0.5 shrink-0 !border !border-[#e5e9ed] !bg-[#f5f7f8] !text-[#87919d] hover:!border-[#d4dae0] hover:!bg-[#eef1f3] hover:!text-[#38424e] dark:!border-[#343a42] dark:!bg-[#24282e] dark:!text-[#9ca6b2] dark:hover:!border-[#49515b] dark:hover:!bg-[#2c3239] dark:hover:!text-white",
-                                            mediaAttachments.length ? "!size-10 !min-w-10 !rounded-lg sm:!size-12 sm:!min-w-12" : centered ? "!size-12 !min-w-12 !rounded-xl sm:!size-14 sm:!min-w-14" : "!size-11 !min-w-11 !rounded-xl",
+                                            compact
+                                                ? "!size-11 !min-w-11 !rounded-xl"
+                                                : mediaAttachments.length
+                                                  ? "!size-10 !min-w-10 !rounded-lg sm:!size-12 sm:!min-w-12"
+                                                  : centered
+                                                    ? "!size-12 !min-w-12 !rounded-xl sm:!size-14 sm:!min-w-14"
+                                                    : "!size-11 !min-w-11 !rounded-xl",
                                         )}
                                         icon={<Plus className="size-5" />}
                                         onClick={onAttachment}
@@ -424,9 +435,51 @@ export function CreativeComposer({
                             </>
                         )}
                     </div>
-                    {composerInput(false)}
+                    {composerInput(compact)}
+                    {compact ? (
+                        <div className="flex shrink-0 items-center gap-2">
+                            <Tooltip title="引用当前对话资产">
+                                <Button
+                                    type="text"
+                                    className="!size-11 !min-w-11 !rounded-xl !text-[#66717e] hover:!bg-[#f2f4f6] hover:!text-[#20242a] dark:!text-[#a3acb7] dark:hover:!bg-[#292f37] dark:hover:!text-white"
+                                    icon={<AtSign className="size-4" />}
+                                    onMouseDown={(event) => event.preventDefault()}
+                                    onClick={(event) => {
+                                        event.stopPropagation();
+                                        openAssetMention();
+                                    }}
+                                    aria-label="引用当前对话资产"
+                                />
+                            </Tooltip>
+                            <Tooltip title="优化提示词">
+                                <Button
+                                    type="text"
+                                    className="!size-11 !min-w-11 !rounded-xl !text-[#66717e] hover:!bg-[#f2f4f6] hover:!text-[#20242a] disabled:!bg-transparent disabled:!text-[#b3bac4] dark:!text-[#a3acb7] dark:hover:!bg-[#292f37] dark:hover:!text-white"
+                                    icon={<WandSparkles className="size-4" />}
+                                    loading={optimizing}
+                                    disabled={busy || !value.trim()}
+                                    onClick={(event) => {
+                                        event.stopPropagation();
+                                        onOptimize();
+                                    }}
+                                    aria-label={optimizing ? "正在优化提示词" : "优化提示词"}
+                                />
+                            </Tooltip>
+                            <Tooltip title={busy ? "停止生成" : "发送"}>
+                                <Button
+                                    type="primary"
+                                    shape="circle"
+                                    className="!size-11 !min-w-11 !border-0 !bg-[linear-gradient(135deg,#5968ff,#604dff)] !text-white !shadow-[0_6px_16px_rgba(89,104,255,0.22)] hover:!bg-[linear-gradient(135deg,#5261f3,#5846ee)] disabled:!bg-none disabled:!bg-[#e2e5e8] disabled:!text-[#aeb5bd] disabled:!shadow-none dark:disabled:!bg-[#30353c] dark:disabled:!text-[#68717d]"
+                                    icon={busy ? <Square className="size-3.5 fill-current" /> : <ArrowUp className="size-4" />}
+                                    disabled={!busy && !value.trim()}
+                                    onClick={busy ? onCancel : onSubmit}
+                                    aria-label={busy ? "停止生成" : "发送"}
+                                />
+                            </Tooltip>
+                        </div>
+                    ) : null}
                 </div>
-                <div className="flex min-w-0 items-center gap-2 px-0.5 pb-0.5 pt-2">
+                <div className={cn("min-w-0 items-center gap-2 overflow-hidden px-0.5 pb-0.5 pt-2", compact ? "hidden" : "flex")}>
                     <div className="hide-scrollbar flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto sm:gap-2">
                         <Popover
                             trigger="click"

@@ -6,6 +6,7 @@ import { CreativeGenerationPreferences, generationPreferenceSummary, type Creati
 import type { CreativeGenerationPreferences as GenerationPreferences } from "@/lib/creative-runtime-contract";
 import type { AiConfig } from "@/stores/use-config-store";
 import { useCreativeComposerPopoverPlacement, type CreativeComposerPopoverPlacement } from "@/components/creative-composer-popover";
+import { canvasModelCapabilityProfile } from "../utils/canvas-model-capabilities";
 
 type CanvasImageSettingsPopoverProps = {
     config: AiConfig;
@@ -33,6 +34,7 @@ export function CanvasImageSettingsPopover({ config, onConfigChange, onOpenChang
         <CreativeGenerationPreferences
             capability="image"
             preferences={preferences}
+            capabilityProfile={canvasModelCapabilityProfile(config)}
             triggerLabel={summary}
             triggerAriaLabel={`图片设置：${fullSummary}`}
             triggerIcon={<SlidersHorizontal className="size-4" />}
@@ -63,7 +65,7 @@ function applyImagePreferencePatch(patch: CreativeGenerationPreferencePatch, onC
 }
 
 function imageQuality(value?: string): NonNullable<GenerationPreferences["image"]>["quality"] {
-    return value === "high" || value === "medium" || value === "low" ? value : "auto";
+    return value?.trim() || "auto";
 }
 
 function imageQualityLabel(value?: string) {

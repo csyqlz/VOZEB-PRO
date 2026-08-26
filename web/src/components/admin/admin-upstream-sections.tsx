@@ -25,7 +25,7 @@ export function AdminChannelsSection({ controller }: { controller: AdminDashboar
                         title="保存模型渠道配置"
                         loading={settingsLoading}
                         icon={<Save className="size-4" />}
-                        onClick={() => saveSettings({ systemChannels: settings.systemChannels, logicalModels: settings.logicalModels, defaultModels: settings.defaultModels }, "模型渠道配置已保存")}
+                        onClick={() => saveSettings((current) => ({ systemChannels: current.systemChannels, logicalModels: current.logicalModels, defaultModels: current.defaultModels }), "模型渠道配置已保存")}
                     >
                         保存更改
                     </Button>
@@ -61,7 +61,7 @@ export function AdminSkillsSection({ controller }: { controller: AdminDashboardC
                         <Button icon={<Plus className="size-4" />} onClick={() => setCreateModalOpen(true)}>
                             新增 Skill
                         </Button>
-                        <Button type="primary" loading={settingsLoading} icon={<Save className="size-4" />} onClick={() => saveSettings({ agentSkills: settings.agentSkills }, "Agent Skills 已保存")}>
+                        <Button type="primary" loading={settingsLoading} icon={<Save className="size-4" />} onClick={() => saveSettings((current) => ({ agentSkills: current.agentSkills }), "Agent Skills 已保存")}>
                             保存
                         </Button>
                     </>
@@ -253,7 +253,7 @@ export function AdminSkillsSection({ controller }: { controller: AdminDashboardC
                 existingSkills={settings.agentSkills}
                 onClose={() => setCreateModalOpen(false)}
                 onCreate={async (skill) => {
-                    const saved = await saveSettings({ agentSkills: [...settings.agentSkills, skill] }, "Agent Skill 已添加并保存");
+                    const saved = await saveSettings((current) => ({ agentSkills: [...current.agentSkills, skill] }), "Agent Skill 已添加并保存");
                     if (saved) setCreateModalOpen(false);
                     return saved;
                 }}

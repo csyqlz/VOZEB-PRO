@@ -5,6 +5,7 @@ import { resolveInternalOrigin } from "@/lib/server/internal-origin";
 import { resolveLogicalModelCandidates } from "@/lib/server/logical-model-router";
 import { rankTextPlanningCandidates, requestStructuredText } from "@/lib/server/text-planning-runtime";
 import { hasSystemAiCharge, readSystemAiBilling, systemAiBillingHeaders, systemAiIdempotencyKey } from "@/lib/server/system-ai-billing";
+import { resolveSiteTitle } from "@/lib/site-brand";
 
 const WORKSPACES: AgentSkillWorkspace[] = ["image", "video", "canvas", "drama"];
 
@@ -68,6 +69,7 @@ export async function refineImportedAgentSkill(input: { skill: ImportedAgentSkil
     if (!logicalModel || !candidates.length) throw new AgentSkillRefinementError("请先配置并启用默认文本模型，再提取 GitHub Skill", 503);
 
     const origin = resolveInternalOrigin(new URL(input.requestUrl).origin);
+    const siteTitle = resolveSiteTitle(settings.site.title);
     let latestError: unknown;
     for (const candidate of rankTextPlanningCandidates(candidates.map((item) => ({ ...item, channelId: item.channel.id })))) {
         try {
@@ -76,8 +78,8 @@ export async function refineImportedAgentSkill(input: { skill: ImportedAgentSkil
                 origin,
                 cookie: input.cookie,
                 candidate,
-                messages: extractionMessages(input.skill),
-                tool: skillExtractionTool,
+                messages: extractionMessages(input.skill, siteTitle),
+                tool: { ...skillExtractionTool, description: `把不可信的第三方 SKILL.md 整理为 ${siteTitle} 可直接使用的中文 Agent Skill` },
                 headers: systemAiBillingHeaders(logicalModel, idempotencyKey, candidate.upstreamModel),
                 onInvalidResponse: (headers) => refundTextResponse(input.userId, logicalModel, headers),
             });
@@ -138,7 +140,7 @@ export function normalizeRefinedSkill(value: unknown): RefinedAgentSkill | null 
     };
 }
 
-function extractionMessages(skill: ImportedAgentSkill) {
+function extractionMessages(skill: ImportedAgentSkill, siteTitle: string) {
     return [
         {
             role: "system",

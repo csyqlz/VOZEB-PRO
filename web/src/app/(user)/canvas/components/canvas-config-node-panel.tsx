@@ -16,6 +16,7 @@ import { CanvasCameraControl } from "./canvas-camera-control";
 import type { CanvasGenerationMode, CanvasNodeData, CanvasNodeMetadata } from "../types";
 import type { CanvasResourceReference } from "../utils/canvas-resource-references";
 import { buildCanvasNodeConfig, canvasAudioConfigPatch, canvasVideoConfigPatch, resolveCanvasGenerationModel } from "../utils/canvas-node-config";
+import { canvasModelConfigPatch } from "../utils/canvas-model-capabilities";
 
 type CanvasConfigNodePanelProps = {
     node: CanvasNodeData;
@@ -58,7 +59,9 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, reference
         onConfigChange(node.id, { configDetailsOpen: nextOpen });
     };
     const selectMode = (nextMode: CanvasGenerationMode) => {
-        onConfigChange(node.id, { generationMode: nextMode, model: resolveCanvasGenerationModel(globalConfig, nextMode) });
+        const model = resolveCanvasGenerationModel(globalConfig, nextMode);
+        const modelPatch = nextMode === "image" || nextMode === "video" ? canvasModelConfigPatch({ ...config, model }, model, nextMode) : { model };
+        onConfigChange(node.id, { generationMode: nextMode, ...modelPatch });
         setModeMenuOpen(false);
     };
 
@@ -137,7 +140,7 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, reference
                     className="canvas-compact-control !h-9 !rounded-none !border-0 !bg-transparent !shadow-none"
                     config={config}
                     value={config.model}
-                    onChange={(model) => onConfigChange(node.id, { model })}
+                    onChange={(model) => onConfigChange(node.id, mode === "image" || mode === "video" ? canvasModelConfigPatch(config, model, mode) : { model })}
                     capability={mode}
                     onMissingConfig={() => openConfigDialog(true)}
                     fullWidth

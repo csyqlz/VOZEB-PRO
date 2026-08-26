@@ -1,18 +1,29 @@
-import { unzipSync, zipSync } from "fflate";
+import { unzipSync, Zip, ZipPassThrough } from "fflate";
 
-type ZipFile = {
+export type ZipFile = {
     name: string;
     data: BlobPart;
 };
 
-export async function createZip(files: ZipFile[]) {
-    const entries = await Promise.all(
-        files.map(async (file) => {
-            const data = new Uint8Array(await new Blob([file.data]).arrayBuffer());
-            return [file.name, data] as const;
-        }),
-    );
-    return new Blob([zipSync(Object.fromEntries(entries), { level: 0 })], { type: "application/zip" });
+export async function createZip(files: Iterable<ZipFile> | AsyncIterable<ZipFile>, signal?: AbortSignal) {
+    const chunks: Uint8Array[] = [];
+    const zip = new Zip((error, chunk) => {
+        if (error) throw error;
+        if (chunk) chunks.push(chunk);
+    });
+
+    try {
+        for await (const file of files) {
+            if (signal?.aborted) throw new DOMException("ZIP 下载已取消", "AbortError");
+            const entry = new ZipPassThrough(file.name);
+            zip.add(entry);
+            entry.push(new Uint8Array(await new Blob([file.data]).arrayBuffer()), true);
+        }
+        zip.end();
+        return new Blob(chunks as unknown as BlobPart[], { type: "application/zip" });
+    } finally {
+        zip.terminate();
+    }
 }
 
 export async function readZip(file: Blob) {

@@ -93,10 +93,13 @@ describe("GET /api/agent/runs", () => {
     });
 
     it("queries the latest active run directly for workspace recovery", async () => {
+        mocks.listAgentRuns.mockResolvedValue([{ id: "active-run", userId: "user", status: "running" }]);
         const response = await GET(new Request("http://localhost/api/agent/runs?surface=chat&status=active&limit=1"));
 
         expect(response.status).toBe(200);
         expect(mocks.listAgentRuns).toHaveBeenCalledWith({ userId: "user", conversationId: "", projectId: "", surface: "chat", statuses: ["planning", "running", "paused"], limit: 1 });
+        expect(mocks.after).not.toHaveBeenCalled();
+        expect(mocks.runGenerationTaskRecoveryBatch).not.toHaveBeenCalled();
     });
 });
 

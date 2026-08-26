@@ -1,13 +1,50 @@
 import { describe, expect, it } from "vitest";
 
 import { DEFAULT_SETTINGS } from "@/lib/auth/store";
-import { beginAdminSettingsSave, createAdminSettingsSaveSnapshot, finishAdminSettingsSave, mergeAdminSettingsSaveResponse } from "./admin-settings-save";
+import { applyAdminSettingsSaveSnapshot, beginAdminSettingsSave, createAdminSettingsSaveQueue, createAdminSettingsSaveSnapshot, finishAdminSettingsSave, mergeAdminSettingsSaveResponse, restoreAdminSettingsSaveFailure } from "./admin-settings-save";
 
 function settings() {
     return structuredClone(DEFAULT_SETTINGS);
 }
 
 describe("admin settings save response merge", () => {
+    it("persists settings changes in the order the user submitted them", async () => {
+        const queue = createAdminSettingsSaveQueue();
+        const order: string[] = [];
+        let releaseFirst!: () => void;
+        const first = queue.run(
+            () =>
+                new Promise<void>((resolve) => {
+                    order.push("delete-start");
+                    releaseFirst = () => {
+                        order.push("delete-end");
+                        resolve();
+                    };
+                }),
+        );
+        const second = queue.run(async () => {
+            order.push("save-latest");
+        });
+
+        await Promise.resolve();
+        expect(order).toEqual(["delete-start"]);
+        releaseFirst();
+        await Promise.all([first, second]);
+
+        expect(order).toEqual(["delete-start", "delete-end", "save-latest"]);
+    });
+
+    it("continues with the next settings save after an earlier request fails", async () => {
+        const queue = createAdminSettingsSaveQueue();
+        const first = queue.run(async () => {
+            throw new Error("failed");
+        });
+        const second = queue.run(async () => "saved");
+
+        await expect(first).rejects.toThrow("failed");
+        await expect(second).resolves.toBe("saved");
+    });
+
     it("keeps loading active until every concurrent save has settled", () => {
         const active = beginAdminSettingsSave(beginAdminSettingsSave(0));
 
@@ -31,6 +68,32 @@ describe("admin settings save response merge", () => {
 
         expect(next.site.title).toBe("服务端标题");
         expect(next.registrationEnabled).toBe(false);
+    });
+
+    it("synchronizes channel additions and deletions to the local snapshot before the response", () => {
+        const current = settings();
+        const channel = { id: "one", name: "主渠道", baseUrl: "https://api.example.com/v1", apiKey: "", apiFormat: "openai" as const, models: ["writer"], enabled: true };
+        current.systemChannels = [channel];
+
+        const deleted = applyAdminSettingsSaveSnapshot(current, createAdminSettingsSaveSnapshot({ systemChannels: [] }));
+        const added = applyAdminSettingsSaveSnapshot(deleted, createAdminSettingsSaveSnapshot({ systemChannels: [channel] }));
+
+        expect(deleted.systemChannels).toEqual([]);
+        expect(added.systemChannels).toEqual([channel]);
+    });
+
+    it("rolls back a failed deletion without overwriting a later edit", () => {
+        const current = settings();
+        const channel = { id: "one", name: "主渠道", baseUrl: "https://api.example.com/v1", apiKey: "", apiFormat: "openai" as const, models: ["writer"], enabled: true };
+        current.systemChannels = [channel];
+        const previous = createAdminSettingsSaveSnapshot({ systemChannels: current.systemChannels });
+        const submitted = createAdminSettingsSaveSnapshot({ systemChannels: [] });
+        const pending = applyAdminSettingsSaveSnapshot(current, submitted);
+
+        expect(restoreAdminSettingsSaveFailure(pending, previous, submitted).systemChannels).toEqual([channel]);
+
+        const edited = { ...pending, systemChannels: [{ ...channel, id: "later" }] };
+        expect(restoreAdminSettingsSaveFailure(edited, previous, submitted).systemChannels).toEqual(edited.systemChannels);
     });
 
     it("does not overwrite a field edited while its save request is pending", () => {

@@ -5,6 +5,7 @@ import { Check, Film, Image as ImageIcon, LoaderCircle } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { formatBytes } from "@/lib/image-utils";
+import { imagePreviewUrl } from "@/lib/media-image-url";
 import {
     createWorkPublication,
     getWorkPublication,
@@ -305,7 +306,7 @@ export function WorkPublicationEditor({
                                             <article key={candidate.storageKey} className={`min-w-0 overflow-hidden rounded-md border ${selected ? "border-stone-950 dark:border-stone-100" : "border-stone-200 dark:border-stone-800"}`}>
                                                 <div className="relative aspect-[4/3] overflow-hidden bg-stone-100 dark:bg-stone-900">
                                                     {candidate.mediaType === "image" ? (
-                                                        <img src={candidate.previewUrl} alt={candidate.originalName} className="size-full object-cover" loading="lazy" />
+                                                        <img src={imagePreviewUrl(candidate.previewUrl, 320)} alt={candidate.originalName} className="size-full object-cover" loading="lazy" />
                                                     ) : candidate.mediaType === "video" ? (
                                                         <video src={candidate.previewUrl} className="size-full object-cover" preload="metadata" muted />
                                                     ) : null}

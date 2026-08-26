@@ -49,6 +49,23 @@ describe("media concurrency", () => {
         next?.release();
     });
 
+    it("cancels the source and releases the permit when the request is aborted", async () => {
+        const identity = crypto.randomUUID();
+        const cancel = vi.fn();
+        const source = new ReadableStream<Uint8Array>({ cancel });
+        const permit = acquireMediaConcurrency("local", identity, { total: 2, perIdentity: 1 });
+        const request = new AbortController();
+        withMediaConcurrency(new Response(source), permit!, request.signal);
+
+        request.abort("navigation");
+        await Promise.resolve();
+
+        expect(cancel).toHaveBeenCalledWith("navigation");
+        const next = acquireMediaConcurrency("local", identity, { total: 2, perIdentity: 1 });
+        expect(next).not.toBeNull();
+        next?.release();
+    });
+
     it("cancels an unread source stream when its lease expires", async () => {
         vi.useFakeTimers();
         const identity = crypto.randomUUID();

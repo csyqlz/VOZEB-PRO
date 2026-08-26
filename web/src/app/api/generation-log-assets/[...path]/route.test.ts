@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
     wrap: vi.fn(),
     head: vi.fn(),
     release: vi.fn(),
+    verify: vi.fn(),
 }));
 
 vi.mock("@/lib/auth/session", () => ({ getCurrentUser: mocks.getCurrentUser }));
@@ -27,6 +28,7 @@ vi.mock("@/lib/server/local-media-response", () => ({
 vi.mock("@/lib/server/media-concurrency", () => ({ acquireMediaConcurrency: mocks.acquire, withMediaConcurrency: mocks.wrap }));
 vi.mock("@/lib/server/security", () => ({ checkLocalMediaRateLimit: mocks.rate, rateLimitHeaders: vi.fn(() => ({ "Retry-After": "60" })) }));
 vi.mock("@/lib/server/object-storage-service", () => ({ createExternalMediaReadUrl: mocks.externalRead }));
+vi.mock("@/lib/server/reference-asset-access", () => ({ verifyGenerationAssetSignature: mocks.verify }));
 
 import { GET, HEAD } from "./route";
 
@@ -36,6 +38,7 @@ describe("generation log asset access", () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.getCurrentUser.mockResolvedValue({ id: "owner", role: "user" });
+        mocks.verify.mockReturnValue(false);
         mocks.getDataDir.mockReturnValue("C:/vozeb-data");
         mocks.canAccess.mockResolvedValue(true);
         mocks.registration.mockResolvedValue({ originalName: "uploaded-file.png", mimeType: "image/png" });
@@ -90,11 +93,32 @@ describe("generation log asset access", () => {
     });
 
     it("checks ownership and streams an allowed asset", async () => {
-        const response = await GET(new Request("http://localhost/api/generation-log-assets/permanent/2026/07/20/images/file.png"), context);
+        const request = new Request("http://localhost/api/generation-log-assets/permanent/2026/07/20/images/file.png", { headers: { "x-vozeb-pro-worker-user-id": "owner" } });
+        const response = await GET(request, context);
         expect(response.status).toBe(200);
+        expect(mocks.getCurrentUser).toHaveBeenCalledWith(request);
         expect(mocks.canAccess).toHaveBeenCalledWith("owner", "user", "/api/generation-log-assets/permanent/2026/07/20/images/file.png");
         expect(mocks.disposition).toHaveBeenCalledWith("inline", "uploaded-file.png", "image/png", "");
         expect(mocks.stream).toHaveBeenCalled();
+    });
+
+    it("allows a provider signature without login or a second media copy", async () => {
+        mocks.verify.mockReturnValue(true);
+        mocks.getCurrentUser.mockResolvedValue(null);
+        const response = await GET(new Request("http://localhost/api/generation-log-assets/permanent/2026/07/20/images/file.png?purpose=provider-read&expires=1&signature=test"), context);
+
+        expect(response.status).toBe(200);
+        expect(mocks.getCurrentUser).not.toHaveBeenCalled();
+        expect(mocks.canAccess).not.toHaveBeenCalled();
+        expect(mocks.rate).toHaveBeenCalledWith("signature:test", expect.any(Request));
+    });
+
+    it("does not let a provider signature download the original", async () => {
+        mocks.verify.mockReturnValue(true);
+        const response = await GET(new Request("http://localhost/api/generation-log-assets/permanent/2026/07/20/images/file.png?purpose=provider-read&expires=1&signature=test&download=original"), context);
+
+        expect(response.status).toBe(403);
+        expect(mocks.registration).toHaveBeenCalled();
     });
 
     it("marks object-backed original HEAD downloads as attachments", async () => {

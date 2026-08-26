@@ -197,6 +197,11 @@ describe("executeAgentRun backend settings", () => {
 
     it("runs an explicitly selected generation model without a default text model", async () => {
         mocks.run = runFixture({ surface: "chat", projectId: undefined, prompt: "生成商品主图", requestedModelIds: ["image-model"] });
+        mocks.getCreativeConversationContext.mockResolvedValue({
+            summary: "同一商品使用红色包装",
+            summaryThroughSequence: 1,
+            recentMessages: [],
+        });
         const manualSettings = settings("image-model", "image-channel") as unknown as {
             defaultModels: { textModel: string };
             systemChannels: Array<{ id: string }>;
@@ -209,10 +214,12 @@ describe("executeAgentRun backend settings", () => {
 
         await executeAgentRun(mocks.run, "http://localhost", "session=test");
 
-        expect(mocks.getCreativeConversationContext).not.toHaveBeenCalled();
+        expect(mocks.getCreativeConversationContext).toHaveBeenCalledWith("conversation", "user", "agent-run");
         expect(mocks.listRecentCreativeMediaAssets).not.toHaveBeenCalled();
         expect(mocks.fetchInternalApi.mock.calls.some(([url]) => String(url).endsWith("/responses") || String(url).endsWith("/chat/completions"))).toBe(false);
         expect(mocks.fetchInternalApi.mock.calls.some(([url, init]) => init?.method === "POST" && String(url).endsWith("/api/image-tasks"))).toBe(true);
+        expect(mocks.run?.tasks[0]).toMatchObject({ optimizedPrompt: "生成商品主图" });
+        expect(mocks.run?.tasks[0]?.prompt).toContain("同一商品使用红色包装");
         expect(mocks.run?.status).toBe("completed");
     });
 
@@ -428,6 +435,38 @@ describe("executeAgentRun backend settings", () => {
         expect(mocks.run?.status).toBe("completed");
     });
 
+    it("pauses on needs_review and resumes the same child without another upstream creation", async () => {
+        mocks.run = runWithTasks([imageTask("image-one")]);
+        mocks.getAuthSettings.mockResolvedValue(settings("image-model", "image-channel"));
+        let polls = 0;
+        mocks.fetchInternalApi.mockImplementation(async (url: string, init?: RequestInit) => {
+            if (init?.method === "POST" && url.endsWith("/api/image-tasks")) return Response.json({ task: { id: "child-review" } });
+            if (url.endsWith("/api/image-tasks/child-review")) {
+                polls += 1;
+                return polls === 1 ? Response.json({ task: { status: "running", needsReview: true, reviewReason: "上游创建状态待确认" } }) : Response.json({ task: { status: "success", result: { url: "https://cdn.example.com/recovered.png" } } });
+            }
+            throw new Error(`unexpected request: ${url}`);
+        });
+
+        await executeAgentRun(mocks.run, "http://localhost", "session=test");
+
+        expect(mocks.fetchInternalApi.mock.calls.filter((call) => call[1]?.method === "POST")).toHaveLength(1);
+        expect(mocks.run).toMatchObject({
+            status: "paused",
+            tasks: [expect.objectContaining({ status: "needs_review", taskId: "child-review", childTasks: [expect.objectContaining({ id: "child-review", status: "needs_review" })] })],
+        });
+        expect(mocks.events.some((event) => event.type === "task.needs_review")).toBe(true);
+        expect(mocks.events.some((event) => event.type === "run.paused")).toBe(true);
+
+        mocks.run = { ...mocks.run!, status: "running" };
+        await executeAgentRun(mocks.run, "http://localhost", "session=test");
+
+        expect(mocks.fetchInternalApi.mock.calls.filter((call) => call[1]?.method === "POST" && String(call[0]).endsWith("/api/image-tasks"))).toHaveLength(1);
+        expect(mocks.fetchInternalApi.mock.calls.filter((call) => call[1]?.method === "POST" && String(call[0]).endsWith("/api/image-tasks/child-review"))).toHaveLength(1);
+        expect(polls).toBe(2);
+        expect(mocks.run?.status).toBe("completed");
+    });
+
     it("does not create another child after an upstream task reports an error", async () => {
         mocks.run = runWithTasks([imageTask("image-one")]);
         mocks.getAuthSettings.mockResolvedValue(settings("image-model", "image-channel"));
@@ -441,7 +480,7 @@ describe("executeAgentRun backend settings", () => {
 
         expect(mocks.fetchInternalApi.mock.calls.filter((call) => call[1]?.method === "POST")).toHaveLength(1);
         expect(mocks.run?.tasks[0]).toMatchObject({ status: "failed", attempts: 1, taskId: "child-error", childTasks: [{ id: "child-error", status: "failed", attempt: 1, error: "上游生成失败" }], error: "上游生成失败" });
-        expect(mocks.run?.status).toBe("failed");
+        expect(mocks.run).toMatchObject({ status: "failed", failureStage: "task_execution", failure: expect.stringContaining("上游生成失败") });
     });
 
     it("turns explicit canvas text-node content into a node result without calling the text task API", async () => {
@@ -525,6 +564,7 @@ describe("executeAgentRun backend settings", () => {
 
         const planningCall = mocks.fetchInternalApi.mock.calls.find(([url]) => String(url).endsWith("/chat/completions"));
         const planningBody = JSON.parse(String(planningCall?.[1]?.body)) as { messages: Array<{ content: string }> };
+        expect(planningBody.messages[0].content).toContain("你是 星河创作 画布创作 Agent");
         const planningInput = JSON.parse(planningBody.messages[1].content) as { availableModels: Array<{ id: string; capability: string }> };
         expect(planningInput.availableModels).toEqual(expect.arrayContaining([expect.objectContaining({ id: "image-default", capability: "image" }), expect.objectContaining({ id: "image-creative", capability: "image" })]));
         expect(mocks.run?.plannerContext).toMatchObject({
@@ -1079,7 +1119,12 @@ describe("executeAgentRun backend settings", () => {
         await executeAgentRun(mocks.run, "http://localhost", "session=test");
 
         expect(mocks.refundUserPoints).toHaveBeenCalledWith("user", "planner", 2, "text", 1, undefined, "points-agent-plan");
-        expect(mocks.run?.status).toBe("failed");
+        expect(mocks.run).toMatchObject({
+            status: "failed",
+            failureStage: "planning",
+            failure: expect.any(String),
+            candidateFailures: [{ channelId: "planner-channel", upstreamModel: "vendor/planner", error: expect.any(String) }],
+        });
     });
 
     it("refunds a zero-cost planning record when persisting the conversation reply fails", async () => {

@@ -1,4 +1,5 @@
 import { typedReferenceAliases } from "@/lib/creative-asset-references";
+import { mentionAtCursor } from "@/lib/mention-at-cursor";
 
 import { CanvasNodeType, isCanvasImageNodeType, type CanvasNodeData } from "../types";
 
@@ -40,12 +41,7 @@ export function canvasAgentReferenceAliases(assets: readonly CanvasAgentMentionA
 }
 
 export function canvasAgentMentionAtCursor(value: string, cursor: number): CanvasAgentMention | undefined {
-    const end = Math.max(0, Math.min(value.length, cursor));
-    const match = value.slice(0, end).match(/@([^\s@]*)$/u);
-    if (!match) return undefined;
-    const start = end - match[0].length;
-    if (start > 0 && /[A-Za-z0-9._%+-]/u.test(value[start - 1])) return undefined;
-    return { start, end, query: match[1] || "" };
+    return mentionAtCursor(value, cursor);
 }
 
 export function replaceCanvasAgentMention(value: string, cursor: number, alias: string) {

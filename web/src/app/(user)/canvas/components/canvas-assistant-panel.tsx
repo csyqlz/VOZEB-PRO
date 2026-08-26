@@ -24,6 +24,7 @@ import { AgentChatComposer, AgentChatMessage, AgentPanelTabs, AgentWorkingMessag
 import { useCanvasAgentAttachments } from "./use-canvas-agent-attachments";
 import { useCanvasAgentMessageScroll } from "./use-canvas-agent-message-scroll";
 import { CANVAS_AGENT_PANEL_MOTION_MS } from "./canvas-agent-panel-motion";
+import { reconcileCreativeGenerationPreferences } from "@/lib/creative-model-capabilities";
 import { clearCanvasAssistantRun, findCanvasAssistantRunSession, patchCanvasAssistantRun, setCanvasAssistantRun, type CanvasAssistantRunState, type CanvasAssistantRunStates } from "./canvas-assistant-run-state";
 import { CanvasNodeType, isCanvasImageNodeType, type CanvasAssistantMessage, type CanvasAssistantReference, type CanvasAssistantSession, type CanvasNodeData } from "../types";
 import type { CanvasAgentOp, CanvasAgentSnapshot } from "../utils/canvas-agent-ops";
@@ -446,6 +447,12 @@ export function CanvasAssistantPanel({ nodes, selectedNodeIds, snapshot, session
             }
             const next = current.includes(model.id) ? current.filter((id) => id !== model.id) : [...current, model.id];
             setSmartPlanning(next.length === 0);
+            setGenerationPreferences((preferences) =>
+                reconcileCreativeGenerationPreferences(
+                    preferences,
+                    models.filter((option) => next.includes(option.id)),
+                ),
+            );
             return next;
         });
     };
@@ -693,7 +700,7 @@ export function CanvasAssistantPanel({ nodes, selectedNodeIds, snapshot, session
                                 models={models}
                                 selectedModels={selectedModels}
                                 smartPlanning={smartPlanning}
-                                middle={<CanvasAgentGenerationSettings preferences={generationPreferences} onChange={setGenerationPreferences} />}
+                                middle={<CanvasAgentGenerationSettings preferences={generationPreferences} models={selectedModels} onChange={setGenerationPreferences} />}
                                 onSelectSkill={(skill) => setSelectedSkillId(skill.id)}
                                 onToggleModel={toggleModel}
                                 onClearModels={enableSmartPlanning}
@@ -740,7 +747,7 @@ export function CanvasAssistantPanel({ nodes, selectedNodeIds, snapshot, session
     return (
         <motion.div
             className="canvas-agent-panel-frame flex shrink-0"
-            initial={{ width: 0, opacity: 0 }}
+            initial={false}
             animate={{ width: closing ? 0 : width + 1, opacity: closing ? 0 : 1 }}
             transition={{ duration: resizing ? 0 : PANEL_MOTION_SECONDS, ease: [0.22, 1, 0.36, 1] }}
             style={{ overflow: "clip", pointerEvents: closing ? "none" : undefined }}

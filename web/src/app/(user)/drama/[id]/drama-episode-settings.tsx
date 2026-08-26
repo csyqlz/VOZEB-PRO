@@ -1,6 +1,6 @@
 "use client";
 
-import { Input, Select } from "antd";
+import { Input, InputNumber, Select } from "antd";
 
 import type { DramaEpisode, DramaProject } from "../types";
 import { useDramaStore } from "../stores/use-drama-store";
@@ -8,6 +8,12 @@ import { useDramaStore } from "../stores/use-drama-store";
 export function DramaEpisodeSettings({ project, episode, embedded = false }: { project: DramaProject; episode: DramaEpisode; embedded?: boolean }) {
     const updateProject = useDramaStore((state) => state.updateProject);
     const updateEpisode = useDramaStore((state) => state.updateEpisode);
+    const updateEpisodeNumber = useDramaStore((state) => state.updateEpisodeNumber);
+    const episodeIndex = Math.max(
+        0,
+        project.episodes.findIndex((item) => item.id === episode.id),
+    );
+    const episodeNumber = episode.episodeNumber || episodeIndex + 1;
     const paragraphCount = episode.script.trim() ? episode.script.split(/\n+/).filter(Boolean).length : 0;
     const characterCount = new Set(episode.shots.flatMap((shot) => shot.characterIds)).size;
     const duration = episode.shots.reduce((total, shot) => total + (Number.isFinite(shot.duration) ? shot.duration : 0), 0);
@@ -20,6 +26,10 @@ export function DramaEpisodeSettings({ project, episode, embedded = false }: { p
                 </>
             ) : null}
             <div className={`${embedded ? "space-y-3" : "mt-4 space-y-4"}`}>
+                <label className="block space-y-1.5">
+                    <span className="text-xs font-medium text-foreground">集数</span>
+                    <InputNumber className="!h-8 !w-full" min={1} precision={0} value={episodeNumber} onChange={(value) => typeof value === "number" && updateEpisodeNumber(project.id, episode.id, value)} />
+                </label>
                 <label className="block space-y-1.5">
                     <span className="text-xs font-medium text-foreground">本集名称</span>
                     <Input className="!h-8" value={episode.title} onChange={(event) => updateEpisode(project.id, episode.id, { title: event.target.value })} />

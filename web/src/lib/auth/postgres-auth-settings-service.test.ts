@@ -84,4 +84,12 @@ describe("updatePostgresAuthSettings", () => {
         expect(mocks.upsertEntitlementPlan).not.toHaveBeenCalled();
         expect(mocks.removeEntitlementPlansNotIn).not.toHaveBeenCalled();
     });
+
+    it("deletes every persisted channel when the submitted channel snapshot is empty", async () => {
+        const settings = await updatePostgresAuthSettings({ systemChannels: [] });
+
+        expect(settings.systemChannels).toEqual([]);
+        expect(mocks.upsertSystemModelChannel).not.toHaveBeenCalled();
+        expect(mocks.deleteSystemModelChannelsNotIn).toHaveBeenCalledWith([]);
+    });
 });

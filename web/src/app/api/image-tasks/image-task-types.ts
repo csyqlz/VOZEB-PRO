@@ -12,6 +12,7 @@ import { finishGenerationAttempt, startGenerationAttempt } from "@/lib/server/ge
 import { resolveLogicalModelCandidates } from "@/lib/server/logical-model-router";
 import { assertReferenceCapabilities } from "@/lib/server/provider-task-config";
 import { countActiveImageTasksForUser, createImageTask, getImageTask, touchImageTask, transitionImageTask, type ImageTask, type ImageTaskConfig, type ImageTaskReference, updateImageTask } from "@/lib/server/image-task-store";
+import type { CanvasImageLayerBatchRequest } from "@/lib/server/canvas-image-layer-grant";
 import { isGenerationSource, recordGenerationLog } from "@/lib/server/generation-log-store";
 import { writeReferenceImageDataUrl } from "@/lib/server/reference-asset-store";
 import { resolveImageTaskOptions } from "@/lib/server/image-task-config";
@@ -29,6 +30,7 @@ export type CreateImageTaskBody = {
     source?: string;
     title?: string;
     context?: GenerationTaskContext;
+    layerBatch?: CanvasImageLayerBatchRequest;
 };
 
 export type ImageApiResponse = {

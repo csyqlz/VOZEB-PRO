@@ -14,6 +14,7 @@ export const SEEDANCE_REFERENCE_LIMITS = {
 };
 
 export const seedanceResolutionOptions = [
+    { value: "auto", label: "智能" },
     { value: "480p", label: "480p" },
     { value: "720p", label: "720p" },
     { value: "1080p", label: "1080p" },
@@ -81,13 +82,15 @@ function isArkPlanBaseUrl(baseUrl: string) {
 
 export function normalizeSeedanceResolution(value: string, model = "") {
     const normalized = normalizeResolutionToken(value);
+    if (normalized === "auto") return normalized;
     if (isSeedanceFastModel(model) && normalized === "1080p") return "720p";
     return seedanceResolutionOptions.some((item) => item.value === normalized) ? normalized : "720p";
 }
 
 function normalizeResolutionToken(value: string) {
     if (value === "low") return "480p";
-    if (value === "auto" || value === "high" || value === "medium") return "720p";
+    if (value === "auto") return "auto";
+    if (value === "high" || value === "medium") return "720p";
     const resolution = String(value || "").replace(/p$/i, "") || "720";
     return `${resolution}p`;
 }
@@ -119,10 +122,12 @@ export function normalizeSeedanceRatio(value: string) {
 }
 
 export function seedancePixelLabel(resolution: string, ratio: string) {
-    const normalizedResolution = normalizeSeedanceResolution(resolution) as keyof typeof seedancePixels;
-    const normalizedRatio = normalizeSeedanceRatio(ratio) as keyof (typeof seedancePixels)[typeof normalizedResolution] | "adaptive";
+    const normalizedResolution = normalizeSeedanceResolution(resolution);
+    if (normalizedResolution === "auto") return "自动匹配";
+    const fixedResolution = normalizedResolution as keyof typeof seedancePixels;
+    const normalizedRatio = normalizeSeedanceRatio(ratio) as keyof (typeof seedancePixels)[typeof fixedResolution] | "adaptive";
     if (normalizedRatio === "adaptive") return "自动匹配";
-    return seedancePixels[normalizedResolution][normalizedRatio] || "";
+    return seedancePixels[fixedResolution][normalizedRatio] || "";
 }
 
 export function boolConfig(value: string | undefined, fallback: boolean) {

@@ -9,6 +9,7 @@ import { type CanvasTheme } from "@/lib/canvas-theme";
 import { modelOptionName, type AiConfig } from "@/stores/use-config-store";
 
 const resolutionOptions = [
+    { value: "auto", label: "智能" },
     { value: "720", label: "720p" },
     { value: "480", label: "480p" },
 ];
@@ -19,7 +20,7 @@ const sizeOptions = [
     { value: "1024x1024", label: "方形", width: 1024, height: 1024 },
     { value: "1792x1024", label: "宽屏", width: 1792, height: 1024 },
     { value: "1024x1792", label: "长图", width: 1024, height: 1792 },
-    { value: "auto", label: "auto", width: 0, height: 0 },
+    { value: "auto", label: "智能", width: 0, height: 0 },
 ];
 
 const defaultSecondOptions = [5, 10];
@@ -61,7 +62,7 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
                                 {item.label}
                             </OptionPill>
                         ))}
-                        <ResolutionInput value={resolution} theme={theme} onChange={(value) => onConfigChange("vquality", value)} />
+                        <ResolutionInput value={resolution === "auto" ? "" : resolution} theme={theme} onChange={(value) => onConfigChange("vquality", value)} />
                     </div>
                 </SettingGroup>
                 <SettingGroup title="尺寸" color={theme.node.muted}>
@@ -168,7 +169,8 @@ function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, 
 }
 
 export function videoResolutionLabel(value: string) {
-    return `${normalizeVideoResolutionValue(value)}p`;
+    const normalized = normalizeVideoResolutionValue(value);
+    return normalized === "auto" ? "智能" : `${normalized}p`;
 }
 
 export function videoSizeLabel(value: string) {
@@ -204,8 +206,9 @@ export function normalizeVideoSizeValue(value: string) {
 }
 
 export function normalizeVideoResolutionValue(value: string) {
+    if (value === "auto") return "auto";
     if (value === "480p" || value === "low") return "480";
-    if (value === "720p" || value === "auto" || value === "high" || value === "medium") return "720";
+    if (value === "720p" || value === "high" || value === "medium") return "720";
     return value.replace(/p$/i, "") || "720";
 }
 

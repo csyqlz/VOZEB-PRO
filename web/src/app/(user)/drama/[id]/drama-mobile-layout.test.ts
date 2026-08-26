@@ -13,11 +13,15 @@ describe("drama mobile list layout", () => {
     });
 
     it("uses the production workspace panels with responsive episode and Agent controls", async () => {
-        const [page, sections, agent, elements] = await Promise.all([
+        const [page, sections, agent, elements, scriptWorkspace, episodeSettings, storyboardCard, frameEditor] = await Promise.all([
             readFile(resolve(process.cwd(), "src/app/(user)/drama/[id]/page.tsx"), "utf8"),
             readFile(resolve(process.cwd(), "src/app/(user)/drama/[id]/drama-project-sections.tsx"), "utf8"),
             readFile(resolve(process.cwd(), "src/app/(user)/drama/[id]/drama-agent-panel.tsx"), "utf8"),
             readFile(resolve(process.cwd(), "src/app/(user)/drama/[id]/drama-editor-elements.tsx"), "utf8"),
+            readFile(resolve(process.cwd(), "src/app/(user)/drama/[id]/drama-script-workspace.tsx"), "utf8"),
+            readFile(resolve(process.cwd(), "src/app/(user)/drama/[id]/drama-episode-settings.tsx"), "utf8"),
+            readFile(resolve(process.cwd(), "src/app/(user)/drama/[id]/drama-storyboard-shot-card.tsx"), "utf8"),
+            readFile(resolve(process.cwd(), "src/app/(user)/drama/[id]/drama-shot-frame-editor.tsx"), "utf8"),
         ]);
 
         expect(page).not.toContain("xl:grid-cols-[184px_minmax(0,1fr)_360px]");
@@ -68,5 +72,14 @@ describe("drama mobile list layout", () => {
         expect(agent).toContain("activated");
         expect(agent).not.toContain("剧本右侧工作栏");
         expect(agent).toContain("destroyOnHidden={false}");
+        expect(scriptWorkspace).not.toContain("<DramaEpisodeSettings");
+        expect(scriptWorkspace).toContain("min-[1120px]:grid-cols-[200px_minmax(700px,1fr)]");
+        expect(sections).not.toContain("min-[1366px]:!hidden");
+        for (const label of ["分镜驱动", "直接生成", "参考图"]) {
+            expect(episodeSettings).toContain(label);
+            expect(storyboardCard).toContain(label);
+        }
+        expect(frameEditor).toContain("单帧");
+        expect(frameEditor).toContain("首尾帧");
     });
 });

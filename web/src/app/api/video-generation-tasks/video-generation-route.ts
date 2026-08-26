@@ -10,10 +10,11 @@ import { assertReferenceCapabilities, assertReferenceUrls, assertVideoReferenceR
 import { buildGlobalAiOpcVideoRequest, resolveGlobalAiOpcPreset } from "@/lib/globalaiopc-catalog";
 import { createVideoTask, transitionVideoTask, updateVideoTask, type VideoTask } from "@/lib/server/video-task-store";
 import { toSafeGenerationErrorMessage } from "@/lib/server/generation-errors";
-import { getStoredGenerationTaskByRequest, linkStoredGenerationTask, withGenerationConcurrencyLimit, type GenerationTaskContext } from "@/lib/server/generation-task-store";
+import { generationCapacityRetryAfterSeconds, getStoredGenerationTaskByRequest, linkStoredGenerationTask, withGenerationConcurrencyLimit, type GenerationTaskContext } from "@/lib/server/generation-task-store";
 import { normalizeVideoAspectRatio, resolveUpstreamVideoDuration, resolveVideoDuration, resolveVideoGenerationParameters, withVideoReferenceFidelity } from "@/lib/server/video-task-config";
 import { parseImageDimensions } from "@/lib/image-size";
-import { signReferenceAssetInputUrl } from "@/lib/server/reference-asset-access";
+import { signGenerationAssetInputUrl, signReferenceAssetInputUrl } from "@/lib/server/reference-asset-access";
+import { requireManagedMediaInputOwner } from "@/lib/server/managed-media-input-access";
 import { assertCapabilityConstraints } from "@/lib/server/capability-constraints";
 import { checkGenerationRateLimit, rateLimitHeaders } from "@/lib/server/security";
 import { resolveModelRequestTimeoutMs } from "@/lib/server/model-request-policy";
@@ -31,6 +32,7 @@ import { writeVideoGenerationLog } from "@/lib/server/video-task-log";
 import { buildOpenAiVideoFormData } from "./video-task-openai";
 import { normalizeVideoGenerationReferences, regularVideoReferences, videoFrameReferences, type VideoGenerationReference } from "@/lib/video-reference-contract";
 import { assertYumengVideoReferences, buildYumengVideoRequest } from "@/lib/yumeng-model-center";
+import { normalizeVideoProviderImageReferences } from "@/lib/server/video-reference-image";
 
 const CREATE_PATHS = ["/video/generations", "/videos/generations", "/videos/videos", "/videos"];
 type CreateVideoTaskBody = { config?: Record<string, unknown>; prompt?: string; references?: VideoGenerationReference[]; source?: string; context?: GenerationTaskContext };
@@ -58,67 +60,116 @@ export async function POST(request: Request) {
         if (existing) return NextResponse.json({ task: publicTask(existing) });
     }
     if (headerRequestId) body.context = { ...(body.context || {}), clientRequestId: headerRequestId, ...(headerAttemptNo ? { attemptNo: headerAttemptNo } : {}) };
+    const concurrencyRequestId = clean(body.context?.clientRequestId) || `video-request:${user.id}:${crypto.randomUUID()}`;
+    body.context = { ...(body.context || {}), clientRequestId: concurrencyRequestId };
     const settings = await getAuthSettings();
-    const response = await withGenerationConcurrencyLimit(user.id, "video", 30 * 60_000, settings.generationConcurrency.video, async () => {
-        const requestedModel = typeof body.config?.model === "string" && body.config.model.trim() ? body.config.model : settings.defaultModels.videoModel;
-        const channels = resolveLogicalModelCandidates(settings, "video", requestedModel).map(toSystemGenerationChannel);
-        const prompt = String(body.prompt || "").trim();
-        if (!channels.length || !prompt) return NextResponse.json({ error: "视频任务参数不完整或渠道不支持" }, { status: 400 });
-        const publicOrigin = requestPublicOrigin(request);
-        let references: VideoGenerationReference[];
-        try {
-            references = normalizeVideoGenerationReferences(body.references).map((reference) => ({ ...reference, url: signReferenceAssetInputUrl(reference.url, publicOrigin) }));
-        } catch (error) {
-            return NextResponse.json({ error: error instanceof Error ? error.message : "视频参考素材不正确" }, { status: 400 });
-        }
-        const providerPrompt = withVideoReferenceFidelity(prompt, references);
-        const origin = resolveInternalOrigin(new URL(request.url).origin);
-        const cookie = requestRuntimeCredential(request, user.id);
-        const requestedParameters = resolveVideoGenerationParameters(body.config || {}, settings.generationDefaults);
-        const billingRequestId = clean(body.context?.clientRequestId) || clean(request.headers.get("x-vozeb-pro-client-request-id")) || `video-request:${user.id}:${Date.now()}`;
-        let lastError: unknown;
-        let capabilityError: unknown;
-        let attempts: GenerationAttempt[] = [];
-        let localTask: VideoTask | undefined;
-        for (let index = 0; index < channels.length; index += 1) {
-            const channel = channels[index];
-            const geminiVideo = isGeminiVideoChannel(channel);
-            const parameters = {
-                ...requestedParameters,
-                videoSeconds: geminiVideo
-                    ? normalizeGeminiVideoDuration(requestedParameters.videoSeconds)
-                    : resolveUpstreamVideoDuration(requestedParameters.videoSeconds, settings.generationDefaults.videoSeconds, {
-                          durationRange: channel.advancedConfig?.durationRange,
-                          minDurationSeconds: channel.capabilityProfile?.minDurationSeconds,
-                          maxDurationSeconds: channel.capabilityProfile?.maxDurationSeconds,
-                      }),
-            };
+    const response = await withGenerationConcurrencyLimit(
+        user.id,
+        "video",
+        30 * 60_000,
+        settings.generationConcurrency.video,
+        async () => {
+            const requestedModel = typeof body.config?.model === "string" && body.config.model.trim() ? body.config.model : settings.defaultModels.videoModel;
+            const channels = resolveLogicalModelCandidates(settings, "video", requestedModel).map(toSystemGenerationChannel);
+            const prompt = String(body.prompt || "").trim();
+            if (!channels.length || !prompt) return NextResponse.json({ error: "视频任务参数不完整或渠道不支持" }, { status: 400 });
+            const publicOrigin = requestPublicOrigin(request);
+            let references: VideoGenerationReference[];
             try {
-                assertCapabilityConstraints(channel.capabilityProfile, {
-                    capability: "video",
-                    referenceCount: references.filter((reference) => reference.type === "image").length,
-                    durationSeconds: parameters.videoSeconds === -1 ? undefined : parameters.videoSeconds,
-                    aspectRatio: normalizeVideoAspectRatio(parameters.size),
-                });
-                const globalPreset = globalAiOpcVideoPreset(channel.advancedConfig, channel.model);
-                if (geminiVideo) {
-                    assertGeminiVideoReferences(references);
+                references = await Promise.all(normalizeVideoGenerationReferences(body.references).map((reference) => signProviderReference(reference, user, publicOrigin)));
+            } catch (error) {
+                return NextResponse.json({ error: error instanceof Error ? error.message : "视频参考素材不正确" }, { status: 400 });
+            }
+            const origin = resolveInternalOrigin(new URL(request.url).origin);
+            const cookie = requestRuntimeCredential(request, user.id);
+            try {
+                references = await normalizeVideoProviderImageReferences({ references, userId: user.id, internalOrigin: origin, publicOrigin });
+            } catch (error) {
+                return NextResponse.json({ error: error instanceof Error ? error.message : "视频参考素材转换失败" }, { status: 400 });
+            }
+            const providerPrompt = withVideoReferenceFidelity(prompt, references);
+            const requestedParameters = resolveVideoGenerationParameters(body.config || {}, settings.generationDefaults);
+            const billingRequestId = concurrencyRequestId;
+            let lastError: unknown;
+            let capabilityError: unknown;
+            let attempts: GenerationAttempt[] = [];
+            let localTask: VideoTask | undefined;
+            for (let index = 0; index < channels.length; index += 1) {
+                const channel = channels[index];
+                const geminiVideo = isGeminiVideoChannel(channel);
+                const parameters = {
+                    ...requestedParameters,
+                    videoSeconds: geminiVideo
+                        ? normalizeGeminiVideoDuration(requestedParameters.videoSeconds)
+                        : resolveUpstreamVideoDuration(requestedParameters.videoSeconds, settings.generationDefaults.videoSeconds, {
+                              durationRange: channel.advancedConfig?.durationRange,
+                              minDurationSeconds: channel.capabilityProfile?.minDurationSeconds,
+                              maxDurationSeconds: channel.capabilityProfile?.maxDurationSeconds,
+                          }),
+                };
+                try {
+                    assertCapabilityConstraints(channel.capabilityProfile, {
+                        capability: "video",
+                        referenceCount: references.filter((reference) => reference.type === "image").length,
+                        durationSeconds: requestedParameters.videoSeconds === -1 ? undefined : requestedParameters.videoSeconds,
+                        aspectRatio: requestedParameters.size,
+                        resolution: requestedParameters.vquality,
+                    });
+                    const globalPreset = globalAiOpcVideoPreset(channel.advancedConfig, channel.model);
+                    if (geminiVideo) {
+                        assertGeminiVideoReferences(references);
+                    } else {
+                        assertReferenceCapabilities(
+                            globalPreset
+                                ? {
+                                      ...channel.advancedConfig!,
+                                      supportsReferenceImage: Boolean(globalPreset.supportsReferenceImage),
+                                      supportsReferenceVideo: Boolean(globalPreset.supportsReferenceVideo),
+                                      supportsReferenceAudio: Boolean(globalPreset.supportsReferenceAudio),
+                                  }
+                                : channel.advancedConfig,
+                            references,
+                        );
+                        if (channel.advancedConfig?.protocol !== "yumeng") assertVideoReferenceRoles(channel.advancedConfig, references, globalPreset?.videoReferenceRoles);
+                        if (channel.advancedConfig?.protocol === "vozeb-recommended") assertVozebRecommendedVideoReferences(channel.model, references);
+                        if (channel.advancedConfig?.protocol === "yumeng") assertYumengVideoReferences(channel.model, references);
+                        assertReferenceUrls(channel.advancedConfig, references, Boolean(globalPreset));
+                    }
+                } catch (error) {
+                    capabilityError = error;
+                    continue;
+                }
+                const started = startGenerationAttempt(attempts, { channelId: channel.channelId, model: generationModelId(channel), capability: "video" });
+                attempts = started.attempts;
+                const pendingUpstream = {
+                    id: "",
+                    provider: "generation" as const,
+                    model: channel.model,
+                    pollPath: geminiVideo ? geminiVideoCreatePath(channel.model) : channel.advancedConfig?.createPath || CREATE_PATHS[0],
+                };
+                if (!localTask) {
+                    localTask = await createVideoTask({
+                        userId: user.id,
+                        username: user.username,
+                        displayName: user.displayName,
+                        title: prompt.slice(0, 36) || "视频生成",
+                        config: channel,
+                        upstream: pendingUpstream,
+                        requestedDurationSeconds: parameters.videoSeconds === -1 ? undefined : parameters.videoSeconds,
+                        prompt,
+                        source: mediaTaskSource(body.source, body.context, "video-task"),
+                        attempts,
+                        ...(body.context || {}),
+                    });
+                    await linkStoredGenerationTask("video", localTask.id, body.context || {});
                 } else {
-                    assertReferenceCapabilities(
-                        globalPreset
-                            ? {
-                                  ...channel.advancedConfig!,
-                                  supportsReferenceImage: Boolean(globalPreset.supportsReferenceImage),
-                                  supportsReferenceVideo: Boolean(globalPreset.supportsReferenceVideo),
-                                  supportsReferenceAudio: Boolean(globalPreset.supportsReferenceAudio),
-                              }
-                            : channel.advancedConfig,
-                        references,
-                    );
-                    if (channel.advancedConfig?.protocol !== "yumeng") assertVideoReferenceRoles(channel.advancedConfig, references, globalPreset?.videoReferenceRoles);
-                    if (channel.advancedConfig?.protocol === "vozeb-recommended") assertVozebRecommendedVideoReferences(channel.model, references);
-                    if (channel.advancedConfig?.protocol === "yumeng") assertYumengVideoReferences(channel.model, references);
-                    assertReferenceUrls(channel.advancedConfig, references, Boolean(globalPreset));
+                    await updateVideoTask(localTask.id, {
+                        config: channel,
+                        upstream: pendingUpstream,
+                        requestedDurationSeconds: parameters.videoSeconds === -1 ? undefined : parameters.videoSeconds,
+                        attempts,
+                    });
+                    localTask = { ...localTask, config: channel, upstream: pendingUpstream, requestedDurationSeconds: parameters.videoSeconds === -1 ? undefined : parameters.videoSeconds, attempts };
                 }
             } catch (error) {
                 capabilityError = error;
@@ -174,37 +225,76 @@ export async function POST(request: Request) {
                     executionPhase: "submitted",
                     upstreamTaskId: task.upstream.id,
                     channelId: channel.channelId,
-                    provider: task.upstream.provider,
-                    queryPath: task.upstream.queryPath || task.config.advancedConfig?.queryPath || task.upstream.pollPath,
-                    submittedAt,
-                    nextPollAt: submittedAt,
-                    lastUpstreamStatus: "submitted",
+                    provider: channel.advancedConfig?.protocol || channel.apiFormat,
+                    queryPath: channel.advancedConfig?.queryPath,
+                    nextPollAt: submissionStartedAt + resolveModelRequestTimeoutMs(channel, "video"),
+                    lastUpstreamStatus: "submitting",
                 });
-                after(() => runGenerationTaskRecoveryBatch({ origin, cookie, limit: 1, taskIds: [task.id] }));
-                return NextResponse.json({ task: publicTask(task) });
-            } catch (error) {
-                lastError = error;
-                attempts = finishGenerationAttempt(attempts, started.attempt.attemptNo, { status: "failed", error: toSafeGenerationErrorMessage(error, "视频任务创建失败") });
-                await updateVideoTask(localTask.id, { attempts });
-                if (error instanceof SafeCandidateFailure && index < channels.length - 1) continue;
-                const message = toSafeGenerationErrorMessage(error, "视频任务创建失败");
-                if (!(error instanceof SafeCandidateFailure)) {
-                    await scheduleGenerationTask("video", localTask.id, { executionPhase: "needs_review", nextPollAt: undefined, lastUpstreamStatus: "submission_outcome_unknown" });
-                    return NextResponse.json({ task: { ...publicTask({ ...localTask, attempts }), needsReview: true }, warning: `${message}；上游创建结果待确认，系统不会自动重复创建。` }, { status: 202 });
+                try {
+                    const upstream = await createUpstream(user.id, origin, cookie, channel, providerPrompt, parameters, references, settings.generationPointMultipliers, billingRequestId);
+                    await updateVideoTask(localTask.id, { config: channel, upstream, requestedDurationSeconds: parameters.videoSeconds === -1 ? undefined : parameters.videoSeconds, attempts });
+                    const task = { ...localTask, config: channel, upstream, requestedDurationSeconds: parameters.videoSeconds === -1 ? undefined : parameters.videoSeconds, attempts };
+                    const submittedAt = Date.now();
+                    await scheduleGenerationTask("video", task.id, {
+                        executionPhase: "submitted",
+                        upstreamTaskId: task.upstream.id,
+                        channelId: channel.channelId,
+                        provider: task.upstream.provider,
+                        queryPath: task.upstream.queryPath || task.config.advancedConfig?.queryPath || task.upstream.pollPath,
+                        submittedAt,
+                        nextPollAt: submittedAt,
+                        lastUpstreamStatus: "submitted",
+                    });
+                    after(() => runGenerationTaskRecoveryBatch({ origin, cookie, limit: 1, taskIds: [task.id] }));
+                    return NextResponse.json({ task: publicTask(task) });
+                } catch (error) {
+                    lastError = error;
+                    if (error instanceof SafeCandidateFailure) {
+                        attempts = finishGenerationAttempt(attempts, started.attempt.attemptNo, { status: "failed", error: toSafeGenerationErrorMessage(error, "视频任务创建失败") });
+                        await updateVideoTask(localTask.id, { attempts });
+                        if (index < channels.length - 1) continue;
+                    } else if (error instanceof VideoSubmissionUncertainError && error.billing) {
+                        const upstream = { ...localTask.upstream, ...error.billing };
+                        await updateVideoTask(localTask.id, { upstream, attempts });
+                        localTask = { ...localTask, upstream, attempts };
+                    }
+                    const message = toSafeGenerationErrorMessage(error, "视频任务创建失败");
+                    if (!(error instanceof SafeCandidateFailure)) {
+                        await scheduleGenerationTask("video", localTask.id, { executionPhase: "needs_review", nextPollAt: undefined, lastUpstreamStatus: "submission_outcome_unknown" });
+                        return NextResponse.json({ task: { ...publicTask({ ...localTask, attempts }), needsReview: true }, warning: `${message}；上游创建结果待确认，系统不会自动重复创建。` }, { status: 202 });
+                    }
+                    break;
                 }
-                break;
             }
-        }
-        if (!lastError && capabilityError) return NextResponse.json({ error: capabilityError instanceof Error ? capabilityError.message : "当前渠道不支持参考素材" }, { status: 400 });
-        if (localTask && lastError) {
-            const message = toSafeGenerationErrorMessage(lastError, "视频任务创建失败");
-            await writeVideoGenerationLog({ ...localTask, attempts }, "failed", message, lastError instanceof SafeCandidateFailure);
-            await transitionVideoTask(localTask, { status: "error", error: message, retryable: lastError instanceof SafeCandidateFailure });
-            await scheduleGenerationTask("video", localTask.id, { executionPhase: "completed", nextPollAt: undefined, lastUpstreamStatus: "create_failed" });
-        }
-        return NextResponse.json({ error: toSafeGenerationErrorMessage(lastError, "视频任务创建失败"), canRetry: lastError instanceof SafeCandidateFailure }, { status: 502 });
-    });
-    return response || NextResponse.json({ error: "当前用户视频任务已达到并发上限" }, { status: 429 });
+            if (!lastError && capabilityError) return NextResponse.json({ error: capabilityError instanceof Error ? capabilityError.message : "当前渠道不支持参考素材" }, { status: 400 });
+            if (localTask && lastError) {
+                const message = toSafeGenerationErrorMessage(lastError, "视频任务创建失败");
+                await writeVideoGenerationLog({ ...localTask, attempts }, "failed", message, lastError instanceof SafeCandidateFailure);
+                await transitionVideoTask(localTask, { status: "error", error: message, retryable: lastError instanceof SafeCandidateFailure });
+                await scheduleGenerationTask("video", localTask.id, { executionPhase: "completed", nextPollAt: undefined, lastUpstreamStatus: "create_failed" });
+            }
+            return NextResponse.json({ error: toSafeGenerationErrorMessage(lastError, "视频任务创建失败"), canRetry: lastError instanceof SafeCandidateFailure }, { status: 502 });
+        },
+        undefined,
+        concurrencyRequestId,
+    );
+    if (response) return response;
+    const retryAfter = await generationCapacityRetryAfterSeconds(user.id, "video", 30 * 60_000);
+    return NextResponse.json({ error: "当前用户视频任务已达到并发上限" }, { status: 429, ...(retryAfter ? { headers: { "Retry-After": String(retryAfter) } } : {}) });
+}
+
+export async function signProviderReference(reference: VideoGenerationReference, user: { id: string; role: "user" | "admin" }, publicOrigin: string) {
+    let url: URL;
+    try {
+        url = new URL(reference.url, publicOrigin);
+    } catch {
+        return reference;
+    }
+    if (url.origin !== new URL(publicOrigin).origin) return reference;
+    const scope = url.pathname.startsWith("/api/reference-assets/") ? "reference" : url.pathname.startsWith("/api/generation-log-assets/") ? "generation" : null;
+    if (!scope) return reference;
+    const registeredOwnerUserId = await requireManagedMediaInputOwner(url.pathname, { id: user.id, role: user.role }, scope);
+    return { ...reference, url: scope === "reference" ? signReferenceAssetInputUrl(reference.url, publicOrigin, registeredOwnerUserId) : signGenerationAssetInputUrl(reference.url, publicOrigin, registeredOwnerUserId) };
 }
 
 export async function createUpstream(
@@ -246,6 +336,7 @@ export async function createUpstream(
         width: dimensions.width,
         height: dimensions.height,
         generate_audio: generateAudio,
+        watermark: booleanValue(raw.videoWatermark),
         images: requestImages,
         videos,
         audios,
@@ -266,10 +357,13 @@ export async function createUpstream(
         seconds: values.seconds,
         ratio: values.ratio,
         aspect_ratio: values.aspect_ratio,
+        size: values.size,
+        width: values.width,
+        height: values.height,
         resolution: values.resolution,
         quality: values.quality,
         generate_audio: generateAudio,
-        watermark: raw.videoWatermark === "true",
+        watermark: booleanValue(raw.videoWatermark),
         ...(requestImage ? { image: requestImage } : {}),
         ...(requestImages.length ? { images: requestImages, image_urls: requestImages, reference_images: requestImages } : {}),
         ...(videos.length ? { video: videos[0], videos, reference_videos: videos } : {}),
@@ -299,7 +393,7 @@ export async function createUpstream(
                   model: channel.model,
                   prompt,
                   duration: values.duration === -1 ? 5 : (values.duration as number),
-                  ratio: values.ratio as string,
+                  ratio: (values.ratio as string | undefined) || "adaptive",
                   generateAudio,
                   references,
               })
@@ -311,7 +405,7 @@ export async function createUpstream(
                     aspectRatio: values.aspect_ratio as string,
                     resolution: values.resolution as string,
                     generateAudio,
-                    watermark: raw.videoWatermark === "true",
+                    watermark: booleanValue(raw.videoWatermark),
                     images: requestImages,
                     videos,
                     audios,
@@ -450,7 +544,7 @@ async function createGeminiVideoUpstream(input: {
     try {
         data = parseVideoProviderJson(text);
     } catch (error) {
-        throw error instanceof Error ? error : new Error("Gemini Veo 返回了无效 JSON");
+        throw new VideoSubmissionUncertainError(error instanceof Error ? error.message : "Gemini Veo 返回了无效 JSON", videoSubmissionBilling(response.headers, input.raw, input.multipliers));
     }
     const created = parseGeminiVideoCreateResponse(data, input.channel.model);
     const pointsCost = billedPointsCost(response.headers.get("x-vozeb-pro-points-cost"));
@@ -461,7 +555,7 @@ async function createGeminiVideoUpstream(input: {
         }
         throw new SafeCandidateFailure(created.error);
     }
-    if (!created.id) throw new Error("Gemini Veo 没有返回 operation ID");
+    if (!created.id) throw new VideoSubmissionUncertainError("Gemini Veo 没有返回 operation ID", videoSubmissionBilling(response.headers, input.raw, input.multipliers));
     return {
         id: created.id,
         provider: "generation" as const,
@@ -498,18 +592,24 @@ function duration(value: unknown) {
     return resolveVideoDuration(value, 5);
 }
 function ratio(value: unknown) {
-    return normalizeVideoAspectRatio(value);
+    const text = clean(value);
+    return text.toLowerCase() === "auto" ? undefined : normalizeVideoAspectRatio(text);
 }
 function resolution(value: unknown) {
     const text = clean(value).replace(/p$/i, "");
-    return text === "480" || text === "1080" ? `${text}p` : "720p";
+    if (text.toLowerCase() === "auto") return undefined;
+    if (/^\d+$/.test(text)) return `${text}p`;
+    return text || undefined;
 }
-function videoDimensions(size: unknown, quality: unknown) {
+function videoDimensions(size: unknown, quality: unknown): { width?: number; height?: number } {
     const exact = parseImageDimensions(String(size || ""));
     if (exact) return exact;
-    const [x, y] = ratio(size).split(":").map(Number);
-    const edge = Number(resolution(quality).replace("p", "")) || 720;
-    if (!x || !y) return { width: 1280, height: 720 };
+    const fixedRatio = ratio(size);
+    const fixedResolution = resolution(quality);
+    if (!fixedRatio || !fixedResolution) return {};
+    const [x, y] = fixedRatio.split(":").map(Number);
+    const edge = Number(fixedResolution.replace("p", ""));
+    if (!x || !y || !edge) return {};
     return x >= y ? { width: Math.round((edge * x) / y), height: edge } : { width: edge, height: Math.round((edge * y) / x) };
 }
 function sizeValue(value: unknown) {
@@ -534,6 +634,9 @@ function videoUnits(raw: Record<string, unknown>, multipliers: Awaited<ReturnTyp
 }
 function clean(value: unknown) {
     return typeof value === "string" ? value.trim() : "";
+}
+function booleanValue(value: unknown) {
+    return value === true || value === "true";
 }
 function positiveAttemptNo(value: unknown) {
     const parsed = Math.floor(Number(value));

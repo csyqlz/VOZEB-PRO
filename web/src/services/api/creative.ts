@@ -42,7 +42,7 @@ export type CreativeAgentRun = {
         watermark?: boolean;
         speed?: number;
         count?: number;
-        status: "ready" | "running" | "completed" | "failed" | "cancelled";
+        status: "ready" | "running" | "needs_review" | "completed" | "failed" | "cancelled";
         error?: string;
     }>;
     cancellation?: { pendingCount: number };
@@ -215,8 +215,11 @@ export function watchCreativeAgentRun(runId: string, handlers: CreativeRunHandle
             if (payload) callback(payload);
         });
 
-    listen("run.planning", () => handlers.onProgress("正在理解需求并选择合适的创作能力"));
-    listen("skills.selected", () => handlers.onProgress("正在匹配创作技能与模型"));
+    listen("run.planning", () => handlers.onProgress("正在理解你的想法，并为你挑选合适的创作方式…"));
+    listen("run.planning.context_ready", () => handlers.onProgress("需要的内容已经准备好，正在为你整理创作思路…"));
+    listen("run.planning.model_connected", () => handlers.onProgress("创作思路已经理清，正在安排接下来的步骤…"));
+    listen("run.planning.validating", () => handlers.onProgress("正在确认创作步骤，很快就可以开始…"));
+    listen("skills.selected", () => handlers.onProgress("正在挑选更合适的创作方式…"));
     listen("run.planned", ({ data }) => {
         void refreshUserPointsIfSystem("system");
         handlers.onProgress(text(data?.reply) || "方案已确定，正在创建任务");
@@ -257,7 +260,7 @@ export function watchCreativeAgentRun(runId: string, handlers: CreativeRunHandle
         if (payload.status === "completed") finish("completed");
         if (payload.status === "failed") finish("failed", "智能创作失败");
         if (payload.status === "cancelled") finish("cancelled", "任务已取消");
-        if (payload.status === "paused") handlers.onProgress("任务已暂停");
+        if (payload.status === "paused") handlers.onProgress("任务已暂停，当前进度已经为你保存");
     });
     source.onopen = () => {
         if (connectionInterrupted && !settled) handlers.onProgress("连接已恢复，任务继续运行");

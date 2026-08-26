@@ -69,13 +69,13 @@ POSTGRES_PASSWORD=replace-with-a-strong-database-password
 
 使用宝塔宿主机 PostgreSQL 时，应用通过 `docker-compose.baota.yml` 的 host 网络连接 `127.0.0.1:5432`；不要同时启动默认 Compose 中的 PostgreSQL 服务。
 
-## 0.0.6 发布部署要求
+## 0.0.7 发布部署要求
 
-安装过 0.0.2 的用户必须停止旧服务并删除旧数据库或数据库卷，然后重新拉取 0.0.6 代码或镜像并重新安装项目。0.0.6 不支持沿用 0.0.2 数据库或原地升级；删除旧数据库会清除其中的数据。
+安装过 0.0.2 的用户必须停止旧服务并删除旧数据库或数据库卷，然后重新拉取 0.0.7 代码或镜像并重新安装项目。0.0.7 不支持沿用 0.0.2 数据库或原地升级；删除旧数据库会清除其中的数据。
 
-启动 0.0.6 后访问 `/install`，执行“初始化表结构”并创建首个管理员，再检查 `/api/health/ready` 返回 200 和 Worker 心跳。分别生成至少 32 个字符且互不相同的 `VOZEB_PRO_MAINTENANCE_TOKEN` 与 `VOZEB_PRO_WORKER_TOKEN`：App 持有两者，`generation-worker` 只持有 Worker 令牌；生产环境重新设置 `VOZEB_PRO_ENCRYPTION_KEY` 并妥善保存。
+启动 0.0.7 后访问 `/install`，执行“初始化表结构”并创建首个管理员，再检查 `/api/health/ready` 返回 200 和 Worker 心跳。分别生成至少 32 个字符且互不相同的 `VOZEB_PRO_MAINTENANCE_TOKEN` 与 `VOZEB_PRO_WORKER_TOKEN`：App 持有两者，`generation-worker` 只持有 Worker 令牌；生产环境重新设置 `VOZEB_PRO_ENCRYPTION_KEY` 并妥善保存。
 
-0.0.6 只按当前 Schema 初始化固定 `vozeb_pro_` 前缀表，不包含 0.0.2 数据迁移或旧任务修复逻辑。Render Blueprint 使用付费 Web/Worker 与持久数据库/磁盘，安装前请确认平台费用。
+0.0.7 只按当前 Schema 初始化固定 `vozeb_pro_` 前缀表，不包含 0.0.2 数据迁移或旧任务修复逻辑。Render Blueprint 使用付费 Web/Worker 与持久数据库/磁盘，安装前请确认平台费用。
 
 ## 作品内容审核信号
 

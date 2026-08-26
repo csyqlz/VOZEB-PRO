@@ -1,7 +1,7 @@
 import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode, RefObject } from "react";
 import { useEffect, useRef, useState } from "react";
 import { Button, Segmented, Switch } from "antd";
-import { CircleDot, Eraser, FolderOpen, Globe2, Grid2x2, Hand, Image as ImageIcon, Info, Moon, MousePointer2, Music2, Palette, Redo2, Settings2, Square, Sun, Trash2, Type, Undo2, Upload, Video } from "lucide-react";
+import { CircleDot, Download, Eraser, FolderOpen, Globe2, Grid2x2, Hand, Image as ImageIcon, Info, Moon, MousePointer2, Music2, Palette, Redo2, Settings2, Square, Sun, Trash2, Type, Undo2, Upload, Video, Workflow } from "lucide-react";
 
 import { canvasThemes, type CanvasBackgroundMode, type CanvasColorTheme, type CanvasTheme } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
@@ -10,6 +10,8 @@ import type { CanvasInteractionMode } from "./canvas-surface";
 
 export function CanvasToolbar({
     selectedCount,
+    selectedMediaCount,
+    selectedMediaDownloadPending,
     canUndo,
     canRedo,
     agentOpen,
@@ -25,14 +27,18 @@ export function CanvasToolbar({
     onUndo,
     onRedo,
     onUpload,
+    onDownloadSelectedMedia,
     onDelete,
     onClear,
     onInteractionModeChange,
     onBackgroundModeChange,
     onShowImageInfoChange,
     onOpenAssets,
+    onAutoLayout,
 }: {
     selectedCount: number;
+    selectedMediaCount: number;
+    selectedMediaDownloadPending: boolean;
     canUndo: boolean;
     canRedo: boolean;
     agentOpen?: boolean;
@@ -48,12 +54,14 @@ export function CanvasToolbar({
     onUndo: () => void;
     onRedo: () => void;
     onUpload: () => void;
+    onDownloadSelectedMedia: () => void;
     onDelete: () => void;
     onClear: () => void;
     onInteractionModeChange: (mode: CanvasInteractionMode) => void;
     onBackgroundModeChange: (mode: CanvasBackgroundMode) => void;
     onShowImageInfoChange: (show: boolean) => void;
     onOpenAssets: () => void;
+    onAutoLayout: () => void;
 }) {
     const wrapRef = useRef<HTMLDivElement>(null);
     const colorTheme = useThemeStore((state) => state.theme);
@@ -80,7 +88,7 @@ export function CanvasToolbar({
     }, [appearanceOpen]);
 
     return (
-        <div className="canvas-toolbar-dock-wrap pointer-events-none absolute bottom-5 left-0 right-0 z-50 flex justify-center">
+        <div data-canvas-toolbar className="canvas-toolbar-dock-wrap pointer-events-none absolute bottom-5 left-0 right-0 z-50 flex justify-center">
             {tip ? <DockTip label={tip} x={tipX} theme={theme} /> : null}
             <div
                 ref={wrapRef}
@@ -133,6 +141,9 @@ export function CanvasToolbar({
                 <ToolbarButton id="tool-assets" label="资产" hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onOpenAssets}>
                     <FolderOpen className="size-4.5" />
                 </ToolbarButton>
+                <ToolbarButton id="tool-auto-layout" label="一键整理画布" hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onAutoLayout}>
+                    <Workflow className="size-4.5" />
+                </ToolbarButton>
                 <ToolbarButton
                     id="tool-style"
                     label="画布外观"
@@ -150,6 +161,24 @@ export function CanvasToolbar({
                 >
                     <Palette className="size-4.5" />
                 </ToolbarButton>
+                {selectedMediaCount > 1 ? (
+                    <>
+                        <Divider theme={theme} />
+                        <Button
+                            data-canvas-batch-download
+                            data-canvas-batch-download-count={selectedMediaCount}
+                            aria-label={`批量下载 ${selectedMediaCount} 个图片或视频`}
+                            title={`批量下载 ${selectedMediaCount} 个图片或视频`}
+                            className="canvas-toolbar-batch-download !flex !h-8 !min-w-[52px] !items-center !justify-center !gap-1 !rounded-md !px-2 !text-xs !font-medium"
+                            style={{ background: theme.node.action, borderColor: theme.node.action, color: theme.node.actionText }}
+                            icon={<Download className="size-4" />}
+                            loading={selectedMediaDownloadPending}
+                            onClick={onDownloadSelectedMedia}
+                        >
+                            <span aria-hidden="true">{formatBatchDownloadCount(selectedMediaCount)}</span>
+                        </Button>
+                    </>
+                ) : null}
                 {selectedCount ? (
                     <>
                         <Divider theme={theme} />
@@ -321,10 +350,17 @@ function toolLabel(id: string) {
     if (id === "tool-config") return "生成配置";
     if (id === "tool-upload") return "上传素材";
     if (id === "tool-assets") return "资产";
+    if (id === "tool-auto-layout") return "一键整理画布";
     if (id === "tool-style") return "画布外观";
     if (id === "tool-delete") return "删除选中";
     if (id === "tool-clear") return "清空画布";
     return "";
+}
+
+function formatBatchDownloadCount(count: number) {
+    if (count < 1000) return String(count);
+    if (count < 10000) return `${(count / 1000).toFixed(1).replace(/\.0$/, "")}k`;
+    return `${Math.round(count / 1000)}k`;
 }
 
 function getTipX(wrap: HTMLDivElement | null, target: HTMLElement) {

@@ -56,7 +56,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         10 * 60 * 1000,
         limit,
         async () => ({
-            updated: await updateAgentRunById(run.id, { status: "running", tasks }, { type: "task.retry.requested", data: { taskId, taskIds: requestedTaskIds, ops: retriedTasks.flatMap((task) => failedAgentTaskRetryOps(run, task)) } }, [run.status]),
+            updated: await updateAgentRunById(
+                run.id,
+                { status: "running", tasks, failure: undefined, failureStage: undefined, candidateFailures: undefined },
+                { type: "task.retry.requested", data: { taskId, taskIds: requestedTaskIds, ops: retriedTasks.flatMap((task) => failedAgentTaskRetryOps(run, task)) } },
+                [run.status],
+            ),
         }),
         run.id,
     );

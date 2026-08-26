@@ -4,7 +4,7 @@ import type { AgentReadiness } from "@/components/admin/admin-generation-setting
 import { adminSectionHref, type AdminSectionKey } from "@/components/admin/admin-sections";
 import { uniqueList } from "@/components/admin/admin-values";
 import { App, Form } from "antd";
-import type { ReactNode } from "react";
+import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { useCallback, useMemo, useRef, useState } from "react";
 
 import type { AdminBillingSummary } from "@/lib/admin-billing-types";
@@ -68,7 +68,14 @@ export function useAdminDashboardState({ initialUsers, initialUserSummary, initi
     const [usersLoading, setUsersLoading] = useState(false);
     const [userPage, setUserPage] = useState(1);
     const [userTotal, setUserTotal] = useState(0);
-    const [settings, setSettings] = useState(initialSettings);
+    const [settings, setSettingsState] = useState(initialSettings);
+    const settingsRef = useRef(initialSettings);
+    const setSettings = useCallback((update: SetStateAction<AuthSettings>) => {
+        const next = typeof update === "function" ? update(settingsRef.current) : update;
+        settingsRef.current = next;
+        setSettingsState(next);
+    }, []) as Dispatch<SetStateAction<AuthSettings>>;
+    const getSettings = useCallback(() => settingsRef.current, []);
     const [prompts, setPrompts] = useState<Prompt[]>([]);
     const [promptCount, setPromptCount] = useState(initialPromptCount);
     const [promptListTotal, setPromptListTotal] = useState(initialPromptCount);
@@ -200,6 +207,7 @@ export function useAdminDashboardState({ initialUsers, initialUserSummary, initi
         setUserTotal,
         settings,
         setSettings,
+        getSettings,
         prompts,
         setPrompts,
         promptCount,

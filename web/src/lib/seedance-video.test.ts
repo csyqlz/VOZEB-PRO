@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import { defaultConfig, type AiConfig } from "@/stores/use-config-store";
-import { isSeedanceFastModel, isSeedanceVideoConfig } from "./seedance-video";
+import { isSeedanceFastModel, isSeedanceVideoConfig, normalizeSeedanceResolution, seedancePixelLabel } from "./seedance-video";
 
 describe("Seedance video configuration", () => {
+    it("keeps intelligent resolution adaptive in the settings UI", () => {
+        expect(normalizeSeedanceResolution("auto", "seedance-2.0-fast")).toBe("auto");
+        expect(seedancePixelLabel("auto", "16:9")).toBe("自动匹配");
+    });
+
     it("recognizes SD2.0 aliases without confusing Stable Diffusion", () => {
         expect(isSeedanceVideoConfig({ model: "sd2.0", videoModel: "", baseUrl: "" })).toBe(true);
         expect(isSeedanceVideoConfig({ model: "sd_2.0_fast_discount_720p", videoModel: "", baseUrl: "" })).toBe(true);

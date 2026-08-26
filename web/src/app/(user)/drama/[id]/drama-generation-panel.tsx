@@ -44,6 +44,15 @@ export function DramaGenerationPanel({ project, episode, onStageChange, onOpenAs
     const [previewMedia, setPreviewMedia] = useState<DramaPreviewMedia>();
     const readiness = useMemo(() => summarizeDramaGeneration(project, episode), [episode, project]);
     const renderTask = episode.renderTask || null;
+    const costRefreshKey = useMemo(
+        () =>
+            [
+                ...episode.shots.flatMap((shot) => [shot.storyboardTaskId, shot.storyboardStatus, shot.storyboardEndTaskId, shot.storyboardEndStatus, shot.generationTaskId, shot.generationStatus, shot.audioTaskId, shot.audioStatus]),
+                renderTask?.id,
+                renderTask?.status,
+            ].join(":"),
+        [episode.shots, renderTask?.id, renderTask?.status],
+    );
     const audioReady = Boolean(config.audioModel.trim());
     const assetCount = project.characters.length + project.scenes.length + project.props.length + project.clues.length;
     const audioCandidateShotIds = episode.shots.filter((shot) => shot.videoUrl && (shot.subtitle || shot.dialogue).trim() && shot.audioStatus !== "success").map((shot) => shot.id);
@@ -62,17 +71,13 @@ export function DramaGenerationPanel({ project, episode, onStageChange, onOpenAs
 
     useEffect(() => {
         let active = true;
-        const load = () =>
-            void getDramaProjectCosts(project.id)
-                .then((value) => active && setCostSummary(value))
-                .catch(() => active && setCostSummary(null));
-        load();
-        const timer = window.setInterval(load, 5000);
+        void getDramaProjectCosts(project.id)
+            .then((value) => active && setCostSummary(value))
+            .catch(() => active && setCostSummary(null));
         return () => {
             active = false;
-            window.clearInterval(timer);
         };
-    }, [project.id]);
+    }, [costRefreshKey, project.id]);
 
     useEffect(() => {
         if (!renderTask?.id || !["pending", "running"].includes(renderTask.status)) return;

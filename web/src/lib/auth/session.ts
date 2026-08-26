@@ -164,13 +164,17 @@ export function serializePublicSettings(settings: AuthSettings) {
                 enabled: true,
                 bindings: model.bindings
                     .filter((binding) => binding.enabled)
-                    .map((binding) => ({
-                        id: binding.id,
-                        channelId: binding.channelId,
-                        upstreamModel: binding.upstreamModel,
-                        enabled: true,
-                        priority: binding.priority,
-                    })),
+                    .map((binding) => {
+                        const capabilityProfile = publicCapabilityProfile(binding.capabilityProfile);
+                        return {
+                            id: binding.id,
+                            channelId: binding.channelId,
+                            upstreamModel: binding.upstreamModel,
+                            enabled: true,
+                            priority: binding.priority,
+                            ...(capabilityProfile ? { capabilityProfile } : {}),
+                        };
+                    }),
             })),
         systemChannels: publicChannels
             .map((channel) => ({

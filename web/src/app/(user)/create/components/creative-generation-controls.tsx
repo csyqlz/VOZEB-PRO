@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { creativeComposerPopoverOverflow, type CreativeComposerPopoverPlacement } from "@/components/creative-composer-popover";
 import { creativeComposerToolButtonClass } from "@/components/creative-composer-styles";
 import { CreativeGenerationPreferences as GenerationPreferencesControl, mediaCapabilityLabel, type MediaCapability } from "@/components/creative-generation-preferences";
+import { creativeSelectedModelProfile, type CreativeModelCapabilityOption } from "@/lib/creative-model-capabilities";
 
 type CreativeModelCapability = "text" | MediaCapability;
 export type CreativeModelOption = { id: string; name: string; capability: CreativeModelCapability; pricing?: ConsumerModelPricing };
@@ -166,6 +167,7 @@ export function CreativeGenerationControls({
                 capability={activeMediaCapability}
                 capabilities={preferenceCapabilities}
                 preferences={generationPreferences}
+                capabilityProfile={capabilityProfile}
                 triggerLabel={creationMode === "agent" ? "生成参数" : undefined}
                 placement={placement}
                 onCapabilityChange={(capability) => {

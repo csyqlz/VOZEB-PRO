@@ -66,3 +66,9 @@ export type ObjectStorageDeleteResult = {
     deleted: number;
     blocked: Array<{ key: string; storageKey: string; referenceCount: number }>;
 };
+
+export type ObjectStoragePreviewCleanupResult = {
+    scanned: number;
+    deleted: number;
+    reclaimedBytes: number;
+};

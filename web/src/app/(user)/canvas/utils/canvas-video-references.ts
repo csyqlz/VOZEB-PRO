@@ -78,15 +78,18 @@ export function resolveCanvasVideoGenerationReferences({
     metadata,
     context,
     availableInputs,
+    sourceImage,
 }: {
     metadata: CanvasNodeMetadata | undefined;
     context: VideoGenerationContext;
     availableInputs: Array<{ image?: ReferenceImage }>;
+    sourceImage?: ReferenceImage;
 }): ResolvedCanvasVideoReferences {
     const mode = normalizeCanvasVideoReferenceMode(metadata?.videoReferenceMode);
     const availableImages = availableInputs.flatMap((input) => (input.image ? [input.image] : []));
+    const referenceImages = sourceImage ? [sourceImage] : context.referenceImages;
     if (mode === "reference") {
-        const images = context.referenceImages.map((image) => ({ ...image, videoRole: "reference" as const }));
+        const images = referenceImages.map((image) => ({ ...image, videoRole: "reference" as const }));
         return resolvedVideoReferences(mode, images, context.referenceVideos, context.referenceAudios);
     }
 
@@ -106,7 +109,7 @@ export function resolveCanvasVideoGenerationReferences({
     }
 
     const frameImages = [withVideoRole(firstImage, "first_frame"), ...(lastImage ? [withVideoRole(lastImage, "last_frame")] : [])];
-    const regularImages = context.referenceImages.filter((image) => !frameImages.some((frame) => sameReferenceImage(frame, image))).map((image) => withVideoRole(image, "reference"));
+    const regularImages = referenceImages.filter((image) => !frameImages.some((frame) => sameReferenceImage(frame, image))).map((image) => withVideoRole(image, "reference"));
     return resolvedVideoReferences(mode, [...frameImages, ...regularImages], context.referenceVideos, context.referenceAudios, firstFrame, lastFrame);
 }
 

@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import sharp from "sharp";
 
+import { validateImageLayerOutputs } from "../src/lib/server/image-layer-output";
 import { createProtocolFixtureServer } from "./protocol-fixture-server.mjs";
 
 let fixture;
@@ -35,6 +36,51 @@ describe("protocol fixture server", () => {
             body: JSON.stringify({ tools: [{ type: "function", name: "create_agent_plan" }], tool_choice: { type: "function", name: "create_agent_plan" } }),
         }).then((value) => value.json());
         expect(JSON.parse(response.output[0].arguments)).toMatchObject({ intent: "generation", deliverables: [{ type: "image", model: "mock-image", ratio: "16:9" }] });
+
+        const combined = await fetch(`${origin}/v1/responses`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+                input: "生成一张图片和一段视频",
+                tools: [{ type: "function", name: "create_agent_plan" }],
+                tool_choice: { type: "function", name: "create_agent_plan" },
+            }),
+        }).then((value) => value.json());
+        expect(JSON.parse(combined.output[0].arguments)).toMatchObject({
+            intent: "generation",
+            deliverables: [
+                { type: "image", model: "e2e-image", ratio: "16:9" },
+                { type: "video", model: "e2e-video", ratio: "16:9", seconds: 5 },
+            ],
+        });
+
+        const decomposition = await fetch(`${origin}/v1/chat/completions`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+                messages: [{ role: "user", content: "请分析这张 1000x800 图片" }],
+                tools: [{ type: "function", function: { name: "decompose_ecommerce_image" } }],
+                tool_choice: { type: "function", function: { name: "decompose_ecommerce_image" } },
+            }),
+        }).then((value) => value.json());
+        expect(JSON.parse(decomposition.choices[0].message.tool_calls[0].function.arguments)).toMatchObject({
+            strategy: "ecommerce",
+            backgroundDescription: "协议夹具蓝色渐变背景",
+            backgroundPreservedVisuals: ["蓝色渐变", "柔和环境光"],
+            layers: [{ kind: "product" }, { kind: "headline" }, { kind: "logo" }, { kind: "badge" }, { kind: "decoration" }],
+        });
+
+        const script = "主角推门进入明亮的测试房间，说：测试开始。";
+        const drama = await fetch(`${origin}/v1/chat/completions`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+                messages: [{ role: "user", content: JSON.stringify({ script }) }],
+                tools: [{ type: "function", function: { name: "analyze_drama_content" } }],
+                tool_choice: { type: "function", function: { name: "analyze_drama_content" } },
+            }),
+        }).then((value) => value.json());
+        expect(JSON.parse(drama.choices[0].message.tool_calls[0].function.arguments).shots[0].sourceText).toBe(script);
     });
 
     it("serves OpenAI and Stable Diffusion image results", async () => {
@@ -43,6 +89,33 @@ describe("protocol fixture server", () => {
         expect(openAi.data[0].b64_json).toMatch(/^iVBOR/);
         expect(stableDiffusion.images[0]).toBe(openAi.data[0].b64_json);
         await expect(sharp(Buffer.from(openAi.data[0].b64_json, "base64")).metadata()).resolves.toMatchObject({ format: "png", width: 2, height: 2 });
+    });
+
+    it("returns source-pixel layers and a clean background from one multipart edit", async () => {
+        const background = await sharp({ create: { width: 4, height: 4, channels: 3, background: "#dbeafe" } })
+            .png()
+            .toBuffer();
+        const source = await sharp(background)
+            .composite([
+                {
+                    input: await sharp({ create: { width: 2, height: 2, channels: 4, background: "#ef4444" } })
+                        .png()
+                        .toBuffer(),
+                    left: 1,
+                    top: 1,
+                },
+            ])
+            .png()
+            .toBuffer();
+        const form = new FormData();
+        form.set("model", "mock-image");
+        form.set("prompt", "分层任务要求：返回完整多图结果");
+        form.set("image", new Blob([source], { type: "image/png" }), "source.png");
+
+        const payload = await fetch(`${origin}/v1/images/edits`, { method: "POST", body: form }).then((response) => response.json());
+        const outputs = payload.data.map((item) => `data:image/png;base64,${item.b64_json}`);
+
+        await expect(validateImageLayerOutputs(`data:image/png;base64,${source.toString("base64")}`, outputs)).resolves.toMatchObject([{ kind: "element" }, { kind: "background" }]);
     });
 
     it("serves a configured fixture image without changing the default contract", async () => {

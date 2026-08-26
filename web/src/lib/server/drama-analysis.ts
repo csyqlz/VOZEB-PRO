@@ -1,12 +1,12 @@
 import { nanoid } from "nanoid";
 
 import type { DramaAssetProfile, DramaContentAnalysis, DramaShotContinuity, DramaUtterance, DramaVisualAnalysis } from "@/lib/drama-project-contract";
-import { resolveDramaShotDuration } from "@/lib/server/drama-shot-config";
+import { resolveDramaShotDuration, resolveDramaShotDurations, type DramaShotDurationPolicy } from "@/lib/server/drama-shot-config";
 import { strictJsonObjectText } from "@/lib/server/structured-model-output";
 
-export function normalizeDramaContentAnalysis(value: unknown, defaultVideoSeconds: number, sourceScript = ""): DramaContentAnalysis {
+export function normalizeDramaContentAnalysis(value: unknown, durationPolicy: number | DramaShotDurationPolicy, sourceScript = ""): DramaContentAnalysis {
     const source = object(value);
-    const shots = array(source.shots).flatMap((item, index) => {
+    const rawShots = array(source.shots).flatMap((item, index) => {
         const shot = object(item);
         const sourceText = text(shot.sourceText);
         const description = text(shot.description) || sourceText;
@@ -25,14 +25,16 @@ export function normalizeDramaContentAnalysis(value: unknown, defaultVideoSecond
                 },
             ];
         });
-        const utterances = mergeUtterances(extractDramaUtterances(sourceText), modelUtterances);
-        const dialogue = normalizeDialogue(extractQuotedDialogue(sourceText) || shot.dialogue, utterances);
+        const characterNames = texts(shot.characterNames);
+        const mergedUtterances = mergeUtterances(extractDramaUtterances(sourceText, characterNames), modelUtterances, sourceText);
+        const dialogue = normalizeDialogue(extractQuotedDialogue(sourceText) || shot.dialogue, mergedUtterances);
         const narration =
             text(shot.narration) ||
-            utterances
+            mergedUtterances
                 .filter((item) => item.type === "voiceover")
                 .map((item) => item.text)
                 .join("\n");
+        const utterances = ensureUtteranceCoverage(mergedUtterances, dialogue, narration);
         return [
             {
                 title: text(shot.title) || `镜头 ${String(index + 1).padStart(2, "0")}`,
@@ -42,14 +44,16 @@ export function normalizeDramaContentAnalysis(value: unknown, defaultVideoSecond
                 dialogue,
                 narration,
                 utterances,
-                duration: resolveDramaShotDuration(shot.duration, defaultVideoSeconds),
-                characterNames: texts(shot.characterNames),
+                duration: resolveDramaShotDuration(shot.duration, dramaDefaultDuration(durationPolicy)),
+                characterNames,
                 sceneName: text(shot.sceneName),
                 propNames: texts(shot.propNames),
                 clueNames: texts(shot.clueNames),
             },
         ];
     });
+    const coveredShots = restoreMissingDialogueCoverage(restoreSourceTextCoverage(rawShots, sourceScript), sourceScript);
+    const shots = coveredShots.flatMap((shot) => splitDramaContentShot(shot, resolveDramaShotDurations(Math.max(shot.duration, estimateDramaSpokenDuration(shot)), durationPolicy)));
     return {
         episode: {
             outline: text(object(source.episode).outline),
@@ -61,8 +65,136 @@ export function normalizeDramaContentAnalysis(value: unknown, defaultVideoSecond
         scenes: normalizeAssets(source.scenes),
         props: normalizeAssets(source.props),
         clues: normalizeClues(source.clues),
-        shots: restoreMissingDialogueCoverage(shots, sourceScript),
+        shots,
     };
+}
+
+function dramaDefaultDuration(policy: number | DramaShotDurationPolicy) {
+    return typeof policy === "number" ? policy : policy.defaultSeconds;
+}
+
+function restoreSourceTextCoverage(shots: DramaContentAnalysis["shots"], sourceScript: string) {
+    const script = sourceScript.trim();
+    if (!script || !shots.length) return shots;
+    if (shots.length === 1) return [{ ...shots[0], sourceText: script }];
+    if (script.length < shots.length) return shots;
+
+    const positions = locateShotPositions(script, shots);
+    const preferredCuts = Array.from(script.matchAll(/[。！？!?；;\n][”"」』]?/gu), (match) => (match.index || 0) + match[0].length);
+    const cuts = [0];
+    for (let index = 1; index < shots.length; index += 1) {
+        const minimum = cuts[index - 1] + 1;
+        const maximum = script.length - (shots.length - index);
+        const proportional = Math.round((script.length * index) / shots.length);
+        const located = positions[index];
+        const target = located >= minimum && located <= maximum ? located : Math.max(minimum, Math.min(maximum, proportional));
+        const preferred = preferredCuts.filter((cut) => cut >= minimum && cut <= maximum).sort((left, right) => Math.abs(left - target) - Math.abs(right - target))[0];
+        cuts.push(preferred ?? target);
+    }
+    cuts.push(script.length);
+    return shots.map((shot, index) => ({
+        ...shot,
+        sourceText: script.slice(cuts[index], cuts[index + 1]).trim() || shot.sourceText,
+    }));
+}
+
+function estimateDramaSpokenDuration(shot: DramaContentAnalysis["shots"][number]) {
+    const utteranceText = shot.utterances.map((item) => item.text.trim()).filter(Boolean);
+    const spokenText = utteranceText.length
+        ? utteranceText
+        : [shot.dialogue, shot.narration]
+              .flatMap((value) => value.split(/\n+/))
+              .map((value) => value.trim())
+              .filter(Boolean);
+    const seconds = spokenText.reduce((total, value) => {
+        const cjkCharacters = value.match(/\p{Script=Han}/gu)?.length || 0;
+        const words = value.replace(/\p{Script=Han}/gu, " ").match(/[\p{Letter}\p{Number}]+/gu)?.length || 0;
+        return total + cjkCharacters / 4 + words / 2.5;
+    }, 0);
+    return Math.max(1, Math.ceil(seconds));
+}
+
+function splitDramaContentShot(shot: DramaContentAnalysis["shots"][number], durations: number[]) {
+    if (durations.length <= 1) return [{ ...shot, duration: durations[0] }];
+    const sourceChunks = splitContinuousSourceText(shot.sourceText, durations);
+    const utteranceChunks = distributeUtterances(shot.utterances, sourceChunks);
+    return durations.map((duration, index) => {
+        const utterances = utteranceChunks[index].map((utterance, utteranceIndex) => ({ ...utterance, order: utteranceIndex + 1 }));
+        return {
+            ...shot,
+            title: `${shot.title}（${index + 1}/${durations.length}）`,
+            description: sourceChunks[index] || shot.description,
+            sourceText: sourceChunks[index],
+            dialogue: utterances
+                .filter((item) => item.type === "dialogue")
+                .map((item) => item.text)
+                .join("\n"),
+            narration: utterances
+                .filter((item) => item.type === "voiceover")
+                .map((item) => item.text)
+                .join("\n"),
+            utterances,
+            duration,
+        };
+    });
+}
+
+function splitContinuousSourceText(value: string, durations: number[]) {
+    const characters = Array.from(value);
+    if (durations.length <= 1 || characters.length <= 1) return [value, ...Array.from({ length: Math.max(0, durations.length - 1) }, () => "")];
+    const preferredCuts = new Set<number>();
+    characters.forEach((character, index) => {
+        if (/[。！？!?；;\n]/u.test(character)) preferredCuts.add(/[”"」』]/u.test(characters[index + 1] || "") ? index + 2 : index + 1);
+    });
+    const totalDuration = durations.reduce((sum, duration) => sum + duration, 0);
+    const cuts = [0];
+    let elapsed = 0;
+    for (let index = 0; index < durations.length - 1; index += 1) {
+        elapsed += durations[index];
+        const minimum = Math.min(characters.length, cuts[index] + 1);
+        const maximum = Math.max(minimum, characters.length - (durations.length - index - 1));
+        const target = Math.max(minimum, Math.min(maximum, Math.round((characters.length * elapsed) / totalDuration)));
+        const preferred = [...preferredCuts].filter((cut) => cut >= minimum && cut <= maximum).sort((left, right) => Math.abs(left - target) - Math.abs(right - target))[0];
+        cuts.push(preferred ?? target);
+    }
+    cuts.push(characters.length);
+    return durations.map((_, index) =>
+        characters
+            .slice(cuts[index], cuts[index + 1])
+            .join("")
+            .trim(),
+    );
+}
+
+function distributeUtterances(utterances: DramaUtterance[], sourceChunks: string[]) {
+    const chunks = sourceChunks.map(() => [] as DramaUtterance[]);
+    let cursor = 0;
+    utterances.forEach((utterance, utteranceIndex) => {
+        const key = dialogueKey(utterance.text);
+        const matchedIndex = sourceChunks.findIndex((chunk, index) => index >= cursor && key && dialogueKey(chunk).includes(key));
+        const proportionalIndex = Math.min(sourceChunks.length - 1, Math.floor((utteranceIndex * sourceChunks.length) / Math.max(1, utterances.length)));
+        const targetIndex = matchedIndex >= 0 ? matchedIndex : Math.max(cursor, proportionalIndex);
+        chunks[targetIndex].push(utterance);
+        cursor = targetIndex;
+    });
+    return chunks;
+}
+
+function ensureUtteranceCoverage(utterances: DramaUtterance[], dialogue: string, narration: string) {
+    const result = [...utterances];
+    for (const [type, value] of [
+        ["dialogue", dialogue],
+        ["voiceover", narration],
+    ] as const) {
+        for (const line of value
+            .split("\n")
+            .map((item) => item.trim())
+            .filter(Boolean)) {
+            if (result.some((item) => item.type === type && sameDialogue(item.text, line))) continue;
+            result.push({ id: `utterance-${nanoid()}`, order: result.length + 1, type, speaker: "", text: line });
+        }
+    }
+    return result.map((item, index) => ({ ...item, order: index + 1 }));
 }
 
 export function normalizeDramaVisualAnalysis(value: unknown, shotIds: string[]): DramaVisualAnalysis {
@@ -146,11 +278,74 @@ export function readDramaChatArguments(value: unknown, toolName: string) {
 export function hasUsableDramaToolArguments(value: string, toolName: string) {
     try {
         const source = object(JSON.parse(value));
+        if ("script" in source || "summary" in source) return false;
         if (!array(source.shots).length) return false;
         return toolName !== "analyze_drama_content" || Object.keys(object(source.episode)).length > 0;
     } catch {
         return false;
     }
+}
+
+/**
+ * Some Responses-compatible gateways wrap the JSON object one more time even
+ * when the model returned the requested structured payload. Unwrap only the
+ * documented result containers and keep the domain validator as the final gate.
+ */
+export function normalizeDramaToolArguments(value: string, toolName: string) {
+    let current: unknown = value;
+    for (let depth = 0; depth < 4; depth += 1) {
+        if (typeof current === "string") {
+            try {
+                current = JSON.parse(current);
+            } catch {
+                return value;
+            }
+        }
+        const source = object(current);
+        if (Array.isArray(source.shots)) return JSON.stringify(source);
+        const wrapped = [source[toolName], source.arguments, source.result, source.data, source.response].find((item) => item !== undefined);
+        if (wrapped === undefined) return value;
+        current = wrapped;
+    }
+    return value;
+}
+
+export function hasCompleteDramaDialogueAttribution(value: string, sourceScript: string) {
+    try {
+        const source = object(JSON.parse(value));
+        const shots = array(source.shots).map(object);
+        const knownSpeakers = [...array(source.characters).map((item) => text(object(item).name)), ...shots.flatMap((shot) => texts(shot.characterNames))].filter(Boolean);
+        const sourceDialogue = extractDialogueSpans(sourceScript, knownSpeakers);
+        const modelDialogue = shots.flatMap((shot) =>
+            array(shot.utterances)
+                .map(object)
+                .filter((utterance) => utterance.type === "dialogue"),
+        );
+        if (modelDialogue.some((utterance) => !isSpecificDramaSpeaker(text(utterance.speaker)) || !text(utterance.text))) return false;
+        if (modelDialogue.some((utterance) => !sourceDialogue.some((span) => sameDialogue(span.text, text(utterance.text))))) return false;
+        const remaining = [...modelDialogue];
+        return sourceDialogue.every((span) => {
+            const index = remaining.findIndex((utterance) => sameDialogue(span.text, text(utterance.text)));
+            if (index < 0) return false;
+            remaining.splice(index, 1);
+            return true;
+        });
+    } catch {
+        return false;
+    }
+}
+
+export function hasCompleteDramaContentAnalysis(value: DramaContentAnalysis, sourceScript: string) {
+    const source = sourceScript.trim().replace(/\s/gu, "");
+    const covered = value.shots
+        .map((shot) => shot.sourceText)
+        .join("")
+        .replace(/\s/gu, "");
+    return Boolean(source && value.shots.length && covered === source && hasCompleteDramaDialogueAttribution(JSON.stringify(value), sourceScript));
+}
+
+function isSpecificDramaSpeaker(value: string) {
+    return Boolean(value && !/^(?:说话人|未知|不明|不详|角色|人物|他|她|其)$/u.test(value));
 }
 
 export function describeDramaModelOutput(value: unknown) {
@@ -314,8 +509,8 @@ function normalizeDialogue(value: unknown, utterances: DramaUtterance[]) {
     return utteranceText || (direct && !narrativeDialoguePattern.test(direct) ? direct : "");
 }
 
-function extractDramaUtterances(value: string): DramaUtterance[] {
-    return extractDialogueSpans(value).map((item, index) => ({
+function extractDramaUtterances(value: string, knownSpeakers: string[]): DramaUtterance[] {
+    return extractDialogueSpans(value, knownSpeakers).map((item, index) => ({
         id: `utterance-${nanoid()}`,
         order: index + 1,
         type: "dialogue",
@@ -324,7 +519,7 @@ function extractDramaUtterances(value: string): DramaUtterance[] {
     }));
 }
 
-function extractDialogueSpans(value: string): DialogueSpan[] {
+function extractDialogueSpans(value: string, knownSpeakers: string[] = []): DialogueSpan[] {
     const spans: DialogueSpan[] = [];
     const seen = new Set<string>();
     const quotePattern = /“([^”]+)”|「([^」]+)」|『([^』]+)』|"([^"\r\n]+)"/g;
@@ -332,7 +527,12 @@ function extractDialogueSpans(value: string): DialogueSpan[] {
         const dialogue = [match[1], match[2], match[3], match[4]].find(Boolean)?.trim() || "";
         if (!dialogue) continue;
         const start = match.index || 0;
-        addDialogueSpan(spans, seen, { start, end: start + match[0].length, speaker: inferSpeaker(value.slice(Math.max(0, start - 80), start)), text: dialogue });
+        const end = start + match[0].length;
+        const before = value.slice(Math.max(0, start - 80), start);
+        const after = value.slice(end, Math.min(value.length, end + 80));
+        const speaker = inferDialogueSpeaker(before, after, knownSpeakers);
+        if (!speaker && !looksLikeSpokenQuote(dialogue, before)) continue;
+        addDialogueSpan(spans, seen, { start, end, speaker, text: dialogue });
     }
     let lineStart = 0;
     for (const line of value.split("\n")) {
@@ -344,7 +544,7 @@ function extractDialogueSpans(value: string): DialogueSpan[] {
             addDialogueSpan(spans, seen, {
                 start: lineStart + colonIndex + 1,
                 end: lineStart + line.length,
-                speaker: inferSpeaker(before),
+                speaker: inferSpeaker(before, knownSpeakers),
                 text: after,
             });
         }
@@ -361,7 +561,11 @@ function addDialogueSpan(spans: DialogueSpan[], seen: Set<string>, span: Dialogu
     spans.push(span);
 }
 
-function inferSpeaker(value: string) {
+function inferDialogueSpeaker(before: string, after: string, knownSpeakers: string[]) {
+    return inferSpeaker(before, knownSpeakers) || inferFollowingSpeaker(after, knownSpeakers);
+}
+
+function inferSpeaker(value: string, knownSpeakers: string[] = []) {
     const sentence =
         value
             .split(/[。！？!?；;\n]/)
@@ -374,18 +578,43 @@ function inferSpeaker(value: string) {
         .replace(/(?:又|再|再次|缓缓|轻轻|低声|轻声|小声|忍不住|刚想|终于|随即|立即|赶紧|回了?一句)+$/u, "")
         .trim();
     const compactSubject = subject.split(/[，,]/).pop()?.trim().replace(/^.*的/u, "") || "";
-    const leadingSpeaker = compactSubject.match(/^(他|她|男人|女人|老人|女孩|男孩|医生|护士|[\p{Script=Han}]{2,4})(?=闭|睁|抬|低|看|走|站|坐|转|笑|哭|皱|摇|点|伸|捂|扶|推|拉|拿|压|快|刚|又|再|缓|轻|小|忍|随|立|赶)/u)?.[1];
+    const knownSpeaker = nearestKnownSpeaker(compactSubject, knownSpeakers);
+    if (knownSpeaker) return knownSpeaker;
+    const leadingSpeaker = compactSubject.match(/^(他|她|男人|女人|老人|女孩|男孩|医生|护士|[\p{Script=Han}]{2,4})(?=闭|睁|抬|低|看|走|站|坐|转|笑|哭|皱|摇|点|伸|捂|扶|推|拉|拿|压|咬|忍|哼|喘|叹|惊|快|刚|又|再|缓|轻|小|随|立|赶)/u)?.[1];
     if (leadingSpeaker) return leadingSpeaker;
     return compactSubject.match(/[\p{Script=Han}A-Za-z0-9·]{1,12}$/u)?.[0] || "";
 }
 
-function mergeUtterances(sourceUtterances: DramaUtterance[], modelUtterances: DramaUtterance[]) {
+function inferFollowingSpeaker(value: string, knownSpeakers: string[]) {
+    const sentence =
+        value
+            .split(/[。！？!?；;\n]/)[0]
+            ?.trim()
+            .replace(/^[，,]/u, "") || "";
+    if (!speechVerbPattern.test(sentence) && !/(?:说|道|问|答|喊|叫|回应|回道|应道|笑道|哭道|吼道|骂道|闷哼|呻吟|惊呼)/u.test(sentence)) return "";
+    const knownSpeaker = nearestKnownSpeaker(sentence, knownSpeakers);
+    if (knownSpeaker) return knownSpeaker;
+    return sentence.match(/^(他|她|男人|女人|老人|女孩|男孩|医生|护士|[\p{Script=Han}A-Za-z0-9·]{2,12}?)(?=\s*(?:低声|轻声|小声|淡淡|缓缓|冷冷|笑着|哭着|闷哼|呻吟|惊呼|说|道|问|答|喊|叫))/u)?.[1] || "";
+}
+
+function nearestKnownSpeaker(value: string, knownSpeakers: string[]) {
+    return knownSpeakers.reduce<{ name: string; index: number } | undefined>((nearest, name) => {
+        const index = value.lastIndexOf(name);
+        return index >= 0 && (!nearest || index > nearest.index) ? { name, index } : nearest;
+    }, undefined)?.name;
+}
+
+function looksLikeSpokenQuote(value: string, before: string) {
+    return /[。！？!?…]$/u.test(value.trim()) || /[：:]\s*$/u.test(before);
+}
+
+function mergeUtterances(sourceUtterances: DramaUtterance[], modelUtterances: DramaUtterance[], sourceText: string) {
     const merged = sourceUtterances.map((item) => {
         const model = modelUtterances.find((candidate) => sameDialogue(candidate.text, item.text));
-        return model?.speaker ? { ...item, speaker: model.speaker } : item;
+        return model && isSpecificDramaSpeaker(model.speaker) ? { ...item, speaker: model.speaker } : item;
     });
     for (const item of modelUtterances) {
-        if (item.type === "dialogue" && narrativeDialoguePattern.test(item.text)) continue;
+        if (item.type === "dialogue" && (narrativeDialoguePattern.test(item.text) || !isSpecificDramaSpeaker(item.speaker) || !dialogueKey(sourceText).includes(dialogueKey(item.text)))) continue;
         if (merged.some((candidate) => sameDialogue(candidate.text, item.text))) continue;
         merged.push(item);
     }
@@ -406,7 +635,8 @@ function restoreMissingDialogueCoverage(shots: DramaContentAnalysis["shots"], so
     const matched = new Map<string, number>();
     const positions = locateShotPositions(script, shots);
     const result = shots.map((shot) => ({ ...shot, utterances: [...shot.utterances] }));
-    for (const span of extractDialogueSpans(script)) {
+    const knownSpeakers = shots.flatMap((shot) => shot.characterNames);
+    for (const span of extractDialogueSpans(script, knownSpeakers)) {
         const key = dialogueKey(span.text);
         if (!key) continue;
         const matchedCount = matched.get(key) || 0;
@@ -571,7 +801,7 @@ export const dramaContentTool = {
                                 required: ["type", "speaker", "text"],
                                 properties: {
                                     type: { type: "string", enum: ["dialogue", "voiceover"] },
-                                    speaker: { type: "string", description: "原文可判断时填写说话人；无法判断可留空" },
+                                    speaker: { type: "string", description: "dialogue 必须填写原文语境中的明确说话人姓名或身份，不得留空、填写‘说话人/未知’或只用无法定位的代词" },
                                     text: { type: "string", description: "逐句保留原话，不得改写、概括或合并遗漏" },
                                 },
                             },

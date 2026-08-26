@@ -1,6 +1,6 @@
 services:
   app:
-    image: ${VOZEB_PRO_IMAGE:-ghcr.io/csyqlz/vozeb-pro:v0.0.6}
+    image: ${VOZEB_PRO_IMAGE:-ghcr.io/csyqlz/vozeb-pro:v0.0.7}
     container_name: vozeb-pro
     env_file:
       - .env
@@ -35,7 +35,7 @@ services:
     restart: unless-stopped
 
   generation-worker:
-    image: ${VOZEB_PRO_IMAGE:-ghcr.io/csyqlz/vozeb-pro:v0.0.6}
+    image: ${VOZEB_PRO_IMAGE:-ghcr.io/csyqlz/vozeb-pro:v0.0.7}
     container_name: vozeb-pro-generation-worker
     command: ["node", "/app/web/scripts/generation-worker.mjs"]
     environment:

@@ -100,6 +100,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
         const request = getCanvasProject(id)
             .then((project) => {
                 assertCurrent(session);
+                if (projectRequests.get(key) !== request) return project;
                 latestProjectTimes.set(key, Date.parse(project.updatedAt) || Date.now());
                 persistedProjectSnapshots.set(key, project);
                 set((state) => ({

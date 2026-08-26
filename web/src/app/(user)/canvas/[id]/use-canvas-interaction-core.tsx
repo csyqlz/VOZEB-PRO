@@ -1,13 +1,13 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 
 import { nanoid } from "nanoid";
 import { buildNodeGenerationInputs, type NodeGenerationInput } from "../components/canvas-node-generation";
-import { CanvasNodeType, type ConnectionHandle } from "../types";
+import { CanvasNodeType, type CanvasNodeData, type ConnectionHandle } from "../types";
 import { useCanvasLocalAgentBridge } from "../use-canvas-local-agent-bridge";
 import { applyCanvasAgentOps, type CanvasAgentOp, type CanvasAgentSnapshot } from "../utils/canvas-agent-ops";
-import { buildCanvasResourceReferences, buildNodeMentionReferences } from "../utils/canvas-resource-references";
+import { createCanvasResourceReferenceIndex, type CanvasResourceReferenceIndex } from "../utils/canvas-resource-references";
 
 import { PendingConnectionCreate, type CanvasCreatableNodeType, createCanvasNode } from "./canvas-page-elements";
 import { getGenerationCount, normalizeConnection } from "./canvas-page-utils";
@@ -47,6 +47,7 @@ export function useCanvasInteractionCore({ state }: { state: CanvasPageState }) 
         splitNodeId,
         upscaleNodeId,
         angleNodeId,
+        emotionNodeId,
         previewNodeId,
         collapsingBatchIds,
         nodesRef,
@@ -114,7 +115,10 @@ export function useCanvasInteractionCore({ state }: { state: CanvasPageState }) 
 
     const createConnectedNode = useCallback(
         (type: CanvasCreatableNodeType, pending: PendingConnectionCreate) => {
-            const metadata = type === CanvasNodeType.Config ? { model: effectiveConfig.imageModel || effectiveConfig.model, size: effectiveConfig.size, count: getGenerationCount(effectiveConfig.canvasImageCount || effectiveConfig.count) } : undefined;
+            const metadata =
+                type === CanvasNodeType.Config
+                    ? { model: effectiveConfig.imageModel || effectiveConfig.model, size: effectiveConfig.size, sizeLocked: effectiveConfig.size !== "auto", count: getGenerationCount(effectiveConfig.canvasImageCount || effectiveConfig.count) }
+                    : undefined;
             const newNode = createCanvasNode(type, pending.position, metadata);
             const connection = normalizeConnection(pending.connection.nodeId, newNode.id, [...nodesRef.current, newNode], pending.connection.handleType);
             if (!connection) {
@@ -143,6 +147,7 @@ export function useCanvasInteractionCore({ state }: { state: CanvasPageState }) 
     const splitNode = splitNodeId ? nodeById.get(splitNodeId) || null : null;
     const upscaleNode = upscaleNodeId ? nodeById.get(upscaleNodeId) || null : null;
     const angleNode = angleNodeId ? nodeById.get(angleNodeId) || null : null;
+    const emotionNode = emotionNodeId ? nodeById.get(emotionNodeId) || null : null;
     const previewNode = previewNodeId ? nodeById.get(previewNodeId) || null : null;
     const hasMultipleSelectedNodes = selectedNodeIds.size > 1;
     const activeNodeId = hasMultipleSelectedNodes ? null : hoveredNodeId || (selectedNodeIds.size === 1 ? Array.from(selectedNodeIds)[0] : null);
@@ -183,22 +188,28 @@ export function useCanvasInteractionCore({ state }: { state: CanvasPageState }) 
         return { nodeIds, connectionIds };
     }, [activeNodeId, connections]);
 
+    const configNodeIds = useMemo(() => nodes.filter((node) => node.type === CanvasNodeType.Config).map((node) => node.id), [nodes]);
+    const resourceReferenceIndexCacheRef = useRef<{ nodes: CanvasNodeData[]; connections: typeof connections; index: CanvasResourceReferenceIndex } | null>(null);
+    const resourceReferenceIndex = useMemo(() => {
+        const previous = resourceReferenceIndexCacheRef.current;
+        if (previous && previous.connections === connections && sameCanvasResourceState(previous.nodes, nodes)) return previous.index;
+        const index = createCanvasResourceReferenceIndex(nodes, connections);
+        resourceReferenceIndexCacheRef.current = { nodes, connections, index };
+        return index;
+    }, [connections, nodes]);
     const configInputsById = useMemo(() => {
         const map = new Map<string, NodeGenerationInput[]>();
-        nodes.forEach((node) => {
-            if (node.type !== CanvasNodeType.Config) return;
-            map.set(node.id, buildNodeGenerationInputs(node.id, nodes, connections));
-        });
+        configNodeIds.forEach((nodeId) => map.set(nodeId, buildNodeGenerationInputs(nodeId, nodes, connections, resourceReferenceIndex)));
         return map;
-    }, [connections, nodes]);
+    }, [configNodeIds, resourceReferenceIndex]);
     const resourceContextNodeId = dialogNodeId || activeNodeId;
-    const canvasResourceReferences = useMemo(() => buildCanvasResourceReferences(nodes, connections, resourceContextNodeId), [connections, nodes, resourceContextNodeId]);
+    const canvasResourceReferences = useMemo(() => resourceReferenceIndex.all(resourceContextNodeId), [resourceContextNodeId, resourceReferenceIndex]);
     const resourceReferenceByNodeId = useMemo(() => new Map(canvasResourceReferences.map((reference) => [reference.nodeId, reference])), [canvasResourceReferences]);
     const mentionReferencesByNodeId = useMemo(() => {
-        const map = new Map<string, ReturnType<typeof buildNodeMentionReferences>>();
-        nodes.forEach((node) => map.set(node.id, buildNodeMentionReferences(node, nodes, connections)));
+        const map = new Map<string, ReturnType<typeof resourceReferenceIndex.forNode>>();
+        nodes.forEach((node) => map.set(node.id, resourceReferenceIndex.forNode(node.id)));
         return map;
-    }, [connections, nodes]);
+    }, [resourceReferenceIndex]);
     const agentSnapshot = useMemo<CanvasAgentSnapshot>(
         () => ({ projectId, title: currentProject?.title || "未命名画布", imageSize: effectiveConfig.size, nodes, connections, selectedNodeIds: Array.from(selectedNodeIds), viewport }),
         [connections, currentProject?.title, effectiveConfig.size, nodes, projectId, selectedNodeIds, viewport],
@@ -259,6 +270,7 @@ export function useCanvasInteractionCore({ state }: { state: CanvasPageState }) 
         splitNode,
         upscaleNode,
         angleNode,
+        emotionNode,
         previewNode,
         hasMultipleSelectedNodes,
         activeNodeId,
@@ -273,6 +285,31 @@ export function useCanvasInteractionCore({ state }: { state: CanvasPageState }) 
         agentSnapshot,
         applyAgentOps,
     };
+}
+
+function sameCanvasResourceState(previous: CanvasNodeData[], next: CanvasNodeData[]) {
+    if (previous.length !== next.length) return false;
+    for (let index = 0; index < previous.length; index += 1) {
+        const left = previous[index];
+        const right = next[index];
+        if (left.id !== right.id || left.type !== right.type || left.title !== right.title || left.width !== right.width || left.height !== right.height) return false;
+        const leftMetadata = left.metadata;
+        const rightMetadata = right.metadata;
+        if (
+            leftMetadata?.content !== rightMetadata?.content ||
+            leftMetadata?.prompt !== rightMetadata?.prompt ||
+            leftMetadata?.storageKey !== rightMetadata?.storageKey ||
+            leftMetadata?.remoteUrl !== rightMetadata?.remoteUrl ||
+            leftMetadata?.serverUrl !== rightMetadata?.serverUrl ||
+            leftMetadata?.mimeType !== rightMetadata?.mimeType ||
+            leftMetadata?.naturalWidth !== rightMetadata?.naturalWidth ||
+            leftMetadata?.naturalHeight !== rightMetadata?.naturalHeight ||
+            leftMetadata?.bytes !== rightMetadata?.bytes ||
+            leftMetadata?.durationMs !== rightMetadata?.durationMs
+        )
+            return false;
+    }
+    return true;
 }
 
 export type CanvasInteractionCore = ReturnType<typeof useCanvasInteractionCore>;

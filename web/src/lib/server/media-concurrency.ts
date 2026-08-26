@@ -60,31 +60,47 @@ export function acquireMediaConcurrency(scope: MediaConcurrencyScope, identity: 
     };
 }
 
-export function withMediaConcurrency(response: Response, permit: MediaConcurrencyPermit) {
+export function withMediaConcurrency(response: Response, permit: MediaConcurrencyPermit, signal?: AbortSignal) {
     if (!response.body) {
         permit.release();
         return response;
     }
 
     const reader = response.body.getReader();
-    permit.setExpiryHandler(() => reader.cancel("Media concurrency lease expired"));
+    let abortListener: (() => void) | undefined;
+    const release = () => {
+        if (signal && abortListener) signal.removeEventListener("abort", abortListener);
+        abortListener = undefined;
+        permit.release();
+    };
+    const cancelSource = (reason: unknown) => reader.cancel(reason).catch(() => undefined);
+    abortListener = () => {
+        release();
+        void cancelSource(signal?.reason || "Media request aborted");
+    };
+    permit.setExpiryHandler(() => {
+        release();
+        return cancelSource("Media concurrency lease expired");
+    });
+    if (signal?.aborted) abortListener();
+    else signal?.addEventListener("abort", abortListener, { once: true });
     const body = new ReadableStream<Uint8Array>({
         async pull(controller) {
             try {
                 const { done, value } = await reader.read();
                 if (done) {
-                    permit.release();
+                    release();
                     controller.close();
                     return;
                 }
                 controller.enqueue(value);
             } catch (error) {
-                permit.release();
+                release();
                 controller.error(error);
             }
         },
         async cancel(reason) {
-            permit.release();
+            release();
             await reader.cancel(reason);
         },
     });

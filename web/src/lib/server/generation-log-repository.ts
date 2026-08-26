@@ -102,15 +102,15 @@ export async function writeRemoteAsset(url: string, type: GenerationLogKind, con
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), SERVER_ASSET_DOWNLOAD_TIMEOUT_MS);
     try {
-        const response = await fetchSafeOutbound(url, { cache: "no-store", redirect: "manual", signal: controller.signal });
+        const response = await fetchSafeOutbound(url, { cache: "no-store", redirect: "follow", signal: controller.signal });
         if (!response.ok || !response.body) return null;
         const contentLength = Number(response.headers.get("content-length") || 0);
         const maxBytes = maxServerAssetBytes(type);
         if (contentLength > maxBytes) return null;
         const bytes = Buffer.from(await response.arrayBuffer());
         if (bytes.length > maxBytes) return null;
-        const mimeType = response.headers.get("content-type")?.split(";", 1)[0] || (type === "video" ? "video/mp4" : "image/png");
-        if (!mimeType.startsWith(`${type}/`)) return null;
+        const mimeType = await resolveMediaMimeType(bytes, type, response.headers.get("content-type"));
+        if (!mimeType) return null;
         return writeAssetBytes(bytes, mimeType, type, context);
     } catch {
         return null;

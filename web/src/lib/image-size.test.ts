@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { extractImageSizeFromPrompt, normalizeImageSizeValue, parseImageDimensions, resolveImageRequestSize } from "./image-size";
+import { extractImageOrientationFromPrompt, extractImageSizeFromPrompt, imageSizeMatchesOrientation, normalizeImageSizeValue, parseImageDimensions, resolveImageRequestSize } from "./image-size";
 
 describe("image size input", () => {
     it("normalizes supported dimension separators", () => {
@@ -16,6 +16,14 @@ describe("image size input", () => {
         expect(extractImageSizeFromPrompt("生成一张自然风格图片")).toBe("");
     });
 
+    it("recognizes orientation wording without forcing it to a fixed ratio", () => {
+        expect(extractImageOrientationFromPrompt("把当前图片换成横屏尺寸")).toBe("landscape");
+        expect(extractImageOrientationFromPrompt("不要横版，改成竖屏")).toBe("portrait");
+        expect(extractImageOrientationFromPrompt("输出一张方形主图")).toBe("square");
+        expect(imageSizeMatchesOrientation("1824x1024", "landscape")).toBe(true);
+        expect(imageSizeMatchesOrientation("2:3", "landscape")).toBe(false);
+    });
+
     it("resolves prompt, custom dimensions, reference ratio, planner, and defaults in order", () => {
         const base = { prompt: "生成图片", configuredSize: "1824x1024", referenceWidth: 1024, referenceHeight: 1536, plannedSize: "1:1", defaultSize: "4:3" };
 
@@ -24,5 +32,12 @@ describe("image size input", () => {
         expect(resolveImageRequestSize({ ...base, configuredSize: "1:1" })).toBe("2:3");
         expect(resolveImageRequestSize({ ...base, configuredSize: "1:1", referenceWidth: undefined, referenceHeight: undefined })).toBe("1:1");
         expect(resolveImageRequestSize({ ...base, configuredSize: "auto", referenceWidth: undefined, referenceHeight: undefined, plannedSize: undefined })).toBe("auto");
+    });
+
+    it("keeps a user-locked ratio ahead of reference image inference", () => {
+        const input = { prompt: "生成图片", configuredSize: "16:9", configuredSizeExplicit: true, referenceWidth: 1024, referenceHeight: 1024, defaultSize: "1:1" };
+
+        expect(resolveImageRequestSize(input)).toBe("16:9");
+        expect(resolveImageRequestSize({ ...input, configuredSize: "auto", configuredSizeExplicit: false })).toBe("1:1");
     });
 });

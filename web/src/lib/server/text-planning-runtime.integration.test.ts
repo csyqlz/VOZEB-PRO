@@ -57,6 +57,31 @@ describe("text planning runtime live protocol fixture", () => {
         expect(result.arguments).toBe("{}");
         expect(lastRequest().path).toMatch(/^\/api\/ai\/system\/globalaiopc\/(?:chat\/completions|responses)$/);
     });
+
+    it("reads Chat, Responses, Gemini and custom streaming contracts from the TCP fixture", async () => {
+        const chat = await requestStructuredText({ ...input(candidate("newapi")), stream: true });
+        expect(chat).toMatchObject({ protocol: "chat", transport: "stream", arguments: "{}" });
+        expect(lastRequest().path).toBe("/api/ai/system/newapi/chat/completions");
+        expect(JSON.parse(lastRequest().body.toString("utf8"))).toMatchObject({ stream: true });
+
+        const responses = await requestStructuredText({ ...input(candidate("compatible", { createPath: "/responses" })), stream: true });
+        expect(responses).toMatchObject({ protocol: "responses", transport: "stream", arguments: "{}" });
+        expect(lastRequest().path).toBe("/api/ai/system/compatible/responses");
+
+        const gemini = await requestStructuredText({
+            ...input(candidate("compatible", { apiFormat: "gemini", createPath: "/models/:model:generateContent", streaming: { enabled: true, path: "/models/:model:streamGenerateContent", format: "ndjson" } })),
+            stream: true,
+        });
+        expect(gemini).toMatchObject({ protocol: "gemini", transport: "stream", arguments: "{}" });
+        expect(lastRequest().path).toBe("/api/ai/system/compatible/models/mock-text:streamGenerateContent");
+
+        const custom = await requestStructuredText({
+            ...input(candidate("custom", { createPath: "/planner/run", requestTemplate: '{"prompt":"{{prompt}}"}', resultField: "data.plan", streaming: { enabled: true, path: "/planner/stream", format: "sse" } })),
+            stream: true,
+        });
+        expect(custom).toMatchObject({ protocol: "custom", transport: "stream", arguments: "{}" });
+        expect(lastRequest().path).toBe("/api/ai/system/custom/planner/stream");
+    });
 });
 
 function manualTextOptions(protocol: SystemChannelAdvancedConfig["protocol"]): Partial<SystemChannelAdvancedConfig> {

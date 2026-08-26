@@ -29,6 +29,7 @@ import {
     Quote,
     Redo2,
     RemoveFormatting,
+    ReplaceAll,
     Search,
     Strikethrough,
     UnderlineIcon,
@@ -95,7 +96,7 @@ export function DramaRichScriptEditor({
         content: episode.scriptRichContent || plainTextToDramaRichContent(episode.script),
         editorProps: {
             attributes: {
-                class: "mr-auto min-h-full w-full max-w-[900px] px-8 py-6 text-left text-[16px] leading-[1.8] text-foreground outline-none sm:px-10 sm:py-7 [&_a]:text-violet-600 [&_a]:underline dark:[&_a]:text-violet-300 [&_blockquote]:my-4 [&_blockquote]:border-l-2 [&_blockquote]:border-violet-300 [&_blockquote]:pl-4 [&_blockquote]:text-muted-foreground [&_h1]:mb-4 [&_h1]:mt-6 [&_h1]:text-2xl [&_h1]:font-semibold [&_h2]:mb-3 [&_h2]:mt-5 [&_h2]:text-xl [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:mt-4 [&_h3]:text-lg [&_h3]:font-semibold [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-7 [&_p]:m-0 [&_p]:min-h-[1.8em] [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-7",
+                class: "min-h-full w-full max-w-none px-8 py-6 text-left text-[16px] leading-[1.8] text-foreground outline-none sm:px-10 sm:py-7 [&_a]:text-violet-600 [&_a]:underline dark:[&_a]:text-violet-300 [&_blockquote]:my-4 [&_blockquote]:border-l-2 [&_blockquote]:border-violet-300 [&_blockquote]:pl-4 [&_blockquote]:text-muted-foreground [&_h1]:mb-4 [&_h1]:mt-6 [&_h1]:text-2xl [&_h1]:font-semibold [&_h2]:mb-3 [&_h2]:mt-5 [&_h2]:text-xl [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:mt-4 [&_h3]:text-lg [&_h3]:font-semibold [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-7 [&_p]:m-0 [&_p]:min-h-[1.8em] [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-7",
                 "aria-label": "本集剧本编辑器",
             },
             handleClick: (view) => {
@@ -277,13 +278,51 @@ export function DramaRichScriptEditor({
                 <span className="ml-auto shrink-0 px-2 text-[11px] tabular-nums text-muted-foreground">{episode.script.length.toLocaleString("zh-CN")} 字</span>
             </div>
             <EditorContent editor={editor} className="hide-scrollbar min-h-0 flex-1 overflow-y-auto bg-card/35" />
-            <Modal title="查找替换" open={searchOpen} width={420} centered destroyOnHidden okText="全部替换" cancelText="关闭" okButtonProps={{ disabled: !searchText }} onCancel={() => setSearchOpen(false)} onOk={replaceAll}>
-                <div className="space-y-3 py-1">
-                    <Input value={searchText} onChange={(event) => setSearchText(event.target.value)} placeholder="查找内容" aria-label="查找内容" onPressEnter={findNext} />
-                    <Input value={replaceText} onChange={(event) => setReplaceText(event.target.value)} placeholder="替换为" aria-label="替换为" />
-                    <Button icon={<Search className="size-3.5" />} disabled={!searchText} onClick={findNext}>
+            <Modal
+                title="查找与替换"
+                open={searchOpen}
+                width={480}
+                centered
+                destroyOnHidden
+                onCancel={() => setSearchOpen(false)}
+                footer={[
+                    <Button key="close" onClick={() => setSearchOpen(false)}>
+                        关闭
+                    </Button>,
+                    <Button key="find" icon={<Search className="size-3.5" />} disabled={!searchText} onClick={findNext}>
                         查找下一个
-                    </Button>
+                    </Button>,
+                    <Button key="replace" type="primary" icon={<ReplaceAll className="size-3.5" />} disabled={!searchText} onClick={replaceAll}>
+                        全部替换
+                    </Button>,
+                ]}
+            >
+                <div className="grid gap-4 py-1" data-drama-search-dialog>
+                    <label className="grid gap-1.5">
+                        <span className="text-xs font-medium text-muted-foreground">查找</span>
+                        <Input
+                            autoFocus
+                            allowClear
+                            prefix={<Search className="size-4 text-muted-foreground" />}
+                            value={searchText}
+                            onChange={(event) => setSearchText(event.target.value)}
+                            placeholder="输入要查找的内容"
+                            aria-label="查找内容"
+                            onPressEnter={findNext}
+                        />
+                    </label>
+                    <label className="grid gap-1.5">
+                        <span className="text-xs font-medium text-muted-foreground">替换为</span>
+                        <Input
+                            allowClear
+                            prefix={<ReplaceAll className="size-4 text-muted-foreground" />}
+                            value={replaceText}
+                            onChange={(event) => setReplaceText(event.target.value)}
+                            placeholder="输入替换后的内容"
+                            aria-label="替换为"
+                            onPressEnter={replaceAll}
+                        />
+                    </label>
                 </div>
             </Modal>
         </section>

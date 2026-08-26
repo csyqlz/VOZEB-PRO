@@ -44,7 +44,7 @@ async function proxyMedia(request: Request, method: "GET" | "HEAD") {
             permit.release();
             return new NextResponse(null, { status: media.response.status, headers });
         }
-        return withMediaConcurrency(new NextResponse(media.body, { status: media.response.status, headers }), permit);
+        return withMediaConcurrency(new NextResponse(media.body, { status: media.response.status, headers }), permit, request.signal);
     } catch (error) {
         permit.release();
         if (error instanceof UnsupportedMediaContentError || error instanceof MediaProxyResponseError) return NextResponse.json({ error: error.message }, { status: error.status });
@@ -69,7 +69,7 @@ async function fetchMedia(target: URL, method: "GET" | "HEAD", range: string | n
         const response = await fetchSafeOutbound(current, {
             method,
             headers: {
-                "User-Agent": "VOZEB-PRO-Media-Proxy/0.0.6",
+                "User-Agent": "VOZEB-PRO-Media-Proxy/0.0.7",
                 ...(range ? { Range: range } : {}),
             },
             cache: "no-store",

@@ -1,7 +1,9 @@
 "use client";
 
-import { Clapperboard, FileText, KeyRound, MapPinned, Package, UserRound } from "lucide-react";
+import { Clapperboard, FileText, KeyRound, MapPinned, Package, Play, UserRound } from "lucide-react";
 import { useMemo, useState } from "react";
+
+import { imagePreviewUrl } from "@/lib/media-image-url";
 
 import { dramaAgentMentionKindLabel, type DramaAgentMentionItem, type DramaAgentMentionKind } from "./drama-agent-mention";
 
@@ -49,17 +51,33 @@ export function DramaAgentMentionPicker({ items, selectedIds, onSelect }: { item
                         <button
                             key={item.id}
                             type="button"
-                            className={`flex h-8 min-w-0 items-center rounded-md px-2.5 text-left text-[13px] font-medium transition-colors ${selected ? "bg-primary/10 text-primary" : "text-foreground hover:bg-muted/70"}`}
+                            className={`flex h-8 min-w-0 items-center gap-2 rounded-md px-1.5 text-left text-[13px] font-medium transition-colors ${selected ? "bg-primary/10 text-primary" : "text-foreground hover:bg-muted/70"}`}
                             onMouseDown={(event) => event.preventDefault()}
                             onClick={() => onSelect(item)}
                             aria-label={`引用${dramaAgentMentionKindLabel(item.kind)}：${item.title}`}
                             title={item.title}
                         >
+                            <MentionMediaPreview item={item} />
                             <span className="truncate">{item.title}</span>
                         </button>
                     );
                 })}
             </div>
         </div>
+    );
+}
+
+function MentionMediaPreview({ item }: { item: DramaAgentMentionItem }) {
+    if (!item.preview) return null;
+    if (item.preview.type === "image") {
+        return <img src={imagePreviewUrl(item.preview.url, 96)} alt="" className="size-6 shrink-0 rounded object-cover" data-drama-agent-mention-media="image" />;
+    }
+    return (
+        <span className="relative size-6 shrink-0 overflow-hidden rounded bg-black" data-drama-agent-mention-media="video">
+            <video src={item.preview.url} muted playsInline preload="metadata" aria-hidden="true" className="size-full object-cover" />
+            <span className="pointer-events-none absolute inset-0 grid place-items-center bg-black/20 text-white">
+                <Play className="size-2.5 fill-current" aria-hidden="true" />
+            </span>
+        </span>
     );
 }

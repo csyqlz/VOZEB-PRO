@@ -133,7 +133,7 @@ describe("Canvas Agent current-turn references", () => {
 
         expect(source).toContain("conversationId: session.conversationId");
         expect(source).toContain("preferences: generationPreferences.mode ? generationPreferences : undefined");
-        expect(source).toContain("<CanvasAgentGenerationSettings preferences={generationPreferences} onChange={setGenerationPreferences}");
+        expect(source).toContain("<CanvasAgentGenerationSettings preferences={generationPreferences} models={selectedModels} onChange={setGenerationPreferences}");
         expect(source).toContain("controlCreativeAgentRun(run.runId, action, session.conversationId)");
         expect(source).toContain("retryCreativeAgentTask(runId, taskId, session.conversationId)");
         expect(source).toContain("conversationId: run.conversationId");

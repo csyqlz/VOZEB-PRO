@@ -3,7 +3,7 @@ import axios from "axios";
 import { dataUrlToFile } from "@/lib/image-utils";
 import { browserReadableMediaUrl } from "@/lib/browser-media-url";
 import { resolveGeneratedMediaUrl } from "@/lib/media-url";
-import { hasProviderReadSignatureShape, isReferenceAssetUrl } from "@/lib/reference-asset-url";
+import { hasProviderReadSignatureShape, isProviderMediaAssetUrl } from "@/lib/reference-asset-url";
 import { getMediaBlob, readStoredMediaFile, uploadGeneratedMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
 import { refreshUserPointsIfSystem, syncUserPointsFromHeaders } from "@/services/api/points";
@@ -88,12 +88,12 @@ import {
 
 export type AdvancedVideoTemplateContext = {
     duration: number;
-    ratio: string;
-    resolution: string;
-    quality: string;
-    size: string;
-    width: number;
-    height: number;
+    ratio?: string;
+    resolution?: string;
+    quality?: string;
+    size?: string;
+    width?: number;
+    height?: number;
     images: string[];
     referenceVideos: string[];
     referenceAudios: string[];
@@ -161,13 +161,13 @@ export function alignAdvancedVideoPayload(payload: Record<string, unknown>, mode
     if ("prompt" in next) next.prompt = prompt;
     if ("duration" in next) next.duration = context.duration;
     if ("seconds" in next) next.seconds = typeof next.seconds === "number" ? context.duration : String(context.duration);
-    if ("ratio" in next) next.ratio = context.ratio;
-    if ("aspect_ratio" in next) next.aspect_ratio = context.ratio;
-    if ("resolution" in next) next.resolution = context.resolution;
-    if ("quality" in next) next.quality = context.quality;
-    if ("size" in next) next.size = context.size;
-    if ("width" in next) next.width = context.width;
-    if ("height" in next) next.height = context.height;
+    alignOptionalVideoField(next, "ratio", context.ratio);
+    alignOptionalVideoField(next, "aspect_ratio", context.ratio);
+    alignOptionalVideoField(next, "resolution", context.resolution);
+    alignOptionalVideoField(next, "quality", context.quality);
+    alignOptionalVideoField(next, "size", context.size);
+    alignOptionalVideoField(next, "width", context.width);
+    alignOptionalVideoField(next, "height", context.height);
     alignSingleReferenceField(next, "image", context.images[0]);
     alignSingleReferenceField(next, "image_url", context.images[0]);
     alignSingleReferenceField(next, "input_image", context.images[0]);
@@ -190,6 +190,12 @@ export function alignAdvancedVideoPayload(payload: Record<string, unknown>, mode
     alignListReferenceField(next, "referenceAudios", context.referenceAudios);
     alignListReferenceField(next, "reference_audios", context.referenceAudios);
     return next;
+}
+
+function alignOptionalVideoField(payload: Record<string, unknown>, key: string, value: string | number | undefined) {
+    if (!(key in payload)) return;
+    if (value !== undefined) payload[key] = value;
+    else if (payload[key] === "" || payload[key] === undefined) delete payload[key];
 }
 
 export function alignSingleReferenceField(payload: Record<string, unknown>, key: string, value?: string) {
@@ -351,7 +357,7 @@ export async function publishReferenceImage(dataUrl: string) {
 }
 
 function isUnsignedReferenceAssetUrl(value: string) {
-    return isReferenceAssetUrl(value) && !hasProviderReadSignatureShape(value);
+    return isProviderMediaAssetUrl(value) && !hasProviderReadSignatureShape(value);
 }
 
 export function uniqueStrings(items: string[]) {
@@ -367,20 +373,21 @@ export function normalizeGlobalAiOpcVideoDuration(value: string) {
 }
 
 export function normalizeCompatibleVideoRatio(value: string) {
-    if (!value || value === "auto") return "16:9";
     const normalized = normalizeSeedanceRatio(value);
-    return normalized === "adaptive" ? "16:9" : normalized;
+    return normalized === "adaptive" ? undefined : normalized;
 }
 
 export function normalizeCompatibleVideoQuality(value: string) {
     const resolution = normalizeVideoResolution(value);
+    if (!resolution) return undefined;
     return resolution === "1080p" ? "hd" : "standard";
 }
 
 export function normalizeCompatibleVideoDimensions(value: string) {
-    const size = normalizeVideoSize(value) || "1280x720";
+    const size = normalizeVideoSize(value);
+    if (!size) return {};
     const [width, height] = size.split("x").map((item) => Number(item));
-    return { width: Number.isFinite(width) ? width : 1280, height: Number.isFinite(height) ? height : 720 };
+    return Number.isFinite(width) && Number.isFinite(height) ? { width, height } : {};
 }
 
 export function shouldFallbackToCompatibleVideo(error: unknown, message: string) {

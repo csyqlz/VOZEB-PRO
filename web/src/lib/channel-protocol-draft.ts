@@ -36,6 +36,9 @@ const templateVariables = new Set([
     "height",
     "quality",
     "n",
+    "count",
+    "num_images",
+    "batch_size",
     "ratio",
     "aspect_ratio",
     "resolution",
@@ -51,6 +54,11 @@ const templateVariables = new Set([
     "first_frame_url",
     "last_frame",
     "last_frame_url",
+    "generate_audio",
+    "voice",
+    "format",
+    "response_format",
+    "speed",
     "references",
     "content",
 ]);
@@ -64,6 +72,7 @@ export function parseDeterministicProtocolDraft(input: { text: string; documenta
             if (!parsed) return [];
             const advanced = parsed.patch.advancedConfig || emptyAdvancedConfig();
             const request = exampleRequestLine(text);
+            if (request && looksLikeModelCatalogPath(request.path)) return [];
             const role = requestRole(request);
             const capability = parsedCapability(advanced) || capabilityFromPath(request?.path || "");
             if (!capability) return [];
@@ -102,8 +111,9 @@ export function parseDeterministicProtocolDraft(input: { text: string; documenta
     );
     if (!operations.length) return null;
     const auth = deterministicAuth(input.text);
+    const baseUrl = operations.find((item) => item.baseUrl)?.baseUrl || inferDocumentedBaseUrl(input.text, operations);
     return validateProtocolDraft({
-        baseUrl: operations.find((item) => item.baseUrl)?.baseUrl || "",
+        baseUrl,
         apiFormat: operations[0]?.apiFormat || "openai",
         ...auth,
         documentationUrl: input.documentationUrl,
@@ -112,6 +122,24 @@ export function parseDeterministicProtocolDraft(input: { text: string; documenta
         summary: Array.from(new Set(operations.flatMap((item) => item.summary))).slice(0, 12),
         assisted: false,
     });
+}
+
+function inferDocumentedBaseUrl(source: string, operations: Array<ChannelProtocolOperationDraft & { baseUrl?: string }>) {
+    const requestUrls = Array.from(source.matchAll(/(?:curl(?:\s+--url)?|GET|POST|PUT|PATCH|DELETE)\s+["']?(https?:\/\/[^\s"'\\<>]+)/gi), (match) => match[1].replace(/[),.;]+$/g, ""));
+    const operationPaths = operations.flatMap((operation) => [operation.config.createPath, operation.config.editPath, operation.config.imageToVideoPath].filter((path): path is string => Boolean(path))).sort((left, right) => right.length - left.length);
+    for (const value of requestUrls) {
+        try {
+            const url = new URL(value);
+            const pathname = url.pathname.replace(/\/+$/g, "");
+            const path = operationPaths.find((candidate) => pathname === candidate || pathname.endsWith(candidate));
+            if (!path) continue;
+            const prefix = pathname.slice(0, pathname.length - path.length).replace(/\/+$/g, "");
+            return `${url.origin}${prefix}`;
+        } catch {
+            continue;
+        }
+    }
+    return "";
 }
 
 export function protocolDraftFromUnknown(value: unknown, fallback?: ChannelProtocolDraft | null): ChannelProtocolDraft | null {
@@ -190,28 +218,42 @@ function validateOperation(operation: ChannelProtocolOperationDraft, hasCatalog:
 }
 
 function protocolExampleSegments(source: string) {
-    const starts = Array.from(source.matchAll(/(?:^|\n)\s*(?=curl\s|(?:GET|POST|PUT|PATCH|DELETE)\s+(?:https?:\/\/|\/(?!\/)))/gi), (match) => match.index || 0);
-    if (starts.length < 2) return [source];
-    return starts.map((start, index) => source.slice(start, starts[index + 1] || source.length)).filter((item) => item.trim());
+    const normalized = source.replace(/(^|\n)(\s*(?:GET|POST|PUT|PATCH|DELETE))\s*\r?\n\s*(https?:\/\/[^\s"'\\<>]+|\/(?!\/)[^\s"'\\<>]+)/gi, "$1$2 $3");
+    const pages = normalized.split(/(?=^SOURCE\s+https?:\/\/)/gim).filter((page) => page.trim());
+    return pages.flatMap((page) => {
+        const starts = Array.from(page.matchAll(/(?:^|\n)\s*(?=curl\s|(?:GET|POST|PUT|PATCH|DELETE)\s+(?:https?:\/\/|\/(?!\/)))/gi), (match) => match.index || 0);
+        if (starts.length < 2) return [page];
+        return starts.map((start, index) => page.slice(start, starts[index + 1] || page.length)).filter((item) => item.trim());
+    });
 }
 
 type ExampleRequestLine = { method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"; path: string; absolute: boolean };
 
 function exampleRequestLine(source: string): ExampleRequestLine | null {
     const match = source.match(/(?:^|\n)\s*(GET|POST|PUT|PATCH|DELETE)\s+["']?(https?:\/\/[^\s"'\\<>]+|\/(?!\/)[^\s"'\\<>]+)/i);
-    if (!match) return null;
-    const absolute = /^https?:\/\//i.test(match[2]);
-    let path = match[2].replace(/[),.;]+$/g, "");
+    if (match) return normalizeExampleRequest(match[1], match[2]);
+
+    const curl = source.match(/(?:^|\n)\s*curl\b([\s\S]*?)(?=\n\s*(?:curl\b|GET|POST|PUT|PATCH|DELETE)\s+|$)/i)?.[1] || "";
+    if (!curl) return null;
+    const urlValue = curl.match(/--url(?:=|\s+)(["']?)(https?:\/\/[^\s"'\\<>]+|\/(?!\/)[^\s"'\\<>]+)\1/i)?.[2] || curl.match(/(?:^|\s)(["']?)(https?:\/\/[^\s"'\\<>]+|\/(?!\/)[^\s"'\\<>]+)\1/i)?.[2];
+    if (!urlValue) return null;
+    const method = curl.match(/(?:--request(?:=|\s+)|-X\s+)(GET|POST|PUT|PATCH|DELETE)\b/i)?.[1] || (/(?:--data(?:-[a-z]+)?|--form(?:=|\s+)|(?:^|\s)-[dF]\s)/i.test(curl) ? "POST" : "GET");
+    return normalizeExampleRequest(method, urlValue);
+}
+
+function normalizeExampleRequest(methodValue: string, value: string): ExampleRequestLine | null {
+    const absolute = /^https?:\/\//i.test(value);
+    let path = value.replace(/[),.;]+$/g, "");
     if (absolute) {
         try {
             const url = new URL(path);
-            path = `${url.pathname}${url.search}`;
+            path = `${url.pathname}${url.search}`.replace(/%7B(?:task[_-]?id|id)%7D/gi, ":task_id");
         } catch {
             return null;
         }
     }
     path = path.replace(/\{(?:task[_-]?id|id)\}|:(?:task[_-]?id|taskId|id)\b/gi, ":task_id");
-    return isApiPath(path) ? { method: match[1].toUpperCase() as ExampleRequestLine["method"], path, absolute } : null;
+    return isApiPath(path) ? { method: methodValue.toUpperCase() as ExampleRequestLine["method"], path, absolute } : null;
 }
 
 function requestRole(request: ExampleRequestLine | null) {
@@ -230,10 +272,11 @@ function capabilityFromPath(path: string): LogicalModelCapability | null {
 }
 
 function parsedCapability(config: ReturnType<typeof emptyAdvancedConfig>): LogicalModelCapability | null {
-    if (config.videoModel || config.imageToVideoPath || /video/i.test(config.createPath)) return "video";
-    if (config.imageModel || config.editPath || /image|txt2img|img2img/i.test(config.createPath)) return "image";
-    if (config.textModel || /chat|responses/i.test(config.createPath)) return "text";
-    if (/audio|speech|voice|tts/i.test(config.createPath)) return "audio";
+    const evidence = `${config.createPath}\n${config.requestTemplate}\n${config.resultField}`;
+    if (config.videoModel || config.imageToVideoPath || /video|videos|i2v|t2v|video_url|\.mp4/i.test(evidence)) return "video";
+    if (config.imageModel || config.editPath || /image|images|txt2img|img2img|image_url|b64_json/i.test(evidence)) return "image";
+    if (config.textModel || /chat|responses|completions|choices\[0\]\.message/i.test(evidence)) return "text";
+    if (/audio|speech|voice|tts|music|sound|binary/i.test(evidence)) return "audio";
     return null;
 }
 
@@ -265,7 +308,20 @@ function mergeOperationConfig(current: SystemChannelModelConfig, incoming: Syste
     merged.supportsReferenceImage = Boolean(current.supportsReferenceImage || incoming.supportsReferenceImage);
     merged.supportsReferenceVideo = Boolean(current.supportsReferenceVideo || incoming.supportsReferenceVideo);
     merged.supportsReferenceAudio = Boolean(current.supportsReferenceAudio || incoming.supportsReferenceAudio);
+    merged.resultField = mergeFieldPaths(current.resultField, incoming.resultField);
+    merged.statusField = mergeFieldPaths(current.statusField, incoming.statusField);
     return merged;
+}
+
+function mergeFieldPaths(current?: string, incoming?: string) {
+    return Array.from(
+        new Set(
+            [current, incoming]
+                .flatMap((value) => (value || "").split(/\s+\/\s+/))
+                .map((value) => value.trim())
+                .filter(Boolean),
+        ),
+    ).join(" / ");
 }
 
 function extractModelCatalogPaths(source: string) {
@@ -310,7 +366,7 @@ function uniqueModels(value: unknown[]) {
 }
 
 function isConcreteModel(value: string) {
-    return !/^\s*(?:\{\{[^{}]+\}\}|<[^<>]+>|\[[^\[\]]+\]|model|your[-_ ]?model|example|placeholder|x+)\s*$/i.test(value);
+    return !/^\s*(?:\{\{[^{}]+\}\}|<[^<>]+>|\[[^\[\]]+\]|model(?:[-_ ]?(?:id|name))?|your[-_ ]?model|authorization|api[-_ ]?key|token|bearer|string|required|example|placeholder|x+)\s*$/i.test(value);
 }
 
 function isSafeJsonTemplate(value: string) {

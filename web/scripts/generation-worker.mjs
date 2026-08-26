@@ -43,7 +43,7 @@ async function runLane(index) {
             if (!response.ok) throw new Error(payload?.msg || `Worker endpoint returned HTTP ${response.status}`);
             consecutiveErrors = 0;
             const claimed = Number(payload?.data?.claimed || 0);
-            const policy = nextGenerationWorkerPollPolicy({ claimed, idleBatches, baseIdleDelayMs: idleDelayMs });
+            const policy = nextGenerationWorkerPollPolicy({ claimed, idleBatches, baseIdleDelayMs: idleDelayMs, nextDueAt: payload?.data?.nextDueAt, now: Date.now() });
             idleBatches = policy.idleBatches;
             await delay(policy.delayMs);
         } catch (error) {

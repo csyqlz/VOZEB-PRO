@@ -10,8 +10,8 @@ type YumengVideoRequestInput = {
     model: string;
     prompt: string;
     duration: number;
-    aspectRatio: string;
-    resolution: string;
+    aspectRatio?: string;
+    resolution?: string;
     generateAudio: boolean;
     watermark: boolean;
     images: string[];
@@ -25,8 +25,8 @@ type YumengImageRequestInput = {
     model: string;
     prompt: string;
     images: string[];
-    aspectRatio: string;
-    resolution: string;
+    aspectRatio?: string;
+    resolution?: string;
     size?: string;
 };
 
@@ -193,6 +193,7 @@ export function normalizeYumengModelCenterBaseUrl(value: string) {
 export function resolveYumengImageResolution(model: string, quality: string | undefined) {
     const normalized = normalizeModel(model);
     const value = quality?.trim().toLowerCase();
+    if (!value || value === "auto") return undefined;
     if (normalized === "seedream_5.0pro") return value === "high" || value === "2k" ? "2K" : "1K";
     if (value === "high" || value === "4k") return "4K";
     if (value === "medium" || value === "3k") return "3K";
@@ -206,7 +207,7 @@ export function buildYumengImageRequest(input: YumengImageRequestInput) {
         model,
         prompt: input.prompt,
         reference_images: input.images,
-        aspect_ratio: input.aspectRatio || "1:1",
+        aspect_ratio: input.aspectRatio,
         resolution: input.resolution,
         ...(normalizeModel(model) === "seedream-5.0" && /^\d+x\d+$/i.test(input.size || "") ? { size: input.size } : {}),
         watermark: false,
@@ -336,8 +337,9 @@ function isReferenceToVideo(model: string) {
     return (isHappyHorse(model) && model.includes("-r2v")) || model === "wan2.7-r2v";
 }
 
-function normalizeVideoResolution(model: string, value: string) {
-    const lower = value.trim().toLowerCase() || "720p";
+function normalizeVideoResolution(model: string, value?: string) {
+    const lower = value?.trim().toLowerCase();
+    if (!lower || lower === "auto") return undefined;
     if (model === "sd_2.0_fast_special") return "720p";
     if (model === "sd_2.0_fast_discount" || model === "seedance-2.5-c1" || model === "videos_fast_933_c1") return lower === "480p" ? "480p" : "720p";
     if (isHappyHorse(model) || model.startsWith("wan2.7-")) return lower === "720p" ? "720P" : "1080P";

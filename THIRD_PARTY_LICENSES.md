@@ -4,7 +4,7 @@
 
 ## Web 应用
 
-共 464 个运行时依赖记录。
+共 465 个运行时依赖记录。
 
 | 包 | 版本 | 许可证 | 项目主页 |
 | --- | --- | --- | --- |
@@ -38,7 +38,7 @@
 | @babel/code-frame | 7.29.7 | MIT | [链接](https://babel.dev/docs/en/next/babel-code-frame) |
 | @babel/compat-data | 7.29.7 | MIT | [链接](https://github.com/babel/babel#readme) |
 | @babel/core | 7.29.7 | MIT | [链接](https://babel.dev/docs/en/next/babel-core) |
-| @babel/generator | 7.29.7 | MIT | [链接](https://babel.dev/docs/en/next/babel-generator) |
+| @babel/generator | 7.29.8 | MIT | [链接](https://babel.dev/docs/en/next/babel-generator) |
 | @babel/helper-compilation-targets | 7.29.7 | MIT | [链接](https://github.com/babel/babel#readme) |
 | @babel/helper-globals | 7.29.7 | MIT | [链接](https://github.com/babel/babel#readme) |
 | @babel/helper-module-imports | 7.29.7 | MIT | [链接](https://babel.dev/docs/en/next/babel-helper-module-imports) |
@@ -47,11 +47,11 @@
 | @babel/helper-validator-identifier | 7.29.7 | MIT | [链接](https://github.com/babel/babel#readme) |
 | @babel/helper-validator-option | 7.29.7 | MIT | [链接](https://github.com/babel/babel#readme) |
 | @babel/helpers | 7.29.7 | MIT | [链接](https://babel.dev/docs/en/next/babel-helpers) |
-| @babel/parser | 7.29.7 | MIT | [链接](https://babel.dev/docs/en/next/babel-parser) |
+| @babel/parser | 7.29.8 | MIT | [链接](https://babel.dev/docs/en/next/babel-parser) |
 | @babel/runtime | 7.29.7, 8.0.0 | MIT | [链接](https://babel.dev/docs/en/next/babel-runtime) |
 | @babel/template | 7.29.7 | MIT | [链接](https://babel.dev/docs/en/next/babel-template) |
-| @babel/traverse | 7.29.7 | MIT | [链接](https://babel.dev/docs/en/next/babel-traverse) |
-| @babel/types | 7.29.7 | MIT | [链接](https://babel.dev/docs/en/next/babel-types) |
+| @babel/traverse | 7.29.8 | MIT | [链接](https://babel.dev/docs/en/next/babel-traverse) |
+| @babel/types | 7.29.8 | MIT | [链接](https://babel.dev/docs/en/next/babel-types) |
 | @borewit/text-codec | 0.2.2 | MIT | [链接](https://github.com/Borewit/text-codec#readme) |
 | @emotion/hash | 0.8.0 | MIT | [链接](https://github.com/emotion-js/emotion/tree/master#readme) |
 | @emotion/unitless | 0.7.5 | MIT | [链接](https://github.com/emotion-js/emotion/tree/master#readme) |
@@ -66,6 +66,7 @@
 | @jridgewell/resolve-uri | 3.1.2 | MIT | [链接](https://github.com/jridgewell/resolve-uri#readme) |
 | @jridgewell/sourcemap-codec | 1.5.5 | MIT | [链接](https://github.com/jridgewell/sourcemaps/tree/main/packages/sourcemap-codec) |
 | @jridgewell/trace-mapping | 0.3.31 | MIT | [链接](https://github.com/jridgewell/sourcemaps/tree/main/packages/trace-mapping) |
+| @mediapipe/tasks-vision | 1.0.1 | Apache-2.0 | [链接](http://mediapipe.dev) |
 | @next/env | 16.2.12 | MIT | [链接](https://github.com/vercel/next.js#readme) |
 | @next/swc-win32-x64-msvc | 16.2.12 | MIT | [链接](https://github.com/vercel/next.js#readme) |
 | @noble/hashes | 2.2.0 | MIT | [链接](https://paulmillr.com/noble/) |
@@ -235,12 +236,12 @@
 | axios | 1.19.0 | MIT | [链接](https://axios-http.com) |
 | babel-plugin-macros | 3.1.0 | MIT | [链接](https://github.com/kentcdodds/babel-plugin-macros#readme) |
 | bail | 2.0.2 | MIT | [链接](https://github.com/wooorm/bail#readme) |
-| baseline-browser-mapping | 2.10.40 | Apache-2.0 | [链接](https://github.com/web-platform-dx/baseline-browser-mapping#readme) |
+| baseline-browser-mapping | 2.10.40, 2.11.14 | Apache-2.0 | [链接](https://github.com/web-platform-dx/baseline-browser-mapping#readme) |
 | bowser | 2.14.1 | MIT | [链接](https://github.com/bowser-js/bowser) |
-| browserslist | 4.28.4 | MIT | [链接](https://github.com/browserslist/browserslist#readme) |
+| browserslist | 4.28.8 | MIT | [链接](https://github.com/browserslist/browserslist#readme) |
 | call-bind-apply-helpers | 1.0.2 | MIT | [链接](https://github.com/ljharb/call-bind-apply-helpers#readme) |
 | callsites | 3.1.0 | MIT | [链接](https://github.com/sindresorhus/callsites#readme) |
-| caniuse-lite | 1.0.30001800 | CC-BY-4.0 | [链接](https://github.com/browserslist/caniuse-lite#readme) |
+| caniuse-lite | 1.0.30001800, 1.0.30001809 | CC-BY-4.0 | [链接](https://github.com/browserslist/caniuse-lite#readme) |
 | ccount | 2.0.1 | MIT | [链接](https://github.com/wooorm/ccount#readme) |
 | character-entities | 2.0.2 | MIT | [链接](https://github.com/wooorm/character-entities#readme) |
 | character-entities-html4 | 2.1.0 | MIT | [链接](https://github.com/wooorm/character-entities-html4#readme) |
@@ -264,7 +265,7 @@
 | detect-node-es | 1.1.0 | MIT | [链接](https://github.com/thekashey/detect-node) |
 | devlop | 1.1.0 | MIT | [链接](https://github.com/wooorm/devlop#readme) |
 | dunder-proto | 1.0.1 | MIT | [链接](https://github.com/es-shims/dunder-proto#readme) |
-| electron-to-chromium | 1.5.384 | ISC | [链接](https://github.com/Kilian/electron-to-chromium#readme) |
+| electron-to-chromium | 1.5.405 | ISC | [链接](https://github.com/Kilian/electron-to-chromium#readme) |
 | entities | 8.0.0 | BSD-2-Clause | [链接](https://github.com/fb55/entities#readme) |
 | error-ex | 1.3.4 | MIT | [链接](https://github.com/qix-/node-error-ex#readme) |
 | es-define-property | 1.0.1 | MIT | [链接](https://github.com/ljharb/es-define-property#readme) |
@@ -369,9 +370,9 @@
 | motion-dom | 12.43.0 | MIT | [链接](https://github.com/motiondivision/motion#readme) |
 | motion-utils | 12.39.0 | MIT | [链接](https://github.com/motiondivision/motion#readme) |
 | ms | 2.1.3 | MIT | [链接](https://github.com/vercel/ms#readme) |
-| nanoid | 3.3.17, 6.0.0 | MIT | [链接](https://github.com/ai/nanoid#readme) |
+| nanoid | 3.3.18, 6.0.0 | MIT | [链接](https://github.com/ai/nanoid#readme) |
 | next | 16.2.12 | MIT | [链接](https://nextjs.org) |
-| node-releases | 2.0.50 | MIT | [链接](https://github.com/chicoxyzzy/node-releases#readme) |
+| node-releases | 2.0.53 | MIT | [链接](https://github.com/chicoxyzzy/node-releases#readme) |
 | orderedmap | 2.1.1 | MIT | [链接](https://github.com/marijnh/orderedmap#readme) |
 | otpauth | 9.5.1 | MIT | [链接](https://github.com/hectorm/otpauth) |
 | parent-module | 1.0.1 | MIT | [链接](https://github.com/sindresorhus/parent-module#readme) |
@@ -460,7 +461,7 @@
 | unist-util-stringify-position | 4.0.0 | MIT | [链接](https://github.com/syntax-tree/unist-util-stringify-position#readme) |
 | unist-util-visit | 5.1.0 | MIT | [链接](https://github.com/syntax-tree/unist-util-visit#readme) |
 | unist-util-visit-parents | 6.0.2 | MIT | [链接](https://github.com/syntax-tree/unist-util-visit-parents#readme) |
-| update-browserslist-db | 1.2.3 | MIT | [链接](https://github.com/browserslist/update-db#readme) |
+| update-browserslist-db | 1.3.1 | MIT | [链接](https://github.com/browserslist/update-db#readme) |
 | use-callback-ref | 1.3.3 | MIT | [链接](https://github.com/theKashey/use-callback-ref#readme) |
 | use-sidecar | 1.1.3 | MIT | [链接](https://github.com/theKashey/use-sidecar) |
 | use-sync-external-store | 1.6.0 | MIT | [链接](https://github.com/facebook/react#readme) |
@@ -479,7 +480,7 @@
 
 | 包 | 版本 | 许可证 | 项目主页 |
 | --- | --- | --- | --- |
-| @esbuild/win32-x64 | 0.28.1 | MIT | [链接](https://github.com/evanw/esbuild#readme) |
+| @esbuild/win32-x64 | 0.28.2 | MIT | [链接](https://github.com/evanw/esbuild#readme) |
 | @floating-ui/core | 1.8.0 | MIT | [链接](https://floating-ui.com) |
 | @floating-ui/dom | 1.8.0 | MIT | [链接](https://floating-ui.com) |
 | @floating-ui/react-dom | 2.1.9 | MIT | [链接](https://floating-ui.com/docs/react-dom) |
@@ -490,8 +491,8 @@
 | @img/sharp-win32-x64 | 0.35.3 | Apache-2.0 AND LGPL-3.0-or-later | [链接](https://sharp.pixelplumbing.com) |
 | @jridgewell/sourcemap-codec | 1.5.5 | MIT | [链接](https://github.com/jridgewell/sourcemaps/tree/main/packages/sourcemap-codec) |
 | @mdx-js/mdx | 3.1.1 | MIT | [链接](https://mdxjs.com) |
-| @next/env | 16.2.12 | MIT | [链接](https://github.com/vercel/next.js#readme) |
-| @next/swc-win32-x64-msvc | 16.2.12 | MIT | [链接](https://github.com/vercel/next.js#readme) |
+| @next/env | 16.3.0 | MIT | [链接](https://github.com/vercel/next.js#readme) |
+| @next/swc-win32-x64-msvc | 16.3.0 | MIT | [链接](https://github.com/vercel/next.js#readme) |
 | @radix-ui/number | 1.1.3 | MIT | [链接](https://radix-ui.com/primitives) |
 | @radix-ui/primitive | 1.1.7 | MIT | [链接](https://radix-ui.com/primitives) |
 | @radix-ui/react-accordion | 1.2.20 | MIT | [链接](https://radix-ui.com/primitives) |
@@ -526,13 +527,13 @@
 | @radix-ui/react-use-size | 1.1.4 | MIT | [链接](https://radix-ui.com/primitives) |
 | @radix-ui/react-visually-hidden | 1.2.11 | MIT | [链接](https://radix-ui.com/primitives) |
 | @radix-ui/rect | 1.1.3 | MIT | [链接](https://radix-ui.com/primitives) |
-| @shikijs/core | 4.4.1 | MIT | [链接](https://github.com/shikijs/shiki#readme) |
-| @shikijs/engine-javascript | 4.4.1 | MIT | [链接](https://github.com/shikijs/shiki#readme) |
-| @shikijs/engine-oniguruma | 4.4.1 | MIT | [链接](https://github.com/shikijs/shiki#readme) |
-| @shikijs/langs | 4.4.1 | MIT | [链接](https://github.com/shikijs/shiki#readme) |
-| @shikijs/primitive | 4.4.1 | MIT | [链接](https://github.com/shikijs/shiki#readme) |
-| @shikijs/themes | 4.4.1 | MIT | [链接](https://github.com/shikijs/shiki#readme) |
-| @shikijs/types | 4.4.1 | MIT | [链接](https://github.com/shikijs/shiki#readme) |
+| @shikijs/core | 4.4.3 | MIT | [链接](https://github.com/shikijs/shiki#readme) |
+| @shikijs/engine-javascript | 4.4.3 | MIT | [链接](https://github.com/shikijs/shiki#readme) |
+| @shikijs/engine-oniguruma | 4.4.3 | MIT | [链接](https://github.com/shikijs/shiki#readme) |
+| @shikijs/langs | 4.4.3 | MIT | [链接](https://github.com/shikijs/shiki#readme) |
+| @shikijs/primitive | 4.4.3 | MIT | [链接](https://github.com/shikijs/shiki#readme) |
+| @shikijs/themes | 4.4.3 | MIT | [链接](https://github.com/shikijs/shiki#readme) |
+| @shikijs/types | 4.4.3 | MIT | [链接](https://github.com/shikijs/shiki#readme) |
 | @shikijs/vscode-textmate | 10.0.2 | MIT | [链接](https://github.com/shikijs/vscode-textmate#readme) |
 | @standard-schema/spec | 1.1.0 | MIT | [链接](https://standardschema.dev) |
 | @swc/helpers | 0.5.15 | Apache-2.0 | [链接](https://swc.rs) |
@@ -548,15 +549,15 @@
 | @types/react-dom | 19.2.4 | MIT | [链接](https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/react-dom) |
 | @types/unist | 2.0.11, 3.0.3 | MIT | [链接](https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/unist) |
 | @ungap/structured-clone | 1.3.3 | ISC | [链接](https://github.com/ungap/structured-clone#readme) |
-| @yuku-analyzer/binding-win32-x64 | 0.8.3 | MIT | [链接](https://github.com/yuku-toolchain/yuku#readme) |
-| @yuku-toolchain/types | 0.8.3 | MIT | [链接](https://github.com/yuku-toolchain/yuku#readme) |
+| @yuku-analyzer/binding-win32-x64 | 0.8.7 | MIT | [链接](https://github.com/yuku-toolchain/yuku#readme) |
+| @yuku-toolchain/types | 0.8.7 | MIT | [链接](https://github.com/yuku-toolchain/yuku#readme) |
 | acorn | 8.18.0 | MIT | [链接](https://github.com/acornjs/acorn) |
 | acorn-jsx | 5.3.2 | MIT | [链接](https://github.com/acornjs/acorn-jsx) |
 | aria-hidden | 1.2.6 | MIT | [链接](https://github.com/theKashey/aria-hidden#readme) |
 | astring | 1.9.0 | MIT | [链接](https://github.com/davidbonnet/astring#readme) |
 | bail | 2.0.2 | MIT | [链接](https://github.com/wooorm/bail#readme) |
-| baseline-browser-mapping | 2.10.42 | Apache-2.0 | [链接](https://github.com/web-platform-dx/baseline-browser-mapping#readme) |
-| caniuse-lite | 1.0.30001803 | CC-BY-4.0 | [链接](https://github.com/browserslist/caniuse-lite#readme) |
+| baseline-browser-mapping | 2.11.14 | Apache-2.0 | [链接](https://github.com/web-platform-dx/baseline-browser-mapping#readme) |
+| caniuse-lite | 1.0.30001809 | CC-BY-4.0 | [链接](https://github.com/browserslist/caniuse-lite#readme) |
 | ccount | 2.0.1 | MIT | [链接](https://github.com/wooorm/ccount#readme) |
 | character-entities | 2.0.2 | MIT | [链接](https://github.com/wooorm/character-entities#readme) |
 | character-entities-html4 | 2.1.0 | MIT | [链接](https://github.com/wooorm/character-entities-html4#readme) |
@@ -580,7 +581,7 @@
 | entities | 6.0.1 | BSD-2-Clause | [链接](https://github.com/fb55/entities#readme) |
 | esast-util-from-estree | 2.0.0 | MIT | [链接](https://github.com/syntax-tree/esast-util-from-estree#readme) |
 | esast-util-from-js | 2.0.1 | MIT | [链接](https://github.com/syntax-tree/esast-util-from-js#readme) |
-| esbuild | 0.28.1 | MIT | [链接](https://github.com/evanw/esbuild#readme) |
+| esbuild | 0.28.2 | MIT | [链接](https://github.com/evanw/esbuild#readme) |
 | escape-string-regexp | 5.0.0 | MIT | [链接](https://github.com/sindresorhus/escape-string-regexp#readme) |
 | estree-util-attach-comments | 3.0.0 | MIT | [链接](https://github.com/syntax-tree/estree-util-attach-comments#readme) |
 | estree-util-build-jsx | 3.0.1 | MIT | [链接](https://github.com/syntax-tree/estree-util-build-jsx#readme) |
@@ -593,9 +594,9 @@
 | extend | 3.0.2 | MIT | [链接](https://github.com/justmoon/node-extend#readme) |
 | fdir | 6.5.0 | MIT | [链接](https://github.com/thecodrr/fdir#readme) |
 | framer-motion | 12.43.0 | MIT | [链接](https://github.com/motiondivision/motion#readme) |
-| fumadocs-core | 16.14.0 | MIT | [链接](https://fumadocs.dev) |
-| fumadocs-mdx | 15.2.1 | MIT | [链接](https://fumadocs.dev) |
-| fumadocs-ui | 16.14.0 | MIT | [链接](https://fumadocs.dev) |
+| fumadocs-core | 16.14.3 | MIT | [链接](https://fumadocs.dev) |
+| fumadocs-mdx | 15.2.3 | MIT | [链接](https://fumadocs.dev) |
+| fumadocs-ui | 16.14.3 | MIT | [链接](https://fumadocs.dev) |
 | get-nonce | 1.0.1 | MIT | [链接](https://github.com/theKashey/get-nonce) |
 | github-slugger | 2.0.0 | ISC | [链接](https://github.com/Flet/github-slugger) |
 | hast-util-from-parse5 | 8.0.3 | MIT | [链接](https://github.com/syntax-tree/hast-util-from-parse5#readme) |
@@ -615,8 +616,8 @@
 | is-hexadecimal | 2.0.1 | MIT | [链接](https://github.com/wooorm/is-hexadecimal#readme) |
 | is-plain-obj | 4.1.0 | MIT | [链接](https://github.com/sindresorhus/is-plain-obj#readme) |
 | longest-streak | 3.1.0 | MIT | [链接](https://github.com/wooorm/longest-streak#readme) |
-| lucide-react | 1.28.0 | ISC | [链接](https://lucide.dev) |
-| magic-string | 1.1.0 | MIT | [链接](https://github.com/Rich-Harris/magic-string#readme) |
+| lucide-react | 1.31.0 | ISC | [链接](https://lucide.dev) |
+| magic-string | 1.2.0 | MIT | [链接](https://github.com/Rich-Harris/magic-string#readme) |
 | markdown-extensions | 2.0.0 | MIT | [链接](https://github.com/sindresorhus/markdown-extensions#readme) |
 | markdown-table | 3.0.4 | MIT | [链接](https://github.com/wooorm/markdown-table#readme) |
 | mdast-util-find-and-replace | 3.0.2 | MIT | [链接](https://github.com/syntax-tree/mdast-util-find-and-replace#readme) |
@@ -674,8 +675,8 @@
 | motion-dom | 12.43.0 | MIT | [链接](https://github.com/motiondivision/motion#readme) |
 | motion-utils | 12.39.0 | MIT | [链接](https://github.com/motiondivision/motion#readme) |
 | ms | 2.1.3 | MIT | [链接](https://github.com/vercel/ms#readme) |
-| nanoid | 3.3.17 | MIT | [链接](https://github.com/ai/nanoid#readme) |
-| next | 16.2.12 | MIT | [链接](https://nextjs.org) |
+| nanoid | 3.3.18 | MIT | [链接](https://github.com/ai/nanoid#readme) |
+| next | 16.3.0 | MIT | [链接](https://nextjs.org) |
 | next-themes | 0.4.6 | MIT | [链接](https://github.com/pacocoursey/next-themes#readme) |
 | npm-to-yarn | 3.2.0 | MIT | [链接](https://github.com/nebrelbug/npm-to-yarn#readme) |
 | oniguruma-parser | 0.12.2 | MIT | [链接](https://github.com/slevithan/oniguruma-parser#readme) |
@@ -691,7 +692,7 @@
 | react-remove-scroll | 2.7.2 | MIT | [链接](https://github.com/theKashey/react-remove-scroll#readme) |
 | react-remove-scroll-bar | 2.3.8 | MIT | [链接](https://github.com/theKashey/react-remove-scroll-bar#readme) |
 | react-style-singleton | 2.2.3 | MIT | [链接](https://github.com/theKashey/react-style-singleton#readme) |
-| readdirp | 5.0.0 | MIT | [链接](https://github.com/paulmillr/readdirp) |
+| readdirp | 5.1.1 | MIT | [链接](https://github.com/paulmillr/readdirp) |
 | recma-build-jsx | 1.0.0 | MIT | [链接](https://github.com/mdx-js/recma) |
 | recma-jsx | 1.0.1 | MIT | [链接](https://github.com/mdx-js/recma) |
 | recma-parse | 1.0.0 | MIT | [链接](https://github.com/mdx-js/recma) |
@@ -711,7 +712,7 @@
 | scroll-into-view-if-needed | 3.1.0 | MIT | [链接](https://scroll-into-view.dev) |
 | semver | 7.8.5 | ISC | [链接](https://github.com/npm/node-semver#readme) |
 | sharp | 0.35.3 | Apache-2.0 | [链接](https://sharp.pixelplumbing.com) |
-| shiki | 4.4.1 | MIT | [链接](https://github.com/shikijs/shiki#readme) |
+| shiki | 4.4.3 | MIT | [链接](https://github.com/shikijs/shiki#readme) |
 | source-map | 0.7.6 | BSD-3-Clause | [链接](https://github.com/mozilla/source-map) |
 | source-map-js | 1.2.1 | BSD-3-Clause | [链接](https://github.com/7rulnik/source-map-js) |
 | space-separated-tokens | 2.0.2 | MIT | [链接](https://github.com/wooorm/space-separated-tokens#readme) |
@@ -742,8 +743,8 @@
 | vfile-message | 4.0.3 | MIT | [链接](https://github.com/vfile/vfile-message#readme) |
 | web-namespaces | 2.0.1 | MIT | [链接](https://github.com/wooorm/web-namespaces#readme) |
 | yaml | 2.9.0 | ISC | [链接](https://eemeli.org/yaml/) |
-| yuku-analyzer | 0.8.3 | MIT | [链接](https://github.com/yuku-toolchain/yuku#readme) |
-| yuku-ast | 0.8.3 | MIT | [链接](https://github.com/yuku-toolchain/yuku#readme) |
+| yuku-analyzer | 0.8.7 | MIT | [链接](https://github.com/yuku-toolchain/yuku#readme) |
+| yuku-ast | 0.8.7 | MIT | [链接](https://github.com/yuku-toolchain/yuku#readme) |
 | zbsearch | 3.3.4 | Apache-2.0 | [链接](https://github.com/micheleriva/zbsearch#readme) |
 | zod | 4.4.3 | MIT | [链接](https://zod.dev) |
 | zwitch | 2.0.4 | MIT | [链接](https://github.com/wooorm/zwitch#readme) |

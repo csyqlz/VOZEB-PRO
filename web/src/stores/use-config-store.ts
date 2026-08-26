@@ -74,7 +74,7 @@ type LogicalModel = {
     name: string;
     capability: ModelCapability;
     enabled: boolean;
-    bindings: Array<{ id: string; channelId: string; upstreamModel: string; enabled: boolean; priority: number }>;
+    bindings: Array<{ id: string; channelId: string; upstreamModel: string; enabled: boolean; priority: number; capabilityProfile?: LogicalModelCapabilityProfile }>;
 };
 
 export type AiConfig = {

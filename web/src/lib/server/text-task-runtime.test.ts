@@ -22,7 +22,7 @@ vi.mock("@/lib/server/text-task-store", () => ({
 import { emptyAdvancedConfig } from "@/lib/channel-protocol-registry";
 import { createProtocolFixtureServer } from "../../../scripts/protocol-fixture-server.mjs";
 import { maintenanceWorkerContext } from "./maintenance-auth";
-import { runTextTaskStep, taskHeaders } from "./text-task-runtime";
+import { markTextTaskFailed, runTextTaskStep, taskHeaders } from "./text-task-runtime";
 import type { TextTask, TextTaskConfig } from "./text-task-store";
 
 describe("text task runtime recovery", () => {
@@ -177,10 +177,20 @@ describe("text task runtime recovery", () => {
 
     it("marks a 2xx invalid JSON response for manual review", async () => {
         state = textTask(openAiConfig("channel-one", "https://one.example"), [openAiConfig("channel-two", "https://two.example")]);
-        vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(new Response("not-json", { status: 200, headers: { "content-type": "application/json" } })));
+        vi.stubGlobal(
+            "fetch",
+            vi.fn().mockResolvedValueOnce(
+                new Response("not-json", {
+                    status: 200,
+                    headers: { "content-type": "application/json", "x-vozeb-pro-points-cost": "1.5", "x-vozeb-pro-points-record-id": "text-points-unknown" },
+                }),
+            ),
+        );
 
         await expect(runTextTaskStep(state, "http://internal", "")).resolves.toMatchObject({ state: "needs_review" });
         expect(state.config.channelId).toBe("channel-one");
+        expect(state.billing).toEqual({ pointsCost: 1.5, pointsRecordId: "text-points-unknown", refunded: false });
+        expect(mocks.refund).not.toHaveBeenCalled();
     });
 
     it("refunds a zero-point recorded charge when the upstream task fails", async () => {
@@ -195,7 +205,30 @@ describe("text task runtime recovery", () => {
         expect(state.billing).toMatchObject({ pointsCost: 0, pointsRecordId: "record-zero", refunded: false });
         await expect(runTextTaskStep(state, "http://internal", "")).resolves.toMatchObject({ state: "failed" });
 
-        expect(mocks.refund).toHaveBeenCalledWith("user-one", "text-model", 0, "text", 1, undefined, "record-zero");
+        expect(mocks.refund).toHaveBeenCalledWith("user-one", "text-model", 0, "text", 1, "text-task:text-one:attempt:1:refund", "record-zero");
+    });
+
+    it("does not refund when text success wins the failure transition race", async () => {
+        state = { ...textTask(openAiConfig("channel-one", "https://one.example")), status: "running", billing: { pointsCost: 2, pointsRecordId: "text-race", refunded: false } };
+        mocks.transitionTask.mockImplementationOnce(async () => {
+            state = { ...state, status: "success" };
+            return null;
+        });
+
+        await expect(markTextTaskFailed(state, "late failure")).resolves.toEqual({ state: "completed" });
+        expect(mocks.refund).not.toHaveBeenCalled();
+    });
+
+    it("commits the text error state before refunding", async () => {
+        state = { ...textTask(openAiConfig("channel-one", "https://one.example")), status: "running", attemptNo: 1, billing: { pointsCost: 2, pointsRecordId: "text-failed", refunded: false } };
+        mocks.refund.mockImplementationOnce(async () => {
+            expect(state.status).toBe("error");
+            return undefined;
+        });
+
+        await expect(markTextTaskFailed(state, "provider failed")).resolves.toEqual({ state: "failed", error: "provider failed" });
+        expect(state).toMatchObject({ status: "error", billing: { refunded: true } });
+        expect(mocks.refund).toHaveBeenCalledOnce();
     });
 });
 

@@ -20,6 +20,8 @@ export type ImageTaskConfig = {
     capabilityProfile?: LogicalModelCapabilityProfile;
     quality?: string;
     size?: string;
+    outputBackground?: "opaque" | "transparent";
+    outputMode?: "layers";
     systemPrompt?: string;
     advancedConfig?: SystemChannelAdvancedConfig;
 };

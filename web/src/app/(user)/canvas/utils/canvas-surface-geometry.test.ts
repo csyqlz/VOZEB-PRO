@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { CanvasNodeType, type CanvasNodeData } from "../types";
-import { edgePath, expandCanvasDragNodeIds, findConnectionTarget, isBlockedConnectionDrop, nodeAnchor, previewPath, samePosition, selectNodesInBounds, worldFromScreen } from "./canvas-surface-geometry";
+import { edgePath, expandCanvasDragNodeIds, findConnectionTarget, isBlockedConnectionDrop, isCanvasVideoControlPoint, nodeAnchor, previewPath, samePosition, selectNodesInBounds, worldFromScreen } from "./canvas-surface-geometry";
 
 const source: CanvasNodeData = { id: "source", type: CanvasNodeType.Text, title: "来源", position: { x: 100, y: 120 }, width: 240, height: 160, metadata: {} };
 const target: CanvasNodeData = { id: "target", type: CanvasNodeType.Image, title: "目标", position: { x: 500, y: 220 }, width: 300, height: 200, metadata: {} };
@@ -9,6 +9,12 @@ const target: CanvasNodeData = { id: "target", type: CanvasNodeType.Image, title
 describe("canvas surface geometry", () => {
     it("converts screen coordinates through the viewport transform", () => {
         expect(worldFromScreen(330, 250, { x: 80, y: 40, k: 2 }, { left: 10, top: 10 })).toEqual({ x: 120, y: 100 });
+    });
+
+    it("keeps the video picture draggable while reserving the native control strip", () => {
+        const rect = { bottom: 300, height: 200 };
+        expect(isCanvasVideoControlPoint(rect, 200)).toBe(false);
+        expect(isCanvasVideoControlPoint(rect, 270)).toBe(true);
     });
 
     it("uses node-side centers as connection anchors", () => {
@@ -34,6 +40,20 @@ describe("canvas surface geometry", () => {
 
         expect(path).toContain("-32");
         expect(path).toContain(" Q ");
+    });
+
+    it("routes around a node blocking the default connection path", () => {
+        const blocker = { ...source, id: "blocker", position: { x: 390, y: 170 }, width: 60, height: 210 };
+        const path = edgePath(source, target, [source, blocker, target]);
+
+        expect(path).toContain("88");
+        expect(path).not.toContain(" C ");
+    });
+
+    it("falls back to the stable route when every detour is blocked", () => {
+        const blocker = { ...source, id: "blocker", position: { x: -1000, y: -1000 }, width: 3000, height: 3000 };
+
+        expect(edgePath(source, target, [blocker])).toBe(edgePath(source, target));
     });
 
     it("builds previews in the direction of the active handle", () => {

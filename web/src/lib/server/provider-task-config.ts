@@ -1,7 +1,7 @@
 import type { SystemChannelAdvancedConfig } from "@/lib/auth/store";
 import type { LogicalModelCapability } from "@/lib/auth/store";
 import { channelProtocolDefinition, protocolModelConfig } from "@/lib/channel-protocol-registry";
-import { hasProviderReadSignatureShape, isReferenceAssetUrl } from "@/lib/reference-asset-url";
+import { hasProviderReadSignatureShape, isProviderMediaAssetUrl } from "@/lib/reference-asset-url";
 import type { VideoGenerationReference, VideoReferenceRole } from "@/lib/video-reference-contract";
 
 type TemplateValues = Record<string, unknown>;
@@ -48,7 +48,7 @@ export function assertReferenceUrls(config: SystemChannelAdvancedConfig | undefi
 }
 
 function isUnsignedReferenceAssetUrl(value: string) {
-    return isReferenceAssetUrl(value) && !hasProviderReadSignatureShape(value);
+    return isProviderMediaAssetUrl(value) && !hasProviderReadSignatureShape(value);
 }
 
 function renderProviderRequest(template: string, values: TemplateValues, align?: (payload: Record<string, unknown>, values: TemplateValues) => Record<string, unknown>) {
@@ -65,15 +65,21 @@ function renderProviderRequest(template: string, values: TemplateValues, align?:
 }
 
 export function readProviderString(value: unknown, configuredPath: string | undefined, fallbackKeys: string[]) {
+    const configured = readProviderValue(value, configuredPath);
+    if (typeof configured === "string" && configured.trim()) return configured.trim();
+    if (typeof configured === "number") return String(configured);
+    return findString(value, new Set(fallbackKeys));
+}
+
+export function readProviderValue(value: unknown, configuredPath: string | undefined) {
     for (const path of (configuredPath || "")
         .split(/\s+\/\s+/)
         .map((item) => item.trim())
         .filter(Boolean)) {
         const configured = readFieldPath(value, path);
-        if (typeof configured === "string" && configured.trim()) return configured.trim();
-        if (typeof configured === "number") return String(configured);
+        if (configured !== undefined && configured !== null) return configured;
     }
-    return findString(value, new Set(fallbackKeys));
+    return undefined;
 }
 
 export function readProviderError(value: unknown) {
@@ -143,7 +149,7 @@ function renderTemplateValue(value: unknown, values: TemplateValues): unknown {
     if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, renderTemplateValue(item, values)]));
     if (typeof value !== "string") return value;
     const exact = value.match(/^\{\{\s*([\w.]+)\s*\}\}$/);
-    if (exact) return values[exact[1]] ?? value;
+    if (exact) return Object.prototype.hasOwnProperty.call(values, exact[1]) ? values[exact[1]] : value;
     return value.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (match, key: string) => String(values[key] ?? match));
 }
 
@@ -193,6 +199,7 @@ function pruneEmptyReferenceFields(value: unknown): unknown {
     if (Array.isArray(value)) return value.map(pruneEmptyReferenceFields);
     if (!value || typeof value !== "object") return value;
     const entries = Object.entries(value).flatMap(([key, item]) => {
+        if (item === undefined) return [];
         const next = REFERENCE_FIELD_KEYS.has(normalizeFieldKey(key)) ? normalizeReferenceValue(item) : pruneEmptyReferenceFields(item);
         return next === EMPTY_REFERENCE ? [] : [[key, next] as const];
     });

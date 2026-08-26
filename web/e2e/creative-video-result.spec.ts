@@ -410,6 +410,8 @@ test("asset mentions stay as inline thumbnail references while the editor is foc
         await expect(page.getByTestId("creative-media-round")).toBeVisible({ timeout: 45_000 });
         await expect(composer).toHaveAttribute("data-ready", "true");
         await expect(input).toBeVisible();
+        await input.fill("222@");
+        await expect(page.getByTestId("creative-asset-mention-picker")).toBeVisible();
         await input.fill("书店收购价格");
         await input.evaluate((element) => {
             const textarea = element as HTMLTextAreaElement;

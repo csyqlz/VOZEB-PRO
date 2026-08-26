@@ -142,5 +142,6 @@ export function AssetList({ items }: { items: Array<{ id: string; name: string; 
 }
 
 export function stableTaskUrl(...values: Array<string | undefined>) {
-    return values.find((value) => Boolean(value && !value.startsWith("data:") && !value.startsWith("blob:"))) || "";
+    const stable = values.filter((value): value is string => Boolean(value && !value.startsWith("data:") && !value.startsWith("blob:")));
+    return stable.find((value) => /^\/api\/(?:generation-log-assets|reference-assets)\//.test(value)) || stable[0] || "";
 }

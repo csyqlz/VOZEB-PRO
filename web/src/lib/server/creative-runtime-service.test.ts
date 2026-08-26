@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({
     registerCreativeAssets: vi.fn(),
     writePersistentMediaDataUrl: vi.fn(),
     deleteCreativeConversationAggregates: vi.fn(),
-    deleteUserLocalMediaAssets: vi.fn(),
+    deleteUserMediaAssetsCascade: vi.fn(),
 }));
 
 vi.mock("@/lib/server/creative-runtime-store", () => ({
@@ -22,7 +22,7 @@ vi.mock("@/lib/server/creative-runtime-store", () => ({
 }));
 vi.mock("@/lib/server/reference-asset-store", () => ({ writePersistentMediaDataUrl: mocks.writePersistentMediaDataUrl }));
 vi.mock("@/lib/server/creative-entity-deletion-store", () => ({ deleteCreativeConversationAggregates: mocks.deleteCreativeConversationAggregates }));
-vi.mock("@/lib/server/local-media-storage", () => ({ deleteUserLocalMediaAssets: mocks.deleteUserLocalMediaAssets }));
+vi.mock("@/lib/server/user-media-deletion-service", () => ({ deleteUserMediaAssetsCascade: mocks.deleteUserMediaAssetsCascade }));
 
 import { deleteConversationsForUser, registerGenerationTaskAssetsForUser, uploadAssetForUser } from "./creative-runtime-service";
 
@@ -36,7 +36,7 @@ describe("创作会话素材上传", () => {
         mocks.getCreativeConversationsByIds.mockReset().mockResolvedValue([{ id: "conversation-one", userId: "user-one", surface: "chat", status: "active" }]);
         mocks.writePersistentMediaDataUrl.mockReset().mockResolvedValue({ token: "persistent-one.mp4", storage: "local", bytes: 4, mimeType: "video/mp4" });
         mocks.deleteCreativeConversationAggregates.mockReset().mockResolvedValue({ deletedConversations: 1, deletedProjects: 0, mediaStorageKeys: ["permanent/one.png"] });
-        mocks.deleteUserLocalMediaAssets.mockReset().mockResolvedValue({ deletedFiles: 1, deletedBytes: 4, blocked: [] });
+        mocks.deleteUserMediaAssetsCascade.mockReset().mockResolvedValue({ deletedFiles: 1, deletedBytes: 4, blocked: [] });
         mocks.registerCreativeAssets.mockReset().mockImplementation(async ([input]) => [{ ...input, id: "asset-one", status: "ready", metadata: input.metadata || {}, createdAt: 1, updatedAt: 1 }]);
     });
 
@@ -44,7 +44,7 @@ describe("创作会话素材上传", () => {
         await expect(deleteConversationsForUser("user-one", ["conversation-one", "conversation-one"])).resolves.toBe(1);
 
         expect(mocks.deleteCreativeConversationAggregates).toHaveBeenCalledWith("user-one", ["conversation-one"]);
-        expect(mocks.deleteUserLocalMediaAssets).toHaveBeenCalledWith("user-one", ["permanent/one.png"]);
+        expect(mocks.deleteUserMediaAssetsCascade).toHaveBeenCalledWith("user-one", ["permanent/one.png"]);
     });
 
     it("rejects deleting project conversations through the ordinary chat endpoint", async () => {

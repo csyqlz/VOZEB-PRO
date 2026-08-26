@@ -120,11 +120,14 @@ function referenceRegistration(token: string, persistent: boolean, type: "image"
 }
 
 function parseMediaDataUrl(dataUrl: string) {
-    const match = dataUrl.match(/^data:((?:image\/(?:png|jpe?g|webp|gif))|(?:video\/(?:mp4|webm|quicktime))|(?:audio\/(?:mpeg|mp3|wav|x-wav|ogg|opus|aac|flac)));base64,([a-z0-9+/=\s]+)$/i);
-    if (!match) return null;
-    const mimeType = normalizeMimeType(match[1]);
-    const bytes = Buffer.from(match[2].replace(/\s/g, ""), "base64");
-    return bytes.length ? { mimeType, bytes } : null;
+    const separator = dataUrl.indexOf(",");
+    if (separator < 0) return null;
+    const header = dataUrl.slice(0, separator).match(/^data:((?:image\/(?:png|jpe?g|webp|gif))|(?:video\/(?:mp4|webm|quicktime))|(?:audio\/(?:mpeg|mp3|wav|x-wav|ogg|opus|aac|flac)));base64$/i);
+    const encoded = dataUrl.slice(separator + 1).replace(/\s/g, "");
+    if (!header || !encoded || encoded.length % 4 !== 0) return null;
+    const mimeType = normalizeMimeType(header[1]);
+    const bytes = Buffer.from(encoded, "base64");
+    return bytes.length && bytes.toString("base64") === encoded ? { mimeType, bytes } : null;
 }
 
 function normalizeMimeType(value: string) {

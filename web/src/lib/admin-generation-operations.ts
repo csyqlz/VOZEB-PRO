@@ -46,6 +46,18 @@ export type AdminGenerationTask = {
         pointsCost?: number;
         skills: Array<{ id: string; name: string; sourceVersion?: string; sourceCommit?: string; sourceContentHash?: string }>;
     };
+    plannerRuntime?: {
+        transport?: "stream" | "complete";
+        firstByteMs?: number;
+        planningMs?: number;
+        serializedChars?: number;
+        fallbackReason?: string;
+    };
+    agentFailure?: {
+        stage: "planning" | "task_execution" | "refund";
+        message: string;
+        candidates: Array<{ channelId: string; upstreamModel: string; error: string }>;
+    };
     createdAt: number;
     updatedAt: number;
     canCancel: boolean;

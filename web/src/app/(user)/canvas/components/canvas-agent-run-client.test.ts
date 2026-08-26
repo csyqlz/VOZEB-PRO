@@ -54,14 +54,20 @@ describe("Canvas Agent 事件流", () => {
             onOps: (value) => ops.push(...value),
         });
         FakeEventSource.instance.emit("run.planning", {});
+        FakeEventSource.instance.emit("run.planning.context_ready", {});
+        FakeEventSource.instance.emit("run.planning.model_connected", {});
+        FakeEventSource.instance.emit("run.planning.validating", {});
         FakeEventSource.instance.emit("canvas.ops", { data: { ops: [{ type: "add_node", id: "brief-run" }] } });
         FakeEventSource.instance.emit("task.running", { data: { title: "生成文案", attempts: 1 } });
         FakeEventSource.instance.emit("task.completed", { data: { message: "文案已经返回", outputNodeIds: ["output-run-0"], type: "text", ops: [{ type: "select_nodes", ids: ["output-run-0"] }] } });
         FakeEventSource.instance.emit("run.completed", { data: { reply: "全部任务已经完成" } });
         await promise;
         expect(stages).toEqual([
-            { key: "planning", text: "正在理解需求并分析当前画布" },
-            { key: "plan", text: "文本执行计划已生成，正在准备任务" },
+            { key: "planning", text: "正在理解你的想法，也在看看画布里的内容…" },
+            { key: "planning", text: "画布内容已经准备好，正在为你整理创作思路…" },
+            { key: "planning", text: "创作思路已经理清，正在安排接下来的步骤…" },
+            { key: "plan", text: "正在确认创作步骤，很快就可以开始…" },
+            { key: "plan", text: "创作步骤已经准备好，马上开始处理…" },
             { key: "executing", text: "正在执行「生成文案」（第 1 次）" },
         ]);
         expect(messages).toEqual(["文案已经返回", "全部任务已经完成"]);

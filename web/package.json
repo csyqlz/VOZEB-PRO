@@ -1,6 +1,6 @@
 {
     "name": "vozeb-pro",
-    "version": "0.0.6",
+    "version": "0.0.7",
     "private": true,
     "type": "module",
     "scripts": {
@@ -12,7 +12,7 @@
         "backup:disaster": "node --env-file-if-exists=.env.local scripts/disaster-backup.mjs",
         "restore:disaster": "node --env-file-if-exists=.env.local scripts/disaster-restore.mjs",
         "test": "vitest run",
-        "test:protocols": "vitest run scripts/protocol-fixture-server.test.mjs src/lib/server/active-protocol-media-matrix.live.test.ts src/lib/server/active-protocol-media-proxy-matrix.live.test.ts src/lib/server/protocol-media-matrix.live.test.ts src/lib/server/protocol-model-catalog.live.test.ts src/lib/server/text-planning-runtime.integration.test.ts src/lib/server/audio-task-runtime.test.ts --reporter=verbose",
+        "test:protocols": "vitest run scripts/protocol-fixture-server.test.mjs src/lib/server/active-protocol-media-matrix.live.test.ts src/lib/server/active-protocol-media-proxy-matrix.live.test.ts src/lib/server/protocol-media-matrix.live.test.ts src/lib/server/protocol-model-catalog.live.test.ts src/lib/server/text-planning-runtime.integration.test.ts src/lib/server/audio-task-runtime.test.ts src/lib/server/generation-task-cancellation-service.test.ts --reporter=verbose",
         "lint": "eslint . --quiet",
         "pree2e": "node scripts/prepare-e2e.mjs",
         "e2e": "playwright test",
@@ -28,6 +28,7 @@
         "@ant-design/nextjs-registry": "^1.3.0",
         "@aws-sdk/client-s3": "^3.1101.0",
         "@aws-sdk/s3-request-presigner": "^3.1101.0",
+        "@mediapipe/tasks-vision": "1.0.1",
         "@photo-sphere-viewer/core": "5.15.0",
         "@tanstack/react-query": "^5.101.4",
         "@tiptap/extension-highlight": "3.30.0",

@@ -114,6 +114,10 @@ describe("generation operations aggregation", () => {
                             pointsCost: 1.25,
                             skills: [{ id: "skill-one", name: "商品视觉", sourceCommit: "abcdef" }],
                         },
+                        plannerStreamMode: "stream",
+                        plannerStreamFallbackReason: "",
+                        plannerContext: { serializedChars: 12_345 },
+                        timings: { planningStartedAt: 1_000, plannerFirstByteAt: 1_240, planningCompletedAt: 2_600 },
                     },
                 },
             ],
@@ -138,6 +142,72 @@ describe("generation operations aggregation", () => {
             pointsCost: 5.75,
             pointsBreakdown: { planner: 1.25, childTasks: 4.5, total: 5.75 },
             plannerAudit: { schemaVersion: 1, protocol: "chat", skills: [{ id: "skill-one", name: "商品视觉", sourceCommit: "abcdef" }] },
+            plannerRuntime: { transport: "stream", firstByteMs: 240, planningMs: 1600, serializedChars: 12_345 },
+        });
+    });
+
+    it("exposes a sanitized complete-response fallback without planner content", async () => {
+        mocks.listStoredGenerationTaskRecords.mockResolvedValue({
+            items: [
+                {
+                    ...task(),
+                    payload: {
+                        ...task().payload,
+                        plannerStreamMode: "complete",
+                        plannerStreamFallbackReason: "HTTP 405 不支持流式规划",
+                        plannerContext: { serializedChars: 4_096, input: "不应公开的内部上下文" },
+                        timings: { planningStartedAt: 2_000, plannerFirstByteAt: 1_999, planningCompletedAt: 2_900 },
+                    },
+                },
+            ],
+            all: [],
+            total: 1,
+            page: 1,
+            pageSize: 20,
+            summary: { total: 1, active: 0, success: 0, failed: 1, averageDurationMs: 0, totalPointsCost: 0, byType: { agent: 1 }, byStatus: { error: 1 } },
+        });
+
+        const result = await listAdminGenerationOperations({ page: 1 });
+
+        expect(result.items[0]?.plannerRuntime).toEqual({ transport: "complete", planningMs: 900, serializedChars: 4_096, fallbackReason: "HTTP 405 不支持流式规划" });
+        expect(JSON.stringify(result.items[0]?.plannerRuntime)).not.toContain("不应公开");
+    });
+
+    it("exposes compact persisted Agent failure diagnostics only to generation operations", async () => {
+        mocks.listStoredGenerationTaskRecords.mockResolvedValue({
+            items: [
+                {
+                    ...task(),
+                    payload: {
+                        ...task().payload,
+                        failure: "全部规划渠道不可用",
+                        failureStage: "planning",
+                        candidateFailures: [
+                            { channelId: "channel-one", upstreamModel: "planner-a", error: "鉴权失败" },
+                            { channelId: "channel-two", upstreamModel: "planner-b", error: "请求超时" },
+                        ],
+                    },
+                },
+            ],
+            all: [],
+            total: 1,
+            page: 1,
+            pageSize: 20,
+            summary: { total: 1, active: 0, success: 0, failed: 1, averageDurationMs: 0, totalPointsCost: 0, byType: { agent: 1 }, byStatus: { error: 1 } },
+        });
+
+        const result = await listAdminGenerationOperations({ page: 1 });
+
+        expect(result.items[0]).toMatchObject({
+            error: "全部规划渠道不可用",
+            agentFailure: {
+                stage: "planning",
+                message: "全部规划渠道不可用",
+                candidates: [
+                    { channelId: "channel-one", upstreamModel: "planner-a", error: "鉴权失败" },
+                    { channelId: "channel-two", upstreamModel: "planner-b", error: "请求超时" },
+                ],
+            },
         });
     });
 

@@ -24,45 +24,67 @@ export type CanvasResourceReference = {
 };
 
 export function buildCanvasResourceReferences(nodes: CanvasNodeData[], connections: CanvasConnection[], contextNodeId?: string | null) {
-    const contextNodes = contextNodeId ? getMentionResourceNodes(contextNodeId, nodes, connections) : [];
-    const globalReferences = labelResourceNodes(nodes.filter(isResourceNode), false);
-    const activeByNodeId = new Map(labelResourceNodes(contextNodes, true).map((reference) => [reference.nodeId, reference]));
-    return globalReferences.map((reference) => activeByNodeId.get(reference.nodeId) || reference);
+    return createCanvasResourceReferenceIndex(nodes, connections).all(contextNodeId);
 }
 
 export function buildNodeMentionReferences(node: CanvasNodeData, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
-    return labelResourceNodes(getMentionResourceNodes(node.id, nodes, connections), true);
-}
-
-function getMentionResourceNodes(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
-    const configInputs = getConnectedConfigResourceNodes(nodeId, nodes, connections);
-    if (configInputs.length) return configInputs;
-    const ownInputs = getContextResourceNodes(nodeId, nodes, connections);
-    if (ownInputs.length) return ownInputs;
-    const node = nodes.find((item) => item.id === nodeId);
-    return node && isResourceNode(node) ? [node] : [];
+    return createCanvasResourceReferenceIndex(nodes, connections).forNode(node.id);
 }
 
 export function getGenerationResourceNodes(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
-    const configInputs = getConnectedConfigResourceNodes(nodeId, nodes, connections);
-    if (configInputs.length) return configInputs;
-    const ownInputs = getContextResourceNodes(nodeId, nodes, connections);
-    if (ownInputs.length) return ownInputs;
-    return [];
+    return createCanvasResourceReferenceIndex(nodes, connections).resourceNodesFor(nodeId, false);
 }
 
-function getContextResourceNodes(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
-    return connections
-        .filter((connection) => connection.toNodeId === nodeId)
-        .map((connection) => nodes.find((node) => node.id === connection.fromNodeId))
-        .filter((node): node is CanvasNodeData => Boolean(node && isResourceNode(node)));
+export function createCanvasResourceReferenceIndex(nodes: CanvasNodeData[], connections: CanvasConnection[]) {
+    const nodeById = new Map(nodes.map((node) => [node.id, node]));
+    const inputsByTargetId = new Map<string, CanvasNodeData[]>();
+    const connectedConfigBySourceId = new Map<string, string>();
+    for (const connection of connections) {
+        const source = nodeById.get(connection.fromNodeId);
+        const target = nodeById.get(connection.toNodeId);
+        if (!source || !target) continue;
+        if (isResourceNode(source)) {
+            const inputs = inputsByTargetId.get(target.id);
+            if (inputs) inputs.push(source);
+            else inputsByTargetId.set(target.id, [source]);
+        }
+        if (target.type === CanvasNodeType.Config && !connectedConfigBySourceId.has(source.id)) connectedConfigBySourceId.set(source.id, target.id);
+    }
+
+    const globalReferences = labelResourceNodes(nodes.filter(isResourceNode), false);
+    const resourceNodesCache = new Map<string, CanvasNodeData[]>();
+    const referencesCache = new Map<string, CanvasResourceReference[]>();
+    const resourceNodesFor = (nodeId: string, includeSelf = true) => {
+        const cacheKey = `${includeSelf ? "self" : "inputs"}:${nodeId}`;
+        const cached = resourceNodesCache.get(cacheKey);
+        if (cached) return cached;
+        const configId = connectedConfigBySourceId.get(nodeId);
+        const configInputs = configId ? (inputsByTargetId.get(configId) || []).filter((node) => node.id !== nodeId) : [];
+        const ownInputs = inputsByTargetId.get(nodeId) || [];
+        const ownNode = nodeById.get(nodeId);
+        const result = configInputs.length ? configInputs : ownInputs.length ? ownInputs : includeSelf && ownNode && isResourceNode(ownNode) ? [ownNode] : [];
+        resourceNodesCache.set(cacheKey, result);
+        return result;
+    };
+    const forNode = (nodeId: string) => {
+        const cached = referencesCache.get(nodeId);
+        if (cached) return cached;
+        const references = labelResourceNodes(resourceNodesFor(nodeId), true);
+        referencesCache.set(nodeId, references);
+        return references;
+    };
+    return {
+        resourceNodesFor,
+        forNode,
+        all(contextNodeId?: string | null) {
+            if (!contextNodeId) return globalReferences;
+            const activeByNodeId = new Map(forNode(contextNodeId).map((reference) => [reference.nodeId, reference]));
+            return globalReferences.map((reference) => activeByNodeId.get(reference.nodeId) || reference);
+        },
+    };
 }
 
-function getConnectedConfigResourceNodes(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
-    const configConnection = connections.find((connection) => connection.fromNodeId === nodeId && nodes.find((node) => node.id === connection.toNodeId)?.type === CanvasNodeType.Config);
-    if (!configConnection) return [];
-    return getContextResourceNodes(configConnection.toNodeId, nodes, connections).filter((node) => node.id !== nodeId);
-}
+export type CanvasResourceReferenceIndex = ReturnType<typeof createCanvasResourceReferenceIndex>;
 
 function labelResourceNodes(nodes: CanvasNodeData[], active: boolean) {
     const counts: Record<CanvasResourceKind, number> = { image: 0, video: 0, audio: 0, text: 0 };

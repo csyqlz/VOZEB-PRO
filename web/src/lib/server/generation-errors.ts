@@ -1,5 +1,6 @@
 import { hasInsufficientPointsError } from "@/lib/creative-generation-status";
 import { readProviderError } from "@/lib/server/provider-task-config";
+import { GenerationSubmissionUncertainError } from "@/lib/server/generation-submission-error";
 
 export const DEFAULT_CHANNEL_CONNECT_ERROR = "模型服务暂时无法连接，请稍后重试。";
 

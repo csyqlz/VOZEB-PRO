@@ -45,6 +45,10 @@ export type LocalMediaRegistrationPage = {
 
 export type UserLocalMediaRegistrationPage = Pick<LocalMediaRegistrationPage, "items" | "total" | "page" | "pageSize">;
 
+export function isLocalMediaRegistrationExpired(registration: Pick<LocalMediaRegistration, "storageClass" | "expiresAt">, now = Date.now()) {
+    return registration.storageClass === "temporary" && Boolean(registration.expiresAt) && Date.parse(registration.expiresAt || "") <= now;
+}
+
 const FILE_NAME = "local-media-assets.json";
 let mutationQueue = Promise.resolve();
 
@@ -105,16 +109,25 @@ export async function getLocalMediaRegistration(storageKey: string) {
     return (await readRegistry()).assets.find((item) => item.storageKey === key) || null;
 }
 
-export async function getLocalMediaRegistrations(storageKeys: string[]) {
+export async function getLocalMediaRegistrations(storageKeys: string[], options: { ownerUserId?: string; executor?: QueryExecutor; forUpdate?: boolean } = {}) {
     const keys = Array.from(new Set(storageKeys.map(normalizeKey).filter(Boolean)));
     if (!keys.length) return [];
     if (getDatabaseProvider() === "postgres") {
-        await ensurePostgresSchema();
-        const result = await postgresQuery("SELECT * FROM local_media_assets WHERE storage_key = ANY($1::text[])", [keys]);
+        if (!options.executor) await ensurePostgresSchema();
+        const query: QueryExecutor["query"] = options.executor ? options.executor.query.bind(options.executor) : postgresQuery;
+        const ownerUserId = options.ownerUserId ? text(options.ownerUserId, 160) : "";
+        const result = await query(
+            `SELECT * FROM local_media_assets
+             WHERE storage_key = ANY($1::text[])
+               AND ($2::text = '' OR owner_user_id = $2)
+             ${options.forUpdate ? "FOR UPDATE" : ""}`,
+            [keys, ownerUserId],
+        );
         return result.rows.map(mapRegistration);
     }
     const keySet = new Set(keys);
-    return (await readRegistry()).assets.filter((item) => keySet.has(item.storageKey)).map(normalizeRegistration);
+    const ownerUserId = options.ownerUserId ? text(options.ownerUserId, 160) : "";
+    return (await readRegistry()).assets.filter((item) => keySet.has(item.storageKey) && (!ownerUserId || item.ownerUserId === ownerUserId)).map(normalizeRegistration);
 }
 
 export async function listFileLocalMediaRegistrations() {

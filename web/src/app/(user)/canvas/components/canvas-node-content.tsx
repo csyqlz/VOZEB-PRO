@@ -8,7 +8,7 @@ import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes } from "@/lib/image-utils";
 import { imagePreviewUrl } from "@/lib/media-image-url";
 import { useThemeStore } from "@/stores/use-theme-store";
-import { CanvasResourceMentionTextarea } from "./canvas-resource-mention-textarea";
+import { CanvasResourceMentionText, CanvasResourceMentionTextarea } from "./canvas-resource-mention-textarea";
 import { CanvasPanoramaViewer } from "./canvas-panorama-viewer";
 import { CanvasNodeType, type CanvasNodeData } from "../types";
 import type { CanvasResourceReference } from "../utils/canvas-resource-references";
@@ -17,6 +17,7 @@ export type ResizeCorner = "top-left" | "top-right" | "bottom-left" | "bottom-ri
 export type NodeContentRendererProps = {
     node: CanvasNodeData;
     theme: (typeof canvasThemes)[keyof typeof canvasThemes];
+    scale?: number;
     isEditingContent: boolean;
     textareaRef: React.RefObject<HTMLTextAreaElement | null>;
     isBatchRoot: boolean;
@@ -238,7 +239,13 @@ export function UnknownNodeContent({ theme }: Pick<NodeContentRendererProps, "th
 
 export function TextContent({ node, theme, isEditingContent, textareaRef, mentionReferences, onContentChange, onStopEditing, onGenerateImage }: NodeContentRendererProps) {
     const fontSize = node.metadata?.fontSize || 14;
-    const textStyle = { fontSize: `${fontSize}px`, lineHeight: `${Math.round(fontSize * 1.65)}px`, color: theme.node.text, boxSizing: "border-box" } as React.CSSProperties;
+    const textStyle = {
+        fontSize: `${fontSize}px`,
+        lineHeight: `${Math.round(fontSize * 1.65)}px`,
+        color: theme.node.text,
+        boxSizing: "border-box",
+    } as React.CSSProperties;
+    const textClassName = "thin-scrollbar block h-full w-full overflow-y-auto whitespace-pre-wrap break-words border-none bg-transparent pl-4 pr-14 pt-0 pb-4 m-0 font-mono outline-none select-text appearance-none";
 
     return (
         <div className="flex h-full w-full flex-col overflow-hidden pt-8">
@@ -261,11 +268,11 @@ export function TextContent({ node, theme, isEditingContent, textareaRef, mentio
             {isEditingContent ? (
                 <CanvasResourceMentionTextarea
                     ref={textareaRef}
-                    className="thin-scrollbar block h-full w-full resize-none overflow-y-auto whitespace-pre-wrap break-words border-none bg-transparent pl-4 pr-14 pt-0 pb-4 m-0 font-mono outline-none select-text appearance-none"
+                    className={`${textClassName} resize-none`}
                     style={textStyle}
                     value={node.metadata?.content || ""}
                     references={mentionReferences}
-                    highlightLabels={false}
+                    highlightLabels
                     onChange={(value) => onContentChange(node.id, value)}
                     onBlur={onStopEditing}
                     onKeyDown={(event) => {
@@ -276,8 +283,8 @@ export function TextContent({ node, theme, isEditingContent, textareaRef, mentio
                     onWheel={(event) => event.stopPropagation()}
                 />
             ) : (
-                <div className="thin-scrollbar block h-full w-full overflow-y-auto whitespace-pre-wrap break-words bg-transparent pl-4 pr-14 pt-0 pb-4 font-mono" style={textStyle} onWheel={(event) => event.stopPropagation()}>
-                    {node.metadata?.content || <span style={{ color: theme.node.placeholder }}>点击编辑文字</span>}
+                <div className={textClassName} style={textStyle} onWheel={(event) => event.stopPropagation()}>
+                    {node.metadata?.content ? <CanvasResourceMentionText value={node.metadata.content} references={mentionReferences} /> : <span style={{ color: theme.node.placeholder }}>点击编辑文字</span>}
                 </div>
             )}
         </div>
@@ -311,10 +318,10 @@ export function ImageNodeContent(props: NodeContentRendererProps) {
         );
     }
     if (!props.node.metadata?.content) return <EmptyImageContent {...props} />;
-
     return (
         <ImageContent
             node={props.node}
+            scale={props.scale}
             isBatchRoot={props.isBatchRoot}
             batchCount={props.batchCount}
             batchExpanded={props.batchExpanded}
@@ -353,7 +360,7 @@ export function VideoNodeContent({ node, theme }: NodeContentRendererProps) {
                 <span className="text-sm">空视频节点</span>
             </div>
         );
-    return <video src={node.metadata.content} controls className="h-full w-full rounded-[18px] bg-black object-contain" data-canvas-no-zoom />;
+    return <video src={node.metadata.content} controls className="h-full w-full rounded-[18px] bg-black object-contain" data-canvas-video data-canvas-no-zoom />;
 }
 
 export function PanoramaNodeContent({ node, theme }: NodeContentRendererProps) {
@@ -389,6 +396,7 @@ export function AudioNodeContent({ node, theme }: NodeContentRendererProps) {
 
 export function ImageContent({
     node,
+    scale = 1,
     isBatchRoot,
     batchCount,
     batchExpanded,
@@ -399,6 +407,7 @@ export function ImageContent({
     onImageDimensions,
 }: {
     node: CanvasNodeData;
+    scale?: number;
     isBatchRoot: boolean;
     batchCount: number;
     batchExpanded: boolean;
@@ -408,14 +417,17 @@ export function ImageContent({
     onSetBatchPrimary?: () => void;
     onImageDimensions?: (nodeId: string, naturalWidth: number, naturalHeight: number) => void;
 }) {
-    const theme = canvasThemes[useThemeStore((state) => state.theme)];
+    const colorTheme = useThemeStore((state) => state.theme);
+    const theme = canvasThemes[colorTheme];
     const isBatchChild = Boolean(node.metadata?.batchRootId);
     const imageRef = useRef<HTMLImageElement>(null);
+    const previewWidth = canvasImagePreviewWidth(node.width, scale, node.metadata?.naturalWidth);
     const reportDimensions = useCallback(
         (image: HTMLImageElement) => {
+            if (node.metadata?.naturalWidth && node.metadata?.naturalHeight) return;
             if (image.naturalWidth > 0 && image.naturalHeight > 0) onImageDimensions?.(node.id, image.naturalWidth, image.naturalHeight);
         },
-        [node.id, onImageDimensions],
+        [node.id, node.metadata?.naturalHeight, node.metadata?.naturalWidth, onImageDimensions],
     );
 
     useEffect(() => {
@@ -425,12 +437,14 @@ export function ImageContent({
 
     return (
         <BatchFrame batchCount={isBatchRoot ? batchCount : 0} batchExpanded={batchExpanded} batchOpening={batchOpening} batchRecovering={batchRecovering} onToggleBatch={onToggleBatch}>
-            <div className="h-full w-full overflow-hidden rounded-3xl">
+            <div className="h-full w-full overflow-hidden rounded-3xl" style={{ background: theme.node.fill }}>
                 <img
                     ref={imageRef}
-                    src={imagePreviewUrl(node.metadata!.content!, 1920)}
+                    src={imagePreviewUrl(node.metadata!.content!, previewWidth)}
                     alt={node.title}
                     draggable={false}
+                    loading="lazy"
+                    decoding="async"
                     onLoad={(event) => reportDimensions(event.currentTarget)}
                     onDragStart={(event) => event.preventDefault()}
                     className={`pointer-events-none block h-full w-full select-none ${node.metadata?.freeResize ? "object-fill" : "object-contain"}`}
@@ -471,6 +485,11 @@ export function ImageContent({
             ) : null}
         </BatchFrame>
     );
+}
+
+export function canvasImagePreviewWidth(nodeWidth: number, scale: number, naturalWidth?: number) {
+    const screenWidth = Math.max(1, Math.ceil(nodeWidth * Math.max(scale, 0.01) * (globalThis.devicePixelRatio || 1)));
+    return naturalWidth && naturalWidth > 0 ? Math.min(screenWidth, naturalWidth) : screenWidth;
 }
 
 export function ImageInfoBar({ node }: { node: CanvasNodeData }) {

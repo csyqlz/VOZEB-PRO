@@ -3,6 +3,11 @@
     min-width: 0;
 }
 
+.canvas-agent-panel-frame {
+    min-width: 0;
+    max-width: 100%;
+}
+
 .canvas-agent-message {
     max-width: 100%;
 }

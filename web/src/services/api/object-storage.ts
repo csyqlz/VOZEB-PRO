@@ -1,6 +1,6 @@
 "use client";
 
-import type { ExternalStorageFilesPayload, ObjectStorageDeleteResult, ObjectStorageMigrationResult, ObjectStorageSettings, ObjectStorageSettingsUpdate } from "@/lib/object-storage-contract";
+import type { ExternalStorageFilesPayload, ObjectStorageDeleteResult, ObjectStorageMigrationResult, ObjectStoragePreviewCleanupResult, ObjectStorageSettings, ObjectStorageSettingsUpdate } from "@/lib/object-storage-contract";
 
 type ApiPayload<T> = { code?: number; data?: T; msg?: string; error?: string };
 
@@ -29,6 +29,10 @@ export async function getExternalStorageFiles(input: { prefix?: string; cursor?:
 
 export async function deleteExternalStorageFiles(keys: string[]) {
     return request<ObjectStorageDeleteResult>("/api/admin/object-storage/files", { method: "DELETE", headers: jsonHeaders, body: JSON.stringify({ keys }) });
+}
+
+export async function cleanupExternalStoragePreviews() {
+    return request<ObjectStoragePreviewCleanupResult>("/api/admin/object-storage/files/cleanup", { method: "POST" });
 }
 
 export async function migrateLocalMedia(limit = 20) {

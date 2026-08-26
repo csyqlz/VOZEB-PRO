@@ -14,7 +14,7 @@ const foundation = { complexity: "simple" as const, brief: { objective: "生成�
 describe("creative review service", () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        getAuthSettings.mockResolvedValue({ defaultModels: { textModel: "planner" } });
+        getAuthSettings.mockResolvedValue({ site: { title: "星河创作" }, defaultModels: { textModel: "planner" } });
         resolveLogicalModel.mockReturnValue({ upstreamModel: "vendor-planner", channel: { id: "text-channel" } });
     });
 
@@ -52,7 +52,9 @@ describe("creative review service", () => {
 
         expect(review).toMatchObject({ mode: "visual", status: "passed", score: 92 });
         expect(fetchInternalApi).toHaveBeenCalledWith("http://localhost:3000/api/ai/system/text-channel/responses", expect.objectContaining({ body: expect.stringContaining('"type":"input_image"') }));
-        expect(JSON.parse(fetchInternalApi.mock.calls[0][1].body).model).toBe("vendor-planner");
+        const requestBody = JSON.parse(fetchInternalApi.mock.calls[0][1].body);
+        expect(requestBody.model).toBe("vendor-planner");
+        expect(requestBody.input[0].content).toContain("你是 星河创作 创作质检 Agent");
         const headers = new Headers(fetchInternalApi.mock.calls[0][1].headers);
         expect(headers.get("x-vozeb-pro-logical-model")).toBe("planner");
         expect(headers.get("x-vozeb-pro-points-idempotency-key")).toMatch(/^creative-review:[a-f0-9]{32}$/);

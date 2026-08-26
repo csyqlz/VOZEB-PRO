@@ -88,6 +88,117 @@ DELETE /v1/videos/:task_id`,
         expect(draft?.operations[2].config).toMatchObject({ createPath: "/v1/videos", queryPath: "/v1/videos/:task_id", cancelPath: "/v1/videos/:task_id", cancelMethod: "DELETE" });
     });
 
+    it("distinguishes curl GET polling examples from curl POST creation examples", () => {
+        const draft = parseDeterministicProtocolDraft({
+            text: [
+                `curl --url https://api.example.com/custom/videos --header 'Content-Type: application/json' --data '{"model":"video-v1","prompt":"test"}'`,
+                `{"data":{"task_id":"task-1","status":"queued"}}`,
+                `curl --url https://api.example.com/custom/results/{task_id} --header 'X-API-Key: token'`,
+                `{"data":{"status":"completed","video_url":"https://cdn.example.com/video.mp4"}}`,
+            ].join("\n"),
+        });
+
+        expect(draft?.operations[0]?.config).toMatchObject({ createPath: "/custom/videos", queryPath: "/custom/results/:task_id", resultField: "data.video_url", statusField: "data.status" });
+    });
+
+    it("extracts rendered API documentation without cURL or JSON examples", () => {
+        const draft = parseDeterministicProtocolDraft({
+            text: `SOURCE https://developer.example.test/reference/image-create
+POST
+/service/v2/tasks
+基础 URL
+https://api.example.test/service
+模型信息
+模型 ID（
+model
+）
+image-v2
+模型类型
+图片模型
+请求参数
+model
+string 必填
+prompt
+string 必填
+reference_images
+image[]
+aspect_ratio
+string
+resolution
+string
+返回约定
+id
+任务 ID
+status
+queued、processing、completed、failed
+result_url
+完成后的通用结果
+image_url
+完成后的图片结果
+GET
+https://api.example.test/service/v2/tasks/{id}
+响应参数
+status
+image_url`,
+        });
+
+        expect(draft).toMatchObject({
+            baseUrl: "https://api.example.test",
+            operations: [
+                {
+                    capability: "image",
+                    models: ["image-v2"],
+                    config: {
+                        createPath: "/service/v2/tasks",
+                        queryPath: "/service/v2/tasks/:task_id",
+                        resultField: "result_url / image_url",
+                        statusField: "status",
+                        supportsReferenceImage: true,
+                    },
+                },
+            ],
+        });
+        expect(draft?.operations[0].config.requestTemplate).toBe('{"model":"{{model}}","prompt":"{{prompt}}","reference_images":"{{images}}","aspect_ratio":"{{aspect_ratio}}","resolution":"{{resolution}}"}');
+    });
+
+    it("keeps query paths inside their own documentation source", () => {
+        const draft = parseDeterministicProtocolDraft({
+            text: `GET /v2/models
+SOURCE https://developer.example.test/reference/image
+POST /v2/tasks
+Body {"model":"image-standard","prompt":"test","reference_images":[]}
+Response {"task_id":"image-task","status":"queued"}
+GET /v2/image-tasks/:task_id
+Response {"status":"completed","image_url":"https://cdn.example.test/image.png"}
+SOURCE https://developer.example.test/reference/video
+POST /v2/tasks
+Body {"model":"video-standard","prompt":"test","duration":8}
+Response {"task_id":"video-task","status":"queued"}
+GET /v2/video-tasks/:task_id
+Response {"status":"completed","video_url":"https://cdn.example.test/video.mp4"}`,
+        });
+
+        expect(draft?.operations.find((operation) => operation.capability === "image")?.config.queryPath).toBe("/v2/image-tasks/:task_id");
+        expect(draft?.operations.find((operation) => operation.capability === "video")?.config.queryPath).toBe("/v2/video-tasks/:task_id");
+    });
+
+    it("does not treat documentation field or header names as models", () => {
+        const draft = parseDeterministicProtocolDraft({
+            text: `GET /v2/models
+POST /v2/images
+模型 ID
+modelId
+Authorization
+请求参数
+model
+prompt
+返回约定
+image_url`,
+        });
+
+        expect(draft?.operations[0].models).toEqual([]);
+    });
+
     it("redacts cookies, authorization values, and sensitive URL parameters", () => {
         const redacted = redactProtocolSecrets("Cookie: session=secret\nhttps://api.example.com/docs?token=secret&lang=zh\nAuthorization: Bearer sk-secretvalue");
         expect(redacted).not.toContain("session=secret");

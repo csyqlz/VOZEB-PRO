@@ -20,6 +20,12 @@ describe("generation worker polling policy", () => {
         expect(nextGenerationWorkerPollPolicy({ claimed: 3, idleBatches: 4, baseIdleDelayMs: 2_000 })).toEqual({ delayMs: 250, idleBatches: 0 });
     });
 
+    it("wakes at the persisted next poll time instead of overshooting it with idle backoff", () => {
+        expect(nextGenerationWorkerPollPolicy({ claimed: 0, idleBatches: 4, baseIdleDelayMs: 2_000, nextDueAt: 5_500, now: 1_000 })).toEqual({ delayMs: 4_500, idleBatches: 0 });
+        expect(nextGenerationWorkerPollPolicy({ claimed: 0, idleBatches: 4, baseIdleDelayMs: 2_000, nextDueAt: 1_000, now: 1_000 })).toEqual({ delayMs: 250, idleBatches: 0 });
+        expect(nextGenerationWorkerPollPolicy({ claimed: 0, idleBatches: 4, baseIdleDelayMs: 2_000, nextDueAt: 60_000, now: 1_000 })).toEqual({ delayMs: 10_000, idleBatches: 0 });
+    });
+
     it("does not shorten an explicitly configured longer idle interval", () => {
         expect(nextGenerationWorkerPollPolicy({ claimed: 0, idleBatches: 2, baseIdleDelayMs: 30_000 })).toEqual({ delayMs: 30_000, idleBatches: 3 });
     });

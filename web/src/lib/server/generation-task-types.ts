@@ -16,6 +16,7 @@ export type GenerationTaskContext = {
     clientRequestId?: string;
     generationLogId?: string;
     generationSlotId?: string;
+    concurrencyClass?: "canvas-layer";
 };
 
 export type StoredGenerationTaskRecord = {

@@ -22,7 +22,7 @@ describe("prompt optimization service", () => {
     beforeEach(() => {
         vi.mocked(getAuthSettings)
             .mockReset()
-            .mockResolvedValue({ defaultModels: { textModel: "planner" } } as Awaited<ReturnType<typeof getAuthSettings>>);
+            .mockResolvedValue({ site: { title: "星河创作" }, defaultModels: { textModel: "planner" } } as Awaited<ReturnType<typeof getAuthSettings>>);
         vi.mocked(resolveLogicalModelCandidates)
             .mockReset()
             .mockReturnValue([candidate] as ReturnType<typeof resolveLogicalModelCandidates>);
@@ -39,7 +39,7 @@ describe("prompt optimization service", () => {
         expect(requestStructuredText).toHaveBeenCalledTimes(1);
         expect(requestStructuredText).toHaveBeenCalledWith(
             expect.objectContaining({
-                messages: expect.arrayContaining([expect.objectContaining({ role: "user", content: "做个国风角色海报 青衣" })]),
+                messages: expect.arrayContaining([expect.objectContaining({ role: "system", content: expect.stringContaining("你是 星河创作 提示词编辑器") }), expect.objectContaining({ role: "user", content: "做个国风角色海报 青衣" })]),
             }),
         );
         expect(new Headers(vi.mocked(requestStructuredText).mock.calls[0]![0].headers).get("x-vozeb-pro-logical-model")).toBe("planner");

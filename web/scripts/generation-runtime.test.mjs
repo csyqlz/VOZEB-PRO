@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { generationRuntimeEnvironment, resolveGenerationWorkerOrigin } from "./generation-runtime.mjs";
+import { generationRuntimeEnvironment, resolveGenerationWorkerOrigin, waitForHttpReady } from "./generation-runtime.mjs";
 
 describe("generation runtime environment", () => {
     it("uses distinct configured maintenance and worker tokens", () => {
@@ -27,5 +27,19 @@ describe("generation runtime environment", () => {
 
     it("normalizes a Render private hostport to an HTTP origin", () => {
         expect(resolveGenerationWorkerOrigin({ environment: { VOZEB_PRO_WORKER_API_ORIGIN: "vozeb-pro:3000" } })).toBe("http://vozeb-pro:3000");
+    });
+
+    it("waits for the web health contract before releasing the worker", async () => {
+        const fetcher = vi
+            .fn()
+            .mockResolvedValueOnce(new Response(null, { status: 503 }))
+            .mockResolvedValueOnce(new Response(null, { status: 200 }));
+        const sleep = vi.fn(async () => undefined);
+
+        await waitForHttpReady({ origin: "http://127.0.0.1:3100", fetcher, sleep });
+
+        expect(fetcher).toHaveBeenNthCalledWith(1, "http://127.0.0.1:3100/api/health/live", expect.objectContaining({ cache: "no-store" }));
+        expect(fetcher).toHaveBeenCalledTimes(2);
+        expect(sleep).toHaveBeenCalledWith(50, undefined);
     });
 });

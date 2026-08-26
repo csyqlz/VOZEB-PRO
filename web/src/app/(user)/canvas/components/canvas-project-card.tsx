@@ -26,7 +26,15 @@ export function CanvasProjectCard({ project }: { project: CanvasProjectSummary }
     const setDeleteIds = useCanvasUiStore((state) => state.setDeleteProjectIds);
     const editing = editingId === project.id;
     const selected = selectedIds.includes(project.id);
-    const open = () => router.push(`/canvas/${project.id}${searchParams.toString() ? `?${searchParams.toString()}` : ""}`);
+    const href = `/canvas/${project.id}${searchParams.toString() ? `?${searchParams.toString()}` : ""}`;
+    const preload = () => {
+        router.prefetch(href);
+        void loadProject(project.id).catch(() => undefined);
+    };
+    const open = () => {
+        preload();
+        router.push(href);
+    };
     const saveTitle = () => {
         renameProject(project.id, editingTitle);
         stopEditing();
@@ -48,6 +56,8 @@ export function CanvasProjectCard({ project }: { project: CanvasProjectSummary }
         <article
             className="group flex min-h-0 cursor-pointer flex-col justify-between rounded-lg border border-border bg-card p-2.5 text-card-foreground transition hover:border-foreground/20 hover:bg-accent/35 sm:min-h-44 sm:p-5"
             onClick={() => !editing && open()}
+            onPointerEnter={preload}
+            onFocusCapture={preload}
         >
             <div className="flex items-start gap-3">
                 <input

@@ -28,7 +28,7 @@ describe("publicAgentRun", () => {
                     title: "视频",
                     type: "video",
                     model: "video-pro",
-                    prompt: "电影感海边日落运镜，人物动作自然流畅\n\n统一创作约束：\n内部执行提示词-secret",
+                    prompt: "电影感海边日落运镜，人物动作自然流畅\n\n以下为内部执行上下文，只用于理解连续创作关系和指代；当前用户需求优先：\n内部执行提示词-secret",
                     count: 1,
                     ratio: "16:9",
                     quality: "2160",
@@ -73,6 +73,9 @@ describe("publicAgentRun", () => {
             review: { mode: "visual", status: "needs_revision", summary: "secret", issues: [], retryTaskIds: [] },
             reviewed: true,
             cancellation: { requestedAt: 1, pendingChildTaskIds: ["child-secret"], lastError: "secret" },
+            failure: "internal-failure-secret",
+            failureStage: "planning",
+            candidateFailures: [{ channelId: "channel-failure-secret", upstreamModel: "model-failure-secret", error: "candidate-failure-secret" }],
             createdAt: 1,
             updatedAt: 2,
         });
@@ -95,6 +98,9 @@ describe("publicAgentRun", () => {
         expect(serialized).not.toContain("secret-skill-instructions");
         expect(serialized).not.toContain('"review"');
         expect(serialized).not.toContain('"result"');
+        expect(serialized).not.toContain("internal-failure-secret");
+        expect(serialized).not.toContain("channel-failure-secret");
+        expect(serialized).not.toContain("candidate-failure-secret");
     });
 
     it("removes review details and internal Canvas planning nodes from SSE events", () => {
@@ -115,5 +121,9 @@ describe("publicAgentRun", () => {
         });
 
         expect(event.data).toEqual({ reply: "开始生成", ops: [{ type: "add_node", id: "task-run-0", nodeType: "task", metadata: { model: "image-pro" } }] });
+    });
+
+    it("removes internal planning payloads from public SSE events", () => {
+        expect(publicAgentRunEvent({ id: "event-one", runId: "run-one", type: "run.planning.context_ready", data: { promptJson: "secret" }, createdAt: 1 })).toMatchObject({ type: "run.planning.context_ready", data: undefined });
     });
 });

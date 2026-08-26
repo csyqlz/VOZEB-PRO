@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { videoSecondOptionsFromConfig } from "./video-settings-panel";
+import { normalizeVideoResolutionValue, videoResolutionLabel, videoSecondOptionsFromConfig } from "./video-settings-panel";
 
 describe("video settings duration options", () => {
+    it("keeps intelligent resolution visible instead of presenting it as 720p", () => {
+        expect(normalizeVideoResolutionValue("auto")).toBe("auto");
+        expect(videoResolutionLabel("auto")).toBe("智能");
+    });
+
     it("keeps all administrator-configured durations for generic video models", () => {
         const config = {
             generationPointMultipliers: {

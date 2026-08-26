@@ -30,6 +30,31 @@ describe("generation task upstream cancellation", () => {
         expect(fixture.requests[0]?.headers.authorization).toBe("Bearer fixture-key");
     });
 
+    it("supports documented DELETE cancellation contracts through the local fixture", async () => {
+        const fixture = createProtocolFixtureServer();
+        await new Promise<void>((resolve) => fixture.server.listen(0, "127.0.0.1", resolve));
+        const address = fixture.server.address();
+        if (!address || typeof address === "string") throw new Error("Protocol fixture did not expose a TCP port");
+        const origin = `http://127.0.0.1:${address.port}`;
+        close = () => new Promise<void>((resolve, reject) => fixture.server.close((error?: Error) => (error ? reject(error) : resolve())));
+
+        const result = await requestUpstreamGenerationCancellation(
+            {
+                ...target(origin, "/videos/:task_id"),
+                config: {
+                    ...target(origin, "/videos/:task_id").config,
+                    advancedConfig: { ...emptyAdvancedConfig(), protocol: "custom", cancelPath: "/videos/:task_id", cancelMethod: "DELETE" },
+                },
+            },
+            "",
+        );
+
+        expect(result).toBe("accepted");
+        expect(fixture.requests).toHaveLength(1);
+        expect(fixture.requests[0]).toMatchObject({ method: "DELETE", path: "/v1/videos/upstream-one" });
+        expect(fixture.requests[0]?.headers.authorization).toBe("Bearer fixture-key");
+    });
+
     it("reports unsupported without contacting the provider when no cancel contract exists", async () => {
         const fetchSpy = vi.spyOn(globalThis, "fetch");
 

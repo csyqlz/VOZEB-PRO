@@ -32,13 +32,20 @@ describe("selectAgentSkills", () => {
 
 describe("agentPlannerInput", () => {
     it("constrains drama generation to the current project snapshot", () => {
-        const prompt = agentPlannerSystemPrompt("drama", "{}");
+        const prompt = agentPlannerSystemPrompt("drama", "{}", DEFAULT_SETTINGS.site.title);
 
         expect(prompt).toContain("projectSnapshot 是本次短剧生产的权威上下文");
         expect(prompt).toContain("currentStage");
         expect(prompt).toContain("project.ratio");
         expect(prompt).toContain("currentTurnReferences");
         expect(prompt).toContain("不得把短剧入口当成脱离项目的通用图片或视频工作台");
+    });
+
+    it("uses the configured site title in the Agent identity", () => {
+        const prompt = agentPlannerSystemPrompt("chat", "{}", "星河创作");
+
+        expect(prompt).toContain("你是 星河创作 统一创作 Agent");
+        expect(prompt).not.toContain("VOZEB PRO");
     });
 
     it("keeps selected Canvas nodes, one-hop relations and exact size while dropping unrelated nodes", () => {

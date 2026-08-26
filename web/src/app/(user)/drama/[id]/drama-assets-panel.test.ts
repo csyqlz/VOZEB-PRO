@@ -4,8 +4,13 @@ import { describe, expect, it } from "vitest";
 
 import { imageResultsToReferences } from "./drama-assets-panel";
 import { filterAndSortDramaAssets, type DramaAssetLibraryRow } from "./drama-asset-library-utils";
+import { stableTaskUrl } from "./drama-editor-elements";
 
 describe("drama asset image results", () => {
+    it("prefers the persisted platform file over the upstream result url", () => {
+        expect(stableTaskUrl("https://provider.example/result.png", "/api/generation-log-assets/permanent/result.png", "data:image/png;base64,result")).toBe("/api/generation-log-assets/permanent/result.png");
+    });
+
     it("keeps every generated image as a candidate reference", () => {
         const references = imageResultsToReferences({
             dataUrl: "data:image/png;base64,first",

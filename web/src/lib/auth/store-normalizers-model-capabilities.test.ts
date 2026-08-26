@@ -63,4 +63,9 @@ describe("system channel model capabilities", () => {
             video: expect.objectContaining({ capability: "video", protocol: "custom", createPath: "/jobs", cancelPath: "/jobs/:task_id/cancel", cancelMethod: "DELETE" }),
         });
     });
+
+    it("keeps verified streaming and context-window settings", () => {
+        const normalized = normalizeSystemChannelAdvancedConfig({ protocol: "openai", streaming: { enabled: true, path: "chat/completions", format: "sse" }, contextWindowTokens: 32_000 } as never);
+        expect(normalized).toMatchObject({ streaming: { enabled: true, path: "/chat/completions", format: "sse" }, contextWindowTokens: 32_000 });
+    });
 });

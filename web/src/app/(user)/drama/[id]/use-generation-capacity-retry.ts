@@ -2,9 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { isGenerationCapacityError } from "@/services/api/generation-task-request-error";
-
-const RETRY_DELAY_MS = 5000;
+import { generationCapacityRetryDelayMs } from "@/services/api/generation-task-request-error";
 
 export function useGenerationCapacityRetry() {
     const timers = useRef(new Map<string, number>());
@@ -19,7 +17,8 @@ export function useGenerationCapacityRetry() {
     );
 
     const schedule = useCallback((key: string, error: unknown) => {
-        if (!isGenerationCapacityError(error)) return false;
+        const retryDelayMs = generationCapacityRetryDelayMs(error);
+        if (!retryDelayMs) return false;
         if (timers.current.has(key)) return true;
         setWaitingKeys((current) => new Set(current).add(key));
         const timer = window.setTimeout(() => {
@@ -29,7 +28,7 @@ export function useGenerationCapacityRetry() {
                 next.delete(key);
                 return next;
             });
-        }, RETRY_DELAY_MS);
+        }, retryDelayMs);
         timers.current.set(key, timer);
         return true;
     }, []);

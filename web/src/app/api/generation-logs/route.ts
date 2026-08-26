@@ -74,5 +74,5 @@ export async function DELETE(request: Request) {
     const deletableIds = (await listUserGenerationLogsForDelete(currentUser.id, requestedIds)).map((log) => log.id);
     if (!deletableIds.length) return NextResponse.json({ deleted: 0 });
 
-    return NextResponse.json(await deleteGenerationLogs(deletableIds));
+    return NextResponse.json(await deleteGenerationLogs(deletableIds, { cascadeUserMedia: true }));
 }

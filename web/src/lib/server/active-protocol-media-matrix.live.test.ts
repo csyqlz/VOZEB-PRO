@@ -200,7 +200,7 @@ function videoConfig(protocol: SystemChannelProtocol, baseUrl: string, model: st
 async function runImageTask(task: ImageTask, protocol: SystemChannelProtocol) {
     const declarative = protocol === "stable-diffusion" || protocol === "yumeng";
     const submitted = declarative ? await runCustomImageTask(task, origin, origin, "", protocol === "yumeng") : await runOpenAiImageTask(task, origin, origin, "", true);
-    return submitted.pending ? pollCustomImageTask(task, submitted.pending.id, submitted.pending.pollBaseUrl, "") : submitted;
+    return submitted.pending ? pollCustomImageTask(task, submitted.pending.id, submitted.pending.mediaBaseUrl, submitted.pending.pollBaseUrl, "") : submitted;
 }
 
 async function expectImageResult(result: { dataUrl?: string; remoteUrl?: string }) {

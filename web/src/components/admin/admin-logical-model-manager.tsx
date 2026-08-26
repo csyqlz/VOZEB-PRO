@@ -357,6 +357,12 @@ function BindingEditor({ binding, capability, channels, onChange }: { binding: L
                     <LabeledControl label="支持比例（逗号分隔）">
                         <Input value={profile.aspectRatios?.join(", ") || ""} placeholder="1:1, 16:9, 9:16" onChange={(event) => updateList(event.target.value)} />
                     </LabeledControl>
+                    <LabeledControl label="支持画质/清晰度">
+                        <Input value={profile.resolutions?.join(", ") || ""} placeholder={capability === "image" ? "high, 1K, 2K, 4K" : "480, 720, 1080"} onChange={(event) => updateResolutions(event.target.value)} />
+                    </LabeledControl>
+                    <LabeledControl label="支持时长（秒）">
+                        <Input value={profile.durationSeconds?.join(", ") || ""} placeholder="5, 8, 10" disabled={capability !== "video"} onChange={(event) => updateDurations(event.target.value)} />
+                    </LabeledControl>
                     <LabeledControl label="请求超时（秒）">
                         <InputNumber
                             className="w-full"

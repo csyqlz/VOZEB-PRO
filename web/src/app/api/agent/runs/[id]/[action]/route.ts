@@ -40,7 +40,20 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
             action === "retry"
                 ? await updateAgentRunById(
                       run.id,
-                      { status: "planning", executionId: undefined, tasks: [], foundation: undefined, projectHandoff: undefined, projectHandoffEmitted: undefined, review: undefined, reviewed: false, assetIds: [] },
+                      {
+                          status: "planning",
+                          executionId: undefined,
+                          tasks: [],
+                          foundation: undefined,
+                          projectHandoff: undefined,
+                          projectHandoffEmitted: undefined,
+                          review: undefined,
+                          reviewed: false,
+                          assetIds: [],
+                          failure: undefined,
+                          failureStage: undefined,
+                          candidateFailures: undefined,
+                      },
                       { type: "run.retry.requested" },
                       ["failed"],
                   )
@@ -64,7 +77,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 async function cancelAgentRun(request: Request, run: AgentRun) {
     const origin = resolveInternalOrigin(new URL(request.url).origin);
     const cookie = request.headers.get("cookie") || "";
-    const children = run.tasks.filter((task) => task.status === "running" && ["text", "image", "video", "audio"].includes(task.type)).flatMap((task) => cancellableChildTaskIds(task).map((taskId) => ({ type: task.type, taskId })));
+    const children = run.tasks
+        .filter((task) => (task.status === "running" || task.status === "needs_review") && ["text", "image", "video", "audio"].includes(task.type))
+        .flatMap((task) => cancellableChildTaskIds(task).map((taskId) => ({ type: task.type, taskId })));
     const requestedAt = run.cancellation?.requestedAt || Date.now();
     const stopping = await updateAgentRunById(
         run.id,
@@ -135,5 +150,5 @@ function childTaskTerminal(status: string) {
 function cancellableChildTaskIds(task: AgentRun["tasks"][number]) {
     const childStatuses = new Map(task.childTasks?.map((child) => [child.id, child.status]) || []);
     const ids = new Set([...(task.taskIds || []), ...(task.taskId ? [task.taskId] : []), ...(task.childTasks?.map((child) => child.id) || [])]);
-    return Array.from(ids).filter((taskId) => !childStatuses.has(taskId) || childStatuses.get(taskId) === "pending");
+    return Array.from(ids).filter((taskId) => !childStatuses.has(taskId) || childStatuses.get(taskId) === "pending" || childStatuses.get(taskId) === "needs_review");
 }

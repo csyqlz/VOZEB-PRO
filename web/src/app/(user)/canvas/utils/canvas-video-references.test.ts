@@ -35,6 +35,20 @@ describe("Canvas video references", () => {
         });
     });
 
+    it("uses the current image node as the sole primary reference for ordinary image-to-video", () => {
+        const source = image("current-image", "https://cdn.example.com/current.webp");
+        const upstream = image("upstream-image", "https://cdn.example.com/upstream.webp");
+        const resolved = resolveCanvasVideoGenerationReferences({
+            metadata: { videoReferenceMode: "reference" },
+            context: { ...emptyContext(), referenceImages: [upstream] },
+            availableInputs: [{ image: upstream }],
+            sourceImage: source,
+        });
+
+        expect(resolved.images).toMatchObject([{ id: "current-image", videoRole: "reference" }]);
+        expect(resolved.snapshots).toMatchObject([{ id: "current-image", role: "reference", source: "https://cdn.example.com/current.webp" }]);
+    });
+
     it("keeps first frame, last frame and ordinary references as distinct request roles", () => {
         const first = image("frame-one", "https://cdn.example.com/frame-one.webp");
         const last = image("frame-two", "https://cdn.example.com/frame-two.webp");

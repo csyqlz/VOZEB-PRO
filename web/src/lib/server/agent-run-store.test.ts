@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentRun } from "./agent-run-store";
 
-const mocks = vi.hoisted(() => ({ createCreativeRunBundle: vi.fn(), getCreativeAssetsByIds: vi.fn(), mutateCreativeRun: vi.fn() }));
+const mocks = vi.hoisted(() => ({ createCreativeRunBundle: vi.fn(), getCreativeAssetsByIds: vi.fn(), getDramaProject: vi.fn(), mutateCreativeRun: vi.fn() }));
 
 vi.mock("./creative-runtime-store", () => ({
     createCreativeRunBundle: mocks.createCreativeRunBundle,
@@ -10,6 +10,7 @@ vi.mock("./creative-runtime-store", () => ({
     getCreativeRunByClientRequestId: vi.fn(),
     mutateCreativeRun: mocks.mutateCreativeRun,
 }));
+vi.mock("./drama-project-store", () => ({ getDramaProject: mocks.getDramaProject }));
 vi.mock("./generation-task-store", () => ({ getStoredGenerationTask: vi.fn(), listStoredGenerationTasks: vi.fn() }));
 
 import { createAgentRun, setAgentRunStatus, updateAgentRunById, updateAgentRunTaskById } from "./agent-run-store";
@@ -118,6 +119,56 @@ describe("createAgentRun Canvas snapshot", () => {
         expect((created.run.snapshot as { nodes: unknown[]; connections: unknown[]; analysis: { nodeCount: number } }).nodes).toHaveLength(2);
         expect((created.run.snapshot as { nodes: unknown[]; connections: unknown[]; analysis: { nodeCount: number } }).connections).toHaveLength(1);
         expect((created.run.snapshot as { nodes: unknown[]; connections: unknown[]; analysis: { nodeCount: number } }).analysis.nodeCount).toBe(2);
+    });
+});
+
+describe("createAgentRun Drama snapshot", () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mocks.createCreativeRunBundle.mockImplementation(async (_userId, input) => input);
+        mocks.getDramaProject.mockResolvedValue({
+            id: "drama-project",
+            title: "短剧",
+            summary: "项目摘要",
+            style: "电影感",
+            ratio: "9:16",
+            status: "active",
+            activeEpisodeId: "episode-current",
+            characters: [{ id: "character-one" }],
+            scenes: [],
+            props: [],
+            clues: [],
+            episodes: [{ id: "episode-current", title: "第一集", script: "权威剧本", shots: [] }],
+        });
+    });
+
+    it("hydrates the authoritative project while keeping only transient turn fields from the client", async () => {
+        const created = await createAgentRun("user", {
+            clientRequestId: "request-drama",
+            surface: "drama",
+            projectId: "drama-project",
+            prompt: "继续当前剧本",
+            assetIds: [],
+            skillIds: [],
+            modelIds: [],
+            snapshot: {
+                currentStage: "storyboard",
+                selectedShotId: "shot-one",
+                currentTurnReferences: [{ id: "asset-one" }],
+                characters: [{ id: "spoofed-character" }],
+            },
+        });
+
+        expect(mocks.getDramaProject).toHaveBeenCalledWith("drama-project", "user");
+        expect(created.run.snapshot).toMatchObject({
+            id: "drama-project",
+            currentStage: "storyboard",
+            selectedShotId: "shot-one",
+            currentTurnReferences: [{ id: "asset-one" }],
+            project: { ratio: "9:16" },
+            episode: { id: "episode-current", script: "权威剧本" },
+            characters: [{ id: "character-one" }],
+        });
     });
 });
 

@@ -120,6 +120,18 @@ describe("normalizeCreativeRunRequest", () => {
             expect((error as CreativeRuntimeInputError).status).toBe(413);
         }
     });
+
+    it("allows an oversized drama client snapshot when the server can hydrate by project ID", () => {
+        expect(
+            normalizeCreativeRunRequest({
+                clientRequestId: "drama-large",
+                surface: "drama",
+                projectId: "drama-project",
+                prompt: "继续当前剧本",
+                snapshot: { script: "x".repeat(513 * 1024) },
+            }),
+        ).toMatchObject({ surface: "drama", projectId: "drama-project" });
+    });
 });
 
 describe("isCreativeProjectHandoff", () => {

@@ -21,11 +21,15 @@ test("public homepage is functional for signed-out visitors", async ({ browser }
     const page = await context.newPage();
     const browserErrors = collectBrowserErrors(page);
     let galleryRequest = "";
+    let billingProductRequests = 0;
     await page.route("**/api/public/gallery?**", async (route) => {
         galleryRequest = route.request().url();
         await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(galleryResponse) });
     });
-    await page.route("**/api/billing/products", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ products: [], paymentProviders: [] }) }));
+    await page.route("**/api/billing/products", (route) => {
+        billingProductRequests += 1;
+        return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ products: [], paymentProviders: [] }) });
+    });
 
     await page.goto("/", { waitUntil: "domcontentloaded" });
     await expect(page.getByRole("heading", { level: 1, name: "一个入口 完成所有 AI 创作" })).toBeVisible();

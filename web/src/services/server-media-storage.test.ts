@@ -68,6 +68,12 @@ describe("server media storage", () => {
         expect(fetchMock).toHaveBeenCalledOnce();
         expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/reference-assets");
         expect(fetchMock.mock.calls[0]?.[1]?.method).toBe("POST");
+        expect(fetchMock.mock.calls[0]?.[1]?.headers).toBeUndefined();
+        const form = fetchMock.mock.calls[0]?.[1]?.body as FormData;
+        expect(form).toBeInstanceOf(FormData);
+        expect(form.get("type")).toBe("image");
+        expect(form.get("persistent")).toBe("true");
+        expect(form.get("file")).toBeInstanceOf(File);
     });
 
     it("continues to copy an external url into managed storage", async () => {
@@ -82,5 +88,17 @@ describe("server media storage", () => {
         expect(fetchMock.mock.calls[0]?.[0]).toBe("https://cdn.example/image.png");
         expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/reference-assets");
         expect(fetchMock.mock.calls[1]?.[1]?.method).toBe("POST");
+    });
+
+    it("forwards unknown binary media to the server for byte-level validation", async () => {
+        fetchMock.mockResolvedValueOnce(new Response("webp", { headers: { "Content-Type": "application/octet-stream" } })).mockResolvedValueOnce(
+            new Response(JSON.stringify({ token: "permanent/2026/08/20/images/external.webp", url: "/api/reference-assets/permanent/2026/08/20/images/external.webp", mimeType: "image/webp" }), {
+                headers: { "Content-Type": "application/json" },
+            }),
+        );
+
+        await expect(uploadServerMedia("https://cdn.example/reference.webp", "image")).resolves.toMatchObject({ storageKey: "permanent/2026/08/20/images/external.webp", mimeType: "image/webp" });
+        const form = fetchMock.mock.calls[1]?.[1]?.body as FormData;
+        expect((form.get("file") as File).type).toBe("application/octet-stream");
     });
 });

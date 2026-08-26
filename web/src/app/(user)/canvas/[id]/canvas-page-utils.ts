@@ -2,8 +2,9 @@
 
 import { browserReadableMediaUrl } from "@/lib/browser-media-url";
 import { readImageMeta } from "@/lib/image-utils";
-import { resolveImageUrl, resolveStoredImageDataUrl, uploadImage, type UploadedImage } from "@/services/image-storage";
+import { resolveStoredImageDataUrl, uploadImage, type UploadedImage } from "@/services/image-storage";
 import { resolveMediaUrl, type UploadedFile } from "@/services/file-storage";
+import { parseServerMediaUrl, serverMediaUrl } from "@/services/server-media-storage";
 import { defaultConfig, type AiConfig } from "@/stores/use-config-store";
 import type { ReferenceImage } from "@/types/image";
 import { CANVAS_CONFIG_NODE_HEIGHT, NODE_DEFAULT_SIZE } from "../constants";
@@ -13,6 +14,7 @@ import type { CanvasNodeGenerationMode } from "../components/canvas-node-prompt-
 import { resolveCanvasGenerationModel } from "../utils/canvas-node-config";
 import { nodeSizeFromRatio, resizeImageNodeToNaturalRatio } from "../utils/canvas-node-size";
 import { PANORAMA_IMAGE_SIZE } from "../utils/canvas-panorama";
+import { isAgentInternalNode } from "../utils/canvas-auto-layout";
 import { CanvasNodeType, isCanvasImageNodeType, type CanvasAssistantSession, type CanvasConnection, type CanvasImageGenerationType, type CanvasNodeData, type CanvasNodeMetadata, type ConnectionHandle } from "../types";
 
 export function imageExtension(dataUrl: string) {
@@ -33,9 +35,22 @@ export async function uploadCanvasImage(input: string | Blob): Promise<UploadedI
     return { ...image, url: await resolveStoredImageDataUrl(image.storageKey, image.url) };
 }
 
-export async function uploadGeneratedCanvasImage(url: string, remoteFallback = "", serverFallback = ""): Promise<UploadedImage> {
-    const remoteUrl = isRemoteGeneratedUrl(remoteFallback) ? remoteFallback : isRemoteGeneratedUrl(url) ? url : "";
-    const serverUrl = isServerGeneratedUrl(serverFallback) ? serverFallback : isServerGeneratedUrl(url) ? url : "";
+type GeneratedCanvasImage = {
+    dataUrl?: string;
+    remoteUrl?: string;
+    serverUrl?: string;
+    width?: number;
+    height?: number;
+    bytes?: number;
+    mimeType?: string;
+};
+
+export async function uploadGeneratedCanvasImage(generated: GeneratedCanvasImage): Promise<UploadedImage> {
+    const url = generated.dataUrl || "";
+    const remoteUrl = isRemoteGeneratedUrl(generated.remoteUrl || "") ? generated.remoteUrl || "" : isRemoteGeneratedUrl(url) ? url : "";
+    const serverUrl = isServerGeneratedUrl(generated.serverUrl || "") ? generated.serverUrl || "" : isServerGeneratedUrl(url) ? url : "";
+    const existing = existingGeneratedCanvasImage(generated, serverUrl, remoteUrl);
+    if (existing) return existing;
     const localUrl = isLocalGeneratedUrl(url) ? url : "";
     const candidates = Array.from(new Set([serverUrl, localUrl, url, remoteUrl].filter(Boolean)));
     for (const candidate of candidates) {
@@ -47,6 +62,25 @@ export async function uploadGeneratedCanvasImage(url: string, remoteFallback = "
         }
     }
     throw new Error("图片保存到服务器失败");
+}
+
+function existingGeneratedCanvasImage(generated: GeneratedCanvasImage, serverUrl: string, remoteUrl: string): UploadedImage | null {
+    const reference = parseServerMediaUrl(serverUrl);
+    const width = Number(generated.width);
+    const height = Number(generated.height);
+    const bytes = Number(generated.bytes);
+    const mimeType = generated.mimeType?.trim().toLowerCase() || "";
+    if (!reference?.storageKey.startsWith("permanent/") || !Number.isFinite(width) || width <= 0 || !Number.isFinite(height) || height <= 0 || !Number.isFinite(bytes) || bytes <= 0 || !mimeType.startsWith("image/")) return null;
+    return {
+        url: reference.url,
+        storageKey: reference.storageKey,
+        remoteUrl: remoteUrl || undefined,
+        serverUrl: reference.url,
+        width,
+        height,
+        bytes,
+        mimeType,
+    };
 }
 
 export function imageMetadata(image: UploadedImage): CanvasNodeMetadata {
@@ -135,6 +169,10 @@ export function replaceCanvasNodeMediaMetadata(current: CanvasNodeMetadata | und
         primaryImageId: undefined,
         imageBatchExpanded: undefined,
         imageTask: undefined,
+        imageEditMask: undefined,
+        imageEditValidationMask: undefined,
+        preserveUnmaskedPixels: undefined,
+        imageOutputBackground: undefined,
         videoTask: undefined,
         textTask: undefined,
         audioTask: undefined,
@@ -183,15 +221,68 @@ export async function resolveMetadataReferences(metadata: CanvasNodeMetadata) {
     if (!metadata.references?.length) return null;
     const references = await Promise.all(
         metadata.references.map(async (url, index) => {
-            const dataUrl = url.startsWith("image:") ? await resolveImageUrl(url, "") : url;
-            return dataUrl ? { id: `${index}`, name: `reference-${index}.png`, type: "image/png", dataUrl, storageKey: url.startsWith("image:") ? url : undefined } : null;
+            const stored = url.startsWith("image:") || /^(?:temporary|permanent)\//.test(url);
+            const dataUrl = stored ? await resolveStoredImageDataUrl(url, "") : url;
+            return dataUrl ? { id: `${index}`, name: `reference-${index}.png`, type: "image/png", dataUrl, storageKey: stored ? url : undefined, serverUrl: stored ? dataUrl : undefined } : null;
         }),
     );
     return references.every(Boolean) ? (references as ReferenceImage[]) : null;
 }
 
+export async function resolveMetadataImageEditMask(metadata: CanvasNodeMetadata): Promise<ReferenceImage | null | undefined> {
+    const mask = metadata.imageEditMask;
+    if (!mask) return undefined;
+    const dataUrl = await resolveStoredImageDataUrl(mask.storageKey, mask.serverUrl || "");
+    if (!dataUrl) return null;
+    return {
+        id: `mask-${mask.storageKey}`,
+        name: "mask.png",
+        type: mask.mimeType || "image/png",
+        dataUrl,
+        storageKey: mask.storageKey,
+        serverUrl: mask.serverUrl,
+        width: mask.width,
+        height: mask.height,
+    };
+}
+
+export async function resolveMetadataImageEditValidationMask(metadata: CanvasNodeMetadata): Promise<ReferenceImage | null | undefined> {
+    const mask = metadata.imageEditValidationMask;
+    if (!mask) return undefined;
+    const dataUrl = await resolveStoredImageDataUrl(mask.storageKey, mask.serverUrl || "");
+    if (!dataUrl) return null;
+    return {
+        id: `validation-mask-${mask.storageKey}`,
+        name: "validation-mask.png",
+        type: mask.mimeType || "image/png",
+        dataUrl,
+        storageKey: mask.storageKey,
+        serverUrl: mask.serverUrl,
+        width: mask.width,
+        height: mask.height,
+    };
+}
+
 export async function hydrateCanvasImages(nodes: CanvasNodeData[]) {
     return Promise.all(nodes.map((node) => hydrateCanvasNode(node).catch(() => node)));
+}
+
+export function prepareCanvasImages(nodes: CanvasNodeData[]) {
+    return nodes.map((node) => {
+        const content = node.metadata?.content;
+        const fallbackContent = generatedContentFallback(content, node.metadata?.remoteUrl, node.metadata?.serverUrl);
+        if (!node.metadata || (!node.metadata.storageKey && !content?.startsWith("blob:") && content)) return resizePreparedImage(node);
+        const stableContent = node.metadata.storageKey ? serverMediaUrl(node.metadata.storageKey, fallbackContent) : fallbackContent;
+        if (!stableContent || stableContent === content) return resizePreparedImage(node);
+        return resizePreparedImage({ ...node, metadata: { ...node.metadata, content: stableContent } });
+    });
+}
+
+function resizePreparedImage(node: CanvasNodeData) {
+    if (!isCanvasImageNodeType(node.type) || node.type === CanvasNodeType.Panorama) return node;
+    const naturalWidth = node.metadata?.naturalWidth;
+    const naturalHeight = node.metadata?.naturalHeight;
+    return naturalWidth && naturalHeight ? resizeImageNodeToNaturalRatio(node, naturalWidth, naturalHeight) : node;
 }
 
 async function hydrateCanvasNode(node: CanvasNodeData) {
@@ -250,6 +341,19 @@ export async function hydrateAssistantImages(sessions: CanvasAssistantSession[])
     );
 }
 
+export function prepareAssistantImages(sessions: CanvasAssistantSession[]) {
+    return sessions.map((session) => ({
+        ...session,
+        messages: session.messages.map((message) => ({
+            ...message,
+            references: (message.references || []).map((item) => {
+                const dataUrl = item.storageKey ? serverMediaUrl(item.storageKey, item.dataUrl) : item.dataUrl;
+                return dataUrl && dataUrl !== item.dataUrl ? { ...item, dataUrl } : item;
+            }),
+        })),
+    }));
+}
+
 export function getGenerationCount(count: string) {
     const value = Math.floor(Number(count));
     return Number.isSafeInteger(value) && value > 0 ? value : 1;
@@ -257,7 +361,14 @@ export function getGenerationCount(count: string) {
 
 export function applyNodeConfigPatch(node: CanvasNodeData, patch: Partial<CanvasNodeData["metadata"]>) {
     const safePatch = patch || {};
-    const next = { ...node, metadata: { ...node.metadata, ...safePatch } };
+    const next = {
+        ...node,
+        metadata: {
+            ...node.metadata,
+            ...safePatch,
+            ...(typeof safePatch.size === "string" ? { sizeLocked: safePatch.size !== "auto" } : {}),
+        },
+    };
     if (node.type === CanvasNodeType.Config && typeof safePatch.configDetailsOpen === "boolean") {
         return { ...next, height: safePatch.configDetailsOpen ? CANVAS_CONFIG_NODE_HEIGHT.expanded : CANVAS_CONFIG_NODE_HEIGHT.collapsed };
     }
@@ -349,6 +460,7 @@ export function isAudioFile(file: File) {
 }
 
 export function isHiddenBatchChild(node: CanvasNodeData, nodes: CanvasNodeData[], collapsingBatchIds?: Set<string>) {
+    if (isAgentInternalNode(node)) return true;
     const rootId = node.metadata?.batchRootId;
     if (!rootId) return false;
     const root = nodes.find((item) => item.id === rootId);

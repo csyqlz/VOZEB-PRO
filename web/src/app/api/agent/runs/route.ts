@@ -23,20 +23,16 @@ export async function GET(request: Request) {
     const activeOnly = url.searchParams.get("status") === "active";
     const requestedLimit = Number(url.searchParams.get("limit"));
     const limit = Number.isSafeInteger(requestedLimit) && requestedLimit > 0 ? Math.min(50, requestedLimit) : 50;
-    const internalRuns = await listAgentRuns({
-        userId: user.id,
-        projectId,
-        conversationId,
-        surface: surface || undefined,
-        statuses: activeOnly ? ["planning", "running", "paused"] : undefined,
-        limit,
-    });
-    const runs = internalRuns.map(publicAgentRun);
-    const activeTaskIds = runs.filter((run) => run.status === "planning" || run.status === "running").map((run) => run.id);
-    if (activeTaskIds.length) {
-        const origin = resolveInternalOrigin(url.origin);
-        after(() => runGenerationTaskRecoveryBatch({ origin, cookie: request.headers.get("cookie") || "", limit: Math.min(50, activeTaskIds.length), taskIds: activeTaskIds }));
-    }
+    const runs = (
+        await listAgentRuns({
+            userId: user.id,
+            projectId,
+            conversationId,
+            surface: surface || undefined,
+            statuses: activeOnly ? ["planning", "running", "paused"] : undefined,
+            limit,
+        })
+    ).map(publicAgentRun);
     return NextResponse.json({ code: 0, data: { runs }, msg: "OK" });
 }
 
@@ -50,14 +46,22 @@ export async function POST(request: Request) {
         const rate = await checkRateLimit(`agent-run:${user.id}`, { maxRequests: 10, windowMs: 60 * 1000 });
         if (!rate.allowed) return NextResponse.json({ code: 429, data: null, msg: "Agent 请求过于频繁，请稍后重试" }, { status: 429 });
         const settings = await getAuthSettings();
-        const response = await withGenerationConcurrencyLimit(user.id, "agent", 10 * 60 * 1000, settings.generationConcurrency.agent, async () => {
-            const created = await createAgentRun(user.id, input);
-            if (created.created) {
-                const origin = resolveInternalOrigin(new URL(request.url).origin);
-                after(() => runGenerationTaskRecoveryBatch({ origin, cookie: request.headers.get("cookie") || "", limit: 1, taskIds: [created.run.id] }));
-            }
-            return NextResponse.json({ code: 0, data: { run: publicAgentRun(created.run), conversation: created.conversation, created: created.created }, msg: created.created ? "Agent 任务已创建" : "Agent 任务已存在" });
-        });
+        const response = await withGenerationConcurrencyLimit(
+            user.id,
+            "agent",
+            10 * 60 * 1000,
+            settings.generationConcurrency.agent,
+            async () => {
+                const created = await createAgentRun(user.id, input);
+                if (created.created) {
+                    const origin = resolveInternalOrigin(new URL(request.url).origin);
+                    after(() => runGenerationTaskRecoveryBatch({ origin, cookie: request.headers.get("cookie") || "", limit: 1, taskIds: [created.run.id] }));
+                }
+                return NextResponse.json({ code: 0, data: { run: publicAgentRun(created.run), conversation: created.conversation, created: created.created }, msg: created.created ? "Agent 任务已创建" : "Agent 任务已存在" });
+            },
+            undefined,
+            input.clientRequestId,
+        );
         return response || NextResponse.json({ code: 429, data: null, msg: `当前最多同时运行 ${settings.generationConcurrency.agent} 个 Agent 任务` }, { status: 429 });
     } catch (error) {
         if (error instanceof CreativeRuntimeInputError || error instanceof CreativeStoreConflict) return NextResponse.json({ code: error.status, data: null, msg: error.message }, { status: error.status });

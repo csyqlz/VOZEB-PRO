@@ -3,6 +3,20 @@ import { describe, expect, it } from "vitest";
 import { assertVozebRecommendedVideoReferences, buildVozebRecommendedVideoRequest } from "./vozeb-recommended-video";
 
 describe("VOZEB recommended video protocol", () => {
+    it("omits intelligent ratio and resolution when no fixed value was planned", () => {
+        expect(
+            buildVozebRecommendedVideoRequest({
+                model: "qy-seedance-2.0-fast",
+                prompt: "test",
+                duration: 5,
+                generateAudio: true,
+                images: [],
+                videos: [],
+                audios: [],
+            }),
+        ).toEqual({ model: "qy-seedance-2.0-fast", prompt: "test", duration: 5, generate_audio: true });
+    });
+
     it("forces the 720p Seedance model to disable generated audio", () => {
         expect(
             buildVozebRecommendedVideoRequest({

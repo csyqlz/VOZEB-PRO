@@ -1,5 +1,6 @@
 import type { CreativeAsset } from "@/lib/creative-runtime-contract";
 import { creativeAssetReferenceAliases } from "@/lib/creative-asset-references";
+import { mentionAtCursor } from "@/lib/mention-at-cursor";
 
 export type CreativeAssetMention = {
     start: number;
@@ -19,12 +20,7 @@ export type CreativeAssetMentionDeletion = {
 };
 
 export function creativeAssetMentionAtCursor(value: string, cursor: number): CreativeAssetMention | undefined {
-    const end = Math.max(0, Math.min(value.length, cursor));
-    const match = value.slice(0, end).match(/@([^\s@]*)$/u);
-    if (!match) return undefined;
-    const start = end - match[0].length;
-    if (start > 0 && /[A-Za-z0-9._%+-]/u.test(value[start - 1])) return undefined;
-    return { start, end, query: match[1] || "" };
+    return mentionAtCursor(value, cursor);
 }
 
 export function replaceCreativeAssetMention(value: string, cursor: number, alias: string) {

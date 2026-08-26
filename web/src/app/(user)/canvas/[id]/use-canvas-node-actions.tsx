@@ -53,6 +53,7 @@ export function useCanvasNodeActions({ state, core }: { state: CanvasPageState; 
                     ? {
                           model: effectiveConfig.imageModel || effectiveConfig.model,
                           size: effectiveConfig.size,
+                          sizeLocked: effectiveConfig.size !== "auto",
                           count: getGenerationCount(effectiveConfig.canvasImageCount || effectiveConfig.count),
                       }
                     : undefined;

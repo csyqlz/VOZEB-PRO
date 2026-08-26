@@ -87,15 +87,18 @@ export function watchCanvasAgentRun(runId: string, handlers: RunHandlers, option
             }
         };
 
-        listen("run.planning", () => reportStage({ key: "planning", text: "正在理解需求并分析当前画布" }));
-        listen("skills.selected", () => reportStage({ key: "skills", text: "正在匹配合适的创作技能" }));
+        listen("run.planning", () => reportStage({ key: "planning", text: "正在理解你的想法，也在看看画布里的内容…" }));
+        listen("run.planning.context_ready", () => reportStage({ key: "planning", text: "画布内容已经准备好，正在为你整理创作思路…" }));
+        listen("run.planning.model_connected", () => reportStage({ key: "planning", text: "创作思路已经理清，正在安排接下来的步骤…" }));
+        listen("run.planning.validating", () => reportStage({ key: "plan", text: "正在确认创作步骤，很快就可以开始…" }));
+        listen("skills.selected", () => reportStage({ key: "skills", text: "正在挑选更合适的创作方式…" }));
         listen("canvas.ops", (event) => {
             const payload = read<{ data?: { ops?: CanvasAgentOp[]; reply?: string } }>(event);
             if (!appliedPlan && payload.data?.ops?.length) {
                 appliedPlan = true;
                 handlers.onPlan(payload.data.ops, payload.data.reply || "创作计划已添加到画布，后台正在执行任务。");
             }
-            reportStage({ key: "plan", text: "文本执行计划已生成，正在准备任务" });
+            reportStage({ key: "plan", text: "创作步骤已经准备好，马上开始处理…" });
         });
         listen("task.running", (event) => {
             const payload = read<{ data?: { title?: string; attempts?: number; ops?: CanvasAgentOp[] } }>(event);
@@ -135,6 +138,11 @@ export function watchCanvasAgentRun(runId: string, handlers: RunHandlers, option
             latestFailedTask = { taskId: payload.data.taskId, title: payload.data.title };
             handlers.onAssistant(`「${payload.data.title || "创作任务"}」执行失败：${payload.data.error || "生成服务暂时不可用"}`, { taskType: undefined, nodeIds: [], ...latestFailedTask, runId });
         });
+        listen("task.needs_review", (event) => {
+            const payload = read<{ data?: { title?: string; ops?: CanvasAgentOp[] } }>(event);
+            if (payload.data?.ops?.length) handlers.onOps(payload.data.ops);
+            reportStage({ key: "paused", text: `「${payload.data?.title || "创作任务"}」的上游创建结果待确认` });
+        });
         listen("task.retry.requested", (event) => {
             const payload = read<{ data?: { ops?: CanvasAgentOp[] } }>(event);
             if (payload.data?.ops?.length) handlers.onOps(payload.data.ops);
@@ -160,11 +168,11 @@ export function watchCanvasAgentRun(runId: string, handlers: RunHandlers, option
         });
         listen("run.paused", () => {
             setPaused(true);
-            reportStage({ key: "paused", text: "任务已暂停" });
+            reportStage({ key: "paused", text: "任务已暂停，当前进度已经为你保存" });
         });
         listen("run.resumed", () => {
             setPaused(false);
-            reportStage({ key: "executing", text: "任务已恢复，正在继续执行" });
+            reportStage({ key: "executing", text: "欢迎回来，正在从刚才的进度继续…" });
         });
         listen("run.snapshot", (event) => {
             const payload = read<{ status?: string; tasks?: Array<{ id?: string; title?: string; status?: string; error?: string }> }>(event);

@@ -4,7 +4,7 @@
 
 <h1 align="center">星启智域</h1>
 
-<p align="center">面向统一创作 Agent、Canvas 与短剧生产的开源 AI 创作平台</p>
+<p align="center">面向统一创作 Agent、Canvas 与短剧生产的源码公开 AI 创作平台</p>
 
 <p align="center">
   <a href="VERSION"><img src="https://img.shields.io/badge/version-v0.0.6-2563eb?style=flat-square" alt="Version"></a>
@@ -16,10 +16,7 @@
 <p align="center">
   <a href="https://games.xingqizhiyu.cn">演示站</a> ·
   <a href="docs/index.md">文档索引</a> ·
-  <a href="docs/content/docs/overview/configuration.mdx">0.0.6 发布说明</a> ·
-  <a href="#目录与文件用途">目录与文件用途</a> ·
-  <a href="docs/content/docs/overview/page-gallery.mdx">页面图册</a> ·
-  <a href="https://linux.do">LINUX DO</a> ·
+  <a href="COMMERCIAL_LICENSE.md">商业授权</a> ·
   <a href="CONTRIBUTING.md">参与贡献</a> ·
   <a href="CHANGELOG.md">更新记录</a>
 </p>
@@ -38,6 +35,20 @@
 - **持久生成**：独立 Worker 负责图片、视频、音频和 Agent 任务续取，页面关闭或实例切换后继续查询原上游任务，并在生成运维中处理异常任务。
 - **商业后台**：用户、套餐、促销、优惠券、邀请奖励、积分、CDK、订单、支付、退款、对账、财务流水、作品治理、公告、提示词和审计日志。
 - **存储与备份**：本地媒体、S3 兼容对象存储、引用保护、对象迁移和脱敏业务数据导入导出。
+
+## 许可证与商业使用
+
+VOZEB-PRO 采用 Business Source License 1.1（`BUSL-1.1`）。许可证允许个人学习、非商业研究、开发测试、评估、代码审查和社区贡献。
+
+企业生产部署、商业运营、SaaS 服务、私有化部署、向第三方提供服务、转售，或集成到收费平台，都必须先取得 VOZEB PRO 商业授权。完整使用边界见[商业授权说明](COMMERCIAL_LICENSE.md)。
+
+| 商业授权方案 | 公开价格 | 授权范围 |
+| --- | ---: | --- |
+| 企业自营闭源年度授权 | 人民币 3,299 元/年 | 一个主体、一个自营产品，以及该主体控制的开发/测试/生产环境，授权期一年 |
+| 企业自营闭源永久授权 | 人民币 7,999 元 | 一个主体、一个自营产品，可永久使用授权书列明的版本 |
+| OEM / 贴牌 / 第三方交付 | 不在标准方案内 | 必须另行签署书面授权 |
+
+商业授权只包含软件使用权，不包含技术支持、部署、定制开发、运维、维护或 SLA 服务。完整协议参数见 [LICENSE](LICENSE)。
 
 ## 项目功能流程
 
@@ -384,7 +395,7 @@ flowchart LR
 
 ## 快速开始
 
-> 安装过 0.0.2 的用户必须先删除旧数据库或数据库卷，再重新安装 0.0.6，并通过 `/install` 重新初始化数据库；不支持沿用旧数据库或原地升级。
+> 安装过 0.0.2 的用户必须先删除旧数据库或数据库卷，再重新安装 0.0.7，并通过 `/install` 重新初始化数据库；不支持沿用旧数据库或原地升级。
 
 ### Docker Compose
 
@@ -493,7 +504,10 @@ pnpm run dev
 | `.env.example`                              | 数据库、站点、加密、代理、媒体、模型、支付和部署变量模板                   |
 | `Dockerfile` / `docker-compose*.yml`        | standalone 生产镜像，以及标准、源码、宝塔、外部数据库和低内存部署拓扑      |
 | `VERSION` / `CHANGELOG.md`                  | 当前版本号和版本级变更记录                                                 |
-| `LICENSE` / `CLA.md` / `SECURITY.md`        | AGPL-3.0 协议、贡献者授权和漏洞提交规则                                    |
+| `LICENSE` / `COMMERCIAL_LICENSE.md`         | BUSL-1.1 源码公开许可，以及 VOZEB PRO 商业授权说明                         |
+| `COMMERCIAL_LICENSE_AGREEMENT.md`           | 商业授权协议参考模板；只有双方完成信息并签署后才产生合同效力               |
+| `DISCLAIMER.md` / `LEGAL_NOTICE.md`         | 软件与 AI 内容免责声明，以及公开授权和合规警示                             |
+| `CLA.md` / `SECURITY.md`                    | 贡献者授权和漏洞提交规则                                                   |
 | `AGENTS.md` / `CONTRIBUTING.md`             | 项目工程约束，以及开发者提交 Issue、代码和文档的流程                       |
 
 更完整的目录树、关键源码入口、Service、Route Handler、Repository 和任务 Store 职责见[项目结构与流程](docs/content/docs/overview/project-structure.mdx)。
@@ -548,7 +562,12 @@ pnpm run build
 - [待测试](docs/content/docs/progress/pending-test.mdx)
 - [参与贡献](CONTRIBUTING.md)
 - [安全策略](SECURITY.md)
-- [AGPL-3.0](LICENSE)
+- [Business Source License 1.1](LICENSE)
+- [商业授权说明](COMMERCIAL_LICENSE.md)
+- [许可证说明](LICENSE_NOTICE.md)
+- [商业授权协议模板](COMMERCIAL_LICENSE_AGREEMENT.md)
+- [免责声明](DISCLAIMER.md)
+- [授权与合规警示](LEGAL_NOTICE.md)
 - [贡献者协议](CLA.md)
 
 ## 致谢

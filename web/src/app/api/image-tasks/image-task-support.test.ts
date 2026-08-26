@@ -6,11 +6,14 @@ import { GenerationSubmissionSafeFailure } from "@/lib/server/generation-submiss
 import { maintenanceWorkerContext } from "@/lib/server/maintenance-auth";
 import {
     allowsImageProtocolFallback,
+    findImageResult,
     ImageQueryContractError,
     imageRequestAspectRatio,
+    imagePointsIdempotencyKey,
     imageTaskPollAttempts,
     imageTaskPollUrls,
     imageTaskRequestTimeoutMs,
+    inlineRemoteImageResult,
     openAiImageTaskPath,
     alignImageSizeToStep,
     parseImagePayloadOrPoll,
@@ -43,6 +46,7 @@ describe("provider image dimensions", () => {
 describe("GlobalAiOpc image task paths", () => {
     afterEach(() => {
         vi.unstubAllEnvs();
+        vi.unstubAllGlobals();
     });
 
     it("preserves maintenance authorization for the internal system proxy", () => {
@@ -64,6 +68,12 @@ describe("GlobalAiOpc image task paths", () => {
         expect(headers.get("authorization")).toBe(`Bearer ${token}`);
         expect(headers.get("x-vozeb-pro-worker-user-id")).toBe("user-one");
         expect(headers.get("x-vozeb-pro-logical-model")).toBe("image-logical");
+    });
+
+    it("uses a distinct billing identity for response-format fallback", () => {
+        const task = { id: "image-task-one", attemptNo: 2 } as never;
+        expect(imagePointsIdempotencyKey(task)).toBe("image-task:image-task-one:attempt:2");
+        expect(imagePointsIdempotencyKey(task, "base64")).toBe("image-task:image-task-one:attempt:2:base64");
     });
 
     it("upscales small exact dimensions for the provider instead of rejecting the task", () => {
@@ -108,11 +118,20 @@ describe("GlobalAiOpc image task paths", () => {
         expect(imageRequestAspectRatio("1824x1024")).toBe("16:9");
         expect(imageRequestAspectRatio("1024x1536")).toBe("2:3");
         expect(imageRequestAspectRatio("9:16")).toBe("9:16");
+        expect(imageRequestAspectRatio("auto")).toBeUndefined();
     });
 
     it("uses the configured create and result endpoints instead of OpenAI defaults", async () => {
         await expect(openAiImageTaskPath(config, "generation")).resolves.toBe("/image2/images");
         expect(imageTaskPollUrls(config, "http://localhost:3000/api/ai/system/global-image/image2/images", "task 1")[0]).toBe("http://localhost:3000/api/ai/system/global-image/result/task%201");
+    });
+
+    it("treats raw JPEG base64 as inline image data before relative URL parsing", () => {
+        const jpegBase64 = `/9j/${"A".repeat(96)}`;
+
+        expect(findImageResult(jpegBase64, "https://provider.example/v1/images/generations", config)).toMatchObject({
+            dataUrl: `data:image/jpeg;base64,${jpegBase64}`,
+        });
     });
 
     it("routes standard OpenAI generations and edits to their matching endpoints", async () => {
@@ -156,6 +175,18 @@ describe("GlobalAiOpc image task paths", () => {
         const response = new Response("<!doctype html><html></html>", { headers: { "content-type": "text/html" } });
 
         await expect(parseImageQueryJson(response)).rejects.toBeInstanceOf(ImageQueryContractError);
+    });
+
+    it("reads an image from a proxy response even when its content type is generic", async () => {
+        const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+4q2JAAAAAElFTkSuQmCC", "base64");
+        vi.stubGlobal(
+            "fetch",
+            vi.fn(async () => new Response(png, { headers: { "content-type": "application/octet-stream" } })),
+        );
+
+        const result = await inlineRemoteImageResult("https://cdn.example.com/result", "http://localhost:3000", "");
+
+        expect(result.dataUrl).toMatch(/^data:image\/png;base64,/);
     });
 
     it("prefers the edit endpoint declared by the channel reference rule", async () => {

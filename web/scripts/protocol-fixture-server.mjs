@@ -2,7 +2,10 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 
+import sharp from "sharp";
+
 const PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEUlEQVR4nGPQq/3/H4QZYAwAWewKpRUlAtEAAAAASUVORK5CYII=";
+const TRANSPARENT_PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAE0lEQVQImWPQq/3PoFf7H0KAOABK+winx6MN+QAAAABJRU5ErkJggg==";
 const FALLBACK_MP4 = Buffer.from("AAAAIGZ0eXBpc29tAAACAGlzb21pc28ybXA0MQ==", "base64");
 
 const models = [
@@ -77,6 +80,23 @@ async function handleFixtureRequest({ request, response, url, body, tasks, reque
         tasks.clear();
         return sendJson(response, 200, { ok: true });
     }
+    if (request.method === "GET" && path === "/vendor-space/knowledge/article-947") {
+        return sendBytes(
+            response,
+            200,
+            "text/html; charset=utf-8",
+            Buffer.from(`<!doctype html><html><body><article>
+                <h1>Provider integration manual</h1>
+                <p>Model catalog: GET ${url.origin}/api/v3/models</p>
+                <pre>curl --url ${url.origin}/custom/images --header 'X-API-Key: token' --header 'Content-Type: application/json' --data '{"model":"custom-image-v9","prompt":"test","width":1024,"height":1024,"references":[]}'</pre>
+                <pre>{"data":{"image_url":"${url.origin}/media/fixture.png"}}</pre>
+                <pre>curl --url ${url.origin}/custom/videos --header 'X-API-Key: token' --header 'Content-Type: application/json' --data '{"model":"custom-video-v9","prompt":"test","duration":5,"references":[]}'</pre>
+                <pre>{"data":{"task_id":"custom-video-task","status":"queued"}}</pre>
+                <pre>curl --url ${url.origin}/custom/results/:task_id --header 'X-API-Key: token'</pre>
+                <pre>{"data":{"status":"completed","video_url":"${url.origin}/media/fixture.mp4"}}</pre>
+            </article></body></html>`),
+        );
+    }
     if (request.method === "GET" && ["/models", "/api/v3/models"].includes(path)) {
         const catalog = url.searchParams.has("protocol") ? [...models, { id: "opaque-catalog-model" }] : models;
         return sendJson(response, 200, { object: "list", data: catalog });
@@ -91,6 +111,7 @@ async function handleFixtureRequest({ request, response, url, body, tasks, reque
         if (shouldFailRequest(request, model)) return sendJson(response, model.includes("-fail") ? 400 : 503, { error: { message: "fixture text failure" } });
         const toolName = selectedToolName(payload);
         const argumentsText = toolName ? JSON.stringify(toolArguments(toolName, payload)) : "协议测试文本返回成功";
+        if (payload.stream === true) return sendStructuredTextStream(response, path, toolName, argumentsText);
         if (path === "/responses") {
             return sendJson(response, 200, toolName ? { output: [{ type: "function_call", name: toolName, arguments: argumentsText }] } : { output_text: argumentsText });
         }
@@ -107,16 +128,20 @@ async function handleFixtureRequest({ request, response, url, body, tasks, reque
         });
     }
 
-    if (request.method === "POST" && /\/models\/[^/]+:generateContent$/.test(path)) {
+    if (request.method === "POST" && /\/models\/[^/]+:(?:generateContent|streamGenerateContent)$/.test(path)) {
         const payload = jsonBody(body);
         if (payload.generationConfig?.responseModalities?.includes("IMAGE")) {
             return sendJson(response, 200, { candidates: [{ content: { parts: [{ inlineData: { mimeType: "image/png", data: (await fixtureImage(options)).toString("base64") } }] } }] });
         }
         const toolName = selectedToolName(payload);
         const text = toolName ? JSON.stringify(toolArguments(toolName, payload)) : "协议测试文本返回成功";
+        if (path.endsWith(":streamGenerateContent")) return sendStructuredTextStream(response, path, toolName, text, "ndjson");
         return sendJson(response, 200, { candidates: [{ content: { parts: [{ text }] } }], usageMetadata: { promptTokenCount: 8, candidatesTokenCount: 8, totalTokenCount: 16 } });
     }
-    if (request.method === "POST" && path === "/planner/run") return sendJson(response, 200, { data: { plan: JSON.stringify({}) } });
+    if (request.method === "POST" && ["/planner/run", "/planner/stream"].includes(path)) {
+        if (path === "/planner/stream") return sendStructuredTextStream(response, path, "make_plan", "{}");
+        return sendJson(response, 200, { data: { plan: JSON.stringify({}) } });
+    }
 
     const geminiCreate = path.match(/^\/models\/([^/]+):predictLongRunning$/);
     if (request.method === "POST" && geminiCreate) {
@@ -145,12 +170,15 @@ async function handleFixtureRequest({ request, response, url, body, tasks, reque
     if (request.method === "POST" && ["/images/generations", "/images/edits"].includes(path)) {
         const model = requestedModel(body, request.headers["content-type"] || "");
         if (options.failImage || shouldFailRequest(request, model)) return sendJson(response, options.failImage || model.includes("-fail") ? 400 : 503, { error: { message: "fixture image failure" } });
-        return sendJson(response, 200, { created: Math.floor(Date.now() / 1000), data: [{ b64_json: (await fixtureImage(options)).toString("base64"), revised_prompt: "protocol fixture" }] });
+        const image = requestsTransparentBackground(body, request.headers["content-type"] || "") ? Buffer.from(TRANSPARENT_PNG_BASE64, "base64") : await fixtureImage(options);
+        const images = requestsLayeredOutput(body) ? await layeredFixtureImages(body, request.headers["content-type"] || "", options) : [image];
+        return sendJson(response, 200, { created: Math.floor(Date.now() / 1000), data: images.map((item) => ({ b64_json: item.toString("base64"), revised_prompt: "protocol fixture" })) });
     }
     if (request.method === "POST" && ["/sdapi/v1/txt2img", "/sdapi/v1/img2img"].includes(path)) {
         return sendJson(response, 200, { images: [(await fixtureImage(options)).toString("base64")], info: "{}" });
     }
     if (request.method === "POST" && path === "/custom/images") {
+        if (requestsLayeredOutput(body)) return sendJson(response, 200, { data: { layers: [`${url.origin}/media/fixture.png?layer=1`, `${url.origin}/media/fixture.png?layer=2`] } });
         return sendJson(response, 200, { data: { image_url: `${url.origin}/media/fixture.png` } });
     }
 
@@ -244,17 +272,156 @@ function selectedToolName(payload) {
     const explicit = tool?.name || tool?.function?.name || "";
     if (explicit) return explicit;
     const source = JSON.stringify(payload);
-    return ["create_agent_plan", "plan_workbench_action", "review_creative_outputs", "analyze_drama_content", "design_drama_visuals", "make_plan"].find((name) => source.includes(name)) || "";
+    return ["create_agent_plan", "plan_workbench_action", "review_creative_outputs", "analyze_drama_content", "design_drama_visuals", "decompose_ecommerce_image", "make_plan"].find((name) => source.includes(name)) || "";
 }
 
 function toolArguments(name, payload) {
+    if (name === "decompose_ecommerce_image") {
+        const { width, height } = imageRequestDimensions(payload);
+        if (width === 640 && height === 960) {
+            return {
+                strategy: "subject",
+                backgroundDescription: "人物后的摄影背景",
+                backgroundPreservedVisuals: [],
+                layers: [],
+            };
+        }
+        if (width === 1000 && height === 801) {
+            return {
+                strategy: "ecommerce",
+                backgroundDescription: "浅灰电商测试背景",
+                backgroundPreservedVisuals: [],
+                layers: Array.from({ length: 20 }, (_, index) => fixtureLayer("product", `元素 ${String(index + 1).padStart(2, "0")}`, 40 + (index % 5) * 190, 40 + Math.floor(index / 5) * 180, 120, 120, index + 1)),
+            };
+        }
+        if (width === 1200 && height === 720) {
+            return {
+                strategy: "ecommerce",
+                backgroundDescription: "浅灰蓝电商背景",
+                backgroundPreservedVisuals: [],
+                layers: [
+                    fixtureLayer("product", "商品组合", 240, 180, 624, 468, 3, [
+                        [395, 355],
+                        [595, 330],
+                        [525, 495],
+                        [720, 450],
+                    ]),
+                    fixtureLayer(
+                        "headline",
+                        "主标题",
+                        52,
+                        40,
+                        620,
+                        76,
+                        5,
+                        Array.from({ length: 8 }, (_, index) => [87 + index * 78, 77]),
+                    ),
+                    fixtureLayer("logo", "品牌 Logo", 968, 36, 164, 72, 7, [[1050, 72]]),
+                    fixtureLayer("badge", "促销角标", 914, 175, 140, 140, 6, [[984, 245]]),
+                    fixtureLayer("decoration", "前景装饰", 35, 465, 220, 170, 1, [
+                        [92, 550],
+                        [158, 525],
+                        [205, 580],
+                    ]),
+                ],
+            };
+        }
+        return {
+            strategy: "ecommerce",
+            backgroundDescription: "协议夹具蓝色渐变背景",
+            backgroundPreservedVisuals: ["蓝色渐变", "柔和环境光"],
+            layers: [
+                fixtureLayer("product", "商品组合", width * 0.2, height * 0.25, width * 0.52, height * 0.65, 3),
+                fixtureLayer("headline", "主标题", width * 0.05, height * 0.05, width * 0.55, height * 0.12, 5),
+                fixtureLayer("logo", "品牌 Logo", width * 0.8, height * 0.05, width * 0.15, height * 0.1, 7),
+                fixtureLayer("badge", "促销角标", width * 0.72, height * 0.25, width * 0.2, height * 0.18, 6),
+                fixtureLayer("decoration", "前景装饰", width * 0.03, height * 0.65, width * 0.18, height * 0.28, 1),
+            ],
+        };
+    }
     if (name === "create_agent_plan") {
+        if (plannerGenerationMode(payload) === "video") {
+            return {
+                intent: "generation",
+                objective: "验证视频工作台完整生成链路",
+                audience: "协议测试用户",
+                reply: "已收到，我会生成一段协议测试视频。",
+                decisions: [{ label: "视频模型", value: "e2e-video", reason: "使用本地协议测试模型" }],
+                foundation: {
+                    complexity: "simple",
+                    brief: { objective: "验证视频工作台完整生成链路" },
+                    direction: { summary: "清晰的蓝色横版测试视频" },
+                },
+                deliverables: [
+                    {
+                        id: "fixture-video",
+                        title: "协议测试视频",
+                        type: "video",
+                        model: "e2e-video",
+                        prompt: "内部协议视频执行提示：镜头缓慢推进",
+                        count: 1,
+                        ratio: "16:9",
+                        quality: "720",
+                        seconds: 5,
+                        dependencies: [],
+                    },
+                ],
+            };
+        }
+        const imageAndVideo = /图片.*视频|视频.*图片/.test(plannerRequestText(payload));
+        if (imageAndVideo) {
+            return {
+                intent: "generation",
+                objective: "验证 Agent 图片与视频完整生成链路",
+                audience: "协议测试用户",
+                reply: "已收到，我会生成一张图片和一段视频。",
+                decisions: [
+                    { label: "图片模型", value: "e2e-image", reason: "使用本地协议测试模型" },
+                    { label: "视频模型", value: "e2e-video", reason: "使用本地协议测试模型" },
+                ],
+                foundation: {
+                    complexity: "simple",
+                    brief: { objective: "验证 Agent 图片与视频完整生成链路" },
+                    direction: { summary: "清晰的蓝色横版测试画面" },
+                },
+                deliverables: [
+                    {
+                        id: "fixture-image",
+                        title: "协议测试图片",
+                        type: "image",
+                        model: "e2e-image",
+                        prompt: "内部协议图片执行提示：生成蓝色横版测试画面",
+                        count: 1,
+                        ratio: "16:9",
+                        quality: "high",
+                        dependencies: [],
+                    },
+                    {
+                        id: "fixture-video",
+                        title: "协议测试视频",
+                        type: "video",
+                        model: "e2e-video",
+                        prompt: "内部协议视频执行提示：镜头缓慢推进",
+                        count: 1,
+                        ratio: "16:9",
+                        quality: "720",
+                        seconds: 5,
+                        dependencies: [],
+                    },
+                ],
+            };
+        }
         return {
             intent: "generation",
             objective: "验证 Canvas Agent 稳定生成链路",
             audience: "协议测试用户",
             reply: "已收到，我会生成一张横版协议测试图片。",
             decisions: [{ label: "模型", value: "mock-image", reason: "使用本地协议测试模型" }],
+            foundation: {
+                complexity: "simple",
+                brief: { objective: "验证 Canvas Agent 稳定生成链路" },
+                direction: { summary: "清晰的蓝色横版测试画面" },
+            },
             deliverables: [{ id: "fixture-image", title: "协议测试图片", type: "image", model: "mock-image", prompt: "生成一张蓝色横版协议测试图片", count: 1, ratio: "16:9", quality: "high", dependencies: [] }],
         };
     }
@@ -273,6 +440,7 @@ function toolArguments(name, payload) {
     }
     if (name === "review_creative_outputs") return { mode: "visual", status: "passed", score: 100, summary: "协议测试产物通过", issues: [], retryTaskIds: [] };
     if (name === "analyze_drama_content") {
+        const sourceText = dramaSourceText(payload) || "主角推门说：测试开始。";
         return {
             episode: { outline: "主角进入测试场景并完成一句对白。", hook: "门突然打开。", nextPreview: "下一幕继续。", sourceRange: "全文" },
             characters: [{ name: "主角", description: "协议测试角色" }],
@@ -282,8 +450,8 @@ function toolArguments(name, payload) {
             shots: [
                 {
                     title: "进入房间",
-                    description: "主角推门进入房间。",
-                    sourceText: "主角推门说：测试开始。",
+                    description: sourceText,
+                    sourceText,
                     shotBoundary: "角色进入形成新镜头",
                     dialogue: "测试开始。",
                     narration: "",
@@ -325,6 +493,50 @@ function toolArguments(name, payload) {
         };
     }
     return {};
+}
+
+function plannerRequestText(payload) {
+    const messages = [...(Array.isArray(payload.input) ? payload.input : []), ...(Array.isArray(payload.messages) ? payload.messages : [])];
+    const userMessage = messages.findLast((message) => message?.role === "user");
+    const content = userMessage?.content ?? (typeof payload.input === "string" ? payload.input : "");
+    return typeof content === "string" ? content : JSON.stringify(content);
+}
+
+function dramaSourceText(payload) {
+    try {
+        const value = JSON.parse(plannerRequestText(payload));
+        return typeof value?.script === "string" ? value.script.trim() : "";
+    } catch {
+        return "";
+    }
+}
+
+function plannerGenerationMode(payload) {
+    try {
+        const value = JSON.parse(plannerRequestText(payload));
+        return ["image", "video", "audio"].includes(value?.generationPreferences?.mode) ? value.generationPreferences.mode : "";
+    } catch {
+        return "";
+    }
+}
+
+function imageRequestDimensions(payload) {
+    const match = plannerRequestText(payload).match(/(\d+)x(\d+)/i);
+    return { width: Math.max(1, Number(match?.[1]) || 1024), height: Math.max(1, Number(match?.[2]) || 1024) };
+}
+
+function fixtureLayer(kind, name, x, y, width, height, zIndex, focusPoints = []) {
+    const bbox = { x: Math.round(x), y: Math.round(y), width: Math.max(1, Math.round(width)), height: Math.max(1, Math.round(height)) };
+    return {
+        id: `${kind}-${zIndex}`,
+        groupId: `${kind}-${zIndex}`,
+        kind,
+        name,
+        bbox,
+        focusPoints: focusPoints.length ? focusPoints.map(([pointX, pointY]) => ({ x: pointX, y: pointY })) : [{ x: bbox.x + Math.round(bbox.width / 2), y: bbox.y + Math.round(bbox.height / 2) }],
+        zIndex,
+        confidence: 0.95,
+    };
 }
 
 function firstShotId(payload) {
@@ -371,6 +583,36 @@ function fixtureImage(options) {
     return options.imagePath ? readFile(options.imagePath) : Promise.resolve(Buffer.from(PNG_BASE64, "base64"));
 }
 
+async function layeredFixtureImages(body, contentType, options) {
+    const sourceBytes = (await multipartImage(body, contentType)) || (await fixtureImage(options));
+    const { data, info } = await sharp(sourceBytes, { failOn: "error" }).rotate().toColourspace("srgb").ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    const element = Buffer.alloc(data.length);
+    const background = Buffer.from(data);
+    const backgroundPixel = data.subarray(0, 4);
+    let hasElement = false;
+    let hasBackground = false;
+    for (let offset = 0; offset < data.length; offset += 4) {
+        const isBackground = data[offset] === backgroundPixel[0] && data[offset + 1] === backgroundPixel[1] && data[offset + 2] === backgroundPixel[2] && data[offset + 3] === backgroundPixel[3];
+        if (isBackground) {
+            hasBackground = true;
+            continue;
+        }
+        hasElement = true;
+        data.copy(element, offset, offset, offset + 4);
+        backgroundPixel.copy(background, offset);
+    }
+    if (!hasElement || !hasBackground) throw new Error("layer fixture source must contain a visible element and background");
+    const raw = { width: info.width, height: info.height, channels: 4 };
+    return Promise.all([sharp(element, { raw }).png().toBuffer(), sharp(background, { raw }).png().toBuffer()]);
+}
+
+async function multipartImage(body, contentType) {
+    if (!String(contentType).toLowerCase().startsWith("multipart/form-data")) return null;
+    const form = await new Response(body, { headers: { "content-type": contentType } }).formData();
+    const file = form.getAll("image").find((value) => value instanceof Blob);
+    return file ? Buffer.from(await file.arrayBuffer()) : null;
+}
+
 async function readRequestBody(request) {
     const chunks = [];
     for await (const chunk of request) chunks.push(chunk);
@@ -394,6 +636,15 @@ function requestedModel(body, contentType = "") {
     return text.match(/name="model"\r?\n\r?\n([^\r\n]+)/i)?.[1]?.trim() || "";
 }
 
+function requestsTransparentBackground(body, contentType = "") {
+    if (String(contentType).includes("application/json")) return jsonBody(body).background === "transparent";
+    return /name="background"\r?\n\r?\ntransparent(?:\r?\n|$)/i.test(body.toString("utf8"));
+}
+
+function requestsLayeredOutput(body) {
+    return body.toString("utf8").includes("分层任务要求");
+}
+
 function shouldFailRequest(request, model) {
     if (!model) return false;
     if (model.includes("-fail")) return true;
@@ -407,6 +658,28 @@ function sendJson(response, status, value) {
 function sendBytes(response, status, contentType, bytes) {
     response.writeHead(status, { "content-type": contentType, "content-length": bytes.length, "cache-control": "no-store" });
     response.end(bytes);
+}
+
+async function sendStructuredTextStream(response, path, toolName, argumentsText, format = "sse") {
+    const isResponses = path === "/responses";
+    const isChat = path === "/chat/completions" || path === "/messages";
+    response.writeHead(200, { "content-type": format === "ndjson" ? "application/x-ndjson" : "text/event-stream", "cache-control": "no-store" });
+    if (format === "ndjson") {
+        const payload = JSON.stringify({ candidates: [{ content: { parts: [{ text: argumentsText }] } }] });
+        const splitAt = Math.max(1, Math.floor(payload.length / 2));
+        response.write(payload.slice(0, splitAt));
+        await new Promise((resolve) => setImmediate(resolve));
+        response.write(`${payload.slice(splitAt)}\n`);
+        response.end();
+        return;
+    }
+    const payload = isResponses ? { type: "response.output_text.delta", delta: argumentsText } : isChat ? { choices: [{ delta: { content: argumentsText } }] } : { data: { plan: argumentsText } };
+    const event = `data: ${JSON.stringify(payload)}\n\n`;
+    response.write(event.slice(0, Math.max(1, Math.floor(event.length / 2))));
+    await new Promise((resolve) => setImmediate(resolve));
+    response.write(event.slice(Math.max(1, Math.floor(event.length / 2))));
+    response.write("data: [DONE]\n\n");
+    response.end();
 }
 
 function delay(ms) {

@@ -13,7 +13,6 @@ const FILE_PROVIDER_LIMITATIONS = new Map([
     ["/api/public/gallery", 409],
     ["/api/notifications/interactions", 409],
     ["/api/admin/referrals", 501],
-    ["/api/admin/billing/summary", 501],
 ]);
 
 type RouteCase = { path: string; expectedPath?: RegExp; expectedStatus?: number; readyHeading?: string; readyText?: string };
@@ -67,6 +66,9 @@ test("every administrator section renders its server-backed surface", async ({ p
         await expect(page.locator("[data-hydrated='true']")).toBeVisible();
         await expect(page.locator("h1").first()).toBeVisible();
         await expect(page.getByText("正在加载分区...", { exact: true })).toHaveCount(0);
+        if (!USES_POSTGRES && ["orders", "products", "promotions", "coupons"].includes(section)) {
+            await expect(page.getByText("商业运营需要启用 PostgreSQL", { exact: true })).toHaveCount(1);
+        }
     }
 });
 
@@ -178,6 +180,7 @@ async function verifyRoute(page: Page, route: RouteCase, label: string) {
 
 function isExpectedFileProviderLimitation(failure: ApiFailure) {
     if (failure.status === 404 && failure.path === `/api/public/users/${E2E_ADMIN.username}`) return failure.body.includes("创作者主页不存在");
+    if (!USES_POSTGRES && failure.path.startsWith("/api/admin/billing/")) return false;
     if (USES_POSTGRES || (failure.status !== 409 && failure.status !== 501)) return false;
     return failure.body.includes("需要启用 PostgreSQL") || FILE_PROVIDER_LIMITATIONS.get(failure.path) === failure.status;
 }

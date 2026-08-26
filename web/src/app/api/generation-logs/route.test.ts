@@ -8,14 +8,16 @@ const mocks = vi.hoisted(() => ({
     recordDraft: vi.fn(),
     rename: vi.fn(),
     deleteResults: vi.fn(),
+    deleteLogs: vi.fn(),
+    listForDelete: vi.fn(),
 }));
 
 vi.mock("@/lib/auth/request", () => ({ readJsonBody: mocks.readJsonBody }));
 vi.mock("@/lib/auth/session", () => ({ getCurrentUser: mocks.currentUser }));
 vi.mock("@/lib/server/generation-log-store", () => ({
-    deleteGenerationLogs: vi.fn(),
+    deleteGenerationLogs: mocks.deleteLogs,
     listGenerationLogs: vi.fn(),
-    listUserGenerationLogsForDelete: vi.fn(),
+    listUserGenerationLogsForDelete: mocks.listForDelete,
 }));
 vi.mock("@/lib/server/generation-log-task-service", () => ({
     GenerationLogDraftValidationError: mocks.DraftError,
@@ -25,7 +27,7 @@ vi.mock("@/lib/server/generation-log-task-service", () => ({
     renameGenerationLogForUser: mocks.rename,
 }));
 
-import { PATCH, POST } from "./route";
+import { DELETE, PATCH, POST } from "./route";
 
 describe("generation log browser write boundary", () => {
     beforeEach(() => {
@@ -97,5 +99,17 @@ describe("generation log browser write boundary", () => {
 
         expect(response.status).toBe(404);
         await expect(response.json()).resolves.toEqual({ error: "生成记录不存在" });
+    });
+
+    it("cascades media references only for user-owned record deletion", async () => {
+        mocks.readJsonBody.mockResolvedValue({ ids: ["log-one", "log-other"] });
+        mocks.listForDelete.mockResolvedValue([{ id: "log-one" }]);
+        mocks.deleteLogs.mockResolvedValue({ deleted: 1 });
+
+        const response = await DELETE(new Request("http://localhost/api/generation-logs", { method: "DELETE" }));
+
+        expect(response.status).toBe(200);
+        expect(mocks.listForDelete).toHaveBeenCalledWith("user-one", ["log-one", "log-other"]);
+        expect(mocks.deleteLogs).toHaveBeenCalledWith(["log-one"], { cascadeUserMedia: true });
     });
 });

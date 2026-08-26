@@ -7,6 +7,7 @@ import {
     applyRuntimeMutation,
     boundedLimit,
     cleanText,
+    CREATIVE_CONVERSATION_CONTEXT_MESSAGE_LIMIT,
     createPostgresRunBundle,
     insertPostgresMessage,
     isUniqueViolation,
@@ -37,10 +38,8 @@ import {
 } from "./creative-runtime-repository";
 import { notifyCreativeRunEvent } from "./creative-run-event-signal";
 
-export { CreativeStoreConflict } from "./creative-runtime-repository";
+export { CreativeStoreConflict, CREATIVE_CONVERSATION_CONTEXT_MESSAGE_LIMIT } from "./creative-runtime-repository";
 import { CreativeStoreConflict } from "./creative-runtime-repository";
-
-export const CREATIVE_CONVERSATION_CONTEXT_MESSAGE_LIMIT = 12;
 
 export async function createCreativeConversation(userId: string, input: { surface: CreativeSurface; source?: CreativeConversationSource; projectId?: string; title?: string }) {
     const now = Date.now();
@@ -344,12 +343,18 @@ export async function createCreativeRunBundle<T extends AgentRunBase>(userId: st
             const db = await readRuntimeFile();
             const conversation = resolveFileConversation(db, userId, input);
             validateAssetOwnership(db.assets, input.assetIds, userId);
+            const preparedConversation = input.conversationId
+                ? prepareConversationContext(
+                      conversation,
+                      db.messages.filter((item) => item.conversationId === conversation.id),
+                  ).conversation
+                : conversation;
             const now = input.run.createdAt;
             const sequence = nextMessageSequence(db.messages, conversation.id);
             const userMessage = message(input.run.inputMessageId, conversation.id, sequence, "user", "completed", input.prompt, input.run.id, { assetIds: input.assetIds }, now);
             const assistantMessage = message(input.run.assistantMessageId, conversation.id, sequence + 1, "assistant", "running", input.acknowledgement || "已收到你的需求。", input.run.id, {}, now);
             const event = nextFileEvent(db, input.run.id, "run.created", undefined, now);
-            const nextConversation = { ...conversation, title: conversation.title === "新对话" ? input.title : conversation.title, updatedAt: now, lastMessageAt: now };
+            const nextConversation = { ...preparedConversation, title: preparedConversation.title === "新对话" ? input.title : preparedConversation.title, updatedAt: now, lastMessageAt: now };
             await writeRuntimeFile({
                 ...db,
                 conversations: [nextConversation, ...db.conversations.filter((item) => item.id !== conversation.id)],

@@ -1,6 +1,17 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { normalizeStoredLog, readPostgresGenerationLogDb } from "./generation-log-repository";
+const mocks = vi.hoisted(() => ({
+    fetchSafeOutbound: vi.fn(),
+    persistExternalMediaIfEnabled: vi.fn(),
+}));
+
+vi.mock("@/lib/server/safe-outbound-fetch", () => ({ fetchSafeOutbound: mocks.fetchSafeOutbound }));
+vi.mock("@/lib/server/security", () => ({ isSafeOutboundUrl: vi.fn(() => true) }));
+vi.mock("@/lib/server/object-storage-service", () => ({ deleteExternalMediaObject: vi.fn(), persistExternalMediaIfEnabled: mocks.persistExternalMediaIfEnabled }));
+
+import { normalizeStoredLog, readPostgresGenerationLogDb, writeRemoteAsset } from "./generation-log-repository";
+
+const PNG_BYTES = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+4q2JAAAAAElFTkSuQmCC", "base64");
 
 function storedLogWithAssets(count: number) {
     return normalizeStoredLog({
@@ -26,6 +37,27 @@ function storedLogWithAssets(count: number) {
 }
 
 describe("generation log asset normalization", () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mocks.persistExternalMediaIfEnabled.mockResolvedValue({ storageKey: "permanent/result.png" });
+    });
+
+    it("accepts a real image when the upstream declares a generic content type", async () => {
+        mocks.fetchSafeOutbound.mockResolvedValue(new Response(PNG_BYTES, { headers: { "content-type": "application/octet-stream" } }));
+
+        const asset = await writeRemoteAsset("https://cdn.example.com/result", "image", { ownerUserId: "user-1", source: "canvas" });
+
+        expect(asset).toMatchObject({ mimeType: "image/png", type: "image" });
+        expect(mocks.fetchSafeOutbound).toHaveBeenCalledWith("https://cdn.example.com/result", expect.objectContaining({ redirect: "follow" }));
+    });
+
+    it("does not persist non-image bytes hidden behind an image task URL", async () => {
+        mocks.fetchSafeOutbound.mockResolvedValue(new Response("<html>not an image</html>", { headers: { "content-type": "text/plain" } }));
+
+        await expect(writeRemoteAsset("https://cdn.example.com/result", "image", { ownerUserId: "user-1", source: "drama" })).resolves.toBeNull();
+        expect(mocks.persistExternalMediaIfEnabled).not.toHaveBeenCalled();
+    });
+
     it("keeps all eight successful images in a workbench batch", () => {
         expect(storedLogWithAssets(8).assets).toHaveLength(8);
     });

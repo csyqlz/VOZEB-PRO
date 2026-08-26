@@ -29,7 +29,7 @@ describe("Docker Compose contracts", () => {
 
     it("rejects mutable latest release images", () => {
         const profile = composeProfiles.find(({ file }) => file === "docker-compose.yml");
-        const source = readFileSync(path.join(repoRoot, profile.file), "utf8").replaceAll("ghcr.io/csyqlz/vozeb-pro:v0.0.6", "ghcr.io/csyqlz/vozeb-pro:latest");
+        const source = readFileSync(path.join(repoRoot, profile.file), "utf8").replaceAll("ghcr.io/csyqlz/vozeb-pro:v0.0.7", "ghcr.io/csyqlz/vozeb-pro:latest");
 
         expect(() => validateComposeContract(source, profile)).toThrow("app 必须使用当前发布版本的明确镜像");
     });

@@ -166,6 +166,7 @@ describe("Agent child task retry concurrency", () => {
                     },
                     { type: "update_node", id: "output-run-0-0", metadata: expect.objectContaining({ agentRunId: "run", agentTaskId: "task", status: "loading", errorDetails: "", size: "9:16" }) },
                     { type: "connect_nodes", fromNodeId: "reference", toNodeId: "task-run-0" },
+                    { type: "connect_nodes", fromNodeId: "reference", toNodeId: "output-run-0-0" },
                 ],
             },
         });

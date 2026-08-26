@@ -517,7 +517,7 @@ export function AgentChatComposer({
                                     }
                                     void onSubmit();
                                 }}
-                                className="thin-scrollbar relative z-[1] max-h-32 min-h-20 w-full resize-none border-0 bg-transparent px-1 py-1 text-sm leading-5 outline-none placeholder:opacity-45"
+                                className="thin-scrollbar relative z-[1] block max-h-32 min-h-20 w-full resize-none border-0 bg-transparent px-1 py-1 text-sm leading-5 outline-none placeholder:opacity-45"
                                 style={{ color: hasMentionReferences ? "transparent" : theme.node.text, caretColor: theme.node.text }}
                                 placeholder={placeholder}
                             />

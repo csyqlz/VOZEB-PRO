@@ -51,7 +51,7 @@ const refined = {
 describe("agent skill import refiner", () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        mocks.getAuthSettings.mockResolvedValue({ defaultModels: { textModel: "planner" } });
+        mocks.getAuthSettings.mockResolvedValue({ site: { title: "星河创作" }, defaultModels: { textModel: "planner" } });
         mocks.resolveLogicalModelCandidates.mockReturnValue([{ channel: { id: "channel-a" }, upstreamModel: "text-model" }]);
         mocks.requestStructuredText.mockResolvedValue({ arguments: JSON.stringify(refined), headers: new Headers(), protocol: "chat", elapsedMs: 10 });
     });
@@ -61,6 +61,8 @@ describe("agent skill import refiner", () => {
 
         expect(result).toMatchObject({ ...refined, sourceCommit: skill.sourceCommit, sourceContentHash: skill.sourceContentHash, enabled: false });
         expect(mocks.requestStructuredText).toHaveBeenCalledOnce();
+        expect(mocks.requestStructuredText.mock.calls[0][0].messages[0].content).toContain("转换成 星河创作 原生创作规则");
+        expect(mocks.requestStructuredText.mock.calls[0][0].tool.description).toContain("整理为 星河创作 可直接使用");
         expect(mocks.requestStructuredText.mock.calls[0][0].messages[1].content).toContain("<untrusted_skill_document>");
     });
 

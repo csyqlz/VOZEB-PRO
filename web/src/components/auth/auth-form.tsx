@@ -48,7 +48,6 @@ export function AuthForm({
     inviteError,
     onModeChange,
 }: AuthFormProps) {
-    const router = useRouter();
     const { message } = App.useApp();
     const site = usePublicSessionStore((state) => state.payload?.settings?.site) || { title: DEFAULT_SITE_TITLE, logoUrl: "/logo.svg" };
     const siteTitle = resolveSiteTitle(site.title);
@@ -118,8 +117,7 @@ export function AuthForm({
             } else {
                 message.success(isRegister ? "注册成功" : "登录成功");
             }
-            router.replace(nextPath);
-            router.refresh();
+            window.location.replace(nextPath);
         } catch (error) {
             message.error(error instanceof Error ? error.message : isRegister ? "注册失败" : "登录失败");
         } finally {

@@ -2,7 +2,7 @@ import { nanoid } from "nanoid";
 
 import type { Asset, CreateLibraryAssetInput } from "@/lib/library-asset-contract";
 import { createLibraryAsset, deleteLibraryAsset, getLibraryAsset, listLibraryAssetPage, updateLibraryAsset } from "@/lib/server/library-asset-store";
-import { deleteUserLocalMediaAssets } from "@/lib/server/local-media-storage";
+import { deleteUserMediaAssetsCascade } from "@/lib/server/user-media-deletion-service";
 
 export class LibraryAssetServiceError extends Error {
     constructor(
@@ -40,7 +40,7 @@ export async function updateLibraryAssetForUser(userId: string, id: string, valu
 export async function deleteLibraryAssetForUser(userId: string, id: string) {
     const asset = await getLibraryAsset(userId, cleanText(id, 160));
     if (!asset || !(await deleteLibraryAsset(userId, asset.id))) throw new LibraryAssetServiceError("素材不存在", 404);
-    if (asset.kind !== "text" && asset.data.storageKey) await deleteUserLocalMediaAssets(userId, [asset.data.storageKey]);
+    if (asset.kind !== "text" && asset.data.storageKey) await deleteUserMediaAssetsCascade(userId, [asset.data.storageKey]);
 }
 
 function normalizeAsset(value: unknown, identity: Pick<Asset, "id" | "createdAt" | "updatedAt">): Asset {

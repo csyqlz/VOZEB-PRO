@@ -407,16 +407,16 @@ export type GlobalAiOpcImageRequest = {
 
 export function buildGlobalAiOpcImageRequest(preset: GlobalAiOpcPreset, input: GlobalAiOpcImageRequest) {
     const shared = { model: input.model, prompt: input.prompt, image_urls: input.imageUrls };
-    if (preset.id === "image-gpt-image-2") return { ...shared, ...(input.quality ? { quality: input.quality } : {}), ...(input.ratio ? { ratio: input.ratio } : {}), resolution: input.resolution || "2k" };
-    return { ...shared, resolution: input.resolution || "2k", size: input.ratio || input.size || "1:1" };
+    if (preset.id === "image-gpt-image-2") return { ...shared, ...(input.quality ? { quality: input.quality } : {}), ...(input.ratio ? { ratio: input.ratio } : {}), ...(input.resolution ? { resolution: input.resolution } : {}) };
+    return { ...shared, ...(input.resolution ? { resolution: input.resolution } : {}), ...(input.ratio || input.size ? { size: input.ratio || input.size } : {}) };
 }
 
 export type GlobalAiOpcVideoRequest = {
     model: string;
     prompt: string;
     duration: number;
-    ratio: string;
-    resolution: string;
+    ratio?: string;
+    resolution?: string;
     images: string[];
     videos: string[];
     audios: string[];
@@ -506,8 +506,8 @@ function globalAiOpcFirstFrameContent(input: GlobalAiOpcVideoRequest) {
     return [{ type: "text", text: input.prompt }, ...(firstFrame ? [{ type: "image_url", role: "first_frame", image_url: { url: firstFrame } }] : [])];
 }
 
-function upperResolution(value: string) {
-    return value.toUpperCase();
+function upperResolution(value?: string) {
+    return value?.toUpperCase();
 }
 
 function normalizeGlobalAiOpcPath(value: unknown) {

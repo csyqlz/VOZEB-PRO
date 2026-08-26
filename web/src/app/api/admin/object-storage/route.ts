@@ -63,10 +63,10 @@ export async function POST() {
     if (denied) return denied;
     try {
         await checkConfiguredObjectStorage();
-        return NextResponse.json({ code: 0, data: { available: true }, msg: "外部存储连接正常" });
+        return NextResponse.json({ code: 0, data: { available: true }, msg: "外部存储列表、写入和删除权限正常" });
     } catch (error) {
         console.error("Object storage connection test failed", error);
-        return NextResponse.json({ code: 502, data: { available: false }, msg: "连接失败，请检查 Endpoint、Region、Bucket 和访问密钥" }, { status: 502 });
+        return NextResponse.json({ code: 502, data: { available: false }, msg: error instanceof Error ? error.message : "外部存储连接检测失败" }, { status: 502 });
     }
 }
 

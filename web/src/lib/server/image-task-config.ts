@@ -1,7 +1,9 @@
-export function resolveImageTaskOptions(config: { quality?: unknown; size?: unknown }, defaults: { imageQuality: string; imageSize: string }) {
+export function resolveImageTaskOptions(config: { quality?: unknown; size?: unknown; outputBackground?: unknown; outputMode?: unknown }, defaults: { imageQuality: string; imageSize: string }) {
     return {
         quality: text(config.quality) || defaults.imageQuality,
         size: text(config.size) || defaults.imageSize,
+        ...(config.outputBackground === "transparent" ? { outputBackground: "transparent" as const } : {}),
+        ...(config.outputMode === "layers" ? { outputMode: "layers" as const } : {}),
     };
 }
 

@@ -72,6 +72,34 @@ describe("creative runtime file provider", () => {
         ]);
     });
 
+    it("keeps the completed first round in the next Agent run context", async () => {
+        await createBundle(run({ id: "run-one" }));
+        await mutateCreativeRun<AgentRun>(
+            "run-one",
+            60_000,
+            (current) => ({
+                run: { ...current, status: "completed" },
+                assistant: { status: "completed", content: "上一轮确定使用红色跑车。" },
+            }),
+            ["planning"],
+        );
+        const nextRun = run({
+            id: "run-two",
+            clientRequestId: "request-two",
+            inputMessageId: "input-message-two",
+            assistantMessageId: "assistant-message-two",
+            prompt: "继续上一轮，把背景改成夜景",
+        });
+        await createBundle(nextRun, [], "conversation");
+
+        const context = await getCreativeConversationContext("conversation", "user", "run-two");
+
+        expect(context.recentMessages.map((item) => ({ role: item.role, content: item.content }))).toEqual([
+            { role: "user", content: "生成一张图" },
+            { role: "assistant", content: "上一轮确定使用红色跑车。" },
+        ]);
+    });
+
     it("replays events after a numeric cursor without duplication", async () => {
         await createBundle(run());
         await mutateCreativeRun<AgentRun>("run-one", 60_000, (current) => ({ run: { ...current, status: "running" }, event: { type: "run.running" } }), ["planning"]);
@@ -199,7 +227,7 @@ describe("creative runtime file provider", () => {
         await expect(createBundle(run({ conversationId: conversation.id, surface: "canvas", projectId: "project-two" }), [], conversation.id)).rejects.toBeInstanceOf(CreativeStoreConflict);
     });
 
-    it("loads only the newest bounded file messages without mutating the conversation", async () => {
+    it("rolls older file messages into the persistent summary before the next Agent run", async () => {
         const now = Date.now();
         mocks.files.set("creative-runtime.json", {
             version: 1,
@@ -233,14 +261,77 @@ describe("creative runtime file provider", () => {
             events: [],
         });
 
-        const first = await getCreativeConversationContext("conversation", "user");
-        const second = await getCreativeConversationContext("conversation", "user");
+        await createBundle(run(), [], "conversation");
+        const first = await getCreativeConversationContext("conversation", "user", "run-one");
+        const second = await getCreativeConversationContext("conversation", "user", "run-one");
 
         expect(first.recentMessages.map((item) => item.sequence)).toEqual(Array.from({ length: CREATIVE_CONVERSATION_CONTEXT_MESSAGE_LIMIT }, (_, index) => index + 5));
-        expect(first.summary).toBe("");
-        expect(first.summaryThroughSequence).toBe(0);
+        expect(first.summary).toContain("第 1 条历史内容");
+        expect(first.summary).toContain("第 4 条历史内容");
+        expect(first.summaryThroughSequence).toBe(4);
         expect(second).toEqual(first);
-        expect((mocks.files.get("creative-runtime.json") as { conversations: Array<{ contextSummaryThroughSequence: number }> }).conversations[0].contextSummaryThroughSequence).toBe(0);
+        expect((mocks.files.get("creative-runtime.json") as { conversations: Array<{ contextSummaryThroughSequence: number }> }).conversations[0].contextSummaryThroughSequence).toBe(4);
+    });
+
+    it("does not advance the summary past an unfinished older message", async () => {
+        const now = Date.now();
+        mocks.files.set("creative-runtime.json", {
+            version: 1,
+            nextEventId: 1,
+            conversations: [{ id: "conversation", userId: "user", surface: "chat", title: "并发", status: "active", contextSummary: "", contextSummaryThroughSequence: 0, createdAt: now, updatedAt: now, lastMessageAt: now }],
+            messages: Array.from({ length: 16 }, (_, index) => ({
+                id: `message-${index + 1}`,
+                conversationId: "conversation",
+                sequence: index + 1,
+                role: index === 1 ? "assistant" : index % 2 ? "assistant" : "user",
+                status: index === 1 ? "running" : "completed",
+                content: `第 ${index + 1} 条历史内容`,
+                metadata: {},
+                createdAt: now + index,
+                updatedAt: now + index,
+            })),
+            assets: [],
+            events: [],
+        });
+
+        await createBundle(run(), [], "conversation");
+
+        const conversation = (mocks.files.get("creative-runtime.json") as { conversations: Array<{ contextSummaryThroughSequence: number; contextSummary: string }> }).conversations[0];
+        expect(conversation.contextSummaryThroughSequence).toBe(1);
+        expect(conversation.contextSummary).toContain("第 1 条历史内容");
+        expect(conversation.contextSummary).not.toContain("第 3 条历史内容");
+
+        const runtime = mocks.files.get("creative-runtime.json") as {
+            messages: Array<{ id: string; status: "completed" | "running" }>;
+        };
+        runtime.messages = runtime.messages.map((item) => (item.id === "message-2" ? { ...item, status: "completed" } : item));
+        mocks.files.set("creative-runtime.json", runtime);
+        await mutateCreativeRun<AgentRun>(
+            "run-one",
+            60_000,
+            (current) => ({
+                run: { ...current, status: "completed" },
+                assistant: { status: "completed", content: "第一轮已经完成。" },
+            }),
+            ["planning"],
+        );
+        await createBundle(
+            run({
+                id: "run-two",
+                clientRequestId: "request-two",
+                inputMessageId: "input-message-two",
+                assistantMessageId: "assistant-message-two",
+                prompt: "继续处理",
+            }),
+            [],
+            "conversation",
+        );
+
+        const resumed = await getCreativeConversationContext("conversation", "user", "run-two");
+        expect(resumed.summaryThroughSequence).toBe(6);
+        expect(resumed.summary).toContain("第 2 条历史内容");
+        expect(resumed.summary).toContain("第 6 条历史内容");
+        expect(resumed.recentMessages.map((item) => item.sequence)).toEqual(Array.from({ length: CREATIVE_CONVERSATION_CONTEXT_MESSAGE_LIMIT }, (_, index) => index + 7));
     });
 
     it("queries owned PostgreSQL conversation context once with an ordered bounded message subquery", async () => {
@@ -277,6 +368,51 @@ describe("creative runtime file provider", () => {
         expect(String(sql)).toContain("LIMIT $4");
         expect(String(sql)).not.toContain("FOR UPDATE");
         expect(parameters).toEqual(["conversation", "user", "current-run", CREATIVE_CONVERSATION_CONTEXT_MESSAGE_LIMIT]);
+    });
+
+    it("persists PostgreSQL rolling context before appending the next Agent round", async () => {
+        mocks.databaseProvider = "postgres";
+        const queries: Array<{ sql: string; parameters: unknown[] | undefined }> = [];
+        const now = Date.now();
+        const conversationRow = {
+            id: "conversation",
+            user_id: "user",
+            surface: "chat",
+            source: "agent",
+            project_id: null,
+            title: "长对话",
+            status: "active",
+            context_summary: "",
+            context_summary_through_sequence: 0,
+            created_at: new Date(now),
+            updated_at: new Date(now),
+            last_message_at: new Date(now),
+        };
+        const query = vi.fn(async (sql: string, parameters?: unknown[]) => {
+            queries.push({ sql, parameters });
+            if (sql.startsWith("SELECT payload")) return { rows: [] };
+            if (sql.includes("FROM creative_conversations WHERE id = $1 AND user_id = $2 FOR UPDATE")) return { rows: [conversationRow] };
+            if (sql.startsWith("WITH context_messages")) return { rows: [{ summary_additions: "用户：较早需求\n助手：较早回复", summary_through_sequence: 4 }] };
+            if (sql.startsWith("SELECT COALESCE(MAX")) return { rows: [{ sequence: 16 }] };
+            if (sql.startsWith("INSERT INTO creative_run_events")) return { rows: [{ id: 1, run_id: "run-one", type: "run.created", data: null, created_at: new Date(now) }] };
+            if (sql.startsWith("UPDATE creative_conversations SET title"))
+                return {
+                    rows: [{ ...conversationRow, context_summary: "用户：较早需求\n助手：较早回复", context_summary_through_sequence: 4, updated_at: new Date(now), last_message_at: new Date(now) }],
+                };
+            return { rows: [] };
+        });
+        mocks.transaction.mockImplementation(async (handler: (client: { query: typeof query }) => Promise<unknown>) => handler({ query }));
+
+        await expect(createBundle(run({ createdAt: now, updatedAt: now }), [], "conversation")).resolves.toMatchObject({ created: true, conversation: { contextSummary: "用户：较早需求\n助手：较早回复", contextSummaryThroughSequence: 4 } });
+
+        const summaryQuery = queries.find((item) => item.sql.startsWith("WITH context_messages"));
+        expect(summaryQuery?.parameters).toEqual(["conversation", 0, CREATIVE_CONVERSATION_CONTEXT_MESSAGE_LIMIT]);
+        expect(summaryQuery?.sql).toContain("OFFSET $3 LIMIT 1");
+        expect(summaryQuery?.sql).toContain("MIN(message.sequence) - 1");
+        expect(queries).toContainEqual({
+            sql: "UPDATE creative_conversations SET context_summary = $2, context_summary_through_sequence = $3 WHERE id = $1",
+            parameters: ["conversation", "用户：较早需求\n助手：较早回复", 4],
+        });
     });
 
     it("inserts PostgreSQL Agent tasks with their initial recovery schedule atomically", async () => {

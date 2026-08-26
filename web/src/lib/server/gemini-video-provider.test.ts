@@ -18,6 +18,12 @@ describe("Gemini Veo provider", () => {
         expect(geminiVideoCreatePath("models/veo-3.1-generate-preview")).toBe("/models/veo-3.1-generate-preview:predictLongRunning");
     });
 
+    it("omits intelligent ratio and resolution instead of forcing fixed values", async () => {
+        const request = await buildGeminiVideoRequest({ prompt: "A quiet lake", durationSeconds: 5, aspectRatio: "auto", resolution: "auto", generateAudio: true, references: [], origin: "http://localhost", cookie: "" });
+
+        expect(request.parameters).toEqual({ durationSeconds: 6, generateAudio: true });
+    });
+
     it("encodes ordinary references as referenceImages", async () => {
         const request = await buildGeminiVideoRequest({
             prompt: "Keep the product identity",

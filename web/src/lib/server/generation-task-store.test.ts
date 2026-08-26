@@ -16,13 +16,14 @@ vi.mock("@/lib/server/data-adapter", () => ({
     }),
 }));
 
-import { getDatabaseProvider, postgresQuery } from "@/lib/server/database";
+import { getDatabaseProvider, postgresQuery, withPostgresTransaction } from "@/lib/server/database";
 import {
     cleanupExpiredStoredGenerationTasks,
     createStoredGenerationTask,
     getStoredGenerationTask,
     getStoredGenerationTaskByRequest,
     getStoredGenerationTaskByUpstream,
+    generationCapacityRetryAfterSeconds,
     generationTaskPointsCost,
     listStoredGenerationTaskRecordsByRunIds,
     listStoredGenerationTaskRecords,
@@ -46,6 +47,7 @@ describe("mutateStoredGenerationTask", () => {
     beforeEach(() => {
         vi.mocked(getDatabaseProvider).mockReturnValue("file");
         vi.mocked(postgresQuery).mockReset();
+        vi.mocked(withPostgresTransaction).mockReset();
         const now = Date.now();
         mocks.records = [
             {
@@ -108,6 +110,77 @@ describe("mutateStoredGenerationTask", () => {
         expect(mocks.records).toHaveLength(1);
     });
 
+    it("releases the PostgreSQL transaction before running a reserved generation handler", async () => {
+        vi.mocked(getDatabaseProvider).mockReturnValue("postgres");
+        const events: string[] = [];
+        const query = vi.fn(async (statement: string) => {
+            events.push(statement.startsWith("INSERT INTO") ? "reservation:insert" : "transaction:query");
+            if (statement.includes("SELECT 1 FROM generation_concurrency_reservations")) return { rows: [] };
+            if (statement.includes("AS total")) return { rows: [{ total: "0" }] };
+            return { rows: [] };
+        });
+        vi.mocked(withPostgresTransaction).mockImplementation(async (handler) => {
+            events.push("transaction:start");
+            const result = await handler({ query } as never);
+            events.push("transaction:end");
+            return result;
+        });
+        vi.mocked(postgresQuery).mockImplementation(async () => {
+            events.push("reservation:delete");
+            return { rows: [] } as never;
+        });
+
+        await expect(
+            withGenerationConcurrencyLimit(
+                "user",
+                "image",
+                60_000,
+                1,
+                async () => {
+                    events.push("handler");
+                    return "created";
+                },
+                undefined,
+                "request-one",
+            ),
+        ).resolves.toBe("created");
+
+        expect(events.indexOf("transaction:end")).toBeLessThan(events.indexOf("handler"));
+        expect(events.indexOf("reservation:insert")).toBeLessThan(events.indexOf("transaction:end"));
+        expect(events.at(-1)).toBe("reservation:delete");
+        const aggregate = query.mock.calls.find(([statement]) => String(statement).includes("AS total"))?.[0];
+        expect(aggregate).toContain("NOT EXISTS");
+        expect(aggregate).toContain("task.client_request_id = reservation.request_id");
+        expect(vi.mocked(postgresQuery)).toHaveBeenCalledWith(expect.stringContaining("DELETE FROM generation_concurrency_reservations"), ["user", "image", "request-one"]);
+    });
+
+    it("releases a PostgreSQL concurrency reservation when generation creation fails", async () => {
+        vi.mocked(getDatabaseProvider).mockReturnValue("postgres");
+        const query = vi.fn(async (statement: string) => {
+            if (statement.includes("SELECT 1 FROM generation_concurrency_reservations")) return { rows: [] };
+            if (statement.includes("AS total")) return { rows: [{ total: "0" }] };
+            return { rows: [] };
+        });
+        vi.mocked(withPostgresTransaction).mockImplementation(async (handler) => handler({ query } as never));
+        vi.mocked(postgresQuery).mockResolvedValue({ rows: [] } as never);
+
+        await expect(
+            withGenerationConcurrencyLimit(
+                "user",
+                "video",
+                60_000,
+                1,
+                async () => {
+                    throw new Error("upstream failed");
+                },
+                undefined,
+                "request-two",
+            ),
+        ).rejects.toThrow("upstream failed");
+
+        expect(vi.mocked(postgresQuery)).toHaveBeenCalledWith(expect.stringContaining("DELETE FROM generation_concurrency_reservations"), ["user", "video", "request-two"]);
+    });
+
     it("does not let tasks awaiting manual review consume generation capacity", async () => {
         const now = Date.now();
         mocks.records = [
@@ -133,6 +206,38 @@ describe("mutateStoredGenerationTask", () => {
 
         await expect(withGenerationConcurrencyLimit("user", "agent", 60_000, 1, async () => "retried", "agent-run")).resolves.toBe("retried");
         await expect(withGenerationConcurrencyLimit("user", "agent", 60_000, 1, async () => "other-run")).resolves.toBeNull();
+    });
+
+    it("derives capacity retry timing from the active task scheduler state", async () => {
+        const now = Date.now();
+        mocks.records = [
+            {
+                id: "image-running",
+                userId: "user",
+                type: "image",
+                status: "running",
+                executionPhase: "polling",
+                nextPollAt: now + 4_000,
+                payload: {},
+                createdAt: now,
+                updatedAt: now,
+                expiresAt: now + 60_000,
+            },
+        ];
+
+        await expect(generationCapacityRetryAfterSeconds("user", "image", 60_000)).resolves.toBeGreaterThanOrEqual(3);
+        await expect(generationCapacityRetryAfterSeconds("other", "image", 60_000)).resolves.toBeUndefined();
+    });
+
+    it("uses one scoped PostgreSQL aggregate for capacity retry timing", async () => {
+        vi.mocked(getDatabaseProvider).mockReturnValue("postgres");
+        vi.mocked(postgresQuery).mockResolvedValueOnce({ rows: [{ retry_after_seconds: 6 }], command: "SELECT", rowCount: 1, oid: 0, fields: [] });
+
+        await expect(generationCapacityRetryAfterSeconds("user", "video", 60_000)).resolves.toBe(6);
+        const [statement, params] = vi.mocked(postgresQuery).mock.calls[0];
+        expect(String(statement)).toContain("MIN(CASE");
+        expect(String(statement)).toContain("user_id = $1 AND task_type = $2");
+        expect(params).toEqual(["user", "video", expect.any(Date), expect.any(Array)]);
     });
 
     it("restores a safe review reason for a legacy uncertain submission", async () => {

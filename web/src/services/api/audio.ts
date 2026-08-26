@@ -1,5 +1,5 @@
 import { audioMimeType, normalizeAudioFormatValue, normalizeAudioSpeedValue, normalizeAudioVoiceValue } from "@/lib/audio-generation";
-import { GenerationTaskNeedsReviewError, type GenerationTaskExecutionState } from "@/services/api/generation-task-state";
+import { GenerationTaskNeedsReviewError, GenerationTaskTerminalError, type GenerationTaskExecutionState } from "@/services/api/generation-task-state";
 import { readStoredMediaFile, uploadGeneratedMediaFile, type UploadedFile } from "@/services/file-storage";
 import { refreshUserPointsIfSystem, syncUserPointsFromHeaders } from "@/services/api/points";
 import { throwIfClientSessionExpired } from "@/services/api/session-expiration";
@@ -12,14 +12,18 @@ type RequestOptions = {
     runId?: string;
     surface?: "chat" | "canvas" | "drama";
     projectId?: string;
+    episodeId?: string;
+    shotId?: string;
     parentTaskId?: string;
+    estimatedPoints?: number;
     attemptNo?: number;
     clientRequestId?: string;
 };
 
 export type AudioGenerationTask = { id: string; status?: "pending" | "running" | "success" | "error" | "cancelled"; model: string };
 
-type AudioTaskPayload = { task?: AudioGenerationTask & GenerationTaskExecutionState & { result?: { url: string; mimeType: string }; error?: string }; error?: string };
+export type AudioGenerationTaskSnapshot = AudioGenerationTask & GenerationTaskExecutionState & { result?: { url: string; mimeType: string }; error?: string };
+type AudioTaskPayload = { task?: AudioGenerationTaskSnapshot; error?: string };
 
 const AUDIO_TASK_POLL_INTERVAL_MS = 1800;
 const AUDIO_TASK_TIMEOUT_MS = 30 * 60 * 1000;
@@ -62,6 +66,25 @@ export async function createAudioGenerationTask(config: AiConfig, prompt: string
     return payload.task;
 }
 
+export async function recoverAudioGenerationTask(taskId: string, options?: Pick<RequestOptions, "signal">): Promise<AudioGenerationTask> {
+    const response = await fetch(`/api/audio-tasks/${encodeURIComponent(taskId)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "recover" }),
+        signal: options?.signal,
+    });
+    throwIfClientSessionExpired(response);
+    syncUserPointsFromHeaders(response.headers, "system");
+    if (!response.ok) throw new Error(await readFetchError(response, "重新检查音频任务失败"));
+    const payload = (await response.json()) as AudioTaskPayload;
+    if (!payload.task) throw new Error(payload.error || "重新检查音频任务失败");
+    if (payload.task.needsReview) throw new GenerationTaskNeedsReviewError(payload.task.reviewReason);
+    if (payload.task.status === "error" || payload.task.status === "cancelled") {
+        throw new GenerationTaskTerminalError(payload.task.error || (payload.task.status === "cancelled" ? "请求已取消" : "音频生成失败"));
+    }
+    return payload.task;
+}
+
 export async function waitForAudioGenerationTask(config: AiConfig, task: AudioGenerationTask, options?: RequestOptions): Promise<GeneratedAudioResult> {
     const requestConfig = resolveModelRequestConfig(config, task.model);
     const format = normalizeAudioFormatValue(config.audioFormat);
@@ -70,13 +93,7 @@ export async function waitForAudioGenerationTask(config: AiConfig, task: AudioGe
         for (;;) {
             if (options?.signal?.aborted) throw new DOMException("请求已取消", "AbortError");
             if (Date.now() - startedAt > AUDIO_TASK_TIMEOUT_MS) throw new Error("音频生成超时，请稍后重试");
-            const taskResponse = await fetch(`/api/audio-tasks/${encodeURIComponent(task.id)}`, { cache: "no-store", signal: options?.signal });
-            throwIfClientSessionExpired(taskResponse);
-            syncUserPointsFromHeaders(taskResponse.headers, requestConfig.apiSource);
-            if (!taskResponse.ok) throw new Error(await readFetchError(taskResponse, "读取音频任务失败"));
-            const taskPayload = (await taskResponse.json()) as AudioTaskPayload;
-            const current = taskPayload.task;
-            if (!current) throw new Error(taskPayload.error || "音频任务不存在");
+            const current = await readAudioGenerationTask(task.id, requestConfig.apiSource, options?.signal);
             if (current.needsReview) throw new GenerationTaskNeedsReviewError(current.reviewReason);
             if (current.status === "success") {
                 if (!current.result?.url) throw new Error("音频任务没有返回结果");
@@ -88,7 +105,7 @@ export async function waitForAudioGenerationTask(config: AiConfig, task: AudioGe
                 const audio = blob.type.startsWith("audio/") ? blob : new Blob([blob], { type: audioMimeType(format) });
                 return { blob: audio, url: current.result.url, mimeType: current.result.mimeType || audio.type };
             }
-            if (current.status === "error" || current.status === "cancelled") throw new Error(current.error || (current.status === "cancelled" ? "请求已取消" : "音频生成失败"));
+            if (current.status === "error" || current.status === "cancelled") throw new GenerationTaskTerminalError(current.error || (current.status === "cancelled" ? "请求已取消" : "音频生成失败"));
             await delay(AUDIO_TASK_POLL_INTERVAL_MS, options?.signal);
         }
     } catch (error) {
@@ -100,6 +117,16 @@ export async function waitForAudioGenerationTask(config: AiConfig, task: AudioGe
     }
 }
 
+export async function readAudioGenerationTask(taskId: string, apiSource: "system" | "custom" = "system", signal?: AbortSignal) {
+    const response = await fetch(`/api/audio-tasks/${encodeURIComponent(taskId)}`, { cache: "no-store", signal });
+    throwIfClientSessionExpired(response);
+    syncUserPointsFromHeaders(response.headers, apiSource);
+    if (!response.ok) throw new Error(await readFetchError(response, "读取音频任务失败"));
+    const payload = (await response.json()) as AudioTaskPayload;
+    if (!payload.task) throw new Error(payload.error || "音频任务不存在");
+    return payload.task;
+}
+
 function taskContext(options?: RequestOptions) {
     if (!options) return undefined;
     return {
@@ -107,7 +134,10 @@ function taskContext(options?: RequestOptions) {
         runId: options.runId,
         surface: options.surface,
         projectId: options.projectId,
+        episodeId: options.episodeId,
+        shotId: options.shotId,
         parentTaskId: options.parentTaskId,
+        estimatedPoints: options.estimatedPoints,
         attemptNo: options.attemptNo,
         clientRequestId: options.clientRequestId,
     };

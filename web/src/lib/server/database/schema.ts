@@ -334,6 +334,16 @@ CREATE INDEX IF NOT EXISTS generation_tasks_user_project_idx ON generation_tasks
 DROP INDEX IF EXISTS generation_tasks_recovery_due_idx;
 CREATE INDEX generation_tasks_recovery_due_idx ON generation_tasks (next_poll_at, lease_until, id) WHERE (status IN ('pending', 'running') AND execution_phase IN ('created', 'submitting', 'submitted', 'polling', 'result_ready', 'persisting')) OR (status = 'cancelled' AND execution_phase IN ('cancel_requested', 'cancel_polling')) OR (task_type = 'agent' AND status = 'success' AND execution_phase IN ('review_pending', 'reviewing'));
 
+CREATE TABLE IF NOT EXISTS generation_concurrency_reservations (
+    user_id text NOT NULL,
+    task_type text NOT NULL,
+    request_id text NOT NULL,
+    expires_at timestamptz NOT NULL,
+    PRIMARY KEY (user_id, task_type, request_id),
+    CONSTRAINT generation_concurrency_reservations_type CHECK (task_type IN ('text', 'image', 'video', 'audio', 'agent', 'render'))
+);
+CREATE INDEX IF NOT EXISTS generation_concurrency_reservations_expires_idx ON generation_concurrency_reservations (expires_at);
+
 CREATE TABLE IF NOT EXISTS generation_worker_heartbeats (
     worker_id text PRIMARY KEY,
     last_seen_at timestamptz NOT NULL

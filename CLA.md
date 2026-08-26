@@ -18,10 +18,12 @@ perform, sublicense, distribute, commercialize, and otherwise exploit your
 Contributions as part of the Project and related distributions.
 
 This license allows the maintainers to publish your Contributions under the
-Project's open-source license, currently GNU Affero General Public License
-v3.0, and to use them in commercial, proprietary, privately licensed,
-source-available, or other versions, services, support offerings, or
-derivatives related to the Project.
+Project's current license, Business Source License 1.1, and to use them in
+commercial, proprietary, privately licensed, source-available, or other
+versions, services, support offerings, or derivatives related to the Project.
+
+Contributions are accepted under this contributor agreement. Maintainers may
+provide separate commercial licenses for the Project.
 
 ## 2. Relicensing
 

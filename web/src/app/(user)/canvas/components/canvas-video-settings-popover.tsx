@@ -13,6 +13,7 @@ import { useThemeStore } from "@/stores/use-theme-store";
 import type { CanvasNodeMetadata } from "../types";
 import type { CanvasResourceReference } from "../utils/canvas-resource-references";
 import { canvasVideoReferenceModeLabel, normalizeCanvasVideoReferenceMode } from "../utils/canvas-video-references";
+import { canvasModelCapabilityProfile } from "../utils/canvas-model-capabilities";
 import { CanvasVideoReferenceSettings } from "./canvas-video-reference-settings";
 
 type CanvasVideoSettingsPopoverProps = {
@@ -47,6 +48,7 @@ export function CanvasVideoSettingsPopover({ config, metadata, references, onCon
         <CreativeGenerationPreferences
             capability="video"
             preferences={preferences}
+            capabilityProfile={canvasModelCapabilityProfile(config)}
             triggerLabel={summary}
             triggerAriaLabel={`视频设置：${referenceLabel} · ${fullSummary}`}
             triggerIcon={<SlidersHorizontal className="size-4" />}

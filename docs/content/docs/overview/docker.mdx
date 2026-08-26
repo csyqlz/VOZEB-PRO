@@ -106,6 +106,17 @@ Token 不得写入仓库或公开日志。
 NEXT_PUBLIC_SITE_URL=https://games.xingqizhiyu.cn
 ```
 
+仓库提供 `deploy/nginx/vozeb-pro.conf.example` 作为宝塔/Nginx 生产模板。替换域名和证书路径后再启用；模板已为 HTTPS 开启 HTTP/2，为 JS、CSS、JSON 和 SVG 启用 gzip，并给 `/_next/static/` 哈希资源设置一年不可变缓存。默认不写 Brotli 指令，因为只有服务器已安装对应 Nginx 模块时才能启用。
+
+重载前先验证配置，并在正式域名检查实际传输：
+
+```bash
+nginx -t
+curl --http2 -I -H 'Accept-Encoding: gzip' https://vozeb-pro.example.com/_next/static/实际文件.js
+```
+
+响应应使用 HTTP/2，包含 `Content-Encoding: gzip` 和 `Cache-Control: public, max-age=31536000, immutable`。若经过 CDN，还要在 CDN 回源与客户端两侧分别检查，避免 CDN 解压后回传原始大文件。
+
 ## 更新
 
 ```bash

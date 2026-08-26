@@ -1,10 +1,12 @@
 import type { AuthSettings } from "@/lib/auth/store";
 import type { CreativeAsset, CreativeConversationContext, CreativeSurface } from "@/lib/creative-runtime-contract";
 import { creativeAssetReferenceAliases, orderCreativeAssetsByIds } from "@/lib/creative-asset-references";
+import { resolveSiteTitle } from "@/lib/site-brand";
 import type { AgentRun, AgentRunPlannerContextSummary, AgentRunTask } from "@/lib/server/agent-run-store";
 import type { AgentPlan } from "@/lib/server/agent-run-validation";
 import { resolveAgentPlanningProfile } from "@/lib/server/agent-run-planning-profile";
 import { canvasSnapshotPlannerView, selectedCanvasNodeIds } from "./agent-run-canvas-snapshot";
+import { resolveDramaPlannerSnapshot } from "./agent-context-resolver";
 
 export function availableAgentSkills(settings: AuthSettings, surface: CreativeSurface) {
     const workspaces = surface === "canvas" ? new Set(["canvas"]) : surface === "drama" ? new Set(["drama"]) : new Set(["image", "video", "drama"]);
@@ -20,7 +22,8 @@ export function plannerAgentSkills(settings: AuthSettings, run: Pick<AgentRun, "
     return selectAgentSkills(settings, run.surface, run.selectedSkillIds || []);
 }
 
-export function agentPlannerSystemPrompt(surface: CreativeSurface, fallbackExample: string) {
+export function agentPlannerSystemPrompt(surface: CreativeSurface, fallbackExample: string, siteTitle: string) {
+    const brand = resolveSiteTitle(siteTitle);
     const identity =
         surface === "canvas"
             ? "你是星启智域画布创作 Agent，也能进行普通对话。"
@@ -123,7 +126,7 @@ export function compactCanvasSnapshot(snapshot: unknown) {
 }
 
 function compactProjectSnapshot(snapshot: unknown) {
-    return { ...record(snapshot) };
+    return resolveDramaPlannerSnapshot(snapshot);
 }
 
 function defaultPlannerModelIds(settings: AuthSettings, capabilities: Set<string>) {

@@ -55,6 +55,15 @@ describe("administrator object storage API", () => {
         expect(JSON.stringify(body)).not.toContain("secret-access-value");
     });
 
+    it("returns the safe capability failure reported by the connection check", async () => {
+        mocks.check.mockRejectedValueOnce(new Error("对象写入检查失败：权限不足（AccessDenied/403），请确认凭据拥有当前 Bucket 的列表、读取、写入和删除权限"));
+
+        const response = await POST();
+
+        expect(response.status).toBe(502);
+        await expect(response.json()).resolves.toMatchObject({ code: 502, data: { available: false }, msg: expect.stringContaining("对象写入检查失败") });
+    });
+
     it("passes normalized input boundaries to the configuration service", async () => {
         const response = await PATCH(
             new Request("http://localhost/api/admin/object-storage", {

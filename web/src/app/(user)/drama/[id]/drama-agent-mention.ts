@@ -1,7 +1,15 @@
 import type { DramaEpisode, DramaProject } from "@/lib/drama-project-contract";
+import { mentionAtCursor } from "@/lib/mention-at-cursor";
 
 export type DramaAgentMentionKind = "character" | "scene" | "prop" | "clue" | "source" | "shot";
-export type DramaAgentMentionItem = { id: string; kind: DramaAgentMentionKind; title: string; description: string; alias: string };
+export type DramaAgentMentionItem = {
+    id: string;
+    kind: DramaAgentMentionKind;
+    title: string;
+    description: string;
+    alias: string;
+    preview?: { type: "image" | "video"; url: string };
+};
 
 const KIND_LABELS: Record<DramaAgentMentionKind, string> = {
     character: "角色",
@@ -18,7 +26,11 @@ export function collectDramaAgentMentionItems(project: DramaProject, episode: Dr
         ...project.scenes.map((item) => ({ id: item.id, kind: "scene" as const, title: item.name, description: item.description })),
         ...project.props.map((item) => ({ id: item.id, kind: "prop" as const, title: item.name, description: item.description })),
         ...project.clues.map((item) => ({ id: item.id, kind: "clue" as const, title: item.name, description: item.description || item.payoff })),
-        ...(project.sourceAssets || []).map((item) => ({ id: item.id, kind: "source" as const, title: item.title, description: item.textContent || item.type })),
+        ...(project.sourceAssets || []).map((item) => {
+            const previewUrl = item.serverUrl || item.remoteUrl;
+            const preview = previewUrl && (item.type === "image" || item.type === "video") ? { type: item.type, url: previewUrl } : undefined;
+            return { id: item.id, kind: "source" as const, title: item.title, description: item.textContent || item.type, ...(preview ? { preview } : {}) };
+        }),
         ...episode.shots.map((item) => ({ id: item.id, kind: "shot" as const, title: item.title || `镜头 ${String(item.order).padStart(2, "0")}`, description: item.description || item.sourceText })),
     ];
     const counts = new Map<DramaAgentMentionKind, number>();
@@ -37,12 +49,7 @@ export function collectDramaAgentMentionItems(project: DramaProject, episode: Dr
 }
 
 export function dramaAgentMentionAtCursor(value: string, cursor: number) {
-    const end = Math.max(0, Math.min(value.length, cursor));
-    const match = value.slice(0, end).match(/@([^\s@]*)$/u);
-    if (!match) return undefined;
-    const start = end - match[0].length;
-    if (start > 0 && /[A-Za-z0-9._%+-]/u.test(value[start - 1])) return undefined;
-    return { start, end, query: match[1] || "" };
+    return mentionAtCursor(value, cursor);
 }
 
 export function replaceDramaAgentMention(value: string, cursor: number, alias: string) {
@@ -61,7 +68,7 @@ export function dramaAgentMentionCandidates(items: DramaAgentMentionItem[], quer
 }
 
 export function referencedDramaAgentItems(value: string, items: DramaAgentMentionItem[]) {
-    return items.filter((item) => new RegExp(`(^|\\s)@${escapeRegExp(item.alias)}(?=$|[\\s，。！？、；：,.!?;:）)\\]}])`, "u").test(value));
+    return items.filter((item) => new RegExp(`@${escapeRegExp(item.alias)}(?=$|[\\s，。！？、；：,.!?;:）)\\]}])`, "u").test(value));
 }
 
 export function dramaAgentMentionKindLabel(kind: DramaAgentMentionKind) {

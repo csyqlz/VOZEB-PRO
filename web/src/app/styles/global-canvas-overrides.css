@@ -129,6 +129,11 @@ html.dark .canvas-agent-confirm-switch.ant-switch.ant-switch-checked:hover:not(.
     right: 16px;
 }
 
+.canvas-toolbar-dock .canvas-toolbar-batch-download.ant-btn {
+    min-width: 52px !important;
+    width: auto !important;
+}
+
 @media (min-width: 1024px) {
     .canvas-toolbar-dock.is-agent-open {
         gap: 2px;

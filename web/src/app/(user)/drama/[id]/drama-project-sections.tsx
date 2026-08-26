@@ -54,7 +54,7 @@ function DramaEpisodePanel({ project, episode, permanent, onOpenChange, onStageC
         });
     };
 
-    const filteredEpisodes = project.episodes.filter((item, index) => `${index + 1} ${item.title}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
+    const filteredEpisodes = project.episodes.filter((item, index) => `${item.episodeNumber || index + 1} ${item.title}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
     return (
         <div className="flex h-full min-h-0 flex-col bg-card" data-drama-episode-panel>
             <div className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border px-3.5">
@@ -109,7 +109,7 @@ function DramaEpisodePanel({ project, episode, permanent, onOpenChange, onStageC
                                 <span
                                     className={`grid size-8 shrink-0 place-items-center rounded text-[11px] font-semibold tabular-nums ${active ? "bg-violet-100 text-violet-700 dark:bg-violet-900/45 dark:text-violet-300" : "border border-border bg-background text-muted-foreground"}`}
                                 >
-                                    {String(index + 1).padStart(2, "0")}
+                                    {String(item.episodeNumber || index + 1).padStart(2, "0")}
                                 </span>
                                 <span className="min-w-0 flex-1">
                                     <span className="block truncate text-sm font-medium text-foreground">{item.title}</span>
@@ -167,6 +167,7 @@ export function DramaEpisodeNavigator({ project, episode, open, onOpenChange, on
         0,
         project.episodes.findIndex((item) => item.id === episode.id),
     );
+    const episodeNumber = episode.episodeNumber || episodeIndex + 1;
     const trigger = (
         <button
             type="button"
@@ -176,7 +177,7 @@ export function DramaEpisodeNavigator({ project, episode, open, onOpenChange, on
             aria-label={open ? "收起剧集导航" : "打开剧集导航"}
         >
             <PanelLeft className="size-3.5 shrink-0" />
-            <span className="shrink-0 tabular-nums">第 {String(episodeIndex + 1).padStart(2, "0")} 集</span>
+            <span className="shrink-0 tabular-nums">第 {String(episodeNumber).padStart(2, "0")} 集</span>
             <ChevronDown className={`size-3.5 shrink-0 transition-transform ${open ? "rotate-180" : ""}`} />
         </button>
     );

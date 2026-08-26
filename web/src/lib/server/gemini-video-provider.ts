@@ -20,8 +20,8 @@ export type GeminiVideoRequest = {
     ];
     parameters: {
         durationSeconds: number;
-        aspectRatio: "16:9" | "9:16";
-        resolution: "720p" | "1080p";
+        aspectRatio?: "16:9" | "9:16";
+        resolution?: "720p" | "1080p";
         generateAudio: boolean;
     };
 };
@@ -72,12 +72,14 @@ export async function buildGeminiVideoRequest(input: {
         ...(lastFrameImage ? { lastFrame: lastFrameImage } : {}),
         ...(referenceImages.length ? { referenceImages: referenceImages.map((image) => ({ image: image!, referenceType: "asset" as const })) } : {}),
     };
+    const aspectRatio = geminiAspectRatio(input.aspectRatio);
+    const resolution = geminiResolution(input.resolution);
     return {
         instances: [instance],
         parameters: {
             durationSeconds: normalizeGeminiVideoDuration(input.durationSeconds),
-            aspectRatio: geminiAspectRatio(input.aspectRatio),
-            resolution: geminiResolution(input.resolution),
+            ...(aspectRatio ? { aspectRatio } : {}),
+            ...(resolution ? { resolution } : {}),
             generateAudio: input.generateAudio,
         },
     };
@@ -191,14 +193,17 @@ function geminiOperationError(value: Record<string, unknown>) {
     return text(record.message) || text(record.status);
 }
 
-function geminiAspectRatio(value: unknown): "16:9" | "9:16" {
-    const ratio = text(value) || "16:9";
+function geminiAspectRatio(value: unknown): "16:9" | "9:16" | undefined {
+    const ratio = text(value);
+    if (!ratio || ratio.toLowerCase() === "auto") return undefined;
     if (ratio === "16:9" || ratio === "9:16") return ratio;
     throw new Error("Gemini Veo 仅支持 16:9 或 9:16 画幅");
 }
 
-function geminiResolution(value: unknown): "720p" | "1080p" {
-    const resolution = text(value).toLowerCase().replace(/p$/, "");
+function geminiResolution(value: unknown): "720p" | "1080p" | undefined {
+    const textValue = text(value).toLowerCase();
+    if (!textValue || textValue === "auto") return undefined;
+    const resolution = textValue.replace(/p$/, "");
     return resolution === "1080" ? "1080p" : "720p";
 }
 

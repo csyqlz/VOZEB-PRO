@@ -172,6 +172,8 @@ export function resolveLogicalModelCapabilityProfile(binding: Pick<LogicalModelB
         supportsReferenceAudio: booleanValue(stored.supportsReferenceAudio, globalPreset?.supportsReferenceAudio ?? modelConfig?.supportsReferenceAudio ?? advanced?.supportsReferenceAudio),
         maxReferenceImages: positiveInteger(stored.maxReferenceImages),
         aspectRatios: normalizeAspectRatios(stored.aspectRatios),
+        resolutions: normalizeTextOptions(stored.resolutions, 20),
+        durationSeconds: normalizePositiveIntegers(stored.durationSeconds, 64),
         minDurationSeconds: positiveNumber(stored.minDurationSeconds),
         maxDurationSeconds: positiveNumber(stored.maxDurationSeconds),
         maxBatchSize: positiveInteger(stored.maxBatchSize),
@@ -218,6 +220,8 @@ function normalizeStoredCapabilityProfile(value: unknown, capability: LogicalMod
         supportsReferenceAudio: optionalBoolean(input.supportsReferenceAudio),
         maxReferenceImages: positiveInteger(input.maxReferenceImages),
         aspectRatios: normalizeAspectRatios(input.aspectRatios),
+        resolutions: normalizeTextOptions(input.resolutions, 20),
+        durationSeconds: normalizePositiveIntegers(input.durationSeconds, 64),
         minDurationSeconds: positiveNumber(input.minDurationSeconds),
         maxDurationSeconds: positiveNumber(input.maxDurationSeconds),
         maxBatchSize: positiveInteger(input.maxBatchSize),
@@ -322,6 +326,26 @@ function normalizeAspectRatios(value: unknown) {
         ),
     ).slice(0, 12);
     return ratios.length ? ratios : undefined;
+}
+
+function normalizeTextOptions(value: unknown, maxLength: number) {
+    if (!Array.isArray(value)) return undefined;
+    const options = new Map<string, string>();
+    for (const item of value) {
+        if (typeof item !== "string") continue;
+        const normalized = item.trim().slice(0, maxLength);
+        if (normalized) options.set(normalized.toLowerCase(), normalized);
+    }
+    const result = Array.from(options.values()).slice(0, 24);
+    return result.length ? result : undefined;
+}
+
+function normalizePositiveIntegers(value: unknown, limit: number) {
+    if (!Array.isArray(value)) return undefined;
+    const result = Array.from(new Set(value.map(positiveInteger).filter((item): item is number => item !== undefined)))
+        .sort((left, right) => left - right)
+        .slice(0, limit);
+    return result.length ? result : undefined;
 }
 
 function normalizeModelName(value: string) {

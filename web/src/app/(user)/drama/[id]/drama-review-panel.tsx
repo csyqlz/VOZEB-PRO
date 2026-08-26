@@ -85,7 +85,7 @@ export function DramaReviewPanel({ project, episode, onDesignVisuals, designing,
                                         size="small"
                                         className="!h-8 !shrink-0 !rounded-md !border-border/80 !px-2 !text-xs"
                                         icon={<ChevronDown className={`size-3.5 transition-transform ${expanded ? "rotate-180" : ""}`} />}
-                                        iconPosition="end"
+                                        iconPlacement="end"
                                         aria-expanded={expanded}
                                         onClick={() => toggleShot(shot.id)}
                                     >

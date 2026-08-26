@@ -6,6 +6,7 @@ import type { CreativeAgentModelOption } from "@/components/agent/creative-agent
 import type { AgentSkillWorkspace } from "@/lib/auth/store-types";
 import { listAgentSkills, type AgentSkillSummary } from "@/services/api/agent-skills";
 import { modelOptionLabel, selectableModelsByCapability, type AiConfig, useConfigStore } from "@/stores/use-config-store";
+import { creativeModelProfileForLogicalModel } from "@/lib/creative-model-capabilities";
 
 export function useCreativeAgentModels(capabilities: CreativeAgentModelOption["capability"][] = ["image", "video", "audio"]) {
     const config = useConfigStore((state) => state.config);

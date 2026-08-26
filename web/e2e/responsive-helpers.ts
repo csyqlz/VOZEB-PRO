@@ -1,4 +1,79 @@
+import { randomUUID } from "node:crypto";
+
 import { expect, type Locator, type Page } from "@playwright/test";
+
+export async function mockCreativeImageUploads(page: Page, fileNames: string[], imageBuffer: Buffer) {
+    const conversationId = `e2e-upload-${randomUUID()}`;
+    const timestamp = Date.now();
+    const imageDataUrl = `data:image/webp;base64,${imageBuffer.toString("base64")}`;
+    let uploadIndex = 0;
+    let conversationCreates = 0;
+    let assetUploads = 0;
+    await page.route(/\/api\/creative\/conversations(?:\?.*)?$/, async (route) => {
+        if (route.request().method() === "GET") return route.fulfill({ json: { code: 0, data: { conversations: [], hasMore: false }, msg: "OK" } });
+        if (route.request().method() !== "POST") return route.fallback();
+        conversationCreates += 1;
+        return route.fulfill({
+            json: {
+                code: 0,
+                data: {
+                    conversation: {
+                        id: conversationId,
+                        userId: "e2e-user",
+                        surface: "chat",
+                        source: "agent",
+                        title: "新对话",
+                        status: "active",
+                        contextSummary: "",
+                        contextSummaryThroughSequence: 0,
+                        createdAt: timestamp,
+                        updatedAt: timestamp,
+                        lastMessageAt: timestamp,
+                    },
+                },
+                msg: "OK",
+            },
+        });
+    });
+    await page.route(/\/api\/creative\/assets(?:\?.*)?$/, async (route) => {
+        if (route.request().method() !== "POST") return route.fallback();
+        assetUploads += 1;
+        const title = fileNames[uploadIndex] || `reference-${uploadIndex + 1}.webp`;
+        uploadIndex += 1;
+        return route.fulfill({
+            json: {
+                code: 0,
+                data: {
+                    asset: {
+                        id: `asset-${uploadIndex}-${randomUUID()}`,
+                        userId: "e2e-user",
+                        conversationId,
+                        ordinal: uploadIndex - 1,
+                        type: "image",
+                        status: "ready",
+                        title,
+                        storageKind: "remote",
+                        remoteUrl: imageDataUrl,
+                        serverUrl: imageDataUrl,
+                        mimeType: "image/webp",
+                        width: 512,
+                        height: 512,
+                        bytes: imageBuffer.byteLength,
+                        metadata: {},
+                        createdAt: timestamp + uploadIndex,
+                        updatedAt: timestamp + uploadIndex,
+                    },
+                },
+                msg: "OK",
+            },
+        });
+    });
+    await page.route(/\/api\/agent\/runs\?surface=chat$/, (route) => route.fulfill({ json: { code: 0, data: { runs: [] }, msg: "OK" } }));
+    return {
+        conversationCreates: () => conversationCreates,
+        assetUploads: () => assetUploads,
+    };
+}
 
 export function masonryGalleryFixture() {
     const sizes = [

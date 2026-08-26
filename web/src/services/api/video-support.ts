@@ -304,16 +304,20 @@ export function normalizeVideoSeconds(value: string) {
 }
 
 export function normalizeVideoSize(value: string) {
-    if (value === "auto") return null;
-    const size = value || "1280x720";
+    const size = (value || "").trim();
+    if (!size || size === "auto" || size === "adaptive") return null;
     if (/^\d+x\d+$/.test(size)) return size;
-    return ["9:16", "2:3", "3:4"].includes(size) ? "720x1280" : "1280x720";
+    if (size === "16:9") return "1280x720";
+    if (size === "9:16") return "720x1280";
+    return null;
 }
 
 export function normalizeVideoResolution(value: string) {
-    if (value === "low") return "480p";
-    if (value === "auto" || value === "high" || value === "medium") return "720p";
-    const resolution = value.replace(/p$/i, "") || "720";
+    const normalized = (value || "").trim().toLowerCase();
+    if (!normalized || normalized === "auto" || normalized === "adaptive") return undefined;
+    if (normalized === "low") return "480p";
+    if (normalized === "high" || normalized === "medium") return "720p";
+    const resolution = normalized.replace(/p$/i, "");
     return `${resolution}p`;
 }
 

@@ -44,6 +44,8 @@ function taskSummary(record: StoredGenerationTaskRecord, user?: { accountId: str
     const config = object(payload.config);
     const upstream = object(payload.upstream);
     const plannerAudit = agentPlannerAudit(payload.plannerAudit);
+    const plannerRuntime = record.type === "agent" ? agentPlannerRuntime(payload) : undefined;
+    const agentFailure = record.type === "agent" ? agentFailureSummary(payload) : undefined;
     const tasks = Array.isArray(payload.tasks) ? payload.tasks.map(object) : [];
     const failedTask = tasks.find((task) => task.status === "failed" && text(task.id));
     const model = firstText(plannerAudit?.logicalModelId, payload.logicalModelId, payload.model, config.model, config.imageModel, config.videoModel, config.audioModel, upstream.model, tasks.find((task) => text(task.model))?.model);
@@ -87,17 +89,56 @@ function taskSummary(record: StoredGenerationTaskRecord, user?: { accountId: str
         lastUpstreamStatus: record.lastUpstreamStatus,
         attempts: generationAttempts(payload.attempts),
         prompt: firstText(payload.prompt, config.prompt, tasks.find((task) => text(task.prompt))?.prompt).slice(0, 500),
-        error: firstText(payload.error, tasks.find((task) => text(task.error))?.error, resolveGenerationReviewReason(record)).slice(0, 1000) || undefined,
+        error: firstText(agentFailure?.message, payload.error, tasks.find((task) => text(task.error))?.error, resolveGenerationReviewReason(record)).slice(0, 1000) || undefined,
         durationMs: Math.max(0, record.updatedAt - record.createdAt),
         pointsCost,
         pointsBreakdown,
         plannerAudit,
+        plannerRuntime,
+        agentFailure,
         createdAt: record.createdAt,
         updatedAt: record.updatedAt,
         canCancel: record.status === "pending" || record.status === "running" || record.status === "paused",
         retryTaskId: record.type === "agent" ? text(failedTask?.id) || undefined : undefined,
         canReview: record.executionPhase === "needs_review" && (record.type === "text" || record.type === "image" || record.type === "video" || record.type === "audio"),
     };
+}
+
+function agentPlannerRuntime(payload: Record<string, unknown>): AdminGenerationTask["plannerRuntime"] {
+    const timings = object(payload.timings);
+    const context = object(payload.plannerContext);
+    const planningStartedAt = finiteNumber(timings.planningStartedAt);
+    const plannerFirstByteAt = finiteNumber(timings.plannerFirstByteAt);
+    const planningCompletedAt = finiteNumber(timings.planningCompletedAt);
+    const firstByteMs = stageDuration(planningStartedAt, plannerFirstByteAt);
+    const planningMs = stageDuration(planningStartedAt, planningCompletedAt);
+    const serializedChars = nonNegativeInteger(context.serializedChars);
+    const transport = payload.plannerStreamMode === "stream" || payload.plannerStreamMode === "complete" ? payload.plannerStreamMode : undefined;
+    const fallbackReason = text(payload.plannerStreamFallbackReason).slice(0, 500) || undefined;
+    if (!transport && firstByteMs === undefined && planningMs === undefined && serializedChars === undefined && !fallbackReason) return undefined;
+    return {
+        ...(transport ? { transport } : {}),
+        ...(firstByteMs !== undefined ? { firstByteMs } : {}),
+        ...(planningMs !== undefined ? { planningMs } : {}),
+        ...(serializedChars !== undefined ? { serializedChars } : {}),
+        ...(fallbackReason ? { fallbackReason } : {}),
+    };
+}
+
+function agentFailureSummary(payload: Record<string, unknown>): AdminGenerationTask["agentFailure"] {
+    const message = text(payload.failure).slice(0, 1000);
+    const stage = payload.failureStage === "planning" || payload.failureStage === "task_execution" || payload.failureStage === "refund" ? payload.failureStage : undefined;
+    if (!message || !stage) return undefined;
+    const candidates = Array.isArray(payload.candidateFailures)
+        ? payload.candidateFailures.slice(0, 12).flatMap((value) => {
+              const candidate = object(value);
+              const channelId = text(candidate.channelId);
+              const upstreamModel = text(candidate.upstreamModel);
+              const error = text(candidate.error).slice(0, 500);
+              return channelId && upstreamModel && error ? [{ channelId, upstreamModel, error }] : [];
+          })
+        : [];
+    return { stage, message, candidates };
 }
 
 export function isGenerationLeaseExpired(record: Pick<StoredGenerationTaskRecord, "status" | "leaseUntil">, now = Date.now()) {
@@ -205,6 +246,18 @@ function agentPlannerAudit(value: unknown): AdminGenerationTask["plannerAudit"] 
 
 function roundedPoints(value: number) {
     return Number(value.toFixed(2));
+}
+
+function stageDuration(start?: number, end?: number) {
+    return start !== undefined && end !== undefined && end >= start ? end - start : undefined;
+}
+
+function finiteNumber(value: unknown) {
+    return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+function nonNegativeInteger(value: unknown) {
+    return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
 }
 
 function object(value: unknown) {

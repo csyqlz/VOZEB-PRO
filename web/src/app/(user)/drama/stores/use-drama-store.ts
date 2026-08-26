@@ -35,7 +35,12 @@ type DramaStore = {
     importEpisodes: (projectId: string, drafts: DramaSourceEpisodeDraft[]) => void;
     deleteEpisode: (projectId: string, episodeId: string) => void;
     selectEpisode: (projectId: string, episodeId: string) => void;
-    updateEpisode: (projectId: string, episodeId: string, patch: Partial<Pick<DramaEpisode, "title" | "script" | "scriptRichContent" | "outline" | "hook" | "nextPreview" | "sourceRange" | "reviewStatus" | "renderTask" | "visualReview">>) => void;
+    updateEpisodeNumber: (projectId: string, episodeId: string, episodeNumber: number) => void;
+    updateEpisode: (
+        projectId: string,
+        episodeId: string,
+        patch: Partial<Pick<DramaEpisode, "episodeNumber" | "title" | "script" | "scriptRichContent" | "outline" | "hook" | "nextPreview" | "sourceRange" | "reviewStatus" | "renderTask" | "visualReview">>,
+    ) => void;
     buildStoryboard: (projectId: string, episodeId: string) => void;
     updateShot: (projectId: string, episodeId: string, shotId: string, patch: Partial<DramaShot>) => void;
     queueShots: (projectId: string, episodeId: string, shotIds: string[]) => void;
@@ -208,6 +213,7 @@ export const useDramaStore = create<DramaStore>((set, get) => ({
         mutateProject(projectId, (project) => {
             const episode: DramaEpisode = {
                 id: `episode-${nanoid()}`,
+                episodeNumber: project.episodes.length + 1,
                 title: `第 ${project.episodes.length + 1} 集`,
                 script: "",
                 outline: "",
@@ -223,6 +229,7 @@ export const useDramaStore = create<DramaStore>((set, get) => ({
         mutateProject(projectId, (project) => {
             const episodes = drafts.map<DramaEpisode>((draft, index) => ({
                 id: `episode-${nanoid()}`,
+                episodeNumber: index + 1,
                 title: draft.title || `第 ${index + 1} 集`,
                 script: draft.script,
                 outline: "",
@@ -241,6 +248,16 @@ export const useDramaStore = create<DramaStore>((set, get) => ({
             return { ...project, episodes, activeEpisodeId: project.activeEpisodeId === episodeId ? episodes[0].id : project.activeEpisodeId };
         }),
     selectEpisode: (projectId, episodeId) => mutateProject(projectId, (project) => (project.episodes.some((episode) => episode.id === episodeId) ? { ...project, activeEpisodeId: episodeId } : project)),
+    updateEpisodeNumber: (projectId, episodeId, episodeNumber) =>
+        mutateProject(projectId, (project) => {
+            const nextNumber = Number.isSafeInteger(episodeNumber) && episodeNumber > 0 ? episodeNumber : 1;
+            const index = project.episodes.findIndex((episode) => episode.id === episodeId);
+            if (index < 0) return project;
+            const current = project.episodes[index];
+            const currentNumber = current.episodeNumber || index + 1;
+            const title = /^第\s*\d+\s*集$/u.test(current.title.trim()) && current.title.trim() === `第 ${currentNumber} 集` ? `第 ${nextNumber} 集` : current.title;
+            return { ...project, episodes: project.episodes.map((episode) => (episode.id === episodeId ? { ...episode, episodeNumber: nextNumber, title } : episode)) };
+        }),
     updateEpisode: (projectId, episodeId, patch) => mutateProject(projectId, (project) => ({ ...project, episodes: project.episodes.map((episode) => (episode.id === episodeId ? { ...episode, ...patch } : episode)) })),
     buildStoryboard: (projectId, episodeId) =>
         mutateProject(projectId, (project) => ({ ...project, episodes: project.episodes.map((episode) => (episode.id === episodeId ? { ...episode, shots: scriptToShots(episode.script, project), renderTask: undefined } : episode)) })),

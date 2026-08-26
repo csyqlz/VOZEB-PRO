@@ -21,8 +21,8 @@ export async function POST(request: Request) {
     if (!hasAdminPermission(currentUser, "upstream.manage")) return NextResponse.json({ error: "需要管理员权限" }, { status: 403 });
     try {
         const body = await readJsonBody<DraftBody>(request, 1024 * 1024);
-        const draft = await createChannelProtocolDraft({ requestUrl: request.url, cookie: request.headers.get("cookie") || "", userId: currentUser.id, ...body });
-        return NextResponse.json({ draft }, { headers: { "Cache-Control": "private, no-store" } });
+        const result = await createChannelProtocolDraft({ requestUrl: request.url, cookie: request.headers.get("cookie") || "", userId: currentUser.id, ...body });
+        return NextResponse.json({ ...result, draft: result.drafts[0] }, { headers: { "Cache-Control": "private, no-store" } });
     } catch (error) {
         if (error instanceof ProtocolDraftError) return NextResponse.json({ error: error.message }, { status: error.status });
         console.error("Channel protocol draft failed", error instanceof Error ? error.message : error);

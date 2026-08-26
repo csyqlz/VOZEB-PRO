@@ -49,9 +49,10 @@ export function resolveResultSize(quality: string | undefined, size: string) {
 
 export function imageRequestAspectRatio(size: string) {
     const value = size.trim();
+    if (value.toLowerCase() === "auto") return undefined;
     if (/^\d+(?:\.\d+)?:\d+(?:\.\d+)?$/.test(value)) return value;
     const dimensions = parseImageDimensions(value);
-    return (dimensions && closestImageAspectRatio(dimensions.width, dimensions.height)) || "1:1";
+    return dimensions ? closestImageAspectRatio(dimensions.width, dimensions.height) : undefined;
 }
 
 export function resolveSize(quality: string | undefined, ratio: string): string {

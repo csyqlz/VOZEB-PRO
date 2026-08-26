@@ -86,13 +86,18 @@ describe("generation task manual review", () => {
         expect(mocks.schedule).toHaveBeenCalledWith("text", "text-one", expect.objectContaining({ executionPhase: "completed", nextPollAt: undefined }));
     });
 
-    it("uses the normal failure path so billing is refunded exactly once", async () => {
-        const task = { id: "audio-one" };
-        mocks.getAudio.mockResolvedValue(task);
+    it.each([
+        ["text", "text-one", mocks.getText, mocks.markTextFailed],
+        ["image", "image-one", mocks.getImage, mocks.markImageFailed],
+        ["video", "video-one", mocks.getVideo, mocks.markVideoFailed],
+        ["audio", "audio-one", mocks.getAudio, mocks.markAudioFailed],
+    ] as const)("uses the normal %s failure path so its runtime refunds billing exactly once", async (type, id, getTask, markFailed) => {
+        const task = { id };
+        getTask.mockResolvedValue(task);
 
-        await reviewGenerationTask("audio", "audio-one", { action: "confirm_failed", reason: "上游确认未创建" });
+        await reviewGenerationTask(type, id, { action: "confirm_failed", reason: "上游确认未创建" });
 
-        expect(mocks.markAudioFailed).toHaveBeenCalledWith(task, "上游确认未创建");
-        expect(mocks.schedule).toHaveBeenCalledWith("audio", "audio-one", expect.objectContaining({ executionPhase: "completed", lastUpstreamStatus: "manually_failed" }));
+        expect(markFailed).toHaveBeenCalledWith(task, "上游确认未创建");
+        expect(mocks.schedule).toHaveBeenCalledWith(type, id, expect.objectContaining({ executionPhase: "completed", lastUpstreamStatus: "manually_failed" }));
     });
 });

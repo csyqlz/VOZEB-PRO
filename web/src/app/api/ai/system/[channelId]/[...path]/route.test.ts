@@ -33,7 +33,9 @@ vi.mock("@/lib/server/security", () => ({
 }));
 
 import { GET, maxDuration, POST, PUT } from "./route";
+import { CREATIVE_UPLOAD_MAX_BYTES } from "@/lib/creative-upload";
 import { MEDIA_SNIFF_RANGE } from "@/lib/server/media-content-validation";
+import { SYSTEM_PROXY_JSON_BODY_MAX_BYTES } from "@/lib/server/system-proxy-request-limits";
 import { systemAiBillingHeaders, systemAiPointsIdempotencyKey } from "@/lib/server/system-ai-billing";
 
 const context = { params: Promise.resolve({ channelId: "channel-one", path: ["_media"] }) };
@@ -41,6 +43,10 @@ const context = { params: Promise.resolve({ channelId: "channel-one", path: ["_m
 describe("system generation proxy runtime", () => {
     it("keeps long image and video submissions alive beyond the framework default", () => {
         expect(maxDuration).toBeGreaterThanOrEqual(40 * 60);
+    });
+
+    it("accepts the JSON expansion of one maximum-size visual reference", () => {
+        expect(SYSTEM_PROXY_JSON_BODY_MAX_BYTES).toBeGreaterThan(Math.ceil((CREATIVE_UPLOAD_MAX_BYTES * 4) / 3));
     });
 });
 
@@ -164,6 +170,37 @@ describe("system media proxy", () => {
     });
 });
 
+describe("OpenAI Responses proxy", () => {
+    beforeEach(() => {
+        vi.restoreAllMocks();
+        mocks.consumeUserPoints.mockReset().mockResolvedValue(undefined);
+        mocks.refundUserPoints.mockReset();
+        mocks.safeUrl.mockResolvedValue(true);
+        mocks.getAuthSettings.mockResolvedValue({
+            generationPointMultipliers: {},
+            logicalModels: [logicalModel("writer", "text", "gpt-5")],
+            systemChannels: [{ id: "channel-one", enabled: true, baseUrl: "https://api.openai.com/v1", apiKey: "secret", apiFormat: "openai", models: ["gpt-5"], advancedConfig: { protocol: "compatible", createPath: "/v1/responses" } }],
+        });
+    });
+
+    it("forwards /v1/responses without duplicating the /v1 base path", async () => {
+        const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ id: "resp_1", output: [{ type: "message", content: [{ type: "output_text", text: "OK" }] }] }), { headers: { "content-type": "application/json" } }));
+        const response = await POST(
+            new Request("http://localhost/api/ai/system/channel-one/v1/responses", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ model: "gpt-5", input: [{ role: "user", content: "hello" }], stream: false }),
+            }),
+            { params: Promise.resolve({ channelId: "channel-one", path: ["v1", "responses"] }) },
+        );
+
+        expect(response.status).toBe(200);
+        expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.openai.com/v1/responses");
+        const upstreamBody = fetchMock.mock.calls[0]?.[1]?.body;
+        expect(JSON.parse(new TextDecoder().decode(upstreamBody as ArrayBuffer))).toMatchObject({ model: "gpt-5", input: [{ role: "user", content: "hello" }] });
+    });
+});
+
 describe("GlobalAiOpc native text proxy", () => {
     beforeEach(() => {
         vi.restoreAllMocks();
@@ -200,6 +237,16 @@ describe("GlobalAiOpc native text proxy", () => {
         expect(new Headers(init?.headers).get("x-goog-api-key")).toBeNull();
         expect(JSON.parse(String(init?.body))).toMatchObject({ contents: [{ role: "user", parts: [{ text: "hello" }] }] });
         expect(await response.json()).toMatchObject({ choices: [{ message: { role: "assistant", content: "OK" } }] });
+    });
+
+    it("refunds a charged GlobalAiOpc call when a 2xx response is not JSON", async () => {
+        mocks.consumeUserPoints.mockResolvedValue({ model: "gemini-text", cost: 1, units: 1, usageKind: "text", recordId: "points-invalid-json", remaining: 4, permanentRemaining: 4, dailyRemaining: 0, dailyExpiresAt: "" });
+        vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("not-json", { status: 200, headers: { "content-type": "text/plain" } }));
+
+        const response = await POST(chatRequest({ model: "gemini-3.1-pro-preview", messages: [{ role: "user", content: "hello" }] }), textContext());
+
+        expect(response.status).toBe(502);
+        expect(mocks.refundUserPoints).toHaveBeenCalledWith("user-one", "gemini-text", 1, "text", 1, undefined, "points-invalid-json");
     });
 
     it("charges text calls with the logical model id instead of the upstream alias", async () => {
@@ -482,6 +529,78 @@ describe("Stable Diffusion proxy", () => {
         expect(response.status).toBe(200);
         expect(fetchMock.mock.calls[0][0]).toBe("https://sd.example.com/sdapi/v1/txt2img");
         expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get("authorization")).toBeNull();
+    });
+
+    it("fully receives a non-streaming image JSON response before returning it internally", async () => {
+        const upstream = Response.json({ images: ["image-base64"] });
+        vi.spyOn(globalThis, "fetch").mockResolvedValue(upstream);
+
+        const response = await POST(
+            new Request("http://localhost/api/ai/system/channel-one/sdapi/v1/txt2img", {
+                method: "POST",
+                headers: {
+                    "content-type": "application/json",
+                    "x-vozeb-pro-logical-model": "image-local",
+                    "x-vozeb-pro-upstream-model": "sdxl",
+                },
+                body: JSON.stringify({ prompt: "slow image" }),
+            }),
+            { params: Promise.resolve({ channelId: "channel-one", path: ["sdapi", "v1", "txt2img"] }) },
+        );
+
+        expect(upstream.bodyUsed).toBe(true);
+        await expect(response.json()).resolves.toEqual({ images: ["image-base64"] });
+    });
+
+    it("turns a broken image JSON body into an uncertain proxy failure and refunds local points", async () => {
+        mocks.consumeUserPoints.mockResolvedValue({ model: "image-local", cost: 1, units: 1, usageKind: "image", recordId: "points-broken-body", remaining: 4, permanentRemaining: 4, dailyRemaining: 0, dailyExpiresAt: "" });
+        vi.spyOn(globalThis, "fetch").mockResolvedValue(
+            new Response(
+                new ReadableStream({
+                    start(controller) {
+                        controller.error(new Error("socket closed"));
+                    },
+                }),
+                { status: 200, headers: { "content-type": "application/json" } },
+            ),
+        );
+
+        const response = await POST(
+            new Request("http://localhost/api/ai/system/channel-one/sdapi/v1/txt2img", {
+                method: "POST",
+                headers: {
+                    "content-type": "application/json",
+                    "x-vozeb-pro-logical-model": "image-local",
+                    "x-vozeb-pro-upstream-model": "sdxl",
+                },
+                body: JSON.stringify({ prompt: "slow image" }),
+            }),
+            { params: Promise.resolve({ channelId: "channel-one", path: ["sdapi", "v1", "txt2img"] }) },
+        );
+
+        expect(response.status).toBe(502);
+        expect(mocks.refundUserPoints).toHaveBeenCalledWith("user-one", "image-local", 1, "image", 1, undefined, "points-broken-body");
+    });
+
+    it("forwards a visual JSON body larger than the former four-megabyte ceiling", async () => {
+        const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ images: ["image-base64"] }));
+        const body = JSON.stringify({ prompt: "layer this image", init_images: ["A".repeat(5 * 1024 * 1024)] });
+        const response = await POST(
+            new Request("http://localhost/api/ai/system/channel-one/sdapi/v1/txt2img", {
+                method: "POST",
+                headers: {
+                    "content-type": "application/json",
+                    "x-vozeb-pro-logical-model": "image-local",
+                    "x-vozeb-pro-upstream-model": "sdxl",
+                },
+                body,
+            }),
+            { params: Promise.resolve({ channelId: "channel-one", path: ["sdapi", "v1", "txt2img"] }) },
+        );
+
+        expect(new TextEncoder().encode(body).byteLength).toBeGreaterThan(4 * 1024 * 1024);
+        expect(response.status).toBe(200);
+        expect(fetchMock).toHaveBeenCalledOnce();
     });
 });
 

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { createPostgresRepositories, ensurePostgresSchema, isPostgresDatabaseEnabled, withPostgresTransaction } from "@/lib/server/database";
 import { collectLocalMediaStorageKeys } from "@/lib/server/local-media-references";
-import { deleteUserLocalMediaAssets } from "@/lib/server/local-media-storage";
+import { deleteUserMediaAssetsCascade } from "@/lib/server/user-media-deletion-service";
 import {
     defaultSummary,
     mutateGenerationLogDb,
@@ -100,7 +100,7 @@ export async function deleteGenerationLogResultsForUser(userId: string, id: stri
         const slots = remainingSlots.map((slot) => ({ ...slot, assetIndex: slot.assetIndex === undefined ? undefined : indexMap.get(slot.assetIndex) }));
         return finalizeGenerationLog({ ...current, assets, requestSnapshot: { ...snapshot, slots } }, slots);
     });
-    if (removedAssets.length) await deleteUserLocalMediaAssets(userId, Array.from(collectLocalMediaStorageKeys(removedAssets)));
+    if (removedAssets.length) await deleteUserMediaAssetsCascade(userId, Array.from(collectLocalMediaStorageKeys(removedAssets)));
     return log;
 }
 

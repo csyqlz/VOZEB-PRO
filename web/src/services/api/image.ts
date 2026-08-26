@@ -2,7 +2,7 @@ import { nanoid } from "nanoid";
 
 import { GenerationTaskNeedsReviewError, type GenerationTaskExecutionState } from "@/services/api/generation-task-state";
 import { dedupeImageResults } from "@/lib/image-result-dedupe";
-import { GenerationTaskRequestError } from "@/services/api/generation-task-request-error";
+import { GenerationTaskRequestError, readGenerationRetryAfterMs } from "@/services/api/generation-task-request-error";
 import { refreshUserPointsIfSystem, syncUserPointsFromHeaders } from "@/services/api/points";
 import { throwIfClientSessionExpired } from "@/services/api/session-expiration";
 import { imageToDataUrl } from "@/services/image-storage";
@@ -27,6 +27,9 @@ type RequestOptions = {
     clientRequestId?: string;
     generationLogId?: string;
     generationSlotId?: string;
+    outputBackground?: "opaque" | "transparent";
+    outputMode?: "layers";
+    layerBatch?: { grant: string; slotId: string };
 };
 
 export type ImageGenerationTask = {
@@ -97,10 +100,13 @@ export async function createImageGenerationTask(config: AiConfig, prompt: string
                 model: requestConfig.model,
                 quality: requestConfig.quality,
                 size: requestConfig.size,
+                ...(options?.outputBackground ? { outputBackground: options.outputBackground } : {}),
+                ...(options?.outputMode ? { outputMode: options.outputMode } : {}),
             },
             prompt,
             references: taskReferences,
             mask: taskMask,
+            layerBatch: options?.layerBatch,
             source: options?.logSource || "image-workbench",
             title: options?.logTitle || "",
             context: taskContext(options),
@@ -109,9 +115,28 @@ export async function createImageGenerationTask(config: AiConfig, prompt: string
     });
     throwIfClientSessionExpired(response);
     syncUserPointsFromHeaders(response.headers, requestConfig.apiSource);
-    if (!response.ok) throw new GenerationTaskRequestError(await readFetchError(response, "创建图片任务失败"), response.status);
+    if (!response.ok) throw new GenerationTaskRequestError(await readFetchError(response, "创建图片任务失败"), response.status, false, readGenerationRetryAfterMs(response.headers));
     const payload = (await response.json()) as ImageTaskPayload;
     if (!payload.task?.id) throw new Error(payload.error || "创建图片任务失败");
+    return payload.task;
+}
+
+export async function recoverImageGenerationTask(taskId: string, options?: Pick<RequestOptions, "signal">) {
+    const response = await fetch(`/api/image-tasks/${encodeURIComponent(taskId)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "recover" }),
+        signal: options?.signal,
+    });
+    throwIfClientSessionExpired(response);
+    syncUserPointsFromHeaders(response.headers, "system");
+    if (!response.ok) throw new GenerationTaskRequestError(await readFetchError(response, "重新检查图片任务失败"), response.status, false, readGenerationRetryAfterMs(response.headers));
+    const payload = (await response.json()) as ImageTaskPayload;
+    if (!payload.task) throw new Error(payload.error || "重新检查图片任务失败");
+    if (payload.task.needsReview) throw new GenerationTaskNeedsReviewError(payload.task.reviewReason);
+    if (payload.task.status === "error" || payload.task.status === "cancelled") {
+        throw new ImageGenerationTaskTerminalError(payload.task.error || (payload.task.status === "cancelled" ? "图片任务已取消" : "图片生成失败"), payload.task.canRetry === true);
+    }
     return payload.task;
 }
 

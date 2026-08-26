@@ -20,12 +20,17 @@ export async function uploadServerMedia(input: string | Blob, type: ServerMediaT
     const originalName = input instanceof File ? input.name.trim() : "";
     if (!blob.size) throw new Error("上传文件为空");
     if (blob.size > maxBytes) throw new Error(maxBytes === CREATIVE_UPLOAD_MAX_BYTES ? "单个文件不能超过 20MB" : "生成媒体文件过大");
-    if (!isCreativeUploadMimeType(blob.type) || !blob.type.startsWith(`${type}/`)) throw new Error(`仅支持${type === "image" ? "图片" : type === "video" ? "视频" : "音频"}格式`);
+    const declaredMimeType = blob.type.split(";", 1)[0]?.trim().toLowerCase() || "";
+    const unknownMimeType = !declaredMimeType || declaredMimeType === "application/octet-stream";
+    if (!unknownMimeType && (!isCreativeUploadMimeType(declaredMimeType) || !declaredMimeType.startsWith(`${type}/`))) throw new Error(`仅支持${type === "image" ? "图片" : type === "video" ? "视频" : "音频"}格式`);
 
+    const form = new FormData();
+    form.append("type", type);
+    form.append("persistent", "true");
+    form.append("file", blob, originalName || defaultUploadFileName(type, blob.type));
     const response = await fetch("/api/reference-assets", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type, persistent: true, dataUrl: await blobToDataUrl(blob), originalName: originalName || undefined }),
+        body: form,
     });
     const payload = (await response.json().catch(() => ({}))) as { error?: string; url?: string; token?: string; key?: string; bytes?: number; mimeType?: string };
     if (!response.ok || !payload.token) throw new Error(payload.error || "文件保存到服务器失败");
@@ -120,6 +125,11 @@ async function readExistingServerMedia(reference: ServerMediaReference, type: Se
 
 function defaultMediaMimeType(type: ServerMediaType) {
     return type === "image" ? "image/png" : type === "video" ? "video/mp4" : "audio/mpeg";
+}
+
+function defaultUploadFileName(type: ServerMediaType, mimeType: string) {
+    const extension = mimeType.split("/", 2)[1]?.replace("jpeg", "jpg").replace("mpeg", "mp3") || (type === "image" ? "png" : type === "video" ? "mp4" : "mp3");
+    return `${type}.${extension}`;
 }
 
 function dataUrlToBlob(dataUrl: string) {

@@ -2,7 +2,7 @@
 
 import { App, Button, Checkbox, Form, Image, Input, Modal, Popconfirm, Select, Switch, Table, Tag, Tooltip } from "antd";
 import type { TableColumnsType } from "antd";
-import { Cloud, DatabaseBackup, Download, Eye, File, FileAudio, Film, RefreshCw, Save, Search, ShieldCheck, Trash2 } from "lucide-react";
+import { Cloud, DatabaseBackup, Download, Eraser, Eye, File, FileAudio, Film, RefreshCw, Save, Search, ShieldCheck, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { AdminMediaTypeTabs } from "@/components/admin/admin-media-type-tabs";
@@ -11,7 +11,7 @@ import { AdminAccountId, AdminUserSearchSelect } from "@/components/admin/admin-
 import { imagePreviewUrl } from "@/lib/media-image-url";
 import { managedMediaTypeLabel, mediaSourceGroupOptions, mediaSourceLabel } from "@/lib/media-management-contract";
 import type { ExternalStorageFile, ExternalStorageFilesPayload, ObjectStorageMigrationResult, ObjectStorageSettings, ObjectStorageSettingsUpdate } from "@/lib/object-storage-contract";
-import { deleteExternalStorageFiles, getExternalStorageFiles, getObjectStorageSettings, migrateLocalMedia, saveObjectStorageSettings, testObjectStorageSettings } from "@/services/api/object-storage";
+import { cleanupExternalStoragePreviews, deleteExternalStorageFiles, getExternalStorageFiles, getObjectStorageSettings, migrateLocalMedia, saveObjectStorageSettings, testObjectStorageSettings } from "@/services/api/object-storage";
 
 const PAGE_SIZE = 30;
 
@@ -27,6 +27,7 @@ export function AdminExternalStorage() {
     const [testing, setTesting] = useState(false);
     const [syncing, setSyncing] = useState(false);
     const [syncResult, setSyncResult] = useState<ObjectStorageMigrationResult>();
+    const [cleaningPreviews, setCleaningPreviews] = useState(false);
     const [deleting, setDeleting] = useState(false);
     const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
     const [preview, setPreview] = useState<ExternalStorageFile>();
@@ -102,7 +103,7 @@ export function AdminExternalStorage() {
         setTesting(true);
         try {
             await testObjectStorageSettings();
-            message.success("外部存储连接正常");
+            message.success("外部存储列表、写入和删除权限正常");
         } catch (error) {
             message.error(error instanceof Error ? error.message : "外部存储连接失败");
         } finally {
@@ -155,6 +156,20 @@ export function AdminExternalStorage() {
         },
         [cursor, loadFiles, message, ownerUserId, prefix, source, type],
     );
+
+    const cleanupPreviews = async () => {
+        setCleaningPreviews(true);
+        try {
+            const result = await cleanupExternalStoragePreviews();
+            if (result.deleted) message.success(`已清理 ${result.deleted} 个异常预览，释放 ${formatBytes(result.reclaimedBytes)}`);
+            else message.success("未发现异常预览文件");
+            await loadFiles(cursor, prefix, type, source, ownerUserId);
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "异常预览文件清理失败");
+        } finally {
+            setCleaningPreviews(false);
+        }
+    };
 
     const columns = useMemo<TableColumnsType<ExternalStorageFile>>(
         () => [
@@ -234,8 +249,8 @@ export function AdminExternalStorage() {
                     description="启用后新媒体直接写入 S3 兼容存储；关闭后新媒体恢复写入本机。"
                     actions={
                         <>
-                            <Tooltip title="检测连接">
-                                <Button aria-label="检测外部存储连接" className="!w-8 !px-0 sm:!w-auto sm:!px-3" icon={<ShieldCheck className="size-4" />} loading={testing} disabled={!settings?.bucket} onClick={() => void testConnection()}>
+                            <Tooltip title="检测读写权限">
+                                <Button aria-label="检测外部存储读写权限" className="!w-8 !px-0 sm:!w-auto sm:!px-3" icon={<ShieldCheck className="size-4" />} loading={testing} disabled={!settings?.bucket} onClick={() => void testConnection()}>
                                     <span className="hidden sm:inline">检测连接</span>
                                 </Button>
                             </Tooltip>
@@ -301,6 +316,13 @@ export function AdminExternalStorage() {
                                     </Button>
                                 </Tooltip>
                             </Popconfirm>
+                            <Popconfirm title="清理历史异常预览？" description="只删除递归生成的嵌套 WebP；原文件和正常首层预览都会保留。" okText="开始清理" cancelText="取消" onConfirm={() => void cleanupPreviews()}>
+                                <Tooltip title="清理异常预览">
+                                    <Button aria-label="清理异常预览" className="!w-8 !px-0 sm:!w-auto sm:!px-3" icon={<Eraser className="size-4" />} loading={cleaningPreviews} disabled={!settings?.bucket || deleting || syncing}>
+                                        <span className="hidden sm:inline">清理异常预览</span>
+                                    </Button>
+                                </Tooltip>
+                            </Popconfirm>
                             <Tooltip title="刷新">
                                 <Button
                                     aria-label="刷新外部存储文件"
@@ -330,6 +352,19 @@ export function AdminExternalStorage() {
                             <StatusMetric label="失败" value={syncResult.failed} />
                             <StatusMetric label="跳过" value={syncResult.skipped} />
                             <StatusMetric label="剩余" value={syncResult.remaining} />
+                        </div>
+                    ) : null}
+                    {syncResult?.errors.length ? (
+                        <div role="alert" className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-3.5 py-3 text-amber-950 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
+                            <div className="text-sm font-medium">迁移失败详情（本地源文件已保留）</div>
+                            <div className="mt-2 max-h-40 space-y-2 overflow-y-auto text-xs">
+                                {syncResult.errors.map((error, index) => (
+                                    <div key={`${error.storageKey}-${index}`} className="grid gap-0.5 sm:grid-cols-[minmax(180px,0.8fr)_minmax(0,1.2fr)] sm:gap-3">
+                                        <span className="break-all font-mono text-[11px] opacity-75">{error.storageKey}</span>
+                                        <span>{error.message}</span>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
                     ) : null}
                     <div>

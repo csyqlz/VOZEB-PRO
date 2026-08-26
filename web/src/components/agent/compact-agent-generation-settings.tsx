@@ -4,11 +4,12 @@ import { SlidersHorizontal } from "lucide-react";
 
 import { CreativeGenerationPreferences as GenerationPreferencesControl, type CreativeGenerationPreferencePatch, type MediaCapability } from "@/components/creative-generation-preferences";
 import type { CreativeGenerationPreferences } from "@/lib/creative-runtime-contract";
+import { creativeSelectedModelProfile, type CreativeModelCapabilityOption } from "@/lib/creative-model-capabilities";
 import { cn } from "@/lib/utils";
 
 type AgentMediaCapability = Extract<MediaCapability, "image" | "video">;
 
-export function CompactAgentGenerationSettings({ preferences, onChange }: { preferences: CreativeGenerationPreferences; onChange: (preferences: CreativeGenerationPreferences) => void }) {
+export function CompactAgentGenerationSettings({ preferences, models = [], onChange }: { preferences: CreativeGenerationPreferences; models?: readonly CreativeModelCapabilityOption[]; onChange: (preferences: CreativeGenerationPreferences) => void }) {
     const capability: AgentMediaCapability = preferences.mode === "video" ? "video" : "image";
 
     return (
@@ -16,6 +17,7 @@ export function CompactAgentGenerationSettings({ preferences, onChange }: { pref
             capability={capability}
             capabilities={["image", "video"]}
             preferences={preferences}
+            capabilityProfile={creativeSelectedModelProfile(models, capability)}
             triggerLabel={compactAgentPreferenceSummary(capability, preferences)}
             triggerAriaLabel={`生成参数：${agentPreferenceSummary(capability, preferences)}`}
             triggerIcon={<SlidersHorizontal className="size-4" />}
@@ -63,7 +65,7 @@ export function updateAgentGenerationPreferences(preferences: CreativeGeneration
     if (capability === "image") {
         const image = { ...preferences.image };
         if (patch.size !== undefined) image.size = patch.size;
-        if (patch.quality === "auto" || patch.quality === "high" || patch.quality === "medium" || patch.quality === "low") image.quality = patch.quality;
+        if (patch.quality !== undefined) image.quality = patch.quality;
         if (patch.count !== undefined) image.count = patch.count;
         return { ...preferences, mode: "image", image };
     }

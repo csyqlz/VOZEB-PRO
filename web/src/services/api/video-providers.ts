@@ -122,7 +122,8 @@ export async function createOpenAIVideoTask(config: AiConfig, model: string, pro
         body.append("prompt", prompt);
         body.append("seconds", normalizeVideoSeconds(config.videoSeconds));
         if (normalizeVideoSize(config.size)) body.append("size", normalizeVideoSize(config.size)!);
-        body.append("resolution_name", normalizeVideoResolution(config.vquality));
+        const resolution = normalizeVideoResolution(config.vquality);
+        if (resolution) body.append("resolution_name", resolution);
         body.append("preset", "normal");
         const files = await Promise.all(references.map(async (image) => dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) })));
         files.forEach((file) => {
@@ -410,7 +411,8 @@ export async function buildCompatibleVideoPayloadVariants(config: AiConfig, mode
         globalPreset || legacyGlobalAiOpc ? normalizeGlobalAiOpcVideoDuration(config.videoSeconds) : config.advancedConfig?.protocol === "yumeng" ? normalizeYumengVideoDuration(config.videoSeconds) : normalizeCompatibleVideoDuration(config.videoSeconds);
     const ratio = normalizeCompatibleVideoRatio(config.size);
     const quality = normalizeCompatibleVideoQuality(config.vquality);
-    const size = normalizeVideoSize(config.size) || "1280x720";
+    const resolution = normalizeVideoResolution(config.vquality);
+    const size = normalizeVideoSize(config.size) || undefined;
     const dimensions = normalizeCompatibleVideoDimensions(config.size);
     if (globalPreset) {
         return [
@@ -419,7 +421,7 @@ export async function buildCompatibleVideoPayloadVariants(config: AiConfig, mode
                 prompt,
                 duration,
                 ratio,
-                resolution: normalizeVideoResolution(config.vquality),
+                resolution,
                 images,
                 videos: referenceVideos,
                 audios: referenceAudios,
@@ -431,7 +433,7 @@ export async function buildCompatibleVideoPayloadVariants(config: AiConfig, mode
     const templatePayloads = buildAdvancedVideoTemplatePayloads(config, model, prompt, {
         duration,
         ratio,
-        resolution: normalizeVideoResolution(config.vquality),
+        resolution,
         quality,
         size,
         width: dimensions.width,
@@ -447,7 +449,7 @@ export async function buildCompatibleVideoPayloadVariants(config: AiConfig, mode
             prompt,
             duration,
             ratio,
-            resolution: normalizeVideoResolution(config.vquality),
+            resolution,
             autoFace: false,
             ...(referenceVideos.length ? { referenceVideos } : {}),
             ...(referenceAudios.length ? { referenceAudios } : {}),
@@ -459,14 +461,12 @@ export async function buildCompatibleVideoPayloadVariants(config: AiConfig, mode
         model: modelOptionName(model),
         prompt,
         n: 1,
-        size,
-        width: dimensions.width,
-        height: dimensions.height,
+        ...(size ? { size } : {}),
+        ...(dimensions.width && dimensions.height ? { width: dimensions.width, height: dimensions.height } : {}),
         response_format: "url",
-        ratio,
-        aspect_ratio: ratio,
-        resolution: normalizeVideoResolution(config.vquality),
-        quality,
+        ...(ratio ? { ratio, aspect_ratio: ratio } : {}),
+        ...(resolution ? { resolution } : {}),
+        ...(quality ? { quality } : {}),
         async: true,
         generate_audio: boolConfig(config.videoGenerateAudio, true),
         watermark: boolConfig(config.videoWatermark, false),

@@ -1,3 +1,4 @@
+import type { CanvasImageLayerBox, CanvasImageLayerKind } from "@/lib/canvas-image-decomposition";
 import type { CreativeVideoReferenceMode, VideoReferenceRole } from "@/lib/video-reference-contract";
 
 export type Position = {
@@ -114,6 +115,7 @@ export type CanvasNodeMetadata = {
     generationType?: CanvasImageGenerationType;
     model?: string;
     size?: string;
+    sizeLocked?: boolean;
     quality?: string;
     count?: number;
     seconds?: string;
@@ -128,6 +130,38 @@ export type CanvasNodeMetadata = {
     audioFormat?: string;
     audioSpeed?: string;
     audioInstructions?: string;
+    layerName?: string;
+    layerVisible?: boolean;
+    sourceLayerNodeId?: string;
+    imageLayerTaskId?: string;
+    imageLayerResultIndex?: number;
+    imageLayer?: {
+        kind: CanvasImageLayerKind;
+        bbox: CanvasImageLayerBox;
+        zIndex: number;
+        groupId?: string;
+        sourceWidth: number;
+        sourceHeight: number;
+    };
+    imageEditMask?: {
+        storageKey: string;
+        serverUrl?: string;
+        mimeType?: string;
+        width?: number;
+        height?: number;
+    };
+    imageEditValidationMask?: {
+        storageKey: string;
+        serverUrl?: string;
+        mimeType?: string;
+        width?: number;
+        height?: number;
+    };
+    preserveUnmaskedPixels?: boolean;
+    imageOutputBackground?: "opaque" | "transparent";
+    imageOutputMode?: "layers";
+    imageLayerBatch?: { grant: string; slotId: string };
+    internalOnly?: boolean;
     cameraControl?: CameraControlOptions;
     panoramaProjection?: "equirectangular";
     panoramaSourcePrompt?: string;

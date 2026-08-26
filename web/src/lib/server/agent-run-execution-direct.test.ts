@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { directAgentPlan, normalizeTasks, planToOps, readFunctionCallResult, taskResultOps } from "./agent-run-execution";
+import { directAgentPlan, directGenerationPreferences, normalizeTasks, planToOps, readFunctionCallResult, taskResultOps } from "./agent-run-execution";
 import { agentSurfaceImageSize, normalizeCanvasPlanForSelection, resolveAgentTaskRatio } from "./agent-run-task-input";
 
 describe("directAgentPlan", () => {
@@ -21,6 +21,37 @@ describe("directAgentPlan", () => {
 
     it("拒绝把文本规划模型作为直接媒体模型", () => {
         expect(() => directAgentPlan([{ id: "planner", name: "规划模型", capability: "text", capabilityProfile: undefined }], "你好", [])).toThrow("当前模型不支持直接生成媒体");
+    });
+
+    it("把多模型图片数量按本轮总数分配而不是逐模型倍增", () => {
+        const models = [
+            { id: "image-a", name: "模型 A", capability: "image" as const, capabilityProfile: undefined },
+            { id: "image-b", name: "模型 B", capability: "image" as const, capabilityProfile: undefined },
+        ];
+        const plan = directAgentPlan(models, "生成两张竖图", [], { mode: "image", image: { count: 2, size: "9:16" } });
+
+        expect(plan.deliverables.map((item) => ({ model: item.model, count: item.count }))).toEqual([
+            { model: "image-a", count: 1 },
+            { model: "image-b", count: 1 },
+        ]);
+        expect(directGenerationPreferences({ image: { count: 2, size: "9:16" } })).toEqual({ image: { count: undefined, size: "9:16" } });
+    });
+
+    it("多模型数量不足时仍保留每个模型，并按各自容量分配总量", () => {
+        const models = [
+            { id: "image-a", name: "模型 A", capability: "image" as const, capabilityProfile: { maxBatchSize: 2 } },
+            { id: "image-b", name: "模型 B", capability: "image" as const, capabilityProfile: { maxBatchSize: 4 } },
+        ];
+
+        expect(directAgentPlan(models, "生成对比图", [], { mode: "image", image: { count: 1 } }).deliverables.map((item) => ({ model: item.model, count: item.count }))).toEqual([
+            { model: "image-a", count: 1 },
+            { model: "image-b", count: 1 },
+        ]);
+        expect(directAgentPlan(models, "生成六张对比图", [], { mode: "image", image: { count: 6 } }).deliverables.map((item) => ({ model: item.model, count: item.count }))).toEqual([
+            { model: "image-a", count: 2 },
+            { model: "image-b", count: 4 },
+        ]);
+        expect(() => directAgentPlan(models, "生成七张对比图", [], { mode: "image", image: { count: 7 } })).toThrow("无法承载当前生成总数");
     });
 
     it("保留零积分文本流水用于失败时撤销套餐次数", () => {
@@ -62,6 +93,7 @@ describe("directAgentPlan", () => {
             }),
         );
         expect(ops).toContainEqual({ type: "connect_nodes", fromNodeId: "task-run-0", toNodeId: "output-run-0-0" });
+        expect(ops).toContainEqual({ type: "connect_nodes", fromNodeId: "current-person", toNodeId: "output-run-0-0" });
     });
 
     it("选中图片并要求替换主体时不会被错误规划成视频", () => {
@@ -87,14 +119,19 @@ describe("directAgentPlan", () => {
         expect(task).toMatchObject({ type: "image", model: "image-pro", targetNodeId: "pig-image", referenceUrl: "/api/reference-assets/pig.webp", ratio: "16:9" });
     });
 
-    it("统一按文字尺寸、自定义尺寸、参考图、规划和默认值排序", () => {
+    it("统一按文字尺寸、锁定尺寸、参考图、规划和默认值排序", () => {
         const base = { type: "image" as const, configuredImageSize: "1824x1024", reference: { type: "image" as const, width: 1024, height: 1536 }, plannedRatio: "1:1", globalSize: "4:3" };
 
         expect(resolveAgentTaskRatio({ ...base, requestedImageSize: "1280x720" })).toBe("1280x720");
         expect(resolveAgentTaskRatio(base)).toBe("1824x1024");
+        expect(resolveAgentTaskRatio({ ...base, configuredImageSize: "16:9", configuredSizeExplicit: true })).toBe("16:9");
         expect(resolveAgentTaskRatio({ ...base, configuredImageSize: undefined })).toBe("2:3");
         expect(resolveAgentTaskRatio({ ...base, configuredImageSize: undefined, reference: undefined })).toBe("1:1");
         expect(resolveAgentTaskRatio({ ...base, configuredImageSize: undefined, reference: undefined, plannedRatio: undefined })).toBe("4:3");
+        expect(resolveAgentTaskRatio({ ...base, configuredImageSize: "auto", reference: undefined })).toBe("1:1");
+        expect(resolveAgentTaskRatio({ ...base, configuredImageSize: "auto", reference: undefined, plannedRatio: undefined })).toBe("auto");
+        expect(resolveAgentTaskRatio({ ...base, requestPrompt: "换成横屏尺寸", configuredImageSize: "auto", plannedRatio: "16:9" })).toBe("16:9");
+        expect(resolveAgentTaskRatio({ ...base, requestPrompt: "换成横屏尺寸", configuredImageSize: "auto", plannedRatio: "1:1" })).toBe("auto");
         expect(resolveAgentTaskRatio({ ...base, type: "video" })).toBe("1824x1024");
         expect(agentSurfaceImageSize("canvas", { imageSize: "1824x1024" })).toBe("1824x1024");
         expect(agentSurfaceImageSize("canvas", { imageSize: "1:1" })).toBeUndefined();
@@ -103,11 +140,11 @@ describe("directAgentPlan", () => {
                 imageSize: "1:1",
                 selectedNodeIds: ["reference"],
                 nodes: [
-                    { id: "config", type: "config", metadata: { size: "1824x1024" } },
+                    { id: "config", type: "config", metadata: { size: "16:9" } },
                     { id: "reference", type: "image", metadata: { naturalWidth: 1024, naturalHeight: 1536 } },
                 ],
             }),
-        ).toBe("1824x1024");
+        ).toBe("16:9");
         expect(
             agentSurfaceImageSize("canvas", {
                 imageSize: "1024x1024",
@@ -130,6 +167,36 @@ describe("directAgentPlan", () => {
         const [task] = normalizeTasks(plan as never, [], generationSettings() as never, undefined, "产品海报", "chat", [], undefined, { mode: "image", image: { size: "16:9", quality: "high", count: 4 } });
 
         expect(task).toMatchObject({ type: "image", ratio: "16:9", quality: "high", count: 4 });
+    });
+
+    it("统一 Agent 的智能参数使用规划结果且不回退全局 1:1", () => {
+        const plan = {
+            intent: "generation",
+            objective: "生成竖版海报",
+            reply: "开始生成",
+            decisions: [],
+            foundation: { complexity: "simple", brief: { objective: "生成竖版海报" }, direction: { summary: "竖版构图" } },
+            deliverables: [{ id: "poster", title: "海报", type: "image", model: "image-pro", prompt: "竖版产品海报", count: 1, ratio: "9:16", quality: "2K", dependencies: [] }],
+        };
+
+        const [task] = normalizeTasks(plan as never, [], generationSettings() as never, undefined, "生成竖版海报", "chat", [], undefined, { mode: "image", image: { size: "auto", quality: "auto" } });
+
+        expect(task).toMatchObject({ ratio: "9:16", quality: "2K" });
+    });
+
+    it("在落库前拒绝所有候选渠道都不支持的 Agent 参数", () => {
+        const plan = {
+            intent: "generation",
+            objective: "生成主视觉",
+            reply: "开始生成",
+            decisions: [],
+            foundation: { complexity: "simple", brief: { objective: "生成主视觉" }, direction: { summary: "竖版构图" } },
+            deliverables: [{ id: "hero", title: "主视觉", type: "image", model: "image-pro", prompt: "产品海报", count: 1, ratio: "1:1", quality: "low", dependencies: [] }],
+        };
+        const settings = generationSettings();
+        settings.logicalModels[0].bindings[0] = { ...settings.logicalModels[0].bindings[0], capabilityProfile: { aspectRatios: ["9:16"], resolutions: ["2K"] } } as never;
+
+        expect(() => normalizeTasks(plan as never, [], settings as never, undefined, "产品海报", "chat", [])).toThrow("不支持 1:1 比例");
     });
 
     it("将逐图引用别名和稳定资产 ID 一起写入真实上游提示词", () => {
@@ -273,6 +340,28 @@ describe("directAgentPlan", () => {
         const [task] = normalizeTasks(plan as never, [], generationSettings() as never, snapshot, "中国辣妹", "canvas", []);
 
         expect(task).toMatchObject({ ratio: "1824x1024", targetNodeId: "reference", referenceUrl: "/api/reference-assets/reference.webp" });
+    });
+
+    it("画布明确改成横屏时使用 Agent 横版规划并直连源图与结果", () => {
+        const plan = {
+            intent: "generation",
+            objective: "换成横屏尺寸",
+            reply: "开始调整",
+            decisions: [],
+            foundation: { complexity: "simple", brief: { objective: "换成横屏尺寸" }, direction: { summary: "横版构图" } },
+            deliverables: [{ id: "landscape", title: "横版图片", type: "image", model: "image-pro", prompt: "保持主体并扩展为横版画面", count: 1, ratio: "16:9", dependencies: [] }],
+        };
+        const snapshot = {
+            imageSize: "1:1",
+            selectedNodeIds: ["portrait-source"],
+            nodes: [{ id: "portrait-source", type: "image", title: "竖版源图", metadata: { url: "/api/reference-assets/portrait.webp", naturalWidth: 1024, naturalHeight: 1536 } }],
+        };
+
+        const [task] = normalizeTasks(plan as never, [], generationSettings() as never, snapshot, "换成横屏尺寸", "canvas", []);
+        const ops = planToOps(plan as never, [task], "landscape-run", snapshot);
+
+        expect(task).toMatchObject({ ratio: "16:9", targetNodeId: "portrait-source" });
+        expect(ops).toContainEqual({ type: "connect_nodes", fromNodeId: "portrait-source", toNodeId: "output-landscape-run-0-0" });
     });
 
     it("选中提示词节点时原位改写且不创建图片或计划节点", () => {

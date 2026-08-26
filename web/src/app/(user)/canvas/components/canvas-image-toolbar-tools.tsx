@@ -1,11 +1,11 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Brush, Camera, Copy, FileText, Grid2x2, Lock, LockOpen, Maximize2, Scissors, Sparkles, Upload, ZoomIn } from "lucide-react";
+import { Brush, Camera, Copy, Eraser, FileText, Grid2x2, Layers3, Lock, LockOpen, Maximize2, ScanFace, Scissors, Sparkles, Upload, ZoomIn } from "lucide-react";
 
 import type { CanvasNodeData } from "../types";
 
-type ImageNodeActionToolId = "copyPrompt" | "reversePrompt" | "replace" | "resize" | "maskEdit" | "crop" | "split" | "upscale" | "superResolve" | "angle" | "view";
+type ImageNodeActionToolId = "copyPrompt" | "reversePrompt" | "replace" | "resize" | "maskEdit" | "crop" | "split" | "splitLayers" | "removeBackground" | "emotion" | "upscale" | "superResolve" | "angle" | "view";
 export type ImageQuickToolId = "info" | "delete" | "saveAsset" | "download" | "edit" | ImageNodeActionToolId;
 
 type ImageToolHandlers = {
@@ -14,6 +14,9 @@ type ImageToolHandlers = {
     onMaskEdit: (node: CanvasNodeData) => void;
     onCrop: (node: CanvasNodeData) => void;
     onSplit: (node: CanvasNodeData) => void;
+    onSplitLayers: (node: CanvasNodeData) => void;
+    onRemoveBackground: (node: CanvasNodeData) => void;
+    onEmotion: (node: CanvasNodeData) => void;
     onUpscale: (node: CanvasNodeData) => void;
     onSuperResolve: (node: CanvasNodeData) => void;
     onAngle: (node: CanvasNodeData) => void;
@@ -37,7 +40,7 @@ type ImageQuickToolsConfig = {
     ids: ImageQuickToolId[];
 };
 
-export const IMAGE_QUICK_TOOLS_STORAGE_KEY = "canvas-image-quick-tools-v6";
+export const IMAGE_QUICK_TOOLS_STORAGE_KEY = "canvas-image-quick-tools-v7";
 
 const defaultBaseToolIds: ImageQuickToolId[] = ["info", "delete", "saveAsset", "download", "edit"];
 
@@ -105,6 +108,33 @@ const imageToolDefinitions: ImageToolDefinition[] = [
         title: "按行列切分图片",
         icon: () => <Grid2x2 className="size-4" />,
         run: (node, handlers) => handlers.onSplit(node),
+    },
+    {
+        id: "splitLayers",
+        defaultVisible: true,
+        panelLabel: "智能分层",
+        label: "智能分层",
+        title: "智能分层",
+        icon: () => <Layers3 className="size-4" />,
+        run: (node, handlers) => handlers.onSplitLayers(node),
+    },
+    {
+        id: "removeBackground",
+        defaultVisible: true,
+        panelLabel: "消除背景",
+        label: "消除背景",
+        title: "消除背景",
+        icon: () => <Eraser className="size-4" />,
+        run: (node, handlers) => handlers.onRemoveBackground(node),
+    },
+    {
+        id: "emotion",
+        defaultVisible: true,
+        panelLabel: "表情参考",
+        label: "表情参考",
+        title: "识别人脸并调节表情参考",
+        icon: () => <ScanFace className="size-4" />,
+        run: (node, handlers) => handlers.onEmotion(node),
     },
     {
         id: "upscale",

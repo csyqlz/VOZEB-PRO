@@ -16,7 +16,21 @@ vi.mock("@/services/image-storage", async (importOriginal) => ({
     uploadImage: mocks.uploadImage,
 }));
 
-import { applyNodeConfigPatch, getGenerationCount, hydrateAssistantImages, hydrateCanvasImages, normalizeCanvasConfigNodeLayout, replaceCanvasNodeMediaMetadata } from "./canvas-page-utils";
+import {
+    applyNodeConfigPatch,
+    getGenerationCount,
+    hydrateAssistantImages,
+    hydrateCanvasImages,
+    isHiddenBatchChild,
+    normalizeCanvasConfigNodeLayout,
+    prepareAssistantImages,
+    prepareCanvasImages,
+    replaceCanvasNodeMediaMetadata,
+    resolveMetadataImageEditMask,
+    resolveMetadataImageEditValidationMask,
+    resolveMetadataReferences,
+    uploadGeneratedCanvasImage,
+} from "./canvas-page-utils";
 
 describe("Canvas project hydration", () => {
     beforeEach(() => {
@@ -68,6 +82,65 @@ describe("Canvas project hydration", () => {
         expect(references?.[0]?.dataUrl).toBe("/api/reference-assets/valid-image");
         expect(references?.[1]).toEqual(sessions[0]?.messages[0]?.references?.[1]);
     });
+
+    it("prepares stable project media synchronously without waiting for image metadata", () => {
+        const node = imageNode("stable", "permanent/user/canvas/image.webp");
+        const sessions: CanvasAssistantSession[] = [
+            {
+                id: "session",
+                title: "会话",
+                createdAt: "2026-07-31T00:00:00.000Z",
+                updatedAt: "2026-07-31T00:00:00.000Z",
+                messages: [{ id: "message", role: "user", text: "素材", references: [{ id: "reference", type: CanvasNodeType.Image, title: "参考", storageKey: "permanent/user/canvas/reference.webp" }] }],
+            },
+        ];
+
+        expect(prepareCanvasImages([node])[0]?.metadata?.content).toBe("/api/reference-assets/permanent/user/canvas/image.webp");
+        expect(prepareAssistantImages(sessions)[0]?.messages[0]?.references?.[0]?.dataUrl).toBe("/api/reference-assets/permanent/user/canvas/reference.webp");
+        expect(mocks.readImageMeta).not.toHaveBeenCalled();
+        expect(mocks.uploadImage).not.toHaveBeenCalled();
+    });
+
+    it("reuses complete permanent generation metadata without re-reading or uploading the image", async () => {
+        await expect(
+            uploadGeneratedCanvasImage({
+                dataUrl: "/api/generation-log-assets/permanent/2026/08/20/images/result.png",
+                serverUrl: "/api/generation-log-assets/permanent/2026/08/20/images/result.png",
+                remoteUrl: "https://upstream.example.com/result.png",
+                width: 1536,
+                height: 1024,
+                bytes: 234567,
+                mimeType: "image/png",
+            }),
+        ).resolves.toEqual({
+            url: "/api/generation-log-assets/permanent/2026/08/20/images/result.png",
+            storageKey: "permanent/2026/08/20/images/result.png",
+            remoteUrl: "https://upstream.example.com/result.png",
+            serverUrl: "/api/generation-log-assets/permanent/2026/08/20/images/result.png",
+            width: 1536,
+            height: 1024,
+            bytes: 234567,
+            mimeType: "image/png",
+        });
+        expect(mocks.uploadImage).not.toHaveBeenCalled();
+        expect(mocks.readImageMeta).not.toHaveBeenCalled();
+    });
+
+    it("keeps the existing validation path when generated metadata is incomplete", async () => {
+        mocks.uploadImage.mockResolvedValueOnce({
+            url: "/api/generation-log-assets/permanent/result.png",
+            storageKey: "permanent/result.png",
+            serverUrl: "/api/generation-log-assets/permanent/result.png",
+            width: 1024,
+            height: 1024,
+            bytes: 123,
+            mimeType: "image/png",
+        });
+
+        await uploadGeneratedCanvasImage({ dataUrl: "/api/generation-log-assets/permanent/result.png", serverUrl: "/api/generation-log-assets/permanent/result.png" });
+
+        expect(mocks.uploadImage).toHaveBeenCalledWith("/api/generation-log-assets/permanent/result.png");
+    });
 });
 
 describe("Canvas config node layout", () => {
@@ -79,11 +152,26 @@ describe("Canvas config node layout", () => {
         expect(expanded).toMatchObject({ height: CANVAS_CONFIG_NODE_HEIGHT.expanded, metadata: { configDetailsOpen: true } });
     });
 
+    it("records whether a canvas size is user-locked", () => {
+        const node = configNode(320);
+
+        expect(applyNodeConfigPatch(node, { size: "16:9" }).metadata).toMatchObject({ size: "16:9", sizeLocked: true });
+        expect(applyNodeConfigPatch(node, { size: "auto" }).metadata).toMatchObject({ size: "auto", sizeLocked: false });
+    });
+
     it("keeps administrator and upstream generation counts above the former platform ceiling", () => {
         expect(getGenerationCount("16")).toBe(16);
         expect(getGenerationCount("120")).toBe(120);
         expect(getGenerationCount("0")).toBe(1);
         expect(getGenerationCount("-2")).toBe(1);
+    });
+
+    it("hides persisted Agent task nodes without hiding manual task nodes", () => {
+        const agentTask = { ...configNode(180), type: CanvasNodeType.Task, metadata: { agentRunId: "run-1" } };
+        const manualTask = { ...configNode(180), id: "manual-task", type: CanvasNodeType.Task };
+
+        expect(isHiddenBatchChild(agentTask, [agentTask, manualTask])).toBe(true);
+        expect(isHiddenBatchChild(manualTask, [agentTask, manualTask])).toBe(false);
     });
 });
 
@@ -95,6 +183,9 @@ describe("Canvas media replacement", () => {
                 size: "1:1",
                 videoTask: { id: "video-task", provider: "generation", model: "video-model" },
                 imageTask: { id: "image-task", kind: "generation", model: "image-model" },
+                imageEditMask: { storageKey: "mask.png" },
+                imageEditValidationMask: { storageKey: "validation-mask.png" },
+                preserveUnmaskedPixels: true,
                 isBatchRoot: true,
                 batchChildIds: ["child"],
             },
@@ -105,9 +196,42 @@ describe("Canvas media replacement", () => {
         expect(metadata).toMatchObject({ content: "/api/reference-assets/panorama.webp", size: "2048x1024", panoramaProjection: "equirectangular", status: "success" });
         expect(metadata.prompt).toBeUndefined();
         expect(metadata.imageTask).toBeUndefined();
+        expect(metadata.imageEditMask).toBeUndefined();
+        expect(metadata.imageEditValidationMask).toBeUndefined();
+        expect(metadata.preserveUnmaskedPixels).toBeUndefined();
         expect(metadata.videoTask).toBeUndefined();
         expect(metadata.isBatchRoot).toBeUndefined();
         expect(metadata.batchChildIds).toBeUndefined();
+    });
+
+    it("restores a persisted image edit mask for stable retries", async () => {
+        await expect(resolveMetadataImageEditMask({ imageEditMask: { storageKey: "mask.png", serverUrl: "/api/reference-assets/mask.png", mimeType: "image/png", width: 512, height: 512 } })).resolves.toMatchObject({
+            id: "mask-mask.png",
+            dataUrl: "/api/reference-assets/mask.png",
+            storageKey: "mask.png",
+            width: 512,
+            height: 512,
+        });
+    });
+
+    it("restores the persisted foreground validation mask for background checks", async () => {
+        await expect(
+            resolveMetadataImageEditValidationMask({
+                imageEditValidationMask: { storageKey: "validation-mask.png", serverUrl: "/api/reference-assets/validation-mask.png", mimeType: "image/png", width: 512, height: 512 },
+            }),
+        ).resolves.toMatchObject({
+            id: "validation-mask-validation-mask.png",
+            dataUrl: "/api/reference-assets/validation-mask.png",
+            storageKey: "validation-mask.png",
+            width: 512,
+            height: 512,
+        });
+    });
+
+    it("restores current server media storage keys for image retries", async () => {
+        await expect(resolveMetadataReferences({ generationType: "edit", references: ["permanent/2026/08/16/images/source.png"] })).resolves.toEqual([
+            expect.objectContaining({ dataUrl: "/api/reference-assets/permanent/2026/08/16/images/source.png", storageKey: "permanent/2026/08/16/images/source.png" }),
+        ]);
     });
 });
 

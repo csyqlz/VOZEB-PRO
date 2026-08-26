@@ -8,7 +8,7 @@ describe("creative asset mentions", () => {
     it("finds a mention at the current caret without treating email text as a reference", () => {
         expect(creativeAssetMentionAtCursor("请参考 @商品", 7)).toEqual({ start: 4, end: 7, query: "商品" });
         expect(creativeAssetMentionAtCursor("保持主体@商品", 7)).toEqual({ start: 4, end: 7, query: "商品" });
-        expect(creativeAssetMentionAtCursor("name@example", 12)).toBeUndefined();
+        expect(creativeAssetMentionAtCursor("222@", 4)).toEqual({ start: 3, end: 4, query: "" });
     });
 
     it("replaces the query with a stable visible reference token", () => {

@@ -18,6 +18,8 @@ describe("Drama generation production workspace", () => {
         expect(source).toContain('<section className="mt-2.5"');
         expect(source).not.toContain("<Empty");
         expect(source).not.toContain("sm:grid-cols-4");
+        expect(source).toContain("costRefreshKey");
+        expect(source).not.toContain("window.setInterval(load, 5000)");
     });
 
     it("keeps shot task rows mobile-safe and exposes exact failure labels", async () => {
@@ -31,5 +33,12 @@ describe("Drama generation production workspace", () => {
         expect(source).toContain("结束帧：");
         expect(source).toContain("视频：");
         expect(source).toContain("配音：");
+    });
+
+    it("uses the server capacity schedule instead of a fixed client retry delay", async () => {
+        const source = await readFile(resolve(process.cwd(), "src/app/(user)/drama/[id]/use-generation-capacity-retry.ts"), "utf8");
+
+        expect(source).toContain("generationCapacityRetryDelayMs");
+        expect(source).not.toContain("RETRY_DELAY_MS");
     });
 });

@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Button, Modal } from "antd";
 import { imagePreviewUrl } from "@/lib/media-image-url";
@@ -11,6 +11,7 @@ import { CanvasNodeContextMenu } from "../components/canvas-context-menu";
 import { CanvasAssetsPanel } from "../components/canvas-assets-panel";
 import { CanvasSurface, type CanvasInteractionMode } from "../components/canvas-surface";
 import { CanvasNodeAngleDialog } from "../components/canvas-node-angle-dialog";
+import { CanvasNodeEmotionDialog } from "../components/canvas-node-emotion-dialog";
 import { CanvasNodeCropDialog } from "../components/canvas-node-crop-dialog";
 import { CanvasNodeHoverToolbar, CanvasNodeInfoModal } from "../components/canvas-node-hover-toolbar";
 import { CanvasNodeMaskEditDialog } from "../components/canvas-node-mask-edit-dialog";
@@ -44,6 +45,8 @@ function VozebProCanvasPage() {
     const [nodeCreatePosition, setNodeCreatePosition] = useState<Position | null>(null);
     const [interactionMode, setInteractionMode] = useState<CanvasInteractionMode>("pan");
     const controller = useCanvasPageController();
+    const hoverCommitHandleRef = useRef<number | null>(null);
+    const queuedHoveredNodeIdRef = useRef<string | null>(null);
     const {
         message,
         modal,
@@ -70,6 +73,7 @@ function VozebProCanvasPage() {
         hydrated,
         hydratedUserId,
         hydrate,
+        loadProject,
         createProject,
         updateProject,
         projectSaveState,
@@ -85,6 +89,7 @@ function VozebProCanvasPage() {
         setChatSessions,
         activeChatId,
         setActiveChatId,
+        setSize,
         viewport,
         setViewport,
         selectedNodeIds,
@@ -132,6 +137,8 @@ function VozebProCanvasPage() {
         setUpscaleNodeId,
         angleNodeId,
         setAngleNodeId,
+        emotionNodeId,
+        setEmotionNodeId,
         previewNodeId,
         setPreviewNodeId,
         assistantCollapsed,
@@ -177,7 +184,6 @@ function VozebProCanvasPage() {
         completeAudioTask,
         getCanvasCenter,
         keepNodeToolbar,
-        hideNodeToolbar,
         connectNodes,
         createConnectedNode,
         cancelPendingConnectionCreate,
@@ -188,6 +194,7 @@ function VozebProCanvasPage() {
         splitNode,
         upscaleNode,
         angleNode,
+        emotionNode,
         previewNode,
         hasMultipleSelectedNodes,
         activeNodeId,
@@ -215,6 +222,7 @@ function VozebProCanvasPage() {
         applyHistory,
         undoCanvas,
         redoCanvas,
+        autoLayout,
         createAndOpenProject,
         deleteCurrentProject,
         createImageFileNode,
@@ -230,12 +238,18 @@ function VozebProCanvasPage() {
         handleNodePromptChange,
         handleConfigNodeChange,
         downloadNodeImage,
+        downloadSelectedMedia,
+        selectedMediaCount,
+        selectedMediaDownloadPending,
         saveNodeAsset,
         createImageReversePromptNodes,
         appendDerivedImageNode,
         cropImageNode,
         splitImageNode,
+        splitImageLayers,
+        removeBackgroundImageNode,
         maskEditImageNode,
+        emotionEditImageNode,
         upscaleImageNode,
         generateAngleNode,
         handleFontSizeChange,
@@ -257,16 +271,38 @@ function VozebProCanvasPage() {
         openAgent,
         closeAgent,
     } = controller;
+    const scheduleHoveredNode = (nodeId: string | null) => {
+        queuedHoveredNodeIdRef.current = nodeId;
+        if (hoverCommitHandleRef.current !== null) return;
+        const commit = () => {
+            hoverCommitHandleRef.current = null;
+            setHoveredNodeId(queuedHoveredNodeIdRef.current);
+        };
+        const requestIdle = (window as Window & { requestIdleCallback?: (callback: () => void) => number }).requestIdleCallback;
+        hoverCommitHandleRef.current = requestIdle ? requestIdle(commit) : requestAnimationFrame(commit);
+    };
+    useEffect(
+        () => () => {
+            if (hoverCommitHandleRef.current === null) return;
+            const cancelIdle = (window as Window & { cancelIdleCallback?: (handle: number) => void }).cancelIdleCallback;
+            if (cancelIdle) cancelIdle(hoverCommitHandleRef.current);
+            else cancelAnimationFrame(hoverCommitHandleRef.current);
+        },
+        [],
+    );
     const hiddenCanvasNodeIds = useMemo(() => new Set(nodes.filter((node) => isHiddenBatchChild(node, nodes, collapsingBatchIds)).map((node) => node.id)), [collapsingBatchIds, nodes]);
     if (!projectLoaded) return <CanvasRefreshShell />;
     return (
-        <main className="flex h-full min-h-0 overflow-hidden" style={{ background: theme.canvas.backdrop, color: theme.node.text }}>
+        <main className="flex h-full min-h-0 w-full min-w-0 max-w-full overflow-hidden" style={{ background: theme.canvas.backdrop, color: theme.node.text }}>
             <CanvasAssetsPanel
                 open={assetPickerOpen}
                 projectId={projectId}
                 projectTitle={currentProject?.title || "未命名画布"}
                 nodes={nodes}
-                onOpenProject={(id) => router.push(`/canvas/${id}`)}
+                onOpenProject={(id) => {
+                    void loadProject(id).catch(() => undefined);
+                    router.push(`/canvas/${id}`);
+                }}
                 onOpenProjects={() => router.push("/canvas")}
                 onCreateProject={createAndOpenProject}
                 onInsertAsset={handleAssetInsert}
@@ -274,7 +310,7 @@ function VozebProCanvasPage() {
                 onLocateNode={locateCanvasNode}
                 onClose={() => setAssetPickerOpen(false)}
             />
-            <section className="relative min-w-0 flex-1 overflow-hidden">
+            <section className="relative min-w-0 max-w-full flex-1 overflow-hidden">
                 <CanvasTopBar
                     title={currentProject?.title || "未命名画布"}
                     titleDraft={titleDraft}
@@ -313,12 +349,10 @@ function VozebProCanvasPage() {
                     nodeProps={{
                         onHoverStart: (nodeId) => {
                             if (nodeDraggingRef.current) return;
-                            setHoveredNodeId(nodeId);
-                            keepNodeToolbar(nodeId);
+                            scheduleHoveredNode(nodeId);
                         },
                         onHoverEnd: (nodeId) => {
-                            setHoveredNodeId((current) => (current === nodeId ? null : current));
-                            hideNodeToolbar();
+                            if (queuedHoveredNodeIdRef.current === nodeId) scheduleHoveredNode(null);
                         },
                         onContentChange: handleNodeContentChange,
                         onToggleBatch: toggleBatchExpanded,
@@ -328,6 +362,7 @@ function VozebProCanvasPage() {
                         onOpenPanel: (node) => {
                             setSelectedNodeIds(new Set([node.id]));
                             setSelectedConnectionId(null);
+                            setToolbarNodeId(node.id);
                             setDialogNodeId(node.id);
                         },
                         onImageDimensions: handleImageDimensions,
@@ -404,6 +439,7 @@ function VozebProCanvasPage() {
                     onSelectionChange={(nodeIds, connectionId) => {
                         setSelectedNodeIds(nodeIds);
                         setSelectedConnectionId(connectionId);
+                        setToolbarNodeId(nodeIds.size === 1 && !connectionId ? Array.from(nodeIds)[0] : null);
                         setContextMenu(null);
                     }}
                     onViewportCommit={(next) => {
@@ -433,9 +469,11 @@ function VozebProCanvasPage() {
                     onEdgeContextMenu={(event, id) => {
                         setSelectedConnectionId(id);
                         setSelectedNodeIds(new Set());
+                        setToolbarNodeId(null);
                         setContextMenu({ type: "connection", x: event.clientX, y: event.clientY, connectionId: id });
                     }}
                     onDrop={(event) => handleDrop(event as React.DragEvent<HTMLDivElement>)}
+                    onSizeChange={setSize}
                     onDragStateChange={(dragging) => {
                         nodeDraggingRef.current = dragging;
                         setIsNodeDragging(dragging);
@@ -461,7 +499,6 @@ function VozebProCanvasPage() {
                     node={isNodeDragging || nodeImageSettingsOpen ? null : toolbarNode}
                     viewport={viewport}
                     onKeep={keepNodeToolbar}
-                    onLeave={hideNodeToolbar}
                     onInfo={(node) => setInfoNodeId(node.id)}
                     onEditText={openTextEditor}
                     onDecreaseFont={(node) => handleFontSizeChange(node.id, Math.max(10, (node.metadata?.fontSize || 14) - 2))}
@@ -474,6 +511,9 @@ function VozebProCanvasPage() {
                     onMaskEdit={(node) => setMaskEditNodeId(node.id)}
                     onCrop={(node) => setCropNodeId(node.id)}
                     onSplit={(node) => setSplitNodeId(node.id)}
+                    onSplitLayers={(node) => void splitImageLayers(node).catch((error) => message.error(error instanceof Error ? error.message : "智能分层失败"))}
+                    onRemoveBackground={(node) => void removeBackgroundImageNode(node).catch((error) => message.error(error instanceof Error ? error.message : "消除背景失败"))}
+                    onEmotion={(node) => setEmotionNodeId(node.id)}
                     onUpscale={(node) => setUpscaleNodeId(node.id)}
                     onSuperResolve={(node) => setUpscaleNodeId(node.id)}
                     onAngle={(node) => setAngleNodeId(node.id)}
@@ -486,6 +526,8 @@ function VozebProCanvasPage() {
 
                 <CanvasToolbar
                     selectedCount={selectedNodeIds.size}
+                    selectedMediaCount={selectedMediaCount}
+                    selectedMediaDownloadPending={selectedMediaDownloadPending}
                     canUndo={historyState.canUndo}
                     canRedo={historyState.canRedo}
                     agentOpen={assistantOpen}
@@ -501,6 +543,7 @@ function VozebProCanvasPage() {
                     onUndo={undoCanvas}
                     onRedo={redoCanvas}
                     onUpload={() => handleUploadRequest()}
+                    onDownloadSelectedMedia={() => void downloadSelectedMedia()}
                     onDelete={() => deleteNodes(new Set(selectedNodeIds))}
                     onClear={() => setClearConfirmOpen(true)}
                     onInteractionModeChange={setInteractionMode}
@@ -509,6 +552,7 @@ function VozebProCanvasPage() {
                     onOpenAssets={() => {
                         setAssetPickerOpen(true);
                     }}
+                    onAutoLayout={autoLayout}
                 />
 
                 <CanvasZoomControls scale={viewport.k} onScaleChange={setZoomScale} onReset={resetViewport} isMiniMapOpen={isMiniMapOpen} onToggleMiniMap={() => setIsMiniMapOpen((value) => !value)} />
@@ -570,6 +614,10 @@ function VozebProCanvasPage() {
                 ) : null}
 
                 {angleNode?.metadata?.content ? <CanvasNodeAngleDialog dataUrl={angleNode.metadata.content} open={Boolean(angleNode)} onClose={() => setAngleNodeId(null)} onConfirm={(params) => void generateAngleNode(angleNode!, params)} /> : null}
+
+                {emotionNode?.metadata?.content ? (
+                    <CanvasNodeEmotionDialog dataUrl={emotionNode.metadata.content} open={Boolean(emotionNode)} onClose={() => setEmotionNodeId(null)} onConfirm={(payload) => void emotionEditImageNode(emotionNode!, payload)} />
+                ) : null}
 
                 <Modal
                     title="图片详情"

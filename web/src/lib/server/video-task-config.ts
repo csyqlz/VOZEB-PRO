@@ -1,6 +1,13 @@
 import { parseImageDimensions } from "@/lib/image-size";
 import type { VideoGenerationReference } from "@/lib/video-reference-contract";
 
+export type ConfiguredVideoDurationPolicy = {
+    durationRange?: string;
+    durationSeconds?: number[];
+    minDurationSeconds?: number;
+    maxDurationSeconds?: number;
+};
+
 export function resolveVideoGenerationParameters(raw: Record<string, unknown>, defaults: { imageSize: string; videoQuality: string; videoSeconds: number }) {
     return {
         ...raw,
@@ -12,24 +19,41 @@ export function resolveVideoGenerationParameters(raw: Record<string, unknown>, d
 
 export function normalizeVideoSize(value: unknown, fallback = "16:9") {
     const textValue = text(value);
+    if (textValue.toLowerCase() === "auto") return "auto";
     const dimensions = parseImageDimensions(textValue);
     if (dimensions) return `${dimensions.width}x${dimensions.height}`;
     return normalizeVideoAspectRatio(textValue, fallback);
 }
 
-export function resolveUpstreamVideoDuration(value: unknown, fallback: number, policy: { durationRange?: string; minDurationSeconds?: number; maxDurationSeconds?: number } = {}) {
+export function resolveUpstreamVideoDuration(value: unknown, fallback: number, policy: ConfiguredVideoDurationPolicy = {}) {
     const fallbackSeconds = positiveInteger(fallback) || 5;
     const requested = resolveVideoDuration(value, fallbackSeconds);
     const durationRange = policy.durationRange?.trim() || "";
     if (requested === -1 && /(?:^|\D)-1(?:\D|$)|智能|auto|adaptive/i.test(durationRange)) return -1;
 
     const seconds = requested === -1 ? fallbackSeconds : requested;
-    const bounds = parseDurationBounds(durationRange);
-    const min = Math.max(1, positiveInteger(policy.minDurationSeconds) || bounds?.min || 1);
-    const max = Math.max(min, Math.min(3600, positiveInteger(policy.maxDurationSeconds) || bounds?.max || 3600));
-    const options = parseDurationOptions(durationRange).filter((item) => item >= min && item <= max);
+    const configured = configuredVideoDurationPolicy(policy);
+    const min = Math.max(1, configured.minDurationSeconds || 1);
+    const max = Math.max(min, Math.min(3600, configured.maxDurationSeconds || 3600));
+    const options = (configured.durationSeconds || []).filter((item) => item >= min && item <= max);
     if (options.length) return options.find((item) => item >= seconds) || options.at(-1)!;
     return Math.max(min, Math.min(max, seconds));
+}
+
+export function configuredVideoDurationPolicy(policy: ConfiguredVideoDurationPolicy = {}) {
+    const bounds = parseDurationBounds(policy.durationRange?.trim() || "");
+    const minDurationSeconds = positiveInteger(policy.minDurationSeconds) || bounds?.min;
+    const maxDurationSeconds = positiveInteger(policy.maxDurationSeconds) || bounds?.max;
+    const configuredOptions = Array.isArray(policy.durationSeconds) ? policy.durationSeconds.map(positiveInteger).filter((item): item is number => Boolean(item)) : [];
+    const rangeOptions = parseDurationOptions(policy.durationRange?.trim() || "");
+    const durationSeconds = Array.from(new Set(configuredOptions.length ? configuredOptions : rangeOptions))
+        .filter((item) => (!minDurationSeconds || item >= minDurationSeconds) && (!maxDurationSeconds || item <= maxDurationSeconds))
+        .sort((left, right) => left - right);
+    return {
+        ...(durationSeconds.length ? { durationSeconds } : {}),
+        ...(minDurationSeconds ? { minDurationSeconds } : {}),
+        ...(maxDurationSeconds ? { maxDurationSeconds } : {}),
+    };
 }
 
 export function normalizeVideoAspectRatio(value: unknown, fallback = "16:9") {

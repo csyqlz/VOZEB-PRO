@@ -57,4 +57,15 @@ describe("Canvas Agent image attachments", () => {
         expect(markup).toContain("group-hover/remove:bg-[var(--remove-hover-surface)]");
         expect(markup).toContain("group-focus-visible/remove:bg-[var(--remove-hover-surface)]");
     });
+
+    it("clips the scrolled @ reference preview inside the textarea", () => {
+        const markup = renderToStaticMarkup(
+            <AgentChatComposer {...baseProps} prompt="请基于 @图片1 生成视频" mentionAssets={[{ id: "image-one", title: "参考图", type: "image", url: "/api/reference-assets/permanent/reference.png" }]} selectedReferenceIds={["image-one"]} />,
+        );
+
+        const preview = markup.slice(markup.indexOf('data-testid="canvas-agent-mention-preview"'), markup.indexOf("<textarea"));
+        expect(preview).toContain("absolute inset-0 z-0 overflow-hidden");
+        expect(preview).toContain("data-canvas-agent-mention-scroll-layer");
+        expect(preview.indexOf("overflow-hidden")).toBeLessThan(preview.indexOf("data-canvas-agent-mention-scroll-layer"));
+    });
 });

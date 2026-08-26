@@ -68,7 +68,7 @@ async function servePublicWorkMedia(request: Request, context: Context) {
                 permit.release();
                 return notFound();
             }
-            return withMediaConcurrency(response, permit);
+            return withMediaConcurrency(response, permit, request.signal);
         } catch (error) {
             permit.release();
             throw error;

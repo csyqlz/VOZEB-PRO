@@ -27,6 +27,10 @@ describe("resolveVideoGenerationParameters", () => {
         expect(resolveVideoGenerationParameters({ videoSeconds: "-1" }, defaults).videoSeconds).toBe(-1);
     });
 
+    it("keeps intelligent ratio and resolution instead of applying fixed defaults", () => {
+        expect(resolveVideoGenerationParameters({ size: "auto", vquality: "auto" }, defaults)).toEqual({ size: "auto", vquality: "auto", videoSeconds: 10 });
+    });
+
     it("does not impose a platform duration ceiling before provider normalization", () => {
         expect(resolveVideoGenerationParameters({ videoSeconds: "60" }, defaults).videoSeconds).toBe(60);
     });

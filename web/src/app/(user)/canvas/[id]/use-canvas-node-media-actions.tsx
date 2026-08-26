@@ -1,7 +1,7 @@
 "use client";
 
 import { saveAs } from "file-saver";
-import { useCallback } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { getDataUrlByteSize } from "@/lib/image-utils";
 import { mediaDownloadFileName } from "@/lib/media-file";
@@ -13,11 +13,13 @@ import { nanoid } from "nanoid";
 import { type CanvasImageAngleParams } from "../components/canvas-node-angle-dialog";
 import { type CanvasImageCropRect } from "../components/canvas-node-crop-dialog";
 import { type CanvasImageMaskEditPayload } from "../components/canvas-node-mask-edit-dialog";
+import type { CanvasEmotionPayload } from "../components/canvas-node-emotion-dialog";
 import { type CanvasImageSplitParams } from "../components/canvas-node-split-dialog";
 import { type CanvasImageUpscaleParams } from "../components/canvas-node-upscale-dialog";
 import { NODE_DEFAULT_SIZE } from "../constants";
 import { CanvasNodeType, isCanvasImageNodeType, type CanvasNodeData } from "../types";
 import { cropDataUrl, splitDataUrl, upscaleDataUrl } from "../utils/canvas-image-data";
+import { downloadCanvasMediaBundle, selectedCanvasMediaNodes } from "../utils/canvas-media-download";
 import { fitNodeSize } from "../utils/canvas-node-size";
 
 import { IMAGE_PROMPT_REVERSE_PRESET, NODE_STATUS_ERROR, NODE_STATUS_LOADING, NODE_STATUS_SUCCESS, createCanvasNode } from "./canvas-page-elements";
@@ -26,6 +28,7 @@ import { applyNodeConfigPatch, buildAngleLabel, buildAnglePrompt, buildGeneratio
 
 import type { CanvasInteractions } from "./use-canvas-interactions";
 import type { CanvasPageState } from "./use-canvas-page-state";
+import { useCanvasImageLayerActions } from "./use-canvas-image-layer-actions";
 import type { CanvasTaskRuntime } from "./use-canvas-task-runtime";
 
 export function useCanvasNodeMediaActions({ state, tasks, interactions }: { state: CanvasPageState; tasks: CanvasTaskRuntime; interactions: CanvasInteractions }) {
@@ -36,6 +39,9 @@ export function useCanvasNodeMediaActions({ state, tasks, interactions }: { stat
         isAiConfigReady,
         openConfigDialog,
         addAsset,
+        currentProject,
+        nodes,
+        selectedNodeIds,
         setNodes,
         setConnections,
         size,
@@ -49,6 +55,7 @@ export function useCanvasNodeMediaActions({ state, tasks, interactions }: { stat
         setCropNodeId,
         setMaskEditNodeId,
         setSplitNodeId,
+        setEmotionNodeId,
         setUpscaleNodeId,
         setAngleNodeId,
         setCollapsingBatchIds,
@@ -56,6 +63,8 @@ export function useCanvasNodeMediaActions({ state, tasks, interactions }: { stat
         nodesRef,
     } = state;
     const { startGenerationRequest, finishGenerationRequest, startAndCompleteImageTask } = tasks;
+    const [selectedMediaDownloadPending, setSelectedMediaDownloadPending] = useState(false);
+    const selectedMediaNodes = useMemo(() => selectedCanvasMediaNodes(nodes, selectedNodeIds), [nodes, selectedNodeIds]);
 
     const toggleNodeFreeResize = useCallback((nodeId: string) => {
         setNodes((prev) =>
@@ -144,12 +153,26 @@ export function useCanvasNodeMediaActions({ state, tasks, interactions }: { stat
         setNodes((prev) => prev.map((node) => (node.id === nodeId ? applyNodeConfigPatch(node, patch) : node)));
     }, []);
 
-    const downloadNodeImage = useCallback((node: CanvasNodeData) => {
+    const downloadNodeImage = useCallback(async (node: CanvasNodeData) => {
         if ((!isCanvasImageNodeType(node.type) && node.type !== CanvasNodeType.Video && node.type !== CanvasNodeType.Audio) || !node.metadata?.content) return;
         const image = isCanvasImageNodeType(node.type);
         const url = image ? originalImageDownloadUrl(node.metadata.content) : originalMediaDownloadUrl(node.metadata.content);
         saveAs(url, mediaDownloadFileName(node.id, node.metadata.mimeType, node.metadata.storageKey || node.metadata.serverUrl || node.metadata.content));
     }, []);
+
+    const downloadSelectedMedia = useCallback(async () => {
+        if (selectedMediaDownloadPending || selectedMediaNodes.length < 2) return;
+        setSelectedMediaDownloadPending(true);
+        try {
+            const result = await downloadCanvasMediaBundle(selectedMediaNodes, currentProject?.title || "画布");
+            if (result.failed) message.warning(`已下载 ${result.downloaded} 项，${result.failed} 项读取失败`);
+            else message.success(`已打包下载 ${result.downloaded} 项`);
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "批量下载失败");
+        } finally {
+            setSelectedMediaDownloadPending(false);
+        }
+    }, [currentProject?.title, message, selectedMediaDownloadPending, selectedMediaNodes]);
 
     const saveNodeAsset = useCallback(
         async (node: CanvasNodeData) => {
@@ -269,7 +292,7 @@ export function useCanvasNodeMediaActions({ state, tasks, interactions }: { stat
         [effectiveConfig.model, effectiveConfig.textModel, message],
     );
 
-    const appendDerivedImageNode = useCallback((sourceNode: CanvasNodeData, image: UploadedImage, title: string, size: { width: number; height: number }) => {
+    const appendDerivedImageNode = useCallback((sourceNode: CanvasNodeData, image: UploadedImage, title: string, size: { width: number; height: number }, metadataPatch: Partial<NonNullable<CanvasNodeData["metadata"]>> = {}) => {
         const childId = nanoid();
         const child: CanvasNodeData = {
             id: childId,
@@ -277,13 +300,14 @@ export function useCanvasNodeMediaActions({ state, tasks, interactions }: { stat
             title,
             position: { x: sourceNode.position.x + sourceNode.width + 96, y: sourceNode.position.y },
             ...size,
-            metadata: { ...imageMetadata(image), prompt: sourceNode.metadata?.prompt },
+            metadata: { ...imageMetadata(image), prompt: sourceNode.metadata?.prompt, ...metadataPatch },
         };
         setNodes((prev) => [...prev, child]);
         setConnections((prev) => [...prev, { id: nanoid(), fromNodeId: sourceNode.id, toNodeId: childId }]);
         setSelectedNodeIds(new Set([childId]));
         setDialogNodeId(childId);
     }, []);
+    const { removeBackgroundImageNode, splitImageLayers } = useCanvasImageLayerActions({ state, tasks });
 
     const cropImageNode = useCallback(
         async (node: CanvasNodeData, crop: CanvasImageCropRect) => {
@@ -377,11 +401,11 @@ export function useCanvasNodeMediaActions({ state, tasks, interactions }: { stat
                 if (isGenerationCanceled(error)) return;
                 const errorDetails = error instanceof Error ? error.message : "局部修改失败";
                 const needsReview = isGenerationTaskNeedsReviewError(error);
-                message.error(errorDetails);
                 if (needsReview) {
                     setNodes((prev) => pauseCanvasGenerationReview(prev, [childId], errorDetails));
                     return;
                 }
+                message.error(errorDetails);
                 setNodes((prev) =>
                     prev.map((item) =>
                         item.id === childId
@@ -392,6 +416,56 @@ export function useCanvasNodeMediaActions({ state, tasks, interactions }: { stat
                             : item,
                     ),
                 );
+            } finally {
+                finishGenerationRequest(childId, controller);
+                setRunningNodeId(null);
+            }
+        },
+        [effectiveConfig, finishGenerationRequest, isAiConfigReady, message, openConfigDialog, startAndCompleteImageTask, startGenerationRequest],
+    );
+
+    const emotionEditImageNode = useCallback(
+        async (node: CanvasNodeData, payload: CanvasEmotionPayload) => {
+            if (!node.metadata?.content) return;
+            const generationConfig = { ...buildGenerationConfig(effectiveConfig, node, "image"), count: "1", size: node.metadata?.size || "auto" };
+            if (!isAiConfigReady(generationConfig, generationConfig.model)) {
+                openConfigDialog(true);
+                return;
+            }
+            const childId = nanoid();
+            const source = canvasNodeReferenceImage(node);
+            const generationMetadata = buildImageGenerationMetadata("edit", generationConfig, 1, [source]);
+            setEmotionNodeId(null);
+            setRunningNodeId(childId);
+            setNodes((prev) => [
+                ...prev,
+                {
+                    id: childId,
+                    type: CanvasNodeType.Image,
+                    title: "表情参考结果",
+                    position: { x: node.position.x + node.width + 96, y: node.position.y },
+                    width: node.width,
+                    height: node.height,
+                    metadata: { prompt: payload.prompt, status: NODE_STATUS_LOADING, ...generationMetadata },
+                },
+            ]);
+            setConnections((prev) => [...prev, { id: nanoid(), fromNodeId: node.id, toNodeId: childId }]);
+            setSelectedNodeIds(new Set([childId]));
+            setSelectedConnectionId(null);
+            setDialogNodeId(childId);
+            const controller = startGenerationRequest(childId, node.id, childId);
+            try {
+                await startAndCompleteImageTask(childId, generationConfig, payload.prompt, [source], undefined, controller);
+            } catch (error) {
+                if (isGenerationCanceled(error)) return;
+                const errorDetails = error instanceof Error ? error.message : "表情参考生成失败";
+                const needsReview = isGenerationTaskNeedsReviewError(error);
+                if (needsReview) {
+                    setNodes((prev) => pauseCanvasGenerationReview(prev, [childId], errorDetails));
+                    return;
+                }
+                message.error(errorDetails);
+                setNodes((prev) => prev.map((item) => (item.id === childId ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_ERROR, errorDetails, imageTask: undefined } } : item)));
             } finally {
                 finishGenerationRequest(childId, controller);
                 setRunningNodeId(null);
@@ -484,12 +558,18 @@ export function useCanvasNodeMediaActions({ state, tasks, interactions }: { stat
         handleNodePromptChange,
         handleConfigNodeChange,
         downloadNodeImage,
+        downloadSelectedMedia,
+        selectedMediaCount: selectedMediaNodes.length,
+        selectedMediaDownloadPending,
         saveNodeAsset,
         createImageReversePromptNodes,
         appendDerivedImageNode,
         cropImageNode,
         splitImageNode,
+        splitImageLayers,
+        removeBackgroundImageNode,
         maskEditImageNode,
+        emotionEditImageNode,
         upscaleImageNode,
         generateAngleNode,
         handleFontSizeChange,

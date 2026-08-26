@@ -13,6 +13,16 @@ describe("resolveImageTaskOptions", () => {
         expect(resolveImageTaskOptions({ quality: "medium", size: "1:1" }, defaults)).toEqual({ quality: "medium", size: "1:1" });
     });
 
+    it("keeps only the explicit transparent output mode", () => {
+        expect(resolveImageTaskOptions({ outputBackground: "transparent" }, defaults)).toEqual({ quality: "high", size: "9:16", outputBackground: "transparent" });
+        expect(resolveImageTaskOptions({ outputBackground: "unknown" }, defaults)).toEqual({ quality: "high", size: "9:16" });
+    });
+
+    it("keeps only the explicit layer output mode", () => {
+        expect(resolveImageTaskOptions({ outputMode: "layers" }, defaults)).toEqual({ quality: "high", size: "9:16", outputMode: "layers" });
+        expect(resolveImageTaskOptions({ outputMode: "unknown" }, defaults)).toEqual({ quality: "high", size: "9:16" });
+    });
+
     it("treats blank image parameters as missing", () => {
         expect(resolveImageTaskOptions({ quality: " ", size: "" }, defaults)).toEqual({ quality: "high", size: "9:16" });
     });

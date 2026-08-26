@@ -71,6 +71,23 @@ describe("统一创作 Agent 事件流", () => {
         stop();
     });
 
+    it("maps safe planning progress events without exposing planner payloads", () => {
+        vi.stubGlobal("EventSource", FakeEventSource);
+        const progress: string[] = [];
+        watchCreativeAgentRun("run-planning", {
+            onProgress: (text) => progress.push(text),
+            onTerminal: () => undefined,
+            onConnectionError: () => undefined,
+        });
+
+        FakeEventSource.instance.emit("run.planning.context_ready", { data: { promptJson: "must stay private" } });
+        FakeEventSource.instance.emit("run.planning.model_connected", { data: { internalReason: "must stay private" } });
+        FakeEventSource.instance.emit("run.planning.validating", { data: { plan: "must stay private" } });
+
+        expect(progress).toEqual(["需要的内容已经准备好，正在为你整理创作思路…", "创作思路已经理清，正在安排接下来的步骤…", "正在确认创作步骤，很快就可以开始…"]);
+        expect(progress.join(" ")).not.toContain("must stay private");
+    });
+
     it("reports terminal failure without asking the user to choose a target", () => {
         vi.stubGlobal("EventSource", FakeEventSource);
         const terminal: unknown[] = [];

@@ -41,7 +41,7 @@ export function DramaStoryboardShotCard({ project, episodeId, shot, expanded, on
                 <div className="flex shrink-0 items-center gap-1.5">
                     <StoryboardTag status={shot.storyboardStatus} />
                     <Tag className="!m-0">#{shot.order}</Tag>
-                    <Button size="small" className="!h-8 !px-2.5" icon={<ChevronDown className={`size-3.5 transition-transform ${expanded ? "rotate-180" : ""}`} />} iconPosition="end" aria-expanded={expanded} onClick={onToggle}>
+                    <Button size="small" className="!h-8 !px-2.5" icon={<ChevronDown className={`size-3.5 transition-transform ${expanded ? "rotate-180" : ""}`} />} iconPlacement="end" aria-expanded={expanded} onClick={onToggle}>
                         {expanded ? "收起" : "展开"}
                     </Button>
                 </div>

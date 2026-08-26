@@ -6,6 +6,7 @@ import { ArrowLeft, ReceiptText } from "lucide-react";
 import { AuthUserHydrator } from "@/components/auth/auth-user-hydrator";
 import { UserStatusActions } from "@/components/layout/user-status-actions";
 import { ADMIN_BILLING_TABS, resolveAdminBillingTab, type AdminBillingTab } from "@/lib/admin-permissions";
+import { getDatabaseProvider } from "@/lib/server/database";
 import { getAuthenticatedPageAccess } from "@/lib/server/page-access";
 import { getPaymentConfigSummary } from "@/lib/server/payment-config-status";
 import { getTrustedProxyHops } from "@/lib/server/trusted-proxy";
@@ -82,7 +83,7 @@ export default async function AdminBillingPage({ searchParams }: AdminBillingPag
                         </Link>
                     </div>
 
-                    <BillingOperations initialTab={initialTab} initialPaymentConfig={paymentConfig} />
+                    <BillingOperations databaseProvider={getDatabaseProvider()} initialTab={initialTab} initialPaymentConfig={paymentConfig} />
                 </div>
             </main>
         </AuthUserHydrator>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { App, Button, Checkbox, Input, Select, Tag } from "antd";
+import { Alert, App, Button, Checkbox, Input, Select, Tag } from "antd";
 import { FileSearch, WandSparkles } from "lucide-react";
 
 import { LabeledControl } from "@/components/admin/admin-settings-controls";
@@ -29,18 +29,26 @@ export function AdminChannelProtocolSetup({ channel, protocolLocked = false, onC
     const [examples, setExamples] = useState("");
     const [useTextModel, setUseTextModel] = useState(true);
     const [loading, setLoading] = useState(false);
-    const [draft, setDraft] = useState<ChannelProtocolDraft | null>(null);
+    const [drafts, setDrafts] = useState<ChannelProtocolDraft[]>([]);
+    const [selectedDraftIndex, setSelectedDraftIndex] = useState(0);
+    const [draftWarnings, setDraftWarnings] = useState<string[]>([]);
+    const [sourcePages, setSourcePages] = useState(0);
+    const draft = drafts[selectedDraftIndex] || null;
 
     const selectProtocol = (value: SystemChannelProtocol) => {
-        setDraft(null);
+        setDrafts([]);
+        setDraftWarnings([]);
         onChange(applyChannelProtocol(channel, value));
     };
     const analyze = async () => {
         setLoading(true);
         try {
-            const next = await createAdminChannelProtocolDraft({ documentationUrl, documentationText, examples, useTextModel });
-            setDraft(next);
-            message.success(next.assisted ? "已分析整套上游协议，请复核后应用" : "已从示例提取整套协议");
+            const result = await createAdminChannelProtocolDraft({ documentationUrl, documentationText, examples, useTextModel });
+            setDrafts(result.drafts);
+            setSelectedDraftIndex(0);
+            setDraftWarnings(result.warnings);
+            setSourcePages(result.sourcePages);
+            message.success(result.drafts.some((item) => item.assisted) ? "已分析上游协议，请逐项复核后应用" : "已从文档与示例提取协议");
         } catch (error) {
             message.error(error instanceof Error ? error.message : "协议分析失败");
         } finally {
@@ -82,7 +90,7 @@ export function AdminChannelProtocolSetup({ channel, protocolLocked = false, onC
             models: Array.from(new Set([...channel.models, ...discoveredModels])),
             advancedConfig: nextAdvanced,
         });
-        message.success("整套协议已应用；同步模型目录后会自动继承对应能力配置");
+        message.success(drafts.length > 1 ? "当前协议已应用；其他上游地址请分别建立或编辑渠道" : "整套协议已应用；同步模型目录后会自动继承对应能力配置");
     };
     const updateAuth = (patch: Partial<SystemChannelAdvancedConfig>) => onChange({ advancedConfig: { ...channel.advancedConfig!, ...patch } });
 
@@ -191,8 +199,17 @@ export function AdminChannelProtocolSetup({ channel, protocolLocked = false, onC
                     </div>
                     {draft ? (
                         <div className="mt-3 border-l-2 border-stone-400 pl-3 text-xs leading-5 text-stone-600 dark:border-stone-600 dark:text-stone-300">
+                            {draftWarnings.length ? <Alert className="mb-3" type="warning" showIcon message={draftWarnings[0]} description={draftWarnings.slice(1).join("；") || undefined} /> : null}
+                            {drafts.length > 1 ? (
+                                <div className="mb-3 max-w-xl">
+                                    <LabeledControl label="选择要应用的上游协议">
+                                        <Select className="w-full" value={selectedDraftIndex} options={drafts.map((item, index) => ({ value: index, label: draftOptionLabel(item, index) }))} onChange={setSelectedDraftIndex} />
+                                    </LabeledControl>
+                                </div>
+                            ) : null}
                             <div className="flex flex-wrap items-center gap-1.5">
                                 <span className="mr-1 font-semibold text-stone-900 dark:text-stone-100">协议分析结果</span>
+                                {sourcePages ? <Tag className="m-0">文档页 {sourcePages}</Tag> : null}
                                 <Tag className="m-0">目录 {draft.modelCatalogPaths.length}</Tag>
                                 <Tag className="m-0">能力 {draft.operations.length}</Tag>
                                 <Tag className="m-0">模型 {new Set(draft.operations.flatMap((item) => item.models.map(normalizeModelId))).size}</Tag>
@@ -200,7 +217,7 @@ export function AdminChannelProtocolSetup({ channel, protocolLocked = false, onC
                             {draft.modelCatalogPaths.length ? <div className="mt-2 break-all">模型目录：{draft.modelCatalogPaths.join("、")}</div> : null}
                             <div className="mt-2 divide-y divide-stone-200 border-y border-stone-200 dark:divide-stone-800 dark:border-stone-800">
                                 {draft.operations.map((operation) => (
-                                    <div key={operation.capability} className="py-2">
+                                    <div key={`${operation.capability}:${operation.config.createPath}`} className="py-2">
                                         <div className="font-medium text-stone-900 dark:text-stone-100">
                                             {capabilityOptions.find((item) => item.value === operation.capability)?.label} · {operation.models.length ? `${operation.models.length} 个已识别模型` : "同步目录后自动匹配模型"}
                                         </div>
@@ -215,7 +232,7 @@ export function AdminChannelProtocolSetup({ channel, protocolLocked = false, onC
                                 ))}
                             </div>
                             <Button className="mt-2" type="primary" size="small" onClick={applyDraft}>
-                                应用全部配置
+                                {drafts.length > 1 ? "应用当前协议" : "应用全部配置"}
                             </Button>
                         </div>
                     ) : null}
@@ -231,3 +248,14 @@ const authModeOptions: Array<{ label: string; value: SystemChannelAuthMode }> = 
     { label: "X-API-Key", value: "x-api-key" },
     { label: "自定义 Header", value: "custom-header" },
 ];
+
+function draftOptionLabel(draft: ChannelProtocolDraft, index: number) {
+    let host = "待填写 Base URL";
+    try {
+        host = new URL(draft.baseUrl).host || host;
+    } catch {
+        host = draft.baseUrl || host;
+    }
+    const capabilities = draft.operations.map((operation) => capabilityOptions.find((item) => item.value === operation.capability)?.label).filter(Boolean);
+    return `${index + 1}. ${host} · ${Array.from(new Set(capabilities)).join("、")}`;
+}

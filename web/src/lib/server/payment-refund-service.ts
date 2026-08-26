@@ -109,10 +109,10 @@ async function refundAlipayPayment(order: BillingOrderRecord, payment: PaymentTr
 
     const response = await fetchSafeOutbound(gateway, {
         method: "POST",
-        headers: { "content-type": "application/x-www-form-urlencoded" },
+        headers: { "content-type": "application/x-www-form-urlencoded; charset=utf-8" },
         body: new URLSearchParams(params),
     });
-    const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    const payload = await readJsonResponse(response);
     if (!response.ok) throw new BillingInputError(readAlipayError(payload, "支付宝退款失败"), response.status >= 500 ? 502 : 400);
     const result = readPath(payload, "alipay_trade_refund_response");
     const resultObject = result && typeof result === "object" && !Array.isArray(result) ? (result as Record<string, unknown>) : {};
@@ -470,6 +470,29 @@ function parseJsonObject(value: string) {
     } catch {
         return {};
     }
+}
+
+async function readJsonResponse(response: Response) {
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    const declaredCharset = response.headers.get("content-type")?.match(/charset\s*=\s*["']?([^;\s"']+)/i)?.[1];
+    const encodings = Array.from(new Set([normalizeCharset(declaredCharset), "utf-8", "gb18030"].filter(Boolean))) as string[];
+    for (const encoding of encodings) {
+        try {
+            const payload = parseJsonObject(new TextDecoder(encoding, { fatal: true }).decode(bytes));
+            if (Object.keys(payload).length) return payload;
+        } catch {
+            continue;
+        }
+    }
+    return {};
+}
+
+function normalizeCharset(value?: string) {
+    const charset = value?.trim().toLowerCase();
+    if (!charset) return "";
+    if (["utf8", "utf-8"].includes(charset)) return "utf-8";
+    if (["gbk", "gb2312", "gb18030"].includes(charset)) return "gb18030";
+    return charset;
 }
 
 function stripeApiBase(config: PaymentRuntimeConfig) {

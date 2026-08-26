@@ -1,6 +1,6 @@
 {
     "name": "vozeb-pro-workspace",
-    "version": "0.0.6",
+    "version": "0.0.7",
     "private": true,
     "packageManager": "pnpm@11.9.0",
     "scripts": {

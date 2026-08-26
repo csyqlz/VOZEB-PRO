@@ -73,6 +73,7 @@ export function creativeImageAsset(id: string, title: string, remoteUrl: string)
 
 export function settings(imageModel: string, channelId: string) {
     return {
+        site: { title: "星河创作" },
         defaultModels: { textModel: "planner", imageModel, videoModel: "", audioModel: "" },
         systemChannels: [
             { id: "planner-channel", name: "规划", enabled: true, baseUrl: "https://api.example.com/v1", apiKey: "planner-secret", models: ["vendor/planner"] },

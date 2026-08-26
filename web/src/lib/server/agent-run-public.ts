@@ -31,6 +31,7 @@ export function publicAgentRunSnapshot(run: AgentRun) {
 }
 
 export function publicAgentRunEvent(event: CreativeRunEvent): CreativeRunEvent {
+    if (event.type.startsWith("run.planning.")) return { ...event, data: undefined };
     if (event.type.startsWith("run.review.")) return { ...event, data: undefined };
     if (event.type === "run.cancel.pending") return { ...event, data: { pendingCount: arrayValue(recordValue(event.data).pendingTaskIds).length } };
     if (event.type === "canvas.ops") {
@@ -64,7 +65,15 @@ function publicAgentRunTask(task: AgentRunTask) {
 
 function publicPromptFromExecutionPrompt(prompt: string | undefined) {
     if (!prompt) return "";
-    const markers = ["\n\n统一创作约束：", "\n\n执行以下已选 Skill 约束：", "\n\n严格输出要求：", "\n\n基于画布已有节点进行局部修改：", "\n\n使用已引用创作资产：", "\n\n请保持与以下已完成产物一致，并将依赖媒体作为真实生成参考："];
+    const markers = [
+        "\n\n统一创作约束：",
+        "\n\n执行以下已选 Skill 约束：",
+        "\n\n严格输出要求：",
+        "\n\n基于画布已有节点进行局部修改：",
+        "\n\n使用已引用创作资产：",
+        "\n\n请保持与以下已完成产物一致，并将依赖媒体作为真实生成参考：",
+        "\n\n以下为内部执行上下文，只用于理解连续创作关系和指代；",
+    ];
     const boundary = markers.reduce((earliest, marker) => {
         const index = prompt.indexOf(marker);
         return index >= 0 && (earliest < 0 || index < earliest) ? index : earliest;

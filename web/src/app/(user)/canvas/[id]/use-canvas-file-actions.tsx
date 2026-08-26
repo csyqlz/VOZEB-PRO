@@ -32,6 +32,7 @@ export function useCanvasFileActions({ state, interactions }: { state: CanvasPag
         setInfoNodeId,
         setCropNodeId,
         setMaskEditNodeId,
+        setEmotionNodeId,
         nodesRef,
         selectedNodeIdsRef,
     } = state;
@@ -207,6 +208,7 @@ export function useCanvasFileActions({ state, interactions }: { state: CanvasPag
                 setInfoNodeId(null);
                 setCropNodeId(null);
                 setMaskEditNodeId(null);
+                setEmotionNodeId(null);
                 setPendingConnectionCreate(null);
             }
         };

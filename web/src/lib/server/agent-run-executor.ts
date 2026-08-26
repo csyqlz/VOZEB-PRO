@@ -7,14 +7,16 @@ import { agentPlannerSystemPrompt, agentPlanReply, buildAgentPlannerInput, conve
 import { getCreativeAssetsByIds, getCreativeConversationContext, listRecentCreativeMediaAssets } from "@/lib/server/creative-runtime-store";
 import { toSafeGenerationErrorMessage } from "@/lib/server/generation-errors";
 import { parseAgentPlanCall, type AgentFunctionCallResult } from "./agent-function-call";
-import { agentModelOptions, agentPlanFallbackExample, agentPlanTool, canContinue, directAgentPlan, executeTasks, normalizeTasks, planToOps, refundFunctionCall, requestFunctionCall } from "./agent-run-execution";
+import { agentModelOptions, agentPlanFallbackExample, agentPlanTool, canContinue, directAgentPlan, directGenerationPreferences, executeTasks, normalizeTasks, planToOps, refundFunctionCall, requestFunctionCall } from "./agent-run-execution";
 import { isExplicitProjectHandoffRequest, normalizeAgentProjectHandoff } from "./agent-run-project-handoff";
 import { normalizeCanvasPlanForSelection } from "./agent-run-task-input";
 import { GenerationSubmissionUncertainError } from "@/lib/server/generation-submission-error";
 import { rankTextPlanningCandidates } from "@/lib/server/text-planning-runtime";
 import { filterAgentPlannerModels } from "@/lib/server/agent-run-planning-profile";
 import { buildAgentRunPlannerAudit } from "@/lib/server/agent-run-audit";
+import { agentRequestDigest, buildAgentRequest, serializeAgentRequest } from "@/lib/server/agent-prompt-json";
 import { orderCreativeAssetsByIds } from "@/lib/creative-asset-references";
+import { withDirectAgentExecutionContext } from "./agent-run-direct-context";
 
 const globalAgentExecutors = globalThis as typeof globalThis & { __vozebProAgentRunControllers?: Map<string, AbortController> };
 const controllers = (globalAgentExecutors.__vozebProAgentRunControllers ??= new Map<string, AbortController>());
@@ -29,6 +31,8 @@ export async function executeAgentRun(run: AgentRun, origin: string, cookie: str
     const executionId = nanoid();
     let acceptedPlan: { userId: string; model: string; channelId: string; upstreamModel: string; call: AgentFunctionCallResult } | undefined;
     let planningPersisted = false;
+    let failureStage: NonNullable<AgentRun["failureStage"]> = run.tasks.length ? "task_execution" : "planning";
+    const candidateFailures: NonNullable<AgentRun["candidateFailures"]> = [];
     const refundAcceptedPlan = async () => {
         if (!acceptedPlan || planningPersisted) return;
         await refundFunctionCall(acceptedPlan.userId, acceptedPlan.model, acceptedPlan.call);
@@ -44,6 +48,7 @@ export async function executeAgentRun(run: AgentRun, origin: string, cookie: str
         );
         if (!claimed) return;
         if (claimed.tasks.length) {
+            failureStage = "task_execution";
             const settings = await getAuthSettings();
             await executeTasks(run.id, origin, cookie, executionId, settings);
             return;
@@ -53,7 +58,7 @@ export async function executeAgentRun(run: AgentRun, origin: string, cookie: str
         const [settings, loadedExplicitAssets, conversationContext, memoryAssets] = await Promise.all([
             getAuthSettings(),
             getCreativeAssetsByIds(claimed.referencedAssetIds, claimed.userId),
-            directModelSelection ? Promise.resolve(undefined) : getCreativeConversationContext(claimed.conversationId, claimed.userId, claimed.id),
+            getCreativeConversationContext(claimed.conversationId, claimed.userId, claimed.id),
             usesMemoryCandidates ? listRecentCreativeMediaAssets(claimed.conversationId, claimed.userId, 6) : Promise.resolve([]),
         ]);
         const explicitAssets = orderCreativeAssetsByIds(loadedExplicitAssets, claimed.referencedAssetIds);
@@ -68,8 +73,13 @@ export async function executeAgentRun(run: AgentRun, origin: string, cookie: str
             const directModelOptions = claimed.generationPreferences?.mode ? availableModels : allModels;
             const selectedModels = claimed.requestedModelIds.map((id) => directModelOptions.find((item) => item.id === id && item.capability !== "text")).filter((item): item is ReturnType<typeof agentModelOptions>[number] => Boolean(item));
             if (selectedModels.length !== claimed.requestedModelIds.length) throw new Error("部分所选模型当前不可用，请重新选择");
-            const plan = directAgentPlan(selectedModels, claimed.prompt, claimed.referencedAssetIds);
-            const tasks = normalizeTasks(plan, skills, settings, claimed.snapshot, claimed.prompt, claimed.surface, explicitAssets, claimed.requestedImageSize, claimed.generationPreferences);
+            const plan = directAgentPlan(selectedModels, claimed.prompt, claimed.referencedAssetIds, claimed.generationPreferences);
+            const tasks = withDirectAgentExecutionContext(
+                normalizeTasks(plan, skills, settings, claimed.snapshot, claimed.prompt, claimed.surface, explicitAssets, claimed.requestedImageSize, directGenerationPreferences(claimed.generationPreferences)),
+                claimed.surface,
+                claimed.snapshot,
+                conversationContext,
+            );
             await updateAgentRunById(run.id, {}, { type: "skills.selected", data: { skills: skills.map((skill) => ({ id: skill.id, name: skill.name })) } }, ["running"], executionId);
             const event = claimed.surface === "canvas" ? { type: "canvas.ops", data: { ops: planToOps(plan, tasks, run.id, claimed.snapshot), reply: plan.reply } } : { type: "run.planned", data: { reply: plan.reply, tasks: tasks.map(taskPlanSummary) } };
             await updateAgentRunById(
@@ -94,16 +104,33 @@ export async function executeAgentRun(run: AgentRun, origin: string, cookie: str
         const fallbackExample = agentPlanFallbackExample(availableModels);
         const plannerContext = buildAgentPlannerInput(claimed, plannerConversationContext!, referencedAssets, referenceSource, skillOptions, availableModels, settings);
         if (!(await updateAgentRunById(run.id, { plannerContext: plannerContext.summary }, { type: "skills.selected", data: { skills: skills.map((skill) => ({ id: skill.id, name: skill.name })) } }, ["running"], executionId))) return;
+        const plannerRequest = buildAgentRequest(claimed, plannerContext.input);
         const planningInput = [
             {
                 role: "system",
-                content: agentPlannerSystemPrompt(claimed.surface, fallbackExample),
+                content: agentPlannerSystemPrompt(claimed.surface, fallbackExample, settings.site.title),
             },
             {
                 role: "user",
-                content: JSON.stringify(plannerContext.input),
+                content: serializeAgentRequest(plannerRequest),
             },
         ];
+        if (
+            !(await updateAgentRunById(
+                run.id,
+                {
+                    promptSchemaVersion: plannerRequest.schema,
+                    promptTransport: "json",
+                    contextDigest: agentRequestDigest(plannerRequest),
+                    plannerStreamMode: undefined,
+                    plannerStreamFallbackReason: undefined,
+                },
+                { type: "run.planning.context_ready" },
+                ["running"],
+                executionId,
+            ))
+        )
+            return;
         let plan: Awaited<ReturnType<typeof parseAgentPlanCall>> | undefined;
         let latestPlanningError: unknown;
         for (const candidate of rankTextPlanningCandidates(candidates.map((candidate) => ({ ...candidate, channelId: candidate.channel.id })))) {
@@ -120,6 +147,21 @@ export async function executeAgentRun(run: AgentRun, origin: string, cookie: str
                     model,
                     false,
                     systemAiIdempotencyKey("agent-plan", run.userId, run.id, candidate.channel.id, candidate.upstreamModel),
+                    true,
+                    () =>
+                        updateAgentRunById(run.id, { timings: { ...(claimed.timings || { requestAcceptedAt: claimed.createdAt }), plannerFirstByteAt: Date.now() } }, { type: "run.planning.model_connected" }, ["running"], executionId).then(
+                            () => undefined,
+                        ),
+                );
+                await updateAgentRunById(
+                    run.id,
+                    {
+                        plannerStreamMode: planCall.transport || "complete",
+                        ...(planCall.fallbackReason ? { plannerStreamFallbackReason: planCall.fallbackReason } : {}),
+                    },
+                    { type: "run.planning.validating" },
+                    ["running"],
+                    executionId,
                 );
                 plan = await parseAgentPlanCall(planCall, () => refundFunctionCall(claimed.userId, model, planCall), undefined, {
                     allowProjectHandoff: claimed.surface === "chat" && isExplicitProjectHandoffRequest(claimed.prompt),
@@ -131,6 +173,7 @@ export async function executeAgentRun(run: AgentRun, origin: string, cookie: str
                 if (controller.signal.aborted) throw error;
                 if (error instanceof GenerationSubmissionUncertainError) throw error;
                 latestPlanningError = error;
+                candidateFailures.push({ channelId: candidate.channel.id, upstreamModel: candidate.upstreamModel, error: toSafeGenerationErrorMessage(error, "规划渠道调用失败") });
             }
         }
         if (!plan) throw latestPlanningError instanceof Error ? latestPlanningError : new Error("没有可用的文本模型渠道");
@@ -188,6 +231,7 @@ export async function executeAgentRun(run: AgentRun, origin: string, cookie: str
             return;
         }
         planningPersisted = true;
+        failureStage = "task_execution";
         await executeTasks(run.id, origin, cookie, executionId, settings);
     } catch (error) {
         let failure = error;
@@ -196,12 +240,20 @@ export async function executeAgentRun(run: AgentRun, origin: string, cookie: str
         } catch (refundError) {
             console.error("Agent planning refund failed", refundError instanceof Error ? refundError.message : refundError);
             failure = refundError;
+            failureStage = "refund";
         }
         const latest = await getAgentRun(run.id);
         if (latest && !["paused", "cancelled"].includes(latest.status))
             await updateAgentRunById(
                 run.id,
-                { status: "failed", executionId: undefined, timings: { ...(latest.timings || { requestAcceptedAt: latest.createdAt }), runCompletedAt: Date.now() } },
+                {
+                    status: "failed",
+                    executionId: undefined,
+                    failure: toSafeGenerationErrorMessage(failure, "Agent 执行失败"),
+                    failureStage,
+                    candidateFailures: candidateFailures.length ? candidateFailures : undefined,
+                    timings: { ...(latest.timings || { requestAcceptedAt: latest.createdAt }), runCompletedAt: Date.now() },
+                },
                 { type: "run.failed", data: { message: toSafeGenerationErrorMessage(failure, "Agent 执行失败") } },
                 ["planning", "running"],
                 executionId,

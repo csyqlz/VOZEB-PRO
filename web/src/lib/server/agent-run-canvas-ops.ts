@@ -3,7 +3,7 @@ import type { AgentPlan } from "@/lib/server/agent-run-validation";
 
 import { agentCanvasOutputNodeIds, agentCanvasTaskNodeId } from "./agent-run-canvas-node-ids";
 import { agentTaskResultItems } from "./agent-run-result-items";
-import { canvasSnapshotNodes } from "./agent-run-task-input";
+import { canvasSnapshotNodes, canvasTaskSourceNodeIds } from "./agent-run-task-input";
 
 const WORK_COLUMN_X = 400;
 const OUTPUT_COLUMN_X = 800;
@@ -33,6 +33,7 @@ export function planToOps(plan: AgentPlan, tasks: AgentRunTask[], runId: string,
         const taskNodeId = agentCanvasTaskNodeId(runId, index);
         const targetNodeId = task.targetNodeId && existingNodeIds.has(task.targetNodeId) ? task.targetNodeId : undefined;
         const outputNodeIds = task.type === "text" ? [] : agentCanvasOutputNodeIds(runId, index, task);
+        const sourceNodeIds = canvasTaskSourceNodeIds(task, existingNodeIds);
         ops.push(
             {
                 type: "add_node",
@@ -72,6 +73,7 @@ export function planToOps(plan: AgentPlan, tasks: AgentRunTask[], runId: string,
                     metadata: outputMetadata(runId, task, "loading"),
                 },
                 { type: "connect_nodes", fromNodeId: taskNodeId, toNodeId: outputNodeId },
+                ...sourceNodeIds.map((sourceNodeId) => ({ type: "connect_nodes", fromNodeId: sourceNodeId, toNodeId: outputNodeId })),
             );
         });
     });
@@ -81,10 +83,11 @@ export function planToOps(plan: AgentPlan, tasks: AgentRunTask[], runId: string,
 export function taskCanvasEventOps(runId: string, index: number, task: AgentRunTask, eventType: string, childTaskId?: string) {
     if (eventType === "task.completed") return taskResultOps(runId, index, task);
     if (eventType === "task.child.completed" || eventType === "task.child.failed") return taskChildResultOps(runId, index, task, eventType, childTaskId);
-    if (!new Set(["task.running", "task.created", "task.failed"]).has(eventType)) return null;
+    if (!new Set(["task.running", "task.created", "task.needs_review", "task.failed"]).has(eventType)) return null;
     const taskNodeId = agentCanvasTaskNodeId(runId, index);
     const nodeIds = task.type === "text" ? [] : agentCanvasOutputNodeIds(runId, index, task);
     const failed = eventType === "task.failed";
+    const needsReview = eventType === "task.needs_review";
     const taskIds = task.taskIds?.length ? task.taskIds : task.taskId ? [task.taskId] : undefined;
     const partialFailure = failed && task.type !== "text" && task.childTasks?.some((child) => child.status === "completed") ? failedTaskOutputOps(runId, index, task) : null;
     const ops: Array<Record<string, unknown>> = [
@@ -92,9 +95,9 @@ export function taskCanvasEventOps(runId: string, index: number, task: AgentRunT
             type: "update_node",
             id: taskNodeId,
             metadata: {
-                agentTaskStatus: failed ? "failed" : "running",
+                agentTaskStatus: failed ? "failed" : needsReview ? "needs_review" : "running",
                 agentTaskAttempts: task.attempts,
-                agentTaskError: failed ? task.error : "",
+                agentTaskError: failed || needsReview ? task.error : "",
                 agentTaskOutputNodeIds: nodeIds,
                 agentGenerationTaskIds: taskIds || [],
             },
@@ -104,8 +107,8 @@ export function taskCanvasEventOps(runId: string, index: number, task: AgentRunT
                 type: "update_node",
                 id,
                 metadata: {
-                    ...outputMetadata(runId, task, failed ? "error" : "loading"),
-                    errorDetails: failed ? task.error || "生成任务失败" : undefined,
+                    ...outputMetadata(runId, task, failed ? "error" : needsReview ? "needs_review" : "loading"),
+                    errorDetails: failed ? task.error || "生成任务失败" : needsReview ? task.error || "上游创建结果待确认" : undefined,
                     agentGenerationTaskIds: taskIds || [],
                 },
             }))),
@@ -119,6 +122,7 @@ function taskChildResultOps(runId: string, index: number, task: AgentRunTask, ev
     const outputNodeId = childIndex >= 0 ? agentCanvasOutputNodeIds(runId, index, task)[childIndex] : undefined;
     if (!outputNodeId) return null;
     const child = task.childTasks?.[childIndex];
+    const sourceNodeIds = canvasTaskSourceNodeIds(task);
     const failed = eventType === "task.child.failed";
     const completedCount = task.childTasks?.filter((item) => item.status === "completed").length || 0;
     const failedCount = task.childTasks?.filter((item) => item.status === "failed").length || 0;
@@ -137,6 +141,7 @@ function taskChildResultOps(runId: string, index: number, task: AgentRunTask, ev
                 id: agentCanvasTaskNodeId(runId, index),
                 metadata: { agentTaskStatus: "running", agentTaskCompletedCount: completedCount, agentTaskFailedCount: failedCount },
             },
+            ...sourceNodeIds.map((sourceNodeId) => ({ type: "connect_nodes", fromNodeId: sourceNodeId, toNodeId: outputNodeId })),
         ],
     };
 }
@@ -177,6 +182,7 @@ export function taskResultOps(runId: string, index: number, task: AgentRunTask) 
 
     const plannedNodeIds = agentCanvasOutputNodeIds(runId, index, task);
     const nodeIds = results.map((_, resultIndex) => `output-${runId}-${index}-${resultIndex}`);
+    const sourceNodeIds = canvasTaskSourceNodeIds(task);
     const ops: Array<Record<string, unknown>> = results.flatMap((record, resultIndex) => {
         const outputNodeId = nodeIds[resultIndex];
         const metadata = task.type === "text" ? { content: String(record.content || ""), status: "success" } : completedMediaMetadata(task, record);
@@ -205,14 +211,14 @@ export function taskResultOps(runId: string, index: number, task: AgentRunTask) 
                         position: { x: OUTPUT_COLUMN_X + resultIndex * 380, y: START_Y + index * ROW_GAP },
                         metadata: { ...metadata, agentRunId: runId, agentTaskId: task.id, agentTaskType: task.type, agentGenerationTaskIds: task.taskIds?.length ? task.taskIds : task.taskId ? [task.taskId] : [] },
                     };
-        return [nodeOp, { type: "connect_nodes", fromNodeId: taskNodeId, toNodeId: outputNodeId }];
+        return [nodeOp, { type: "connect_nodes", fromNodeId: taskNodeId, toNodeId: outputNodeId }, ...sourceNodeIds.map((sourceNodeId) => ({ type: "connect_nodes", fromNodeId: sourceNodeId, toNodeId: outputNodeId }))];
     });
     ops.push({ type: "update_node", id: taskNodeId, metadata: { agentTaskStatus: "completed", agentTaskOutputNodeIds: nodeIds, agentTaskAttempts: task.attempts, agentTaskError: "" } });
     if (task.type === "text" && nodeIds.length) ops.push({ type: "select_nodes", ids: nodeIds });
     return { nodeIds, ops };
 }
 
-function outputMetadata(runId: string, task: AgentRunTask, status: "loading" | "error") {
+function outputMetadata(runId: string, task: AgentRunTask, status: "loading" | "needs_review" | "error") {
     return {
         agentRunId: runId,
         agentTaskId: task.id,
@@ -267,14 +273,18 @@ function failedTaskOutputOps(runId: string, index: number, task: AgentRunTask) {
     const missingChildren = Math.max(0, plannedCount - (task.childTasks?.length || 0));
     entries.push(...Array.from({ length: missingChildren }, () => ({ status: "failed" as const, error: task.error || "生成任务失败", taskId: "" })));
     const nodeIds = entries.map((_, resultIndex) => `output-${runId}-${index}-${resultIndex}`);
-    const ops = entries.map((entry, resultIndex) => {
+    const sourceNodeIds = canvasTaskSourceNodeIds(task);
+    const ops = entries.flatMap((entry, resultIndex) => {
         const id = nodeIds[resultIndex];
         const metadata =
             entry.status === "completed"
                 ? { ...completedMediaMetadata(task, entry.result), agentRunId: runId, agentTaskId: task.id, agentTaskType: task.type, agentGenerationTaskIds: entry.taskId ? [entry.taskId] : [] }
                 : { ...outputMetadata(runId, task, "error"), errorDetails: entry.error, agentGenerationTaskIds: entry.taskId ? [entry.taskId] : [] };
-        if (resultIndex < plannedCount) return { type: "update_node", id, patch: { title: entries.length > 1 ? `${task.title} ${resultIndex + 1}` : task.title }, metadata };
-        return { type: "add_node", id, nodeType: task.type, title: `${task.title} ${resultIndex + 1}`, position: { x: OUTPUT_COLUMN_X + resultIndex * 380, y: START_Y + index * ROW_GAP }, metadata };
+        const nodeOp =
+            resultIndex < plannedCount
+                ? { type: "update_node", id, patch: { title: entries.length > 1 ? `${task.title} ${resultIndex + 1}` : task.title }, metadata }
+                : { type: "add_node", id, nodeType: task.type, title: `${task.title} ${resultIndex + 1}`, position: { x: OUTPUT_COLUMN_X + resultIndex * 380, y: START_Y + index * ROW_GAP }, metadata };
+        return [nodeOp, { type: "connect_nodes", fromNodeId: agentCanvasTaskNodeId(runId, index), toNodeId: id }, ...sourceNodeIds.map((sourceNodeId) => ({ type: "connect_nodes", fromNodeId: sourceNodeId, toNodeId: id }))];
     });
     return { nodeIds, ops };
 }

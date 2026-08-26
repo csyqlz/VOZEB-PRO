@@ -1,5 +1,6 @@
 "use client";
 
+import { useLayoutEffect, useRef, useState } from "react";
 import { Globe2, ImageIcon, List, Music2, Settings2, Video } from "lucide-react";
 import { nanoid } from "nanoid";
 
@@ -150,11 +151,33 @@ export function NodeCreateMenu({ position, onCreate, onClose }: { position: Posi
 
 export function ConnectionCreateMenu({ pending, onCreate, onClose }: { pending: PendingConnectionCreate; onCreate: (type: CanvasCreatableNodeType) => void; onClose: () => void }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
+    const menuRef = useRef<HTMLDivElement>(null);
+    const [placement, setPlacement] = useState({ anchorX: pending.position.x, anchorY: pending.position.y, offsetX: 0, offsetY: 0 });
+    const currentPlacement = placement.anchorX === pending.position.x && placement.anchorY === pending.position.y ? placement : { anchorX: pending.position.x, anchorY: pending.position.y, offsetX: 0, offsetY: 0 };
+    useLayoutEffect(() => {
+        const menu = menuRef.current;
+        const surface = menu?.closest<HTMLElement>("[data-canvas-surface]");
+        if (!menu || !surface) return;
+        const menuRect = menu.getBoundingClientRect();
+        const surfaceRect = surface.getBoundingClientRect();
+        const inset = 16;
+        const shiftX = menuRect.left < surfaceRect.left + inset ? surfaceRect.left + inset - menuRect.left : menuRect.right > surfaceRect.right - inset ? surfaceRect.right - inset - menuRect.right : 0;
+        const shiftY = menuRect.top < surfaceRect.top + inset ? surfaceRect.top + inset - menuRect.top : menuRect.bottom > surfaceRect.bottom - inset ? surfaceRect.bottom - inset - menuRect.bottom : 0;
+        if (!shiftX && !shiftY) return;
+        const scale = menu.offsetWidth ? menuRect.width / menu.offsetWidth : 1;
+        setPlacement({
+            anchorX: pending.position.x,
+            anchorY: pending.position.y,
+            offsetX: currentPlacement.offsetX + shiftX / Math.max(scale, 0.01),
+            offsetY: currentPlacement.offsetY + shiftY / Math.max(scale, 0.01),
+        });
+    }, [currentPlacement.offsetX, currentPlacement.offsetY, pending.position.x, pending.position.y]);
     return (
         <div
+            ref={menuRef}
             className="absolute z-[120] w-[300px] rounded-[18px] border p-3 shadow-2xl backdrop-blur"
             data-connection-create-menu
-            style={{ left: pending.position.x, top: pending.position.y, background: theme.node.panel, borderColor: theme.node.stroke, color: theme.node.text }}
+            style={{ left: pending.position.x + currentPlacement.offsetX, top: pending.position.y + currentPlacement.offsetY, background: theme.node.panel, borderColor: theme.node.stroke, color: theme.node.text }}
             onMouseDown={(event) => event.stopPropagation()}
             onPointerDown={(event) => event.stopPropagation()}
         >

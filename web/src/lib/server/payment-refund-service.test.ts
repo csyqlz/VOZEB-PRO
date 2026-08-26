@@ -163,7 +163,7 @@ describe("payment refunds", () => {
             "https://alipay.test/gateway.do",
             expect.objectContaining({
                 method: "POST",
-                headers: expect.objectContaining({ "content-type": "application/x-www-form-urlencoded" }),
+                headers: expect.objectContaining({ "content-type": "application/x-www-form-urlencoded; charset=utf-8" }),
             }),
         );
         const params = fetchMock.mock.calls[0]?.[1]?.body as URLSearchParams;
@@ -176,6 +176,27 @@ describe("payment refunds", () => {
             trade_no: "2026071500000000001",
             refund_amount: "12.99",
             refund_reason: "重复支付",
+        });
+    });
+
+    it("decodes Alipay GBK error responses before exposing the provider message", async () => {
+        mocks.runtimeConfig.valuesByEnvName = {
+            VOZEB_PRO_ALIPAY_APP_ID: "2026000000000000",
+            VOZEB_PRO_ALIPAY_PRIVATE_KEY: testPrivateKey(),
+            VOZEB_PRO_ALIPAY_GATEWAY_URL: "https://alipay.test/gateway.do",
+        };
+        const gbkPayload = new Uint8Array([
+            123, 34, 97, 108, 105, 112, 97, 121, 95, 116, 114, 97, 100, 101, 95, 114, 101, 102, 117, 110, 100, 95, 114, 101, 115, 112, 111, 110, 115, 101, 34, 58, 123, 34, 99, 111, 100, 101, 34, 58, 34, 52, 48, 48, 48, 52, 34, 44, 34, 115, 117, 98, 95,
+            109, 115, 103, 34, 58, 34, 205, 203, 191, 238, 199, 235, 199, 243, 178, 206, 202, 253, 180, 237, 206, 243, 34, 125, 125,
+        ]);
+        vi.stubGlobal(
+            "fetch",
+            vi.fn(async () => new Response(gbkPayload, { status: 400, headers: { "content-type": "application/json; charset=GBK" } })),
+        );
+
+        await expect(refundPaymentTransaction({ ...order, provider: "alipay", currency: "CNY" }, { ...payment, provider: "alipay" })).rejects.toMatchObject({
+            message: "退款请求参数错误",
+            status: 400,
         });
     });
 

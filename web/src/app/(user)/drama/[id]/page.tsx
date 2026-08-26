@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { App, Button, Empty } from "antd";
 import { ArrowRight, History } from "lucide-react";
+import { nanoid } from "nanoid";
 import { useParams, useRouter } from "next/navigation";
 
 import { createImageGenerationTask, waitForImageGenerationTask } from "@/services/api/image";
@@ -106,7 +107,11 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
         if (!episode.script.trim()) return message.warning("请先填写剧本内容");
         setAnalyzing(true);
         try {
-            const response = await fetch("/api/drama/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phase: "content", script: episode.script, summary: project.summary, style: project.style }) });
+            const response = await fetch("/api/drama/analyze", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ requestId: `drama-content:${project.id}:${episode.id}:${nanoid()}`, phase: "content", script: episode.script, summary: project.summary, style: project.style, videoModel: config.videoModel || config.model }),
+            });
             syncUserPointsFromHeaders(response.headers, "system");
             const payload = (await response.json().catch(() => ({}))) as { data?: DramaContentAnalysis; msg?: string };
             if (!response.ok || !payload.data) throw new Error(payload.msg || "AI 剧本解析失败");
@@ -128,7 +133,25 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
             const response = await fetch("/api/drama/analyze", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ phase: "visual", summary: project.summary, style: project.style, episode, characters: project.characters, scenes: project.scenes, props: project.props, clues: project.clues, shots: episode.shots }),
+                body: JSON.stringify({
+                    requestId: `drama-visual:${project.id}:${episode.id}:${nanoid()}`,
+                    phase: "visual",
+                    summary: project.summary,
+                    style: project.style,
+                    episode: {
+                        id: episode.id,
+                        title: episode.title,
+                        outline: episode.outline,
+                        hook: episode.hook,
+                        nextPreview: episode.nextPreview,
+                        sourceRange: episode.sourceRange,
+                    },
+                    characters: project.characters,
+                    scenes: project.scenes,
+                    props: project.props,
+                    clues: project.clues,
+                    shots: episode.shots,
+                }),
             });
             syncUserPointsFromHeaders(response.headers, "system");
             const payload = (await response.json().catch(() => ({}))) as { data?: DramaVisualAnalysis; msg?: string };

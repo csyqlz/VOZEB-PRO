@@ -8,6 +8,7 @@ import { createLocalMediaResponse, createMediaHeadResponse, mediaContentDisposit
 import { getLocalMediaRegistration } from "@/lib/server/local-media-registry";
 import { acquireMediaConcurrency, withMediaConcurrency } from "@/lib/server/media-concurrency";
 import { createExternalMediaReadUrl } from "@/lib/server/object-storage-service";
+import { verifyGenerationAssetSignature } from "@/lib/server/reference-asset-access";
 import { checkLocalMediaRateLimit, rateLimitHeaders } from "@/lib/server/security";
 
 export const runtime = "nodejs";
@@ -26,27 +27,39 @@ export async function HEAD(request: Request, context: RouteContext) {
 }
 
 async function serveGenerationAsset(request: Request, context: RouteContext) {
-    const currentUser = await getCurrentUser();
-    if (!currentUser) return NextResponse.json({ error: "请先登录" }, { status: 401 });
-
     const { path } = await context.params;
-    const rate = await checkLocalMediaRateLimit(`user:${currentUser.id}`, request);
+    const storagePath = (path || []).join("/");
+    const url = new URL(request.url);
+    const signature = url.searchParams.get("signature") || "";
+    let registration: Awaited<ReturnType<typeof getLocalMediaRegistration>> = null;
+    if (signature) registration = await getLocalMediaRegistration(storagePath);
+    if (signature && !registration) return NextResponse.json({ error: "资源不存在" }, { status: 404 });
+    const signed = Boolean(registration && verifyGenerationAssetSignature(storagePath, url.searchParams.get("purpose"), url.searchParams.get("expires"), signature, registration.ownerUserId));
+    if (signed && url.searchParams.get("download") === "original") return NextResponse.json({ code: 403, data: null, msg: "上游读取签名不提供原件下载" }, { status: 403 });
+    let rateIdentity = `signature:${signature}`;
+    let currentUser: Awaited<ReturnType<typeof getCurrentUser>> = null;
+    if (!signed) {
+        currentUser = await getCurrentUser(request);
+        if (!currentUser) return NextResponse.json({ error: "请先登录" }, { status: 401 });
+        rateIdentity = `user:${currentUser.id}`;
+    }
+    const rate = await checkLocalMediaRateLimit(rateIdentity, request);
     if (!rate.allowed) return NextResponse.json({ error: "媒体访问过于频繁，请稍后重试" }, { status: 429, headers: rateLimitHeaders(rate) });
     const root = resolve(getServerDataDir(), "generation-assets");
     const filePath = resolve(root, ...(path || []));
-    const downloadOriginal = new URL(request.url).searchParams.get("download") === "original";
+    const downloadOriginal = url.searchParams.get("download") === "original";
     if (!isInsideRoot(filePath, root)) return NextResponse.json({ error: "资源不存在" }, { status: 404 });
     const assetUrl = `/api/generation-log-assets/${(path || []).join("/")}`;
-    if (!(await canAccessGenerationAsset(currentUser.id, currentUser.role, assetUrl))) return NextResponse.json({ error: "资源不存在" }, { status: 404 });
+    if (currentUser && !(await canAccessGenerationAsset(currentUser.id, currentUser.role, assetUrl))) return NextResponse.json({ error: "资源不存在" }, { status: 404 });
 
-    const registration = await getLocalMediaRegistration((path || []).join("/"));
+    registration ||= await getLocalMediaRegistration((path || []).join("/"));
     if (request.method === "HEAD" && registration?.storageProvider === "object") {
         return createMediaHeadResponse(registration.mimeType, registration.bytes, {
             "Cache-Control": "private, max-age=3600",
             "Content-Disposition": mediaContentDisposition(downloadOriginal ? "attachment" : "inline", registration.originalName || path.at(-1) || "media", registration.mimeType, downloadOriginal ? registration.storageKey || path.join("/") : ""),
         });
     }
-    const permit = acquireMediaConcurrency("local", `user:${currentUser.id}`);
+    const permit = acquireMediaConcurrency("local", rateIdentity);
     if (!permit) return NextResponse.json({ error: "媒体并发访问过多，请稍后重试" }, { status: 429, headers: { "Retry-After": "2" } });
     if (registration?.storageProvider === "object") {
         try {
@@ -69,7 +82,7 @@ async function serveGenerationAsset(request: Request, context: RouteContext) {
             permit.release();
             return NextResponse.json({ error: "资源不存在" }, { status: 404 });
         }
-        return withMediaConcurrency(response, permit);
+        return withMediaConcurrency(response, permit, request.signal);
     } catch (error) {
         permit.release();
         throw error;

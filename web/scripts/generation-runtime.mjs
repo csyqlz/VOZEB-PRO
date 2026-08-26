@@ -34,15 +34,26 @@ export function resolveGenerationWorkerOrigin({ environment = process.env, fallb
     return url.origin;
 }
 
+export async function waitForHttpReady({ origin, fetcher = fetch, sleep = retrySleep, signal } = {}) {
+    const healthUrl = new URL("/api/health/live", origin).toString();
+    let retryMs = 50;
+    while (!signal?.aborted) {
+        try {
+            const response = await fetcher(healthUrl, { signal: AbortSignal.timeout(5_000), cache: "no-store" });
+            if (response.ok) return;
+        } catch {
+            // The app may still be binding its port; keep waiting for its health contract.
+        }
+        await sleep(retryMs, signal);
+        retryMs = Math.min(retryMs * 2, 1_000);
+    }
+    throw new DOMException("Aborted", "AbortError");
+}
+
 export function superviseGenerationRuntime({ app, workerScript, environment }) {
-    const definitions = [
-        { name: "web", command: app.command, args: app.args, cwd: app.cwd },
-        { name: "generation-worker", command: process.execPath, args: [workerScript], cwd: app.cwd },
-    ];
-    const children = definitions.map((definition) => ({
-        ...definition,
-        process: spawn(definition.command, definition.args, { cwd: definition.cwd, env: environment, stdio: "inherit" }),
-    }));
+    const children = [];
+    const readinessAbort = new AbortController();
+    let workerStarted = false;
 
     return new Promise((resolve) => {
         let closed = 0;
@@ -54,6 +65,7 @@ export function superviseGenerationRuntime({ app, workerScript, environment }) {
             process.off("SIGINT", stopForSignal);
             process.off("SIGTERM", stopForSignal);
             if (forceTimer) clearTimeout(forceTimer);
+            readinessAbort.abort();
         };
         const stop = (exitCode) => {
             if (stopping) return;
@@ -71,9 +83,12 @@ export function superviseGenerationRuntime({ app, workerScript, environment }) {
         };
         const stopForSignal = () => stop(0);
 
-        process.once("SIGINT", stopForSignal);
-        process.once("SIGTERM", stopForSignal);
-        for (const child of children) {
+        const registerChild = (definition) => {
+            const child = {
+                ...definition,
+                process: spawn(definition.command, definition.args, { cwd: definition.cwd, env: environment, stdio: "inherit" }),
+            };
+            children.push(child);
             child.process.once("error", (error) => {
                 console.error(`${child.name} process failed to start`, error);
                 stop(1);
@@ -89,7 +104,42 @@ export function superviseGenerationRuntime({ app, workerScript, environment }) {
                     resolve(requestedExitCode);
                 }
             });
+            return child;
+        };
+
+        process.once("SIGINT", stopForSignal);
+        process.once("SIGTERM", stopForSignal);
+        const web = registerChild({ name: "web", command: app.command, args: app.args, cwd: app.cwd });
+        void waitForHttpReady({ origin: environment.VOZEB_PRO_WORKER_API_ORIGIN, signal: readinessAbort.signal })
+            .then(() => {
+                if (stopping || workerStarted || web.process.exitCode !== null || web.process.signalCode !== null) return;
+                workerStarted = true;
+                registerChild({ name: "generation-worker", command: process.execPath, args: [workerScript], cwd: app.cwd });
+            })
+            .catch((error) => {
+                if (!stopping && !(error instanceof DOMException && error.name === "AbortError")) {
+                    console.error("Web health check failed before starting generation worker", error instanceof Error ? error.message : error);
+                    stop(1);
+                }
+            });
+    });
+}
+
+function retrySleep(ms, signal) {
+    return new Promise((resolve, reject) => {
+        if (signal?.aborted) {
+            reject(new DOMException("Aborted", "AbortError"));
+            return;
         }
+        const timer = setTimeout(resolve, ms);
+        signal?.addEventListener(
+            "abort",
+            () => {
+                clearTimeout(timer);
+                reject(new DOMException("Aborted", "AbortError"));
+            },
+            { once: true },
+        );
     });
 }
 

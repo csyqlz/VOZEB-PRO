@@ -7,14 +7,14 @@ import { FileText, Image as ImageIcon, Music2, Video } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { imagePreviewUrl } from "@/lib/media-image-url";
+import { mentionAtCursor, type MentionAtCursor } from "@/lib/mention-at-cursor";
 import { useThemeStore } from "@/stores/use-theme-store";
 import type { CanvasResourceReference } from "../utils/canvas-resource-references";
 import { handleMentionNavigation } from "../utils/canvas-mention-navigation";
 
-type MentionState = {
-    start: number;
-    query: string;
-};
+export function canvasResourceMentionAtCursor(value: string, cursor: number): MentionAtCursor | undefined {
+    return mentionAtCursor(value, cursor);
+}
 
 type Props = Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "onChange" | "value"> & {
     value: string;
@@ -32,10 +32,9 @@ export const CanvasResourceMentionTextarea = forwardRef<HTMLTextAreaElement, Pro
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const textareaRef = useRef<HTMLTextAreaElement | null>(null);
     const overlayRef = useRef<HTMLDivElement | null>(null);
-    const [mention, setMention] = useState<MentionState | null>(null);
+    const [mention, setMention] = useState<MentionAtCursor | null>(null);
     const [activeIndex, setActiveIndex] = useState(0);
     const [hasSelection, setHasSelection] = useState(false);
-    const [focused, setFocused] = useState(false);
 
     useEffect(() => {
         if (!autoFocus) return;
@@ -71,13 +70,12 @@ export const CanvasResourceMentionTextarea = forwardRef<HTMLTextAreaElement, Pro
     };
 
     const syncMention = (nextValue: string, cursor: number) => {
-        const prefix = nextValue.slice(0, cursor);
-        const match = /(^|\s)@([^\s@]*)$/.exec(prefix);
-        if (!match || !references.some((item) => item.active)) {
+        const nextMention = canvasResourceMentionAtCursor(nextValue, cursor);
+        if (!nextMention || !references.some((item) => item.active)) {
             closeMention();
             return;
         }
-        setMention({ start: cursor - match[2].length - 1, query: match[2] });
+        setMention(nextMention);
         setActiveIndex(0);
     };
 
@@ -103,7 +101,7 @@ export const CanvasResourceMentionTextarea = forwardRef<HTMLTextAreaElement, Pro
     };
 
     const hasActiveLabelInValue = activeLabels.some((label) => value.includes(label));
-    const showOverlay = Boolean(value && hasActiveLabelInValue && !hasSelection && !focused);
+    const showOverlay = Boolean(value && hasActiveLabelInValue && !hasSelection);
     const mergedStyle = {
         ...(style || {}),
         color: showOverlay ? "transparent" : style?.color,
@@ -116,7 +114,7 @@ export const CanvasResourceMentionTextarea = forwardRef<HTMLTextAreaElement, Pro
         <div className={`relative h-full w-full ${containerClassName || ""}`}>
             {showOverlay ? (
                 <div ref={overlayRef} className={`${className || ""} pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words`} style={{ ...style, color: theme.node.text }}>
-                    <MentionHighlightText value={value || props.placeholder?.toString() || ""} labels={activeLabels} placeholder={!value} />
+                    <MentionHighlightText value={value || props.placeholder?.toString() || ""} labels={activeLabels} references={references} placeholder={!value} />
                 </div>
             ) : null}
             <textarea
@@ -144,7 +142,6 @@ export const CanvasResourceMentionTextarea = forwardRef<HTMLTextAreaElement, Pro
                     props.onSelect?.(event);
                 }}
                 onFocus={(event) => {
-                    setFocused(true);
                     updateSelectionState();
                     props.onFocus?.(event);
                 }}
@@ -170,7 +167,6 @@ export const CanvasResourceMentionTextarea = forwardRef<HTMLTextAreaElement, Pro
                     props.onScroll?.(event);
                 }}
                 onBlur={(event) => {
-                    setFocused(false);
                     setHasSelection(false);
                     window.setTimeout(closeMention, 120);
                     props.onBlur?.(event);
@@ -181,22 +177,42 @@ export const CanvasResourceMentionTextarea = forwardRef<HTMLTextAreaElement, Pro
     );
 });
 
-function MentionHighlightText({ value, labels, placeholder }: { value: string; labels: string[]; placeholder: boolean }) {
+export function CanvasResourceMentionText({ value, references }: { value: string; references: CanvasResourceReference[] }) {
+    const labels = Array.from(new Set(references.filter((reference) => reference.active).map((reference) => reference.label))).sort((a, b) => b.length - a.length);
+    return <MentionHighlightText value={value} labels={labels} references={references} placeholder={!value} />;
+}
+
+function MentionHighlightText({ value, labels, references, placeholder }: { value: string; labels: string[]; references: CanvasResourceReference[]; placeholder: boolean }) {
     if (placeholder) return <span className="opacity-45">{value}</span>;
     if (!labels.length) return <>{value}</>;
     const pattern = new RegExp(`(${labels.map(escapeRegExp).join("|")})`, "g");
+    const referencesByLabel = new Map(references.filter((reference) => reference.active).map((reference) => [reference.label, reference]));
+    return <>{value.split(pattern).map((part, index) => (referencesByLabel.has(part) ? <ReferenceToken key={`${part}-${index}`} reference={referencesByLabel.get(part)!} /> : <span key={`${part}-${index}`}>{part}</span>))}</>;
+}
+
+function ReferenceToken({ reference }: { reference: CanvasResourceReference }) {
+    const preview =
+        reference.kind === "image" && reference.previewUrl ? (
+            <img src={imagePreviewUrl(reference.previewUrl, 64)} alt="" className="size-[1.2em] shrink-0 rounded-sm object-cover" />
+        ) : reference.kind === "video" && reference.previewUrl ? (
+            <video src={reference.previewUrl} muted playsInline preload="metadata" aria-hidden="true" className="size-[1.2em] shrink-0 rounded-sm bg-black object-cover" />
+        ) : (
+            <ReferencePreviewIcon kind={reference.kind} />
+        );
     return (
-        <>
-            {value.split(pattern).map((part, index) =>
-                labels.includes(part) ? (
-                    <span key={`${part}-${index}`} className="rounded-md bg-[#2f80ff]/16 px-1 py-0.5 font-medium text-[#2f80ff] ring-1 ring-[#2f80ff]/24">
-                        {part}
-                    </span>
-                ) : (
-                    <span key={`${part}-${index}`}>{part}</span>
-                ),
-            )}
-        </>
+        <span data-canvas-resource-reference={reference.nodeId} title={reference.title} className="mx-0.5 inline-flex max-w-full items-center gap-1 rounded-md bg-[#2f80ff]/12 px-1 py-0.5 align-baseline font-medium text-[#2f80ff] ring-1 ring-[#2f80ff]/24">
+            {preview}
+            <span className="min-w-0 truncate">{reference.label}</span>
+        </span>
+    );
+}
+
+function ReferencePreviewIcon({ kind }: Pick<CanvasResourceReference, "kind">) {
+    const Icon = kind === "audio" ? Music2 : kind === "video" ? Video : kind === "image" ? ImageIcon : FileText;
+    return (
+        <span className="grid size-[1.2em] shrink-0 place-items-center rounded-sm bg-current/10">
+            <Icon className="size-[0.8em]" aria-hidden="true" />
+        </span>
     );
 }
 

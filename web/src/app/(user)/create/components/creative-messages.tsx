@@ -291,7 +291,7 @@ function CreativeMediaRound({
                                 </div>
                             ) : null}
                             {textOutputs.length ? <CreativeAssetResults assets={textOutputs} messageText={displayContent} selectedAssetIds={selectedAssetIds} onToggleAsset={onToggleAsset} contained /> : null}
-                            {mode === "video" && videoOutputs.length ? (
+                            {videoOutputs.length ? (
                                 <>
                                     <CreativeVideoResult
                                         assets={videoOutputs}
