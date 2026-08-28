@@ -1,6 +1,6 @@
 "use client";
 
-import { Button, Input, InputNumber, Modal } from "antd";
+import { Alert, Button, Input, InputNumber, Modal } from "antd";
 import { ArrowLeft, Check, ChevronDown, SlidersHorizontal } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -10,7 +10,21 @@ import { DramaStageHeader } from "./drama-editor-elements";
 import type { DramaProjectStage } from "./drama-project-sections";
 import { DramaShotDialogueEditor } from "./drama-shot-dialogue-editor";
 
-export function DramaReviewPanel({ project, episode, onDesignVisuals, designing, onStageChange }: { project: DramaProject; episode: DramaEpisode; onDesignVisuals: () => void; designing: boolean; onStageChange: (stage: DramaProjectStage) => void }) {
+export function DramaReviewPanel({
+    project,
+    episode,
+    onDesignVisuals,
+    designing,
+    visualFailure,
+    onStageChange,
+}: {
+    project: DramaProject;
+    episode: DramaEpisode;
+    onDesignVisuals: () => void;
+    designing: boolean;
+    visualFailure?: { kind: "terminal" | "connection"; detail: string };
+    onStageChange: (stage: DramaProjectStage) => void;
+}) {
     const updateEpisode = useDramaStore((state) => state.updateEpisode);
     const updateShot = useDramaStore((state) => state.updateShot);
     const [episodeInfoOpen, setEpisodeInfoOpen] = useState(false);
@@ -38,8 +52,20 @@ export function DramaReviewPanel({ project, episode, onDesignVisuals, designing,
                 step="02"
                 title="内容审核"
                 description="确认剧本事实、镜头边界、对白与叙事信息；视觉模型不会在这个阶段改写内容。"
-                status={!episode.shots.length ? "等待内容结构" : episode.reviewStatus === "visual_ready" ? "视觉方案已生成" : "待确认"}
-                tone={!episode.shots.length ? "attention" : episode.reviewStatus === "visual_ready" ? "ready" : "neutral"}
+                status={
+                    !episode.shots.length
+                        ? "等待内容结构"
+                        : visualFailure?.kind === "terminal"
+                          ? "视觉方案生成失败"
+                          : visualFailure
+                            ? "任务状态待检查"
+                            : episode.visualTaskId
+                              ? "视觉方案生成中"
+                              : episode.reviewStatus === "visual_ready"
+                                ? "视觉方案已生成"
+                                : "待确认"
+                }
+                tone={!episode.shots.length || episode.visualTaskId ? "attention" : episode.reviewStatus === "visual_ready" ? "ready" : "neutral"}
                 metrics={
                     episode.shots.length
                         ? [
@@ -62,10 +88,29 @@ export function DramaReviewPanel({ project, episode, onDesignVisuals, designing,
                         loading={designing}
                         onClick={episode.shots.length ? onDesignVisuals : () => onStageChange("script")}
                     >
-                        {!episode.shots.length ? "返回剧本并提取结构" : episode.reviewStatus === "visual_ready" ? "更新视觉方案" : "确认内容并生成视觉方案"}
+                        {!episode.shots.length
+                            ? "返回剧本并提取结构"
+                            : visualFailure?.kind === "connection"
+                              ? "检查任务状态"
+                              : visualFailure?.kind === "terminal"
+                                ? "重新生成视觉方案"
+                                : episode.visualTaskId
+                                  ? "视觉方案生成中"
+                                  : episode.reviewStatus === "visual_ready"
+                                    ? "更新视觉方案"
+                                    : "确认内容并生成视觉方案"}
                     </Button>
                 }
             />
+            {visualFailure || episode.visualError ? (
+                <Alert
+                    className="mt-2.5"
+                    type={visualFailure?.kind === "connection" ? "warning" : "error"}
+                    showIcon
+                    title={visualFailure?.kind === "connection" ? "与任务状态服务的连接中断" : "视觉方案未更新"}
+                    description={visualFailure?.detail || episode.visualError}
+                />
+            ) : null}
             {episode.shots.length ? (
                 <div className="mt-2.5 space-y-2.5">
                     {episode.shots.map((shot) => {

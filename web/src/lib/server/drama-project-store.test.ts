@@ -2,12 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { DramaProject } from "@/lib/drama-project-contract";
 
-const mocks = vi.hoisted(() => ({ files: new Map<string, unknown>(), provider: "file" as "file" | "postgres", postgresQuery: vi.fn(), ensurePostgresSchema: vi.fn() }));
+const mocks = vi.hoisted(() => ({ files: new Map<string, unknown>(), provider: "file" as "file" | "postgres", postgresQuery: vi.fn(), ensurePostgresSchema: vi.fn(), withPostgresTransaction: vi.fn() }));
 
 vi.mock("@/lib/server/database", () => ({
     ensurePostgresSchema: mocks.ensurePostgresSchema,
     getDatabaseProvider: vi.fn(() => mocks.provider),
     postgresQuery: mocks.postgresQuery,
+    withPostgresTransaction: mocks.withPostgresTransaction,
 }));
 vi.mock("@/lib/server/data-adapter", () => ({
     readJsonDataFile: vi.fn(async (name: string, fallback: unknown) => structuredClone(mocks.files.has(name) ? mocks.files.get(name) : fallback)),
@@ -16,7 +17,7 @@ vi.mock("@/lib/server/data-adapter", () => ({
     }),
 }));
 
-import { createDramaProject, deleteDramaProject, getDramaProject, listDramaProjectSummaries, updateDramaProject } from "./drama-project-store";
+import { applyDramaVisualResult, assignDramaContentTask, assignDramaVisualTask, createDramaProject, deleteDramaProject, getDramaProject, listDramaProjectSummaries, updateDramaProject } from "./drama-project-store";
 
 describe("drama project file provider", () => {
     beforeEach(() => {
@@ -24,6 +25,7 @@ describe("drama project file provider", () => {
         mocks.provider = "file";
         mocks.postgresQuery.mockReset();
         mocks.ensurePostgresSchema.mockReset();
+        mocks.withPostgresTransaction.mockReset();
     });
 
     it("keeps projects isolated by user across create, update and delete", async () => {
@@ -132,6 +134,182 @@ describe("drama project file provider", () => {
             activeEpisodeId: "episode-two",
             episodes: [{ id: "episode-one" }, { id: "episode-two", shots: [{ storyboardTaskId: "image-task", generationTaskId: "video-task" }], renderTask: { id: "render-task" } }],
         });
+    });
+
+    it("assigns a content task without replacing the project snapshot", async () => {
+        const original = project("one", "项目一");
+        original.episodes[0].contentError = "旧错误";
+        await createDramaProject("user-one", original);
+
+        const updated = await assignDramaContentTask("user-one", original.id, original.episodes[0].id, "text-task-one");
+
+        expect(updated).toMatchObject({ id: original.id, title: original.title, episodes: [{ id: "episode-one", contentTaskId: "text-task-one" }] });
+        expect(updated.episodes[0].contentError).toBeUndefined();
+        await expect(getDramaProject(original.id, "user-one")).resolves.toEqual(updated);
+    });
+
+    it("assigns and applies a visual task without discarding the previous visual plan early", async () => {
+        const original = project("one", "项目一");
+        original.episodes[0] = {
+            ...original.episodes[0],
+            reviewStatus: "visual_ready",
+            visualError: "旧错误",
+            shots: [
+                {
+                    id: "shot-one",
+                    order: 1,
+                    title: "镜头一",
+                    description: "旧描述",
+                    sourceText: "原文",
+                    shotBoundary: "边界",
+                    dialogue: "对白",
+                    narration: "",
+                    utterances: [],
+                    imagePrompt: "旧图片提示词",
+                    videoPrompt: "旧视频提示词",
+                    cameraMotion: "旧运镜",
+                    duration: 5,
+                    characterIds: [],
+                    propIds: [],
+                    clueIds: [],
+                    storyboardStatus: "success",
+                    storyboardImageUrl: "/old.png",
+                    generationStatus: "success",
+                    videoUrl: "/old.mp4",
+                },
+            ],
+        };
+        await createDramaProject("user-one", original);
+
+        const assigned = await assignDramaVisualTask("user-one", original.id, "episode-one", "visual-task-one");
+        expect(assigned.episodes[0]).toMatchObject({ reviewStatus: "visual_ready", visualTaskId: "visual-task-one", shots: [{ imagePrompt: "旧图片提示词" }] });
+        expect(assigned.episodes[0].visualError).toBeUndefined();
+
+        const result = await applyDramaVisualResult("user-one", original.id, "episode-one", "visual-task-one", {
+            shots: [
+                {
+                    shotId: "shot-one",
+                    imagePrompt: "新图片提示词",
+                    videoPrompt: "新视频提示词",
+                    cameraMotion: "推进",
+                    startFramePrompt: "起始",
+                    endFramePrompt: "结束",
+                    negativePrompt: "模糊",
+                    continuity: {
+                        shotSize: "中景",
+                        cameraAngle: "平视",
+                        composition: "居中",
+                        characterBlocking: "原位",
+                        gazeDirection: "前方",
+                        actionStart: "静止",
+                        actionEnd: "迈步",
+                        screenDirection: "向右",
+                        axisRule: "不越轴",
+                        continuityNotes: "保持服装",
+                    },
+                },
+            ],
+        });
+        expect(result.project.episodes[0]).toMatchObject({ reviewStatus: "visual_ready", visualCompletedTaskId: "visual-task-one", shots: [{ imagePrompt: "新图片提示词", storyboardStatus: "idle", generationStatus: "idle" }] });
+        expect(result.project.episodes[0].visualTaskId).toBeUndefined();
+        expect(result.version).toMatchObject({ reason: "视觉方案生成前" });
+        const versions = mocks.files.get("drama-project-versions.json") as { items: Array<{ snapshot: DramaProject }> };
+        expect(versions.items[0].snapshot.episodes[0]).toMatchObject({ reviewStatus: "visual_ready", shots: [{ imagePrompt: "旧图片提示词" }] });
+        expect(versions.items[0].snapshot.episodes[0].visualTaskId).toBeUndefined();
+
+        const repeated = await applyDramaVisualResult("user-one", original.id, "episode-one", "visual-task-one", {
+            shots: [
+                {
+                    shotId: "shot-one",
+                    imagePrompt: "不会重复覆盖",
+                    videoPrompt: "不会重复覆盖",
+                    cameraMotion: "",
+                    startFramePrompt: "",
+                    endFramePrompt: "",
+                    negativePrompt: "",
+                    continuity: { shotSize: "", cameraAngle: "", composition: "", characterBlocking: "", gazeDirection: "", actionStart: "", actionEnd: "", screenDirection: "", axisRule: "", continuityNotes: "" },
+                },
+            ],
+        });
+        expect(repeated.version).toBeNull();
+        expect(repeated.project.episodes[0].shots[0].imagePrompt).toBe("新图片提示词");
+        expect((mocks.files.get("drama-project-versions.json") as { items: unknown[] }).items).toHaveLength(1);
+    });
+
+    it("updates only the matching Episode task marker in PostgreSQL", async () => {
+        mocks.provider = "postgres";
+        const updated = { ...project("one", "项目一"), episodes: [{ ...project("one", "项目一").episodes[0], contentTaskId: "text-task-one" }] };
+        mocks.postgresQuery.mockResolvedValueOnce({ rows: [{ project_json: updated }] });
+
+        await expect(assignDramaContentTask("user-one", "one", "episode-one", "text-task-one")).resolves.toEqual(updated);
+
+        const [sql, params] = mocks.postgresQuery.mock.calls[0];
+        expect(sql).toMatch(/UPDATE drama_projects[\s\S]*jsonb_build_object\(\$8::text, \$4::text\)[\s\S]*jsonb_array_elements[\s\S]*RETURNING project_json/);
+        expect(params).toEqual(["one", "user-one", "episode-one", "text-task-one", expect.any(Date), expect.any(String), "contentError", "contentTaskId"]);
+    });
+
+    it("atomically snapshots and applies a visual result in PostgreSQL", async () => {
+        mocks.provider = "postgres";
+        const current = project("one", "项目一");
+        current.episodes[0].visualTaskId = "visual-task-one";
+        current.episodes[0].shots = [
+            {
+                id: "shot-one",
+                order: 1,
+                title: "镜头一",
+                description: "描述",
+                sourceText: "原文",
+                shotBoundary: "边界",
+                dialogue: "",
+                narration: "",
+                utterances: [],
+                imagePrompt: "旧图片",
+                videoPrompt: "旧视频",
+                cameraMotion: "",
+                duration: 5,
+                characterIds: [],
+                propIds: [],
+                clueIds: [],
+            },
+        ];
+        const query = vi
+            .fn()
+            .mockResolvedValueOnce({ rows: [{ project_json: current }] })
+            .mockResolvedValueOnce({ rows: [{ version: 3 }] })
+            .mockResolvedValueOnce({ rows: [] })
+            .mockResolvedValueOnce({ rows: [] });
+        mocks.withPostgresTransaction.mockImplementation(async (run: (client: { query: typeof query }) => unknown) => run({ query }));
+
+        const result = await applyDramaVisualResult("user-one", "one", "episode-one", "visual-task-one", {
+            shots: [
+                {
+                    shotId: "shot-one",
+                    imagePrompt: "新图片",
+                    videoPrompt: "新视频",
+                    cameraMotion: "推进",
+                    startFramePrompt: "起始",
+                    endFramePrompt: "结束",
+                    negativePrompt: "模糊",
+                    continuity: {
+                        shotSize: "中景",
+                        cameraAngle: "平视",
+                        composition: "居中",
+                        characterBlocking: "原位",
+                        gazeDirection: "前方",
+                        actionStart: "静止",
+                        actionEnd: "迈步",
+                        screenDirection: "向右",
+                        axisRule: "不越轴",
+                        continuityNotes: "保持服装",
+                    },
+                },
+            ],
+        });
+
+        expect(result).toMatchObject({ project: { episodes: [{ visualCompletedTaskId: "visual-task-one", shots: [{ imagePrompt: "新图片" }] }] }, version: { version: 3, reason: "视觉方案生成前" } });
+        expect(query.mock.calls[0][0]).toMatch(/FOR UPDATE/);
+        expect(query.mock.calls[2][0]).toMatch(/INSERT INTO drama_project_versions/);
+        expect(query.mock.calls[3][0]).toMatch(/UPDATE drama_projects/);
     });
 
     it("rejects a stale conditional update instead of overwriting a newer snapshot", async () => {

@@ -44,6 +44,7 @@ export async function GET(request: Request, context: RouteContext) {
                 needsReview: executionPhase === "needs_review",
                 reviewReason: executionPhase === "needs_review" ? task.reviewReason : undefined,
                 executionPhase,
+                lastUpstreamStatus: schedule?.lastUpstreamStatus,
             },
         },
         { headers: pointsResponseHeaders(refreshedUser) },
@@ -79,7 +80,15 @@ export async function POST(request: Request, context: RouteContext) {
     const latestSchedule = await getStoredGenerationTaskRecord("text", task.id);
     if (!latest) return NextResponse.json({ error: "任务不存在或已过期" }, { status: 404 });
     return NextResponse.json(
-        { task: { ...publicTask(latest), needsReview: latestSchedule?.executionPhase === "needs_review", reviewReason: latestSchedule?.executionPhase === "needs_review" ? latest.reviewReason : undefined, executionPhase: latestSchedule?.executionPhase } },
+        {
+            task: {
+                ...publicTask(latest),
+                needsReview: latestSchedule?.executionPhase === "needs_review",
+                reviewReason: latestSchedule?.executionPhase === "needs_review" ? latest.reviewReason : undefined,
+                executionPhase: latestSchedule?.executionPhase,
+                lastUpstreamStatus: latestSchedule?.lastUpstreamStatus,
+            },
+        },
         { headers: pointsResponseHeaders(latest.status === "error" ? await getCurrentUser(request) : user) },
     );
 }

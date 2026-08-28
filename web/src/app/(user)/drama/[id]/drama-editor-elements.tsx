@@ -30,6 +30,7 @@ export function DramaStageHeader({
     metrics = [],
     action,
     secondaryAction,
+    below,
     className = "",
 }: {
     step: string;
@@ -40,6 +41,7 @@ export function DramaStageHeader({
     metrics?: Array<{ label: string; value: ReactNode }>;
     action?: ReactNode;
     secondaryAction?: ReactNode;
+    below?: ReactNode;
     className?: string;
 }) {
     return (
@@ -49,7 +51,9 @@ export function DramaStageHeader({
                     <div className="flex min-w-0 items-center gap-2">
                         <span className="shrink-0 text-[11px] font-semibold tabular-nums text-muted-foreground">{step}</span>
                         <h2 className="truncate text-base font-semibold leading-6 sm:text-[17px]">{title}</h2>
-                        <span className={`inline-flex h-5 shrink-0 items-center rounded border px-1.5 text-[11px] font-medium ${stageToneClass[tone]}`}>{status}</span>
+                        <span aria-live="polite" className={`inline-flex h-5 shrink-0 items-center rounded border px-1.5 text-[11px] font-medium ${stageToneClass[tone]}`}>
+                            {status}
+                        </span>
                     </div>
                     <p className="sr-only">{description}</p>
                     {metrics.length ? (
@@ -70,6 +74,7 @@ export function DramaStageHeader({
                     </div>
                 ) : null}
             </div>
+            {below ? <div className="mt-2.5 min-w-0">{below}</div> : null}
         </header>
     );
 }

@@ -6,6 +6,7 @@ vi.mock("@/stores/use-config-store", () => ({
 }));
 
 import type { AiConfig } from "@/stores/use-config-store";
+import { resolveModelRequestConfig } from "@/stores/use-config-store";
 import { recoverTextGenerationTask, waitForTextGenerationTask } from "./text";
 
 describe("文本任务轮询", () => {
@@ -27,5 +28,27 @@ describe("文本任务轮询", () => {
 
         await expect(recoverTextGenerationTask("text-original")).resolves.toMatchObject({ id: "text-original" });
         expect(fetchMock).toHaveBeenCalledWith("/api/text-tasks/text-original", expect.objectContaining({ method: "POST", body: JSON.stringify({ action: "recover" }) }));
+    });
+
+    it("reports the persisted lifecycle state while waiting", async () => {
+        const onState = vi.fn();
+        vi.stubGlobal(
+            "fetch",
+            vi.fn(async () => Response.json({ task: { id: "text-success", status: "success", model: "text-model", executionPhase: "persisting", lastUpstreamStatus: "persisting", result: { content: "完成" } } })),
+        );
+
+        await expect(waitForTextGenerationTask({ apiSource: "system" } as AiConfig, { id: "text-success", model: "text-model" }, { onState })).resolves.toBe("完成");
+        expect(onState).toHaveBeenCalledWith(expect.objectContaining({ status: "success", executionPhase: "persisting", lastUpstreamStatus: "persisting" }));
+    });
+
+    it("uses the persisted task model after the page default model changes", async () => {
+        vi.stubGlobal(
+            "fetch",
+            vi.fn(async () => Response.json({ task: { id: "text-success", status: "success", model: "persisted-model", result: { content: "完成" } } })),
+        );
+
+        await waitForTextGenerationTask({ apiSource: "system" } as AiConfig, { id: "text-success", model: "new-page-default" });
+
+        expect(resolveModelRequestConfig).toHaveBeenCalledWith(expect.anything(), "persisted-model");
     });
 });

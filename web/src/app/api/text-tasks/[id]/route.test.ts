@@ -22,13 +22,14 @@ describe("GET /api/text-tasks/[id]", () => {
         vi.clearAllMocks();
         mocks.currentUser.mockResolvedValue({ id: "user", role: "user" });
         mocks.getTextTask.mockResolvedValue({ id: "text-one", userId: "user", status: "running", config: { model: "text-model" } });
-        mocks.getSchedule.mockResolvedValue({ executionPhase: "polling" });
+        mocks.getSchedule.mockResolvedValue({ executionPhase: "polling", lastUpstreamStatus: "analyzing_segment" });
     });
 
     it("reads a running task without running recovery work", async () => {
         const response = await GET(new Request("http://localhost/api/text-tasks/text-one"), { params: Promise.resolve({ id: "text-one" }) });
 
         expect(response.status).toBe(200);
+        await expect(response.json()).resolves.toMatchObject({ task: { executionPhase: "polling", lastUpstreamStatus: "analyzing_segment" } });
         expect(after).not.toHaveBeenCalled();
         expect(mocks.recover).not.toHaveBeenCalled();
     });

@@ -46,6 +46,8 @@ describe("drama mobile list layout", () => {
         expect(page).toContain("open={episodeNavigatorOpen && !assetsOpen}");
         expect(page).toContain("setAssetsOpen(true)");
         expect(sections).toContain("data-drama-script-statusbar");
+        expect(sections).toContain("data-drama-content-lifecycle");
+        for (const step of ["创建任务", "排队接管", "读取原文", "结构提取", "合并校验", "保存项目", "完成"]) expect(sections).toContain(step);
         expect(sections).toContain('step="01"');
         expect(elements).toContain("data-drama-stage-metrics");
         expect(elements).toContain("border-l border-border/80");

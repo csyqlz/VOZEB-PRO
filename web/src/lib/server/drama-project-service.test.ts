@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { DramaProject } from "@/lib/drama-project-contract";
+import { DRAMA_PROJECT_MAX_BYTES, type DramaProject } from "@/lib/drama-project-contract";
 
 const mocks = vi.hoisted(() => {
     class MockDramaProjectStoreError extends Error {
@@ -25,6 +25,9 @@ const mocks = vi.hoisted(() => {
         getDramaProject: vi.fn(),
         listDramaProjectSummaries: vi.fn(),
         updateDramaProject: vi.fn(),
+        assignDramaContentTask: vi.fn(),
+        assignDramaVisualTask: vi.fn(),
+        applyDramaVisualResult: vi.fn(),
         createDramaProjectVersion: vi.fn(),
         getDramaProjectVersion: vi.fn(),
         listDramaProjectVersions: vi.fn(),
@@ -51,6 +54,9 @@ vi.mock("@/lib/server/drama-project-store", () => ({
     getDramaProject: mocks.getDramaProject,
     listDramaProjectSummaries: mocks.listDramaProjectSummaries,
     updateDramaProject: mocks.updateDramaProject,
+    assignDramaContentTask: mocks.assignDramaContentTask,
+    assignDramaVisualTask: mocks.assignDramaVisualTask,
+    applyDramaVisualResult: mocks.applyDramaVisualResult,
 }));
 vi.mock("@/lib/server/drama-project-version-store", () => ({
     createDramaProjectVersion: mocks.createDramaProjectVersion,
@@ -59,7 +65,17 @@ vi.mock("@/lib/server/drama-project-version-store", () => ({
 }));
 vi.mock("@/lib/server/user-media-deletion-service", () => ({ deleteUserMediaAssetsCascade: mocks.deleteUserMediaAssetsCascade }));
 
-import { createDramaProjectForUser, deleteDramaAgentConversationForUser, deleteDramaProjectForUser, DramaProjectServiceError, restoreDramaProjectVersionForUser, updateDramaProjectForUser } from "./drama-project-service";
+import {
+    applyDramaVisualResultForUser,
+    assignDramaVisualTaskForUser,
+    createDramaProjectForUser,
+    createDramaProjectVersionForUser,
+    deleteDramaAgentConversationForUser,
+    deleteDramaProjectForUser,
+    DramaProjectServiceError,
+    restoreDramaProjectVersionForUser,
+    updateDramaProjectForUser,
+} from "./drama-project-service";
 import { DramaProjectStoreError } from "./drama-project-store";
 
 describe("drama project service updates", () => {
@@ -75,6 +91,56 @@ describe("drama project service updates", () => {
         mocks.findDramaProjectBySourceHandoffId.mockResolvedValue(null);
         mocks.listDramaProjectSummaries.mockResolvedValue([]);
         mocks.createDramaProjectVersion.mockResolvedValue({ id: "version-new", projectId: "drama-one", version: 2, reason: "恢复前自动快照", createdAt: new Date().toISOString() });
+        mocks.assignDramaVisualTask.mockResolvedValue({ updatedAt: "2026-08-26T06:00:00.000Z" });
+    });
+
+    it("binds and applies a complete visual result through the server project state", async () => {
+        const current = project("2026-07-19T08:00:02.000Z", "项目");
+        current.episodes[0].visualTaskId = "visual-task-one";
+        current.episodes[0].shots = [
+            {
+                id: "shot-one",
+                order: 1,
+                title: "镜头一",
+                description: "描述",
+                sourceText: "原文",
+                shotBoundary: "边界",
+                dialogue: "对白",
+                narration: "",
+                utterances: [],
+                imagePrompt: "",
+                videoPrompt: "",
+                cameraMotion: "",
+                duration: 5,
+                characterIds: [],
+                propIds: [],
+                clueIds: [],
+            },
+        ];
+        mocks.getDramaProject.mockResolvedValue(current);
+        mocks.applyDramaVisualResult.mockResolvedValue({ project: current, version: { id: "version-one" } });
+
+        await expect(assignDramaVisualTaskForUser("user-one", current.id, "episode-one", "visual-task-one")).resolves.toMatchObject({ updatedAt: "2026-08-26T06:00:00.000Z" });
+        await expect(
+            applyDramaVisualResultForUser("user-one", current.id, "episode-one", {
+                taskId: "visual-task-one",
+                analysis: {
+                    shots: [
+                        {
+                            shotId: "shot-one",
+                            imagePrompt: "图片提示词",
+                            videoPrompt: "视频提示词",
+                            cameraMotion: "推进",
+                            startFramePrompt: "起始",
+                            endFramePrompt: "结束",
+                            negativePrompt: "模糊",
+                            continuity: {},
+                        },
+                    ],
+                },
+            }),
+        ).resolves.toMatchObject({ version: { id: "version-one" } });
+        expect(mocks.applyDramaVisualResult).toHaveBeenCalledWith("user-one", current.id, "episode-one", "visual-task-one", expect.objectContaining({ shots: [expect.objectContaining({ shotId: "shot-one" })] }));
     });
 
     it("does not let an older client snapshot overwrite the current project", async () => {
@@ -152,6 +218,10 @@ describe("drama project service updates", () => {
             title: `第 ${index + 1} 集`,
             script: "剧本",
             shots: index === 100 ? shots : [],
+            contentTaskId: index === 100 ? "content-task-one" : undefined,
+            contentError: index === 100 ? "内容任务暂时失败" : undefined,
+            visualTaskId: index === 100 ? "visual-task-one" : undefined,
+            visualError: index === 100 ? "视觉任务暂时失败" : undefined,
             visualReview:
                 index === 100 ? { mode: "text", status: "needs_revision", summary: "需要调整", issues: Array.from({ length: 9 }, (__, issueIndex) => ({ category: `问题 ${issueIndex}`, severity: "low", message: `说明 ${issueIndex}` })) } : undefined,
         }));
@@ -181,7 +251,32 @@ describe("drama project service updates", () => {
         expect(saved.episodes[100].shots[500].propIds).toHaveLength(51);
         expect(saved.episodes[100].shots[500].clueIds).toHaveLength(51);
         expect(saved.episodes[100].visualReview?.issues).toHaveLength(9);
+        expect(saved.episodes[100]).toMatchObject({ contentTaskId: "content-task-one", contentError: "内容任务暂时失败", visualTaskId: "visual-task-one", visualError: "视觉任务暂时失败" });
         expect(saved.characters[200].references).toHaveLength(13);
+    });
+
+    it("accepts imported projects and versions between 2 MiB and the shared 8 MiB limit", async () => {
+        const current = project("2026-07-19T08:00:01.000Z", "旧标题");
+        const imported = { ...project("2026-07-19T08:00:02.000Z", "整本剧本"), episodes: [{ ...current.episodes[0], script: "剧".repeat(1_050_000) }] };
+        mocks.getDramaProject.mockResolvedValue(current);
+
+        expect(Buffer.byteLength(JSON.stringify(imported))).toBeGreaterThan(2 * 1024 * 1024);
+        expect(Buffer.byteLength(JSON.stringify(imported))).toBeLessThan(DRAMA_PROJECT_MAX_BYTES);
+        await expect(updateDramaProjectForUser("user-one", current.id, imported)).resolves.toMatchObject({ title: "整本剧本" });
+        await expect(createDramaProjectVersionForUser("user-one", current.id, { reason: "整本导入后", snapshot: imported })).resolves.toMatchObject({ id: "version-new" });
+    });
+
+    it("rejects oversized project creation, updates, and versions at the shared limit", async () => {
+        const current = project("2026-07-19T08:00:01.000Z", "旧标题");
+        const script = "x".repeat(DRAMA_PROJECT_MAX_BYTES);
+        const oversized = { ...project("2026-07-19T08:00:02.000Z", "超大剧本"), episodes: [{ ...current.episodes[0], script }] };
+        mocks.getDramaProject.mockResolvedValue(current);
+
+        await expect(createDramaProjectForUser("user-one", { title: "超大剧本", initialScript: script })).rejects.toMatchObject({ status: 413, message: "短剧项目数据过大" });
+        await expect(updateDramaProjectForUser("user-one", current.id, oversized)).rejects.toMatchObject({ status: 413, message: "短剧项目数据过大" });
+        await expect(createDramaProjectVersionForUser("user-one", current.id, { snapshot: oversized })).rejects.toMatchObject({ status: 413, message: "短剧版本数据过大" });
+        expect(mocks.createDramaProject).not.toHaveBeenCalled();
+        expect(mocks.updateDramaProject).not.toHaveBeenCalled();
     });
 
     it("archives the new conversation when project creation fails", async () => {

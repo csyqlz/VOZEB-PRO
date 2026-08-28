@@ -7,6 +7,9 @@ import { nanoid } from "nanoid";
 import { useParams, useRouter } from "next/navigation";
 
 import { createImageGenerationTask, waitForImageGenerationTask } from "@/services/api/image";
+import { waitForTextGenerationTask, type TextGenerationTaskLifecycle } from "@/services/api/text";
+import { isGenerationTaskTerminalError } from "@/services/api/generation-task-state";
+import { applyDramaVisualResult, DramaVisualResultError } from "@/services/api/drama-projects";
 import { createServerVideoGenerationTask } from "@/services/api/video";
 import { syncUserPointsFromHeaders } from "@/services/api/points";
 import { compileDramaShotPrompts } from "@/lib/drama-prompt-compiler";
@@ -25,6 +28,18 @@ import { DramaVersionModal } from "./drama-project-modals";
 import { dramaGenerationSize, estimateTaskPoints, referenceImage, shotReferenceImages, storyboardReferenceImages } from "./drama-shot-generation-utils";
 import { useGenerationCapacityRetry } from "./use-generation-capacity-retry";
 import { DramaEpisodeSidebar, DramaScriptPanel, DramaWorkspaceHeader, type DramaProjectStage } from "./drama-project-sections";
+
+function dramaContentLifecycleLabel(task: TextGenerationTaskLifecycle) {
+    const status = task.lastUpstreamStatus;
+    if (task.status === "success") return { current: 5, description: "整理结果已返回，正在保存项目" };
+    if (status === "created" || task.executionPhase === "created") return { current: 1, description: "等待后台 Worker 接手" };
+    if (status === "splitting") return { current: 3, description: "原文较长，正在自动拆分" };
+    if (status === "analyzing_segment") return { current: 3, description: "正在逐段提取角色、场景和对白" };
+    if (status === "merging") return { current: 4, description: "正在合并分段整理结果" };
+    if (status === "validating") return { current: 4, description: "正在校验原文和对白完整性" };
+    if (status === "persisting" || task.executionPhase === "persisting") return { current: 5, description: "正在保存角色、场景和镜头" };
+    return { current: 2, description: status === "analyzing" ? "模型正在理解剧本原文" : "正在请求文本模型" };
+}
 
 export default function DramaProjectPage() {
     const router = useRouter();
@@ -62,34 +77,56 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
     const router = useRouter();
     const updateProject = useDramaStore((state) => state.updateProject);
     const updateEpisode = useDramaStore((state) => state.updateEpisode);
+    const loadProject = useDramaStore((state) => state.loadProject);
+    const replaceProject = useDramaStore((state) => state.replaceProject);
+    const saveProjectNow = useDramaStore((state) => state.saveProjectNow);
     const updateShot = useDramaStore((state) => state.updateShot);
     const applyContentAnalysis = useDramaStore((state) => state.applyContentAnalysis);
-    const applyVisualAnalysis = useDramaStore((state) => state.applyVisualAnalysis);
     const createVersion = useDramaStore((state) => state.createVersion);
     const listVersions = useDramaStore((state) => state.listVersions);
     const restoreVersion = useDramaStore((state) => state.restoreVersion);
     const config = useEffectiveConfig();
+    const configRef = useRef(config);
     const startingShotRef = useRef("");
     const storyboardTaskRef = useRef("");
+    const mountedRef = useRef(true);
     const [stage, setStage] = useState<DramaProjectStage>("script");
     const [assetsOpen, setAssetsOpen] = useState(false);
     const [episodeNavigatorOpen, setEpisodeNavigatorOpen] = useState(false);
     const [agentOpen, setAgentOpen] = useState(false);
     const [selectedShotId, setSelectedShotId] = useState<string>();
     const [analyzing, setAnalyzing] = useState(false);
+    const [contentLifecycle, setContentLifecycle] = useState<{ current: number; description: string; status?: "process" | "error" }>();
+    const [savingContent, setSavingContent] = useState(false);
     const [designing, setDesigning] = useState(false);
+    const [visualFailure, setVisualFailure] = useState<{ kind: "terminal" | "connection"; detail: string }>();
+    const [visualRetryNonce, setVisualRetryNonce] = useState(0);
     const [versionsOpen, setVersionsOpen] = useState(false);
     const [versions, setVersions] = useState<DramaProjectVersion[]>([]);
     const [versionsLoading, setVersionsLoading] = useState(false);
     const [expandedStoryboardShotId, setExpandedStoryboardShotId] = useState("");
     const { isWaiting: isCapacityWaiting, schedule: scheduleCapacityRetry } = useGenerationCapacityRetry();
     const audioReady = Boolean(config.audioModel.trim());
+    useEffect(() => {
+        mountedRef.current = true;
+        return () => {
+            mountedRef.current = false;
+        };
+    }, []);
+    useEffect(() => {
+        configRef.current = config;
+    }, [config]);
     const changeStage = (nextStage: DramaProjectStage) => {
         setStage(nextStage);
         setAssetsOpen(false);
     };
 
     const episode = project.episodes.find((item) => item.id === project.activeEpisodeId) || project.episodes[0];
+    const contentTaskActive = Boolean(episode.contentTaskId) && contentLifecycle?.status !== "error";
+    const visualTaskActive = Boolean(episode.visualTaskId) && !visualFailure;
+    useEffect(() => {
+        setVisualFailure(undefined);
+    }, [episode.id]);
     useEffect(() => {
         const media = window.matchMedia("(min-width: 1366px)");
         const update = () => {
@@ -102,39 +139,96 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
     useEffect(() => {
         setSelectedShotId(undefined);
     }, [episode.id]);
+    useEffect(() => {
+        if (episode.contentTaskId) setContentLifecycle({ current: 1, description: "等待后台 Worker 接手" });
+        else if (!savingContent) setContentLifecycle(undefined);
+    }, [episode.contentTaskId, episode.id, savingContent]);
     useDramaAudioQueue(project, episode, config, updateShot);
     const analyzeScript = async () => {
         if (!episode.script.trim()) return message.warning("请先填写剧本内容");
         setAnalyzing(true);
         try {
+            await createVersion(project, "AI 内容解析前");
             const response = await fetch("/api/drama/analyze", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ requestId: `drama-content:${project.id}:${episode.id}:${nanoid()}`, phase: "content", script: episode.script, summary: project.summary, style: project.style, videoModel: config.videoModel || config.model }),
+                body: JSON.stringify({
+                    requestId: `drama-content:${project.id}:${episode.id}:${nanoid()}`,
+                    projectId: project.id,
+                    episodeId: episode.id,
+                    phase: "content",
+                    script: episode.script,
+                    summary: project.summary,
+                    style: project.style,
+                    videoModel: config.videoModel || config.model,
+                }),
             });
             syncUserPointsFromHeaders(response.headers, "system");
-            const payload = (await response.json().catch(() => ({}))) as { data?: DramaContentAnalysis; msg?: string };
-            if (!response.ok || !payload.data) throw new Error(payload.msg || "AI 剧本解析失败");
-            await createVersion(project, "AI 内容解析前");
-            applyContentAnalysis(project.id, episode.id, payload.data);
-            setStage("review");
-            message.success(`已提取 ${payload.data.characters.length} 个角色、${payload.data.scenes.length} 个场景和 ${payload.data.shots.length} 个待审核镜头`);
+            const payload = (await response.json().catch(() => ({}))) as { data?: { task?: { id?: string }; projectUpdatedAt?: string }; msg?: string };
+            const taskId = payload.data?.task?.id;
+            if (!response.ok || !taskId) throw new Error(payload.msg || "AI 剧本解析任务创建失败");
+            const currentProject = useDramaStore.getState().projects.find((item) => item.id === project.id);
+            if (currentProject)
+                replaceProject({
+                    ...currentProject,
+                    updatedAt: payload.data?.projectUpdatedAt || currentProject.updatedAt,
+                    episodes: currentProject.episodes.map((item) => (item.id === episode.id ? { ...item, contentTaskId: taskId, contentError: undefined } : item)),
+                });
+            message.success("内容整理已进入生成队列，可离开页面后再返回查看");
         } catch (error) {
             message.error(error instanceof Error ? error.message : "AI 剧本解析失败");
         } finally {
             setAnalyzing(false);
         }
     };
+    useEffect(() => {
+        const taskId = episode.contentTaskId;
+        if (!taskId) return;
+        const controller = new AbortController();
+        const taskConfig = configRef.current;
+        void waitForTextGenerationTask(taskConfig, { id: taskId, model: taskConfig.textModel || taskConfig.model }, { signal: controller.signal, timeoutMs: 0, onState: (task) => setContentLifecycle(dramaContentLifecycleLabel(task)) })
+            .then(async (content) => {
+                if (controller.signal.aborted) return;
+                const analysis = JSON.parse(content) as DramaContentAnalysis;
+                setSavingContent(true);
+                applyContentAnalysis(project.id, episode.id, analysis);
+                await saveProjectNow(project.id);
+                const activeEpisodeId = useDramaStore.getState().projects.find((item) => item.id === project.id)?.activeEpisodeId;
+                if (!mountedRef.current || activeEpisodeId !== episode.id) return;
+                setContentLifecycle({ current: 6, description: "内容整理已完成" });
+                setStage("review");
+                message.success(`已提取 ${analysis.characters.length} 个角色、${analysis.scenes.length} 个场景和 ${analysis.shots.length} 个待审核镜头`);
+            })
+            .catch(async (error) => {
+                if (controller.signal.aborted) return;
+                const detail = error instanceof Error ? error.message : "AI 剧本解析失败";
+                setContentLifecycle((current) => ({ current: current?.current ?? 0, description: detail, status: "error" }));
+                updateEpisode(project.id, episode.id, { contentTaskId: taskId, contentError: detail });
+                await saveProjectNow(project.id).catch(() => undefined);
+                message.error(detail);
+            })
+            .finally(() => setSavingContent(false));
+        return () => controller.abort();
+    }, [applyContentAnalysis, episode.contentTaskId, episode.id, message, project.id, saveProjectNow, updateEpisode]);
     const designVisuals = async () => {
         if (!episode.shots.length) return message.warning("请先完成内容解析");
-        updateEpisode(project.id, episode.id, { reviewStatus: "approved" });
+        if (episode.visualTaskId && visualFailure?.kind !== "terminal") {
+            setVisualFailure(undefined);
+            setVisualRetryNonce((value) => value + 1);
+            return;
+        }
         setDesigning(true);
+        let requestSent = false;
         try {
+            const saveStatus = useDramaStore.getState().saveStateByProject[project.id]?.status;
+            if (saveStatus === "saving" || saveStatus === "error") await saveProjectNow(project.id);
+            requestSent = true;
             const response = await fetch("/api/drama/analyze", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     requestId: `drama-visual:${project.id}:${episode.id}:${nanoid()}`,
+                    projectId: project.id,
                     phase: "visual",
                     summary: project.summary,
                     style: project.style,
@@ -154,18 +248,58 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
                 }),
             });
             syncUserPointsFromHeaders(response.headers, "system");
-            const payload = (await response.json().catch(() => ({}))) as { data?: DramaVisualAnalysis; msg?: string };
-            if (!response.ok || !payload.data) throw new Error(payload.msg || "AI 视觉方案生成失败");
-            await createVersion(project, "视觉方案生成前");
-            applyVisualAnalysis(project.id, episode.id, payload.data);
-            setStage("storyboard");
-            message.success("已按审核内容生成视觉方案");
+            const payload = (await response.json().catch(() => ({}))) as { data?: { task?: { id?: string }; projectUpdatedAt?: string }; msg?: string };
+            const taskId = payload.data?.task?.id;
+            if (!response.ok || !taskId) throw new Error(payload.msg || "AI 视觉方案任务创建失败");
+            const currentProject = useDramaStore.getState().projects.find((item) => item.id === project.id);
+            if (currentProject)
+                replaceProject({
+                    ...currentProject,
+                    updatedAt: payload.data?.projectUpdatedAt || currentProject.updatedAt,
+                    episodes: currentProject.episodes.map((item) => (item.id === episode.id ? { ...item, visualTaskId: taskId, visualError: undefined } : item)),
+                });
+            setVisualFailure(undefined);
+            message.success("视觉方案已进入生成队列，可离开页面后再返回查看");
         } catch (error) {
-            message.error(error instanceof Error ? error.message : "AI 视觉方案生成失败");
+            const recovered = requestSent ? await loadProject(project.id, true).catch(() => null) : null;
+            if (recovered?.episodes.find((item) => item.id === episode.id)?.visualTaskId) {
+                setVisualFailure(undefined);
+                message.info("连接曾中断，已从服务端恢复视觉任务");
+            } else {
+                message.error(error instanceof Error ? error.message : "AI 视觉方案任务创建失败");
+            }
         } finally {
             setDesigning(false);
         }
     };
+    useEffect(() => {
+        const taskId = episode.visualTaskId;
+        if (!taskId) return;
+        setVisualFailure(undefined);
+        const controller = new AbortController();
+        const taskConfig = configRef.current;
+        void waitForTextGenerationTask(taskConfig, { id: taskId, model: taskConfig.textModel || taskConfig.model }, { signal: controller.signal, timeoutMs: 0 })
+            .then(async (content) => {
+                if (controller.signal.aborted) return;
+                const analysis = JSON.parse(content) as DramaVisualAnalysis;
+                const result = await applyDramaVisualResult(project.id, episode.id, taskId, analysis);
+                if (controller.signal.aborted) return;
+                const currentProject = useDramaStore.getState().projects.find((item) => item.id === project.id);
+                if (!currentProject) return;
+                replaceProject({ ...currentProject, updatedAt: result.projectUpdatedAt, episodes: currentProject.episodes.map((item) => (item.id === episode.id ? result.episode : item)) });
+                setVisualFailure(undefined);
+                setStage("storyboard");
+                message.success("已按审核内容生成视觉方案");
+            })
+            .catch((error) => {
+                if (controller.signal.aborted) return;
+                const detail = error instanceof Error ? error.message : "AI 视觉方案生成失败";
+                const terminal = isGenerationTaskTerminalError(error) || error instanceof SyntaxError || (error instanceof DramaVisualResultError && error.status >= 400 && error.status < 500);
+                setVisualFailure({ kind: terminal ? "terminal" : "connection", detail });
+                message.error(terminal ? detail : `视觉任务仍保留，可检查状态：${detail}`);
+            });
+        return () => controller.abort();
+    }, [episode.id, episode.visualTaskId, message, project.id, replaceProject, visualRetryNonce]);
     const openVersions = async () => {
         setVersionsOpen(true);
         setVersionsLoading(true);
@@ -407,10 +541,31 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
                             {assetsOpen ? <DramaAssetsPanel project={project} episode={episode} /> : null}
 
                             {!assetsOpen && stage === "script" ? (
-                                <DramaScriptPanel project={project} episode={episode} analyzing={analyzing} onAnalyze={() => void analyzeScript()} onStageChange={changeStage} selectedShotId={selectedShotId} onSelectedShotChange={setSelectedShotId} />
+                                <DramaScriptPanel
+                                    project={project}
+                                    episode={episode}
+                                    analyzing={analyzing || savingContent || contentTaskActive}
+                                    lifecycle={
+                                        episode.contentTaskId
+                                            ? contentLifecycle || { current: 1, description: "等待后台 Worker 接手" }
+                                            : analyzing
+                                              ? { current: 0, description: "正在创建整理任务" }
+                                              : savingContent
+                                                ? contentLifecycle || { current: 5, description: "正在保存角色、场景和镜头" }
+                                                : episode.contentError
+                                                  ? contentLifecycle
+                                                  : undefined
+                                    }
+                                    onAnalyze={() => void analyzeScript()}
+                                    onStageChange={changeStage}
+                                    selectedShotId={selectedShotId}
+                                    onSelectedShotChange={setSelectedShotId}
+                                />
                             ) : null}
 
-                            {!assetsOpen && stage === "review" ? <DramaReviewPanel project={project} episode={episode} designing={designing} onDesignVisuals={() => void designVisuals()} onStageChange={changeStage} /> : null}
+                            {!assetsOpen && stage === "review" ? (
+                                <DramaReviewPanel project={project} episode={episode} designing={designing || visualTaskActive} visualFailure={visualFailure} onDesignVisuals={() => void designVisuals()} onStageChange={changeStage} />
+                            ) : null}
 
                             {!assetsOpen && stage === "storyboard" ? (
                                 <div>
@@ -493,7 +648,7 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
                         if (episode.reviewStatus === "draft") updateEpisode(project.id, episode.id, { reviewStatus: "content_review" });
                         setStage("review");
                     }}
-                    analyzing={analyzing}
+                    analyzing={analyzing || savingContent || contentTaskActive}
                     episodeNavigatorOpen={episodeNavigatorOpen}
                 />
             ) : null}

@@ -4,12 +4,14 @@ import { useMemo, useRef, useState } from "react";
 import { App, Button, Input, Modal, Pagination } from "antd";
 import { BookOpenText, FileText, Search } from "lucide-react";
 
+import { DRAMA_PROJECT_MAX_BYTES } from "@/lib/drama-project-contract";
 import { splitDramaSource, type DramaSourceEpisodeDraft } from "@/lib/drama-source-splitter";
 import { readDramaSourceFile } from "@/lib/drama-source-reader";
 import type { DramaProject } from "../types";
-import { useDramaStore } from "../stores/use-drama-store";
+import { projectWithImportedEpisodes, useDramaStore } from "../stores/use-drama-store";
 
 const IMPORT_PAGE_SIZE = 20;
+const MAX_PROJECT_LABEL = `${DRAMA_PROJECT_MAX_BYTES / 1024 / 1024} MB`;
 
 export function DramaSourceImport({ project, onImported }: { project: DramaProject; onImported: () => void }) {
     const { message } = App.useApp();
@@ -40,8 +42,11 @@ export function DramaSourceImport({ project, onImported }: { project: DramaProje
     const readSource = async (file?: File) => {
         if (!file) return;
         try {
+            if (file.size > DRAMA_PROJECT_MAX_BYTES) throw new Error(`剧本文件超过 ${MAX_PROJECT_LABEL}，请拆分后重新上传`);
             const nextDrafts = splitDramaSource(await readDramaSourceFile(file));
             if (!nextDrafts.length) return message.warning("导入文件没有可识别的文本内容");
+            const preview = projectWithImportedEpisodes(project, nextDrafts, () => `episode-${"x".repeat(21)}`);
+            if (new TextEncoder().encode(JSON.stringify(preview)).byteLength > DRAMA_PROJECT_MAX_BYTES) throw new Error(`导入后的短剧项目超过 ${MAX_PROJECT_LABEL}，请拆分剧本后重新上传`);
             setDrafts(nextDrafts);
             setFileName(file.name);
             setQuery("");
@@ -57,7 +62,7 @@ export function DramaSourceImport({ project, onImported }: { project: DramaProje
         setImporting(true);
         try {
             await createVersion(project, "整本导入前");
-            importEpisodes(project.id, drafts);
+            await importEpisodes(project.id, drafts);
             close();
             onImported();
             message.success(`已导入 ${drafts.length} 集，请逐集检查并提取内容结构`);
