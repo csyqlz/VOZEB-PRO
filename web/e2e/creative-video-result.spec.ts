@@ -256,6 +256,27 @@ test("a long-running media task uses warm elapsed-time feedback", async ({ page 
     }
 });
 
+test("a paused media task shows its concrete review reason without a loading state", async ({ page }, testInfo) => {
+    await preparePage(page, testInfo);
+    const reason = "OpenAI 视频协议最多支持 1 张参考图";
+    const fixture = await mockPendingCreativeRound(page, "video", reason);
+
+    try {
+        await page.goto(`/create?conversationId=${fixture.id}`, { waitUntil: "domcontentloaded" });
+        const round = page.getByTestId("creative-media-round");
+        await expect(round.getByRole("heading", { name: "任务已暂停" })).toBeVisible({ timeout: 45_000 });
+        await expect(round.getByTestId("creative-generation-review")).toHaveText(reason);
+        await expect(round.getByTestId("creative-generation-waiting")).toHaveCount(0);
+        await expect(round.getByTestId("creative-media-loading")).toHaveCount(0);
+        await expect(round.getByText(/正在生成|已等待/)).toHaveCount(0);
+        await expect(round.getByRole("button", { name: "直接重试本次创作" })).toHaveCount(0);
+        await expectNoHorizontalOverflow(page);
+        await captureResult(round, testInfo, "creative-generation-paused-review");
+    } finally {
+        fixture.releaseEvents();
+    }
+});
+
 test("single video results keep real ratios and retain complete player controls", async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== "chromium", "桌面视频尺寸矩阵由 1672×941 基准项目验证");
     await preparePage(page, testInfo);
@@ -730,7 +751,7 @@ async function mockCreativeRound(page: Page, options: { type: MediaType; sizes: 
     };
 }
 
-async function mockPendingCreativeRound(page: Page, type: MediaType) {
+async function mockPendingCreativeRound(page: Page, type: MediaType, reviewReason = "") {
     const id = `e2e-pending-${randomUUID()}`;
     const runId = `e2e-pending-run-${randomUUID()}`;
     const timestamp = Date.now();
@@ -755,13 +776,13 @@ async function mockPendingCreativeRound(page: Page, type: MediaType) {
         conversationId: id,
         inputMessageId: userMessage.id,
         assistantMessageId: assistantMessage.id,
-        status: "running",
+        status: reviewReason ? "paused" : "running",
         prompt,
         referencedAssetIds: [],
         requestedModelIds: [`${type}-gen`],
         generationPreferences: type === "image" ? { mode: "image", image: { size: "1:1", quality: "high" } } : { mode: "video", video: { size: "16:9", quality: "high", seconds: 15 } },
         assetIds: [],
-        tasks: [{ id: `${type}-task`, title: `${type === "image" ? "图片" : "视频"}生成`, type, model: `${type}-gen`, status: "running" }],
+        tasks: [{ id: `${type}-task`, title: `${type === "image" ? "图片" : "视频"}生成`, type, model: `${type}-gen`, status: reviewReason ? "needs_review" : "running", ...(reviewReason ? { error: reviewReason } : {}) }],
         createdAt: startedAt,
         updatedAt: timestamp,
     };

@@ -49,6 +49,32 @@ describe("creativeRunPresentation", () => {
         ]);
     });
 
+    it("keeps every media model and output count for mixed concurrent generation", () => {
+        const run = {
+            id: "run-mixed",
+            conversationId: "conversation-one",
+            inputMessageId: "user-mixed",
+            assistantMessageId: "assistant-mixed",
+            status: "running",
+            assetIds: [],
+            tasks: [
+                { id: "images", title: "生成图片", type: "image", model: "image-model", count: 2, status: "running" },
+                { id: "videos", title: "生成视频", type: "video", model: "video-model", count: 2, status: "running" },
+            ],
+        } satisfies CreativeAgentRun;
+
+        const items = creativeRunPresentation(
+            run,
+            new Map([
+                ["image-model", "图片模型"],
+                ["video-model", "视频模型"],
+            ]),
+        );
+
+        expect(items).toContainEqual({ key: "model", label: "模型", value: "图片模型 + 视频模型" });
+        expect(items).toContainEqual({ key: "count", label: "数量", value: "4个结果" });
+    });
+
     it("formats the persisted run duration without inventing a timeout", () => {
         expect(creativeRunDuration({ createdAt: 1_000, updatedAt: 66_000 } as CreativeAgentRun)).toBe("1分5秒");
         expect(creativeRunDuration({ createdAt: 1_000, updatedAt: 1_200 } as CreativeAgentRun)).toBe("1秒");

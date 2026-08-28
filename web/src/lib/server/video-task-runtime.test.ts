@@ -62,6 +62,22 @@ describe("video task upstream reconciliation", () => {
         expect(headers.has("cookie")).toBe(false);
     });
 
+    it("treats a provider business error in the configured result field as failure", async () => {
+        const task = videoTask({
+            config: {
+                ...videoTask().config,
+                advancedConfig: { ...videoTask().config.advancedConfig, resultField: "content" } as NonNullable<VideoTask["config"]["advancedConfig"]>,
+            },
+        });
+        mocks.fetchInternalApi.mockResolvedValue(json({ status: "completed", content: "TokenPony business error 0:" }));
+
+        await expect(queryVideoTaskUpstream(task, "http://localhost", "session=test")).resolves.toEqual({
+            state: "failed",
+            status: "completed",
+            error: "TokenPony business error 0:",
+        });
+    });
+
     it("recovers a locally timed-out task after the provider later returns a video", async () => {
         const task = videoTask({ status: "error", error: "视频任务长时间未更新，请重新查询或生成。" });
         const completed = { ...task, status: "success", result: { url: "/api/reference-assets/result.mp4", mimeType: "video/mp4", durationMs: 5_000 } };

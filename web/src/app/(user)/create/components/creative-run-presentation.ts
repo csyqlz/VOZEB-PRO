@@ -6,12 +6,13 @@ export type CreativeRunPresentationItem = { key: string; label: string; value: s
 export function creativeRunPresentation(run: CreativeAgentRun | undefined, modelNames: ReadonlyMap<string, string>) {
     if (!run) return [];
     const mode = creativeRunMode(run);
-    const tasks = mode ? run.tasks.filter((task) => task.type === mode) : run.tasks;
+    const mediaTasks = run.tasks.filter((task) => task.type === "image" || task.type === "video" || task.type === "audio");
+    const tasks = mode ? mediaTasks.filter((task) => task.type === mode) : run.tasks;
     const preferences = mode ? run.generationPreferences?.[mode] : undefined;
     const items: CreativeRunPresentationItem[] = [];
     if (mode) items.push({ key: "mode", label: "类型", value: mediaModeLabel(mode) });
 
-    const modelIds = uniqueText([...tasks.map((task) => task.model), ...(run.requestedModelIds || [])]);
+    const modelIds = uniqueText([...mediaTasks.map((task) => task.model), ...(run.requestedModelIds || [])]);
     if (modelIds.length) items.push({ key: "model", label: "模型", value: modelIds.map((id) => modelNames.get(id) || id).join(" + ") });
 
     const size = firstText(tasks.map((task) => task.ratio)) || (preferences && "size" in preferences ? preferences.size : undefined);
@@ -28,7 +29,7 @@ export function creativeRunPresentation(run: CreativeAgentRun | undefined, model
     const format = firstText(tasks.map((task) => task.format)) || (preferences && "format" in preferences ? preferences.format : undefined);
     if (format) items.push({ key: "format", label: "格式", value: format.toUpperCase() });
 
-    const count = tasks.reduce((total, task) => total + (task.count || 1), 0);
+    const count = mediaTasks.reduce((total, task) => total + (task.count || 1), 0);
     if (count > 1) items.push({ key: "count", label: "数量", value: `${count}个结果` });
     items.push({ key: "status", label: "状态", value: runStatusLabel(run.status) });
     return items;
