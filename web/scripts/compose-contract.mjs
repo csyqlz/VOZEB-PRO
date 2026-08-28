@@ -4,17 +4,19 @@ import path from "node:path";
 import { parse } from "yaml";
 
 export const composeProfiles = [
-    { file: "docker-compose.yml", embeddedPostgres: true, image: "${VOZEB_PRO_IMAGE:-ghcr.io/csyqlz/vozeb-pro:v0.0.7}", workerOrigin: "http://app:3000" },
+    { file: "docker-compose.yml", embeddedPostgres: true, image: "${VOZEB_PRO_IMAGE:-ghcr.io/csyqlz/vozeb-pro:v0.0.8}", workerOrigin: "http://app:3000" },
     { file: "docker-compose.local.yml", embeddedPostgres: true, image: "vozeb-pro:local", workerOrigin: "http://app:3000" },
-    { file: "docker-compose.baota.yml", embeddedPostgres: false, hostNetwork: true, image: "${VOZEB_PRO_IMAGE:-ghcr.io/csyqlz/vozeb-pro:v0.0.7}", workerOrigin: "http://127.0.0.1:3000" },
-    { file: "docker-compose.external-db.yml", embeddedPostgres: false, image: "${VOZEB_PRO_IMAGE:-ghcr.io/csyqlz/vozeb-pro:v0.0.7}", workerOrigin: "http://app:3000" },
-    { file: "docker-compose.lowmem.yml", embeddedPostgres: false, image: "${VOZEB_PRO_IMAGE:-ghcr.io/csyqlz/vozeb-pro:v0.0.7}", workerOrigin: "http://app:3000" },
+    { file: "docker-compose.baota.yml", embeddedPostgres: false, hostNetwork: true, image: "${VOZEB_PRO_IMAGE:-ghcr.io/csyqlz/vozeb-pro:v0.0.8}", workerOrigin: "http://127.0.0.1:3000" },
+    { file: "docker-compose.external-db.yml", embeddedPostgres: false, image: "${VOZEB_PRO_IMAGE:-ghcr.io/csyqlz/vozeb-pro:v0.0.8}", workerOrigin: "http://app:3000" },
+    { file: "docker-compose.lowmem.yml", embeddedPostgres: false, image: "${VOZEB_PRO_IMAGE:-ghcr.io/csyqlz/vozeb-pro:v0.0.8}", workerOrigin: "http://app:3000" },
 ];
 
 export const docsComposeProfiles = [
-    { file: "docs/docker-compose.yml", image: "ghcr.io/csyqlz/vozeb-pro-docs:v0.0.7" },
+    { file: "docs/docker-compose.yml", image: "ghcr.io/csyqlz/vozeb-pro-docs:v0.0.8" },
     { file: "docs/docker-compose.local.yml", build: { context: "..", dockerfile: "docs/Dockerfile" } },
 ];
+
+export const updaterComposeProfile = { file: "docker-compose.updater.yml", image: "${VOZEB_PRO_UPDATER_IMAGE:-ghcr.io/csyqlz/vozeb-pro-updater:v0.0.8}" };
 
 const maintenanceToken = "${VOZEB_PRO_MAINTENANCE_TOKEN:?请在 .env 中配置至少 32 位维护令牌}";
 const workerToken = "${VOZEB_PRO_WORKER_TOKEN:?请在 .env 中配置独立的至少 32 位 Worker 令牌}";
@@ -32,6 +34,34 @@ export function validateDocsComposeContracts({ repoRoot }) {
         const source = readFileSync(path.join(repoRoot, profile.file), "utf8");
         return validateDocsComposeContract(source, profile);
     });
+}
+
+export function validateUpdaterComposeContract({ repoRoot }) {
+    const source = readFileSync(path.join(repoRoot, updaterComposeProfile.file), "utf8");
+    let compose;
+    try {
+        compose = parse(source);
+    } catch (error) {
+        throw new Error(`${updaterComposeProfile.file}: YAML 解析失败：${error.message}`);
+    }
+    const app = compose?.services?.app || {};
+    const updater = compose?.services?.updater || {};
+    const violations = [];
+    const ensure = (condition, message) => {
+        if (!condition) violations.push(message);
+    };
+    ensure(updater.image === updaterComposeProfile.image, "updater 必须使用当前发布版本的明确官方镜像");
+    ensure(!String(updater.image || "").endsWith(":latest"), "updater 禁止使用 latest 镜像");
+    ensure(app.environment?.VOZEB_PRO_UPDATER_URL === "http://updater:8787", "app 必须通过内部服务名连接升级器");
+    ensure(app.environment?.VOZEB_PRO_UPDATER_TOKEN === updater.environment?.VOZEB_PRO_UPDATER_TOKEN, "app 与 updater 必须使用同一独立升级令牌");
+    ensure(app.depends_on?.updater?.condition === "service_healthy", "app 必须等待升级器健康");
+    ensure(!app.volumes?.some((volume) => String(volume).includes("docker.sock")), "主应用不得访问 Docker Socket");
+    ensure(updater.volumes?.includes("/var/run/docker.sock:/var/run/docker.sock"), "updater 缺少受控 Docker Socket");
+    ensure(updater.volumes?.includes("./:/workspace"), "updater 缺少只用于部署切换的工作目录");
+    ensure(!updater.ports, "updater 不得向宿主机暴露端口");
+    ensure(Object.hasOwn(compose?.volumes || {}, "vozeb-pro-updater"), "updater 缺少独立状态卷");
+    if (violations.length > 0) throw new Error(`${updaterComposeProfile.file} Compose 契约失败：\n- ${violations.join("\n- ")}`);
+    return { file: updaterComposeProfile.file, services: Object.keys(compose.services || {}) };
 }
 
 export function validateDocsComposeContract(source, profile) {

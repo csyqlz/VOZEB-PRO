@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireVozebCmsCapability } from "@/app/api/vozeb-cms-capability";
 
 import { getCurrentUser } from "@/lib/auth/session";
 import { readJsonBodyResult } from "@/lib/auth/request";
@@ -13,6 +14,8 @@ type Context = { params: Promise<{ id: string }> };
 export async function POST(request: Request, context: Context) {
     const user = await getCurrentUser();
     if (!user) return NextResponse.json({ code: 401, data: null, msg: "请先登录" }, { status: 401 });
+    const blocked = await requireVozebCmsCapability("drama.project.manage", user.id);
+    if (blocked) return blocked;
     try {
         const parsed = await readJsonBodyResult<{ episodeId?: string; draftPath?: string; version?: string }>(request);
         if (!parsed.ok) return NextResponse.json({ code: parsed.status, data: null, msg: parsed.message }, { status: parsed.status });

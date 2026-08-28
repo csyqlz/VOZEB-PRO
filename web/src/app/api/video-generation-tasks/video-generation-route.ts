@@ -1,4 +1,5 @@
 import { after, NextResponse } from "next/server";
+import { requireVozebCmsCapability } from "@/app/api/vozeb-cms-capability";
 import { readJsonBody } from "@/lib/auth/request";
 import { getCurrentUser } from "@/lib/auth/session";
 import { getAuthSettings, isAuthInputError, refundUserPoints } from "@/lib/auth/store";
@@ -40,6 +41,8 @@ type CreateVideoTaskBody = { config?: Record<string, unknown>; prompt?: string; 
 export async function POST(request: Request) {
     const user = await getCurrentUser(request);
     if (!user) return NextResponse.json({ error: "请先登录" }, { status: 401 });
+    const blocked = await requireVozebCmsCapability("video.generate", user.id);
+    if (blocked) return blocked;
     const headerRequestId = clean(request.headers.get("x-vozeb-pro-client-request-id"));
     const headerAttemptNo = positiveAttemptNo(request.headers.get("x-vozeb-pro-attempt-no"));
     if (headerRequestId) {

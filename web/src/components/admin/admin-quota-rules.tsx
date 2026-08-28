@@ -83,7 +83,7 @@ export function QuotaRuleTable({
             <section className="border-b border-zinc-200 py-4 sm:py-5 dark:border-zinc-800">
                 <div className="text-sm font-semibold text-stone-950 dark:text-stone-100">模型基础扣费</div>
                 <div className="mt-1 text-xs leading-5 text-stone-500 dark:text-stone-400">每次生成先扣除模型基础积分；单独配置的模型使用自己的数值，其他模型使用统一默认值。</div>
-                <div className="mt-3 grid gap-3 lg:grid-cols-[240px_minmax(0,1fr)] lg:items-end">
+                <div className="mt-3 grid gap-3 lg:grid-cols-[240px_minmax(320px,420px)] lg:items-end lg:justify-start">
                     <LabeledControl label="其他模型每次默认扣除积分">
                         <InputNumber className="w-full" min={0} precision={2} value={settings.modelPointCosts[DEFAULT_MODEL_POINT_COST_KEY] ?? 1} onChange={(value) => onModelPointCostChange(DEFAULT_MODEL_POINT_COST_KEY, toNumberOrOne(value))} />
                     </LabeledControl>

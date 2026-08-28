@@ -30,7 +30,7 @@ describe("admin help center content", () => {
         expect(searchAdminHelpArticles("邀请 冷静期").map((article) => article.id)).toContain("commerce");
         expect(searchAdminHelpArticles("媒体 引用").map((article) => article.id)).toContain("storage");
         expect(searchAdminHelpArticles("页面没有变化").map((article) => article.id)).toContain("maintenance");
-        expect(searchAdminHelpArticles("三角形").map((article) => article.id)).toContain("system");
+        expect(searchAdminHelpArticles("旧品牌图标").map((article) => article.id)).toContain("system");
         expect(searchAdminHelpArticles("不存在的后台配置")).toEqual([]);
         expect(searchAdminHelpArticles("")).toHaveLength(adminHelpArticles.length);
     });

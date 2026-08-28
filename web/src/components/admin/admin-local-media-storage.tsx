@@ -170,7 +170,7 @@ export function AdminLocalMediaStorage() {
 
     const summary = data?.summary;
     return (
-        <Panel>
+        <Panel variant="page">
             <PanelHeader
                 title="本地媒体文件"
                 description="临时文件保留 24 小时，长期文件保留到管理员删除。"
@@ -213,7 +213,7 @@ export function AdminLocalMediaStorage() {
                             setType(value);
                         }}
                     />
-                    <div className="grid max-w-[1080px] grid-cols-[minmax(0,1fr)_40px] gap-3 xl:grid-cols-[minmax(320px,1fr)_40px_200px_180px]">
+                    <div className="grid max-w-[840px] grid-cols-[minmax(0,1fr)_40px] gap-2 xl:grid-cols-[360px_40px_180px_160px]">
                         <Input
                             value={search}
                             allowClear

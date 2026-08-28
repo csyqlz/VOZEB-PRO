@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireVozebCmsCapability } from "@/app/api/vozeb-cms-capability";
 
 import { getCurrentUser } from "@/lib/auth/session";
 import { readJsonBodyResult } from "@/lib/auth/request";
@@ -7,19 +8,23 @@ import { createDramaProjectVersionForUser, DramaProjectServiceError, listDramaPr
 type Context = { params: Promise<{ id: string }> };
 
 export async function GET(_: Request, context: Context) {
-    return handle(context, (userId, id) => listDramaProjectVersionsForUser(userId, id).then((versions) => NextResponse.json({ code: 0, data: { versions }, msg: "OK" })));
+    return handle(context, (userId, id) => listDramaProjectVersionsForUser(userId, id).then((versions) => NextResponse.json({ code: 0, data: { versions }, msg: "OK" })), "drama.project.manage");
 }
 
 export async function POST(request: Request, context: Context) {
     const parsed = await readJsonBodyResult<unknown>(request, 8 * 1024 * 1024);
     if (!parsed.ok) return NextResponse.json({ code: parsed.status, data: null, msg: parsed.message }, { status: parsed.status });
     const body = parsed.data;
-    return handle(context, (userId, id) => createDramaProjectVersionForUser(userId, id, body).then((version) => NextResponse.json({ code: 0, data: { version }, msg: "短剧版本已保存" })));
+    return handle(context, (userId, id) => createDramaProjectVersionForUser(userId, id, body).then((version) => NextResponse.json({ code: 0, data: { version }, msg: "短剧版本已保存" })), "drama.project.manage");
 }
 
-async function handle(context: Context, action: (userId: string, id: string) => Promise<NextResponse>) {
+async function handle(context: Context, action: (userId: string, id: string) => Promise<NextResponse>, capabilityId?: string) {
     const user = await getCurrentUser();
     if (!user) return NextResponse.json({ code: 401, data: null, msg: "请先登录" }, { status: 401 });
+    if (capabilityId) {
+        const blocked = await requireVozebCmsCapability(capabilityId, user.id);
+        if (blocked) return blocked;
+    }
     try {
         return await action(user.id, (await context.params).id);
     } catch (error) {

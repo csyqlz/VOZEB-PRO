@@ -4,8 +4,10 @@ const mocks = vi.hoisted(() => ({
     getCurrentUser: vi.fn(),
     createDramaProjectForUser: vi.fn(),
     listDramaProjectSummariesForUser: vi.fn(),
+    requireCapability: vi.fn(),
 }));
 
+vi.mock("@/app/api/vozeb-cms-capability", () => ({ requireVozebCmsCapability: mocks.requireCapability }));
 vi.mock("@/lib/auth/session", () => ({ getCurrentUser: mocks.getCurrentUser }));
 vi.mock("@/lib/server/drama-project-service", () => ({
     DramaProjectServiceError: class DramaProjectServiceError extends Error {
@@ -26,6 +28,7 @@ describe("/api/drama/projects", () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.getCurrentUser.mockResolvedValue({ id: "user-one" });
+        mocks.requireCapability.mockResolvedValue(null);
         mocks.listDramaProjectSummariesForUser.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
         mocks.createDramaProjectForUser.mockResolvedValue({ id: "drama-one", title: "测试短剧" });
     });
@@ -56,5 +59,15 @@ describe("/api/drama/projects", () => {
         expect(response.status).toBe(200);
         expect(mocks.listDramaProjectSummariesForUser).toHaveBeenCalledWith("user-one", { page: 2, pageSize: 12 });
         await expect(response.json()).resolves.toMatchObject({ data: { projects: [{ id: "drama-one", episodeCount: 2, shotCount: 12 }], total: 13, page: 2, pageSize: 12 } });
+    });
+
+    it("blocks project reads when the Drama module is disabled", async () => {
+        mocks.requireCapability.mockResolvedValue(new Response(JSON.stringify({ code: 403, data: null, msg: "短剧系统模块已停用" }), { status: 403 }));
+
+        const response = await GET(new Request("http://localhost/api/drama/projects"));
+
+        expect(response.status).toBe(403);
+        expect(mocks.requireCapability).toHaveBeenCalledWith("drama.project.manage", "user-one", expect.any(Request));
+        expect(mocks.listDramaProjectSummariesForUser).not.toHaveBeenCalled();
     });
 });

@@ -21,6 +21,7 @@ import {
     imageRequestAspectRatio,
     resolveRequestSize,
     taskFetch,
+    parseImageQueryJson,
     taskHeaders,
     taskUrl,
     withSystemPrompt,
@@ -98,8 +99,8 @@ export async function pollCustomImageTask(task: ImageTask, taskId: string, media
                 lastError = await readFetchError(response, "自定义图片任务查询失败");
                 continue;
             }
-            const data = (await response.json().catch(() => null)) as ImageApiResponse | null;
-            if (!data || isProviderBusinessError(data)) throw new ImageUpstreamTerminalError(readProviderError(data) || "自定义图片任务查询失败");
+            const data = await parseImageQueryJson(response);
+            if (isProviderBusinessError(data)) throw new ImageUpstreamTerminalError(readProviderError(data) || "自定义图片任务查询失败");
             const result = configuredImageResult(data, response.headers.get("x-vozeb-pro-upstream-url") || mediaBaseUrl || url, task);
             if (result) return result;
             const status = readProviderString(data, config.advancedConfig?.statusField, STATUS_KEYS).toLowerCase();

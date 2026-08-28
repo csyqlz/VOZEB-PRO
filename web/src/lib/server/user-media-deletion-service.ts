@@ -7,6 +7,7 @@ import type { StoredGenerationTaskRecord } from "@/lib/server/generation-task-st
 import { getLocalMediaRegistrations, type LocalMediaRegistration } from "@/lib/server/local-media-registry";
 import { deleteRegisteredLocalMediaSnapshots } from "@/lib/server/local-media-storage";
 import { cleanCanvasProjectMediaReferences, cleanUserMediaReferences, containsUserMediaReference } from "@/lib/server/user-media-reference-cleanup";
+import { notifyVozebCmsTaskEvents } from "@/lib/server/vozeb-cms/task-event-signal";
 
 const FILES = ["auth.json", "canvas-projects.json", "creative-runtime.json", "drama-projects.json", "generation-logs.json", "generation-tasks.json", "library-assets.json", "local-media-assets.json"] as const;
 
@@ -221,8 +222,15 @@ async function cleanFileReferences(userId: string, storageKeys: string[]) {
             await Promise.allSettled(Object.entries(fileStateEntries(before)).map(([name, value]) => writeJsonDataFile(name, value)));
             throw error;
         }
+        notifyVozebCmsTaskEvents(changedTaskIds(before.tasks, next.state.tasks));
         return { registrations, removedReferences: next.removedReferences };
     });
+}
+
+function changedTaskIds(before: StoredGenerationTaskRecord[], after: StoredGenerationTaskRecord[]) {
+    const previous = new Map(before.map((task) => [task.id, JSON.stringify(task)]));
+    const next = new Map(after.map((task) => [task.id, JSON.stringify(task)]));
+    return [...new Set([...previous.keys(), ...next.keys()].filter((id) => previous.get(id) !== next.get(id)))];
 }
 
 function cleanFileState(state: Awaited<ReturnType<typeof readFileState>>, userId: string, storageKeys: string[]) {

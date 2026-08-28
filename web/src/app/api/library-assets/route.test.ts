@@ -2,10 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
     getCurrentUser: vi.fn(),
+    requireCapability: vi.fn(),
     listPage: vi.fn(),
 }));
 
 vi.mock("@/lib/auth/session", () => ({ getCurrentUser: mocks.getCurrentUser }));
+vi.mock("@/app/api/vozeb-cms-capability", () => ({ requireVozebCmsCapability: mocks.requireCapability }));
 vi.mock("@/lib/server/library-asset-service", () => ({
     LibraryAssetServiceError: class LibraryAssetServiceError extends Error {},
     createLibraryAssetForUser: vi.fn(),
@@ -18,6 +20,7 @@ describe("library assets route", () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.getCurrentUser.mockResolvedValue({ id: "user-one" });
+        mocks.requireCapability.mockResolvedValue(null);
         mocks.listPage.mockResolvedValue({ items: [{ id: "asset-one" }], total: 21, page: 2, pageSize: 10 });
     });
 

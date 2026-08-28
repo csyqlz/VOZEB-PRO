@@ -18,7 +18,8 @@ describe("admin sections", () => {
         const auditor = { role: "admin", status: "active", adminPermissions: ["audit.read"] };
 
         expect(canAccessAdminSection(auditor, "backup")).toBe(false);
-        expect(allowedAdminSections(auditor)).toEqual(["updates", "adminHelp"]);
-        expect(resolveAdminSection(auditor, "backup")).toBe("updates");
+        expect(canAccessAdminSection(auditor, "modules")).toBe(false);
+        expect(allowedAdminSections(auditor)).toEqual(["adminHelp"]);
+        expect(resolveAdminSection(auditor, "backup")).toBe("adminHelp");
     });
 });

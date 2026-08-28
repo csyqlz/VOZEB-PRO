@@ -7,14 +7,26 @@ const mocks = vi.hoisted(() => ({
     resolveLogicalModelCandidates: vi.fn(),
     checkRateLimit: vi.fn(),
     requestStructuredText: vi.fn(),
+    authorizedWorkerUserId: vi.fn(),
+    createTextTask: vi.fn(),
+    scheduleGenerationTask: vi.fn(),
+    runGenerationTaskRecoveryBatch: vi.fn(),
+    after: vi.fn(),
 }));
 
+vi.mock("next/server", async (importOriginal) => ({ ...(await importOriginal<typeof import("next/server")>()), after: mocks.after }));
+vi.mock("@/app/api/vozeb-cms-capability", () => ({ requireVozebCmsCapability: vi.fn(async () => null) }));
 vi.mock("@/lib/auth/session", () => ({ getCurrentUser: mocks.getCurrentUser }));
 vi.mock("@/lib/auth/store", () => ({ getAuthSettings: mocks.getAuthSettings, isAuthInputError: vi.fn(() => false), refundUserPoints: mocks.refundUserPoints }));
 vi.mock("@/lib/server/internal-origin", () => ({ resolveInternalOrigin: vi.fn((origin: string) => origin) }));
 vi.mock("@/lib/server/logical-model-router", () => ({ resolveLogicalModelCandidates: mocks.resolveLogicalModelCandidates }));
 vi.mock("@/lib/server/security", () => ({ checkRateLimit: mocks.checkRateLimit }));
 vi.mock("@/lib/server/text-planning-runtime", () => ({ isStructuredTextFailure: vi.fn(() => false), rankTextPlanningCandidates: vi.fn((items: unknown[]) => items), requestStructuredText: mocks.requestStructuredText }));
+vi.mock("@/lib/server/maintenance-auth", () => ({ authorizedWorkerUserId: mocks.authorizedWorkerUserId, maintenanceWorkerContextHeaders: vi.fn(() => null), requestRuntimeCredential: vi.fn(() => "session=test") }));
+vi.mock("@/lib/server/generation-task-store", () => ({ withGenerationConcurrencyLimit: vi.fn(async (_userId: string, _type: string, _ttl: number, _limit: number, run: () => unknown) => run()) }));
+vi.mock("@/lib/server/generation-task-scheduler", () => ({ scheduleGenerationTask: mocks.scheduleGenerationTask }));
+vi.mock("@/lib/server/generation-task-recovery-service", () => ({ runGenerationTaskRecoveryBatch: mocks.runGenerationTaskRecoveryBatch }));
+vi.mock("@/lib/server/text-task-store", () => ({ createTextTask: mocks.createTextTask }));
 
 import { POST } from "./route";
 
@@ -22,10 +34,12 @@ describe("POST /api/drama/analyze", () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.getCurrentUser.mockResolvedValue({ id: "user-one" });
+        mocks.authorizedWorkerUserId.mockReturnValue("");
         mocks.checkRateLimit.mockResolvedValue({ allowed: true });
         mocks.getAuthSettings.mockResolvedValue({
             defaultModels: { textModel: "planner", videoModel: "video-planner" },
             generationDefaults: { videoSeconds: 5 },
+            generationConcurrency: { text: 2 },
             generationPointMultipliers: { videoSeconds: { "5": 1, "8": 1, "10": 1, "15": 1 } },
         });
         mocks.resolveLogicalModelCandidates.mockImplementation((_settings: unknown, capability: string) =>
@@ -84,6 +98,15 @@ describe("POST /api/drama/analyze", () => {
             headers: new Headers(),
             protocol: "chat",
             elapsedMs: 10,
+        });
+        mocks.createTextTask.mockResolvedValue({
+            id: "visual-task-one",
+            userId: "user-one",
+            status: "pending",
+            config: { baseUrl: "/api/ai/system/text-channel", apiKey: "system", apiFormat: "openai", model: "vendor-planner", channelId: "text-channel", logicalModel: "planner" },
+            messages: [],
+            createdAt: 1,
+            updatedAt: 1,
         });
     });
 
@@ -398,6 +421,23 @@ describe("POST /api/drama/analyze", () => {
         const billingKeys = mocks.requestStructuredText.mock.calls.map(([input]) => new Headers((input as { headers?: HeadersInit }).headers).get("x-vozeb-pro-points-idempotency-key"));
         expect(billingKeys[0]).toBe(billingKeys[1]);
         expect(billingKeys[2]).not.toBe(billingKeys[0]);
+    });
+
+    it("queues project visual analysis as a recoverable text task", async () => {
+        const response = await POST(
+            new Request("http://localhost/api/drama/analyze", {
+                method: "POST",
+                headers: { "content-type": "application/json", cookie: "session=test" },
+                body: JSON.stringify({ requestId: "drama-visual-queued", projectId: "project-one", phase: "visual", episode: { id: "episode-one" }, shots: [{ id: "shot-one", sourceText: "原文一" }] }),
+            }),
+        );
+
+        expect(response.status).toBe(202);
+        await expect(response.json()).resolves.toMatchObject({ code: 0, data: { task: { id: "visual-task-one", status: "pending", model: "planner" } } });
+        expect(mocks.createTextTask).toHaveBeenCalledWith(expect.objectContaining({ surface: "drama", projectId: "project-one", episodeId: "episode-one", clientRequestId: "drama-visual-queued" }));
+        expect(mocks.scheduleGenerationTask).toHaveBeenCalledWith("text", "visual-task-one", expect.objectContaining({ executionPhase: "created" }));
+        expect(mocks.after).toHaveBeenCalledOnce();
+        expect(mocks.requestStructuredText).not.toHaveBeenCalled();
     });
 
     it("adaptively splits a structurally invalid visual request and preserves shot order", async () => {

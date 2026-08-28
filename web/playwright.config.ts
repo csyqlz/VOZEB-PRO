@@ -7,6 +7,7 @@ const baseURL = `http://127.0.0.1:${port}`;
 const protocolFixturePort = Number(process.env.VOZEB_PRO_PROTOCOL_FIXTURE_PORT || 4010);
 const paymentFixturePort = Number(process.env.VOZEB_PRO_PAYMENT_FIXTURE_PORT || 4020);
 const databaseUrl = process.env.VOZEB_PRO_E2E_DATABASE_URL?.trim() || "";
+const dataDir = process.env.VOZEB_PRO_E2E_DATA_DIR?.trim() || path.join(process.cwd(), ".e2e-data");
 const storageState = path.join(process.cwd(), ".e2e-data", "admin-state.json");
 
 export default defineConfig({
@@ -26,16 +27,21 @@ export default defineConfig({
     },
     projects: [
         { name: "setup", testMatch: /installation\.spec\.ts/ },
-        { name: "chromium", testMatch: [/(?:all-pages|canvas(?:-tools)?|commerce|core|creative-video-result|home|responsive(?:-workspaces)?)\.spec\.ts/], dependencies: ["setup"], use: { ...devices["Desktop Chrome"], storageState } },
+        {
+            name: "chromium",
+            testMatch: [/(?:admin-analysis|all-pages|canvas(?:-tools)?|commerce|core|creative-video-result|home|platform-runtime|responsive(?:-workspaces)?)\.spec\.ts/],
+            dependencies: ["setup"],
+            use: { ...devices["Desktop Chrome"], storageState },
+        },
         {
             name: "mobile-390",
-            testMatch: /(?:all-pages|commerce|creative-video-result|home|responsive(?:-workspaces)?)\.spec\.ts/,
+            testMatch: /(?:admin-analysis|all-pages|commerce|creative-video-result|home|responsive(?:-workspaces)?)\.spec\.ts/,
             dependencies: ["setup"],
             use: { ...devices["iPhone 13"], browserName: "chromium", viewport: { width: 390, height: 844 }, storageState },
         },
         {
             name: "mobile-430",
-            testMatch: /(?:all-pages|commerce|creative-video-result|home|responsive(?:-workspaces)?)\.spec\.ts/,
+            testMatch: /(?:admin-analysis|all-pages|commerce|creative-video-result|home|responsive(?:-workspaces)?)\.spec\.ts/,
             dependencies: ["setup"],
             use: { ...devices["iPhone 14 Pro Max"], browserName: "chromium", viewport: { width: 430, height: 932 }, storageState },
         },
@@ -65,7 +71,7 @@ export default defineConfig({
                 PORT: String(port),
                 NEXT_PUBLIC_SITE_URL: baseURL,
                 VOZEB_PRO_DATABASE_PROVIDER: databaseUrl ? "postgres" : "file",
-                VOZEB_PRO_DATA_DIR: path.join(process.cwd(), ".e2e-data"),
+                VOZEB_PRO_DATA_DIR: dataDir,
                 VOZEB_PRO_ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
                 VOZEB_PRO_INSTALL_TOKEN: "vozeb-pro-e2e-install-token-32chars",
                 VOZEB_PRO_MAINTENANCE_TOKEN: "vozeb-pro-e2e-maintenance-token-32chars",

@@ -6,6 +6,7 @@ import { ArrowRight, Captions, CircleAlert, CircleCheck, CircleDashed, Download,
 import { useRouter } from "next/navigation";
 
 import { createAgentPromptHref } from "@/lib/create-agent-prompt";
+import { publicModelLabel } from "@/components/model-picker";
 import { compileDramaShotPrompts } from "@/lib/drama-prompt-compiler";
 import { mediaDownloadFileName } from "@/lib/media-file";
 import { originalMediaDownloadUrl } from "@/lib/media-image-url";
@@ -18,9 +19,11 @@ import { cancelDramaAudioTask } from "./use-drama-audio-queue";
 import { AudioTag, DramaStageHeader, GenerationTag, StoryboardTag } from "./drama-editor-elements";
 import { summarizeDramaGeneration } from "./drama-generation-readiness";
 import { DramaMediaPreviewModal, DramaMediaThumbnail, type DramaPreviewMedia } from "./drama-media-preview";
+import { DramaResultFreshnessTag } from "./drama-result-freshness-tag";
 import { DramaJianyingModal, DramaSubtitleModal } from "./drama-project-modals";
 import type { DramaProjectStage } from "./drama-project-sections";
-import { estimateEpisodePoints } from "./drama-shot-generation-utils";
+import { configuredDramaImageModel, configuredDramaVideoModel, estimateEpisodePoints, resolveDramaImageModel, resolveDramaVideoModel } from "./drama-shot-generation-utils";
+import { DramaModelSelector } from "./drama-model-selector";
 
 const actionButtonClass = "!h-9 !px-3 [&>span:last-child]:whitespace-nowrap";
 
@@ -28,6 +31,7 @@ export function DramaGenerationPanel({ project, episode, onStageChange, onOpenAs
     const { message } = App.useApp();
     const router = useRouter();
     const config = useEffectiveConfig();
+    const updateProject = useDramaStore((state) => state.updateProject);
     const updateEpisode = useDramaStore((state) => state.updateEpisode);
     const updateShot = useDramaStore((state) => state.updateShot);
     const queueShots = useDramaStore((state) => state.queueShots);
@@ -53,6 +57,12 @@ export function DramaGenerationPanel({ project, episode, onStageChange, onOpenAs
         [episode.shots, renderTask?.id, renderTask?.status],
     );
     const audioReady = Boolean(config.audioModel.trim());
+    const projectVideoModel = resolveDramaVideoModel(config, project);
+    const projectImageModel = resolveDramaImageModel(config, project);
+    const videoReady = Boolean(projectVideoModel);
+    const imageReady = Boolean(projectImageModel);
+    const staleProjectImageModel = Boolean(project.imageModel && !configuredDramaImageModel(config, project.imageModel));
+    const staleProjectVideoModel = Boolean(project.videoModel && !configuredDramaVideoModel(config, project.videoModel));
     const assetCount = project.characters.length + project.scenes.length + project.props.length + project.clues.length;
     const audioCandidateShotIds = episode.shots.filter((shot) => shot.videoUrl && (shot.subtitle || shot.dialogue).trim() && shot.audioStatus !== "success").map((shot) => shot.id);
 
@@ -196,6 +206,8 @@ export function DramaGenerationPanel({ project, episode, onStageChange, onOpenAs
         renderReady,
         audioReady,
         renderTask,
+        imageReady: !episode.shots.some((shot) => (shot.videoMode || project.defaultVideoMode) === "storyboard") || imageReady,
+        videoReady,
         onStageChange,
         onQueueShots: (shotIds) => queueShots(project.id, episode.id, shotIds),
         onQueueAudio: (shotIds) => queueAudio(project.id, episode.id, shotIds),
@@ -232,6 +244,22 @@ export function DramaGenerationPanel({ project, episode, onStageChange, onOpenAs
             actionLabel: "打开分镜",
         },
         {
+            id: "image-model",
+            title: "图片模型",
+            detail: imageReady ? videoModelSummary(config, projectImageModel) : staleProjectImageModel ? `已选模型 ${project.imageModel} 已停用或移除` : "后台尚未配置可用的图片模型",
+            tone: imageReady ? ("done" as const) : ("blocked" as const),
+            action: () => message.info(imageReady ? `当前使用 ${videoModelSummary(config, projectImageModel)}` : "请先在上方选择可用图片模型；目录为空时需联系管理员配置"),
+            actionLabel: imageReady ? "已选择" : "需配置",
+        },
+        {
+            id: "video-model",
+            title: "视频模型",
+            detail: videoReady ? videoModelSummary(config, projectVideoModel) : staleProjectVideoModel ? `已选模型 ${project.videoModel} 已停用或移除` : "后台尚未配置可用的视频模型",
+            tone: videoReady ? ("done" as const) : ("blocked" as const),
+            action: () => message.info(videoReady ? `当前使用 ${videoModelSummary(config, projectVideoModel)}` : "请先在上方选择可用视频模型；目录为空时需联系管理员配置"),
+            actionLabel: videoReady ? "已选择" : "需配置",
+        },
+        {
             id: "audio",
             title: "音频模型",
             detail: !readiness.voiceoverShotIds.length
@@ -265,10 +293,26 @@ export function DramaGenerationPanel({ project, episode, onStageChange, onOpenAs
                         : []
                 }
                 action={primaryAction}
+                secondaryAction={
+                    <div className="min-w-0" data-drama-video-model>
+                        <DramaModelSelector
+                            config={config}
+                            imageValue={project.imageModel}
+                            videoValue={project.videoModel}
+                            imagePlaceholder={staleProjectImageModel ? "已选图片模型已失效" : imageReady ? videoModelSummary(config, projectImageModel) : "选择图片模型"}
+                            videoPlaceholder={staleProjectVideoModel ? "已选视频模型已失效" : videoReady ? videoModelSummary(config, projectVideoModel) : "选择视频模型"}
+                            onImageChange={(imageModel) => updateProject(project.id, { imageModel })}
+                            onVideoChange={(videoModel) => updateProject(project.id, { videoModel })}
+                            onClearImage={() => updateProject(project.id, { imageModel: undefined })}
+                            onClearVideo={() => updateProject(project.id, { videoModel: undefined })}
+                            onMissingConfig={(capability) => message.warning(`请联系管理员在后台配置可用的${capability === "image" ? "图片" : "视频"}模型`)}
+                        />
+                    </div>
+                }
             />
 
             {readiness.totalShots ? (
-                <div className="mt-3 flex items-center gap-3" aria-label="镜头完成进度">
+                <div className="mt-2 flex items-center gap-3" aria-label="镜头完成进度">
                     <Progress className="!m-0 min-w-0 flex-1" percent={readiness.progressPercent} showInfo={false} />
                     <span className="shrink-0 text-xs font-medium tabular-nums text-muted-foreground">{readiness.progressPercent}%</span>
                 </div>
@@ -282,9 +326,11 @@ export function DramaGenerationPanel({ project, episode, onStageChange, onOpenAs
                         </h3>
                         <p className="truncate text-xs text-muted-foreground">阻塞项会说明原因，并带你回到真正需要处理的位置。</p>
                     </div>
-                    <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{checklist.filter((item) => item.tone === "done" || item.tone === "optional").length}/4 可继续</span>
+                    <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                        {checklist.filter((item) => item.tone === "done" || item.tone === "optional").length}/{checklist.length} 可继续
+                    </span>
                 </div>
-                <div className={`mt-2 grid gap-1.5 ${readiness.totalShots ? "sm:grid-cols-2 xl:grid-cols-4" : "max-w-xl"}`}>
+                <div className={`mt-2 grid gap-1.5 ${readiness.totalShots ? "sm:grid-cols-2 xl:grid-cols-5" : "max-w-xl"}`}>
                     {(readiness.totalShots ? checklist : checklist.slice(0, 1)).map(({ id, ...item }) => (
                         <ReadinessItem key={id} {...item} />
                     ))}
@@ -497,12 +543,18 @@ function ShotTaskRow({
     onCancel: () => void;
     onSendToAgent: () => void;
 }) {
+    const { message } = App.useApp();
+    const config = useEffectiveConfig();
     const updateShot = useDramaStore((state) => state.updateShot);
     const queueShots = useDramaStore((state) => state.queueShots);
     const queueAudio = useDramaStore((state) => state.queueAudio);
     const generating = [shot.storyboardStatus, shot.storyboardEndStatus, shot.generationStatus].some((status) => status === "queued" || status === "running");
     const failed = [shot.storyboardStatus, shot.storyboardEndStatus, shot.generationStatus].some((status) => status === "error");
     const dialogue = (shot.subtitle || shot.dialogue || shot.narration).trim();
+    const selectedModel = resolveDramaVideoModel(config, project, { ...shot, generationModel: undefined });
+    const selectedImageModel = resolveDramaImageModel(config, project, { ...shot, storyboardModel: undefined, storyboardEndModel: undefined });
+    const staleShotImageModel = Boolean(shot.imageModel && !configuredDramaImageModel(config, shot.imageModel));
+    const staleShotModel = Boolean(shot.videoModel && !configuredDramaVideoModel(config, shot.videoModel));
 
     return (
         <article
@@ -513,13 +565,33 @@ function ShotTaskRow({
                 <div className="flex min-w-0 items-start gap-3">
                     <span className="grid size-8 shrink-0 place-items-center rounded-md bg-muted text-xs font-semibold tabular-nums">{String(shot.order).padStart(2, "0")}</span>
                     <div className="min-w-0 flex-1">
-                        <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
+                        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5">
                             <h4 className="min-w-0 truncate font-semibold">{shot.title || `镜头 ${String(shot.order).padStart(2, "0")}`}</h4>
                             <div className="flex flex-wrap items-center gap-1.5">
                                 <StoryboardTag status={shot.storyboardStatus} />
                                 {shot.storyboardFrameMode === "first_last" ? <Tag className="!m-0 !h-6 !rounded-md !leading-6">尾帧 {shot.storyboardEndStatus === "success" ? "完成" : shot.storyboardEndStatus === "error" ? "失败" : "待处理"}</Tag> : null}
                                 <GenerationTag status={shot.generationStatus} />
+                                <DramaResultFreshnessTag shot={shot} />
                                 {shot.audioMode === "voiceover" ? <AudioTag status={shot.audioStatus} /> : <Tag className="!m-0">{shot.audioMode === "mute" ? "静音" : "视频原声"}</Tag>}
+                            </div>
+                            <div className="flex min-w-0 basis-full items-center justify-end gap-1 sm:ml-auto sm:basis-auto" data-drama-shot-model data-drama-shot-video-model>
+                                <DramaModelSelector
+                                    config={config}
+                                    imageValue={shot.imageModel || ""}
+                                    videoValue={shot.videoModel || ""}
+                                    imagePlaceholder={selectedImageModel ? publicModelLabel(config, selectedImageModel) : "选择图片模型"}
+                                    videoPlaceholder={selectedModel ? publicModelLabel(config, selectedModel) : "选择视频模型"}
+                                    defaultCapability="video"
+                                    className="max-w-full"
+                                    onImageChange={(imageModel) => updateShot(project.id, episode.id, shot.id, { imageModel, storyboardModel: undefined })}
+                                    onVideoChange={(videoModel) => updateShot(project.id, episode.id, shot.id, { videoModel, generationModel: undefined })}
+                                    onClearImage={() => updateShot(project.id, episode.id, shot.id, { imageModel: undefined, storyboardModel: undefined })}
+                                    onClearVideo={() => updateShot(project.id, episode.id, shot.id, { videoModel: undefined, generationModel: undefined })}
+                                    onMissingConfig={(capability) => message.warning(`请联系管理员在后台配置可用的${capability === "image" ? "图片" : "视频"}模型`)}
+                                />
+                                {staleShotImageModel || staleShotModel ? (
+                                    <span className="min-w-0 text-xs text-rose-600 dark:text-rose-300">{staleShotImageModel && staleShotModel ? "图片和视频模型已失效" : staleShotImageModel ? "图片模型已失效" : "视频模型已失效"}</span>
+                                ) : null}
                             </div>
                         </div>
                         <p className="mt-2 line-clamp-2 text-sm leading-6 text-muted-foreground">{shot.videoPrompt || "动态提示词尚未填写，请回到分镜阶段补充。"}</p>
@@ -557,10 +629,10 @@ function ShotTaskRow({
                     <Button
                         className={`${dialogue ? "" : "col-span-2 lg:col-span-1"} ${actionButtonClass}`}
                         disabled={episode.reviewStatus !== "visual_ready"}
-                        icon={failed ? <RefreshCw className="size-4" /> : <Play className="size-4" />}
+                        icon={failed || shot.videoFreshness === "stale" || shot.storyboardFreshness === "stale" || shot.storyboardEndFreshness === "stale" ? <RefreshCw className="size-4" /> : <Play className="size-4" />}
                         onClick={() => queueShots(project.id, episode.id, [shot.id])}
                     >
-                        {failed ? "重试镜头" : shot.videoUrl ? "重新生成" : "生成镜头"}
+                        {failed ? "重试镜头" : shot.videoFreshness === "stale" || shot.storyboardFreshness === "stale" || shot.storyboardEndFreshness === "stale" ? "更新镜头" : shot.videoUrl ? "重新生成" : "生成镜头"}
                     </Button>
                 )}
                 <Button type="text" disabled={!shot.videoPrompt} className={`col-span-2 !bg-muted/60 hover:!bg-muted lg:col-span-1 ${actionButtonClass}`} icon={<Send className="size-4" />} onClick={onSendToAgent}>
@@ -592,6 +664,7 @@ function generationStageStatus(readiness: ReturnType<typeof summarizeDramaGenera
     if (renderTask?.status === "success") return { label: "成片已完成", description: "整集合成已经完成，可以预览成片、下载文件或继续导出字幕与剪映草稿。", tone: "ready" };
     if (renderTask && ["pending", "running"].includes(renderTask.status)) return { label: "正在合成", description: "全部镜头已经进入整集合成，后台会继续完成转码、拼接与字幕处理。", tone: "running" };
     if (readiness.activeShotIds.length) return { label: "生产进行中", description: `${readiness.activeShotIds.length} 个镜头正在排队或生成，完成后会自动继续处理下一项。`, tone: "running" };
+    if (readiness.staleShotIds.length) return { label: "视觉输入已更新", description: `${readiness.staleShotIds.length} 个镜头仍保留旧结果，确认后只更新这些受影响镜头。`, tone: "attention" };
     if (readiness.failedShotIds.length) return { label: "需要处理", description: `${readiness.failedShotIds.length} 个镜头存在失败项。下方会显示精确原因，并只重试对应镜头。`, tone: "attention" };
     if (readiness.completedVideoCount === readiness.totalShots && !readiness.missingAudioShotIds.length) return { label: "可合成", description: "镜头视频和必需配音已经就绪，下一步可以合成整集成片。", tone: "ready" };
     return { label: "准备生成", description: "先处理生成前检查中的阻塞项，再从唯一主操作启动本集镜头队列。", tone: "neutral" };
@@ -603,6 +676,8 @@ function buildPrimaryAction({
     renderReady,
     audioReady,
     renderTask,
+    imageReady,
+    videoReady,
     onStageChange,
     onQueueShots,
     onQueueAudio,
@@ -613,6 +688,8 @@ function buildPrimaryAction({
     renderReady: boolean | null;
     audioReady: boolean;
     renderTask: DramaRenderTask | null;
+    imageReady: boolean;
+    videoReady: boolean;
     onStageChange: (stage: DramaProjectStage) => void;
     onQueueShots: (shotIds: string[]) => void;
     onQueueAudio: (shotIds: string[]) => void;
@@ -635,6 +712,24 @@ function buildPrimaryAction({
         return (
             <Button type="primary" className={primaryClass} loading disabled>
                 正在处理 {readiness.activeShotIds.length} 个镜头
+            </Button>
+        );
+    if (!imageReady)
+        return (
+            <Button type="primary" className={primaryClass} disabled title="请先选择可用的图片模型">
+                等待图片模型配置
+            </Button>
+        );
+    if (!videoReady)
+        return (
+            <Button type="primary" className={primaryClass} disabled title="请先选择可用的视频模型">
+                等待视频模型配置
+            </Button>
+        );
+    if (readiness.staleQueueableShotIds.length)
+        return (
+            <Button type="primary" className={primaryClass} icon={<RefreshCw className="size-4" />} onClick={() => onQueueShots(readiness.staleQueueableShotIds)}>
+                更新 {readiness.staleQueueableShotIds.length} 个受影响镜头
             </Button>
         );
     if (readiness.queueableShotIds.length)
@@ -684,4 +779,8 @@ function buildPrimaryAction({
             {renderTask?.status === "error" || renderTask?.status === "cancelled" ? "重新合成整集" : "合成整集"}
         </Button>
     );
+}
+
+function videoModelSummary(config: ReturnType<typeof useEffectiveConfig>, model: string) {
+    return model ? publicModelLabel(config, model) : "";
 }

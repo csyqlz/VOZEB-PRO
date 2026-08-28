@@ -5,7 +5,7 @@ import { ArrowRight, Bot, History, PanelRightClose, Pause, Pencil, Play, Plus, S
 import { Button, Modal, Tooltip } from "antd";
 import { motion } from "motion/react";
 
-import { modelOptionName, resolveModelChannel, selectableModelsByCapability, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
+import { modelOptionLabel, modelOptionName, selectableModelsByCapability, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { nanoid } from "nanoid";
 import { refreshUserPointsIfSystem } from "@/services/api/points";
@@ -34,13 +34,12 @@ export function AgentTextModelPicker({ config, value, onChange }: { config: AiCo
             <SelectTrigger
                 hideChevron
                 className="h-7 min-w-0 max-w-[220px] gap-1.5 border-0 bg-transparent px-1 py-0 text-xs font-normal shadow-none hover:bg-transparent hover:opacity-75 focus-visible:border-transparent focus-visible:ring-0 data-[state=open]:ring-0 dark:bg-transparent dark:hover:bg-transparent"
-                title={current ? `${modelOptionName(current)} · ${resolveModelChannel(config, current).name}` : "选择文本模型"}
+                title={current ? modelOptionLabel(config, current) : "选择文本模型"}
                 onMouseDown={(event) => event.stopPropagation()}
                 onPointerDown={(event) => event.stopPropagation()}
             >
                 <ModelIcon model={current} />
                 <span className="min-w-0 truncate">{current ? modelOptionName(current) : "选择文本模型"}</span>
-                {current ? <span className="shrink-0 opacity-55">{resolveModelChannel(config, current).name}</span> : null}
             </SelectTrigger>
             <SelectContent
                 data-canvas-no-zoom
@@ -54,11 +53,10 @@ export function AgentTextModelPicker({ config, value, onChange }: { config: AiCo
             >
                 {options.length ? (
                     options.map((model) => (
-                        <SelectItem key={model} value={model} textValue={`${modelOptionName(model)} ${resolveModelChannel(config, model).name}`}>
+                        <SelectItem key={model} value={model} textValue={modelOptionLabel(config, model)}>
                             <span className="flex min-w-0 items-center gap-2">
                                 <ModelIcon model={model} />
                                 <span className="min-w-0 flex-1 truncate">{modelOptionName(model)}</span>
-                                <span className="shrink-0 text-xs opacity-55">{resolveModelChannel(config, model).name}</span>
                             </span>
                         </SelectItem>
                     ))

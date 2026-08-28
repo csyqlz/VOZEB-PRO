@@ -1,6 +1,6 @@
 type BillingLogicalModel = {
     id: string;
-    bindings: Array<{ upstreamModel: string; enabled?: boolean; priority?: number }>;
+    bindings?: Array<{ upstreamModel: string; enabled?: boolean; priority?: number }>;
 };
 
 const DEFAULT_MODEL_POINT_COST_KEY = "__default__";
@@ -11,7 +11,7 @@ export function resolveConfiguredModelPointCost(costs: Record<string, number> | 
 
     const logical = logicalModels.find((item) => sameModel(item.id, model));
     if (logical) {
-        const bindings = logical.bindings.filter((binding) => binding.enabled !== false).sort((left, right) => (left.priority || 0) - (right.priority || 0));
+        const bindings = (logical.bindings || []).filter((binding) => binding.enabled !== false).sort((left, right) => (left.priority || 0) - (right.priority || 0));
         for (const binding of bindings) {
             const aliasCost = configuredCost(costs, binding.upstreamModel);
             if (aliasCost !== undefined) return aliasCost;
@@ -25,7 +25,7 @@ export function materializeLogicalModelPointCosts(costs: Record<string, number> 
     const resolved = { ...(costs || {}) };
     for (const logical of logicalModels) {
         if (configuredCost(costs, logical.id) !== undefined) continue;
-        const bindings = logical.bindings.filter((binding) => binding.enabled !== false).sort((left, right) => (left.priority || 0) - (right.priority || 0));
+        const bindings = (logical.bindings || []).filter((binding) => binding.enabled !== false).sort((left, right) => (left.priority || 0) - (right.priority || 0));
         const aliasCost = bindings.map((binding) => configuredCost(costs, binding.upstreamModel)).find((cost) => cost !== undefined);
         if (aliasCost !== undefined) resolved[logical.id] = aliasCost;
     }
@@ -34,7 +34,7 @@ export function materializeLogicalModelPointCosts(costs: Record<string, number> 
 
 export function configuredModelPointCostKeys(costs: Record<string, number> | undefined, model: string, logicalModels: BillingLogicalModel[] = []) {
     const logical = logicalModels.find((item) => sameModel(item.id, model));
-    const candidates = [model, ...(logical?.bindings.filter((binding) => binding.enabled !== false).map((binding) => binding.upstreamModel) || [])];
+    const candidates = [model, ...(logical?.bindings?.filter((binding) => binding.enabled !== false).map((binding) => binding.upstreamModel) || [])];
     return Object.keys(costs || {}).filter((key) => candidates.some((candidate) => sameModel(key, candidate)));
 }
 

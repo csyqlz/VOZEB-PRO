@@ -12,6 +12,7 @@ import { resolveLogicalModelCandidates } from "@/lib/server/logical-model-router
 import { checkGenerationRateLimit, rateLimitHeaders } from "@/lib/server/security";
 import { createTextTask, type TextTask, type TextTaskConfig } from "@/lib/server/text-task-store";
 import type { AiTextMessage } from "@/types/ai";
+import { requireVozebCmsCapability } from "@/app/api/vozeb-cms-capability";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,6 +26,8 @@ type CreateTextTaskBody = {
 export async function POST(request: Request) {
     const currentUser = await getCurrentUser(request);
     if (!currentUser) return NextResponse.json({ error: "请先登录" }, { status: 401 });
+    const blocked = await requireVozebCmsCapability("text.generate", currentUser.id);
+    if (blocked) return blocked;
     const rate = await checkGenerationRateLimit(currentUser.id, request, "text");
     if (!rate.allowed) return NextResponse.json({ error: "文本生成请求过于频繁，请稍后重试" }, { status: 429, headers: rateLimitHeaders(rate) });
     const settings = await getAuthSettings();

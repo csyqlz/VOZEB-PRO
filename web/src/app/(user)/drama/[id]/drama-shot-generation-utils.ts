@@ -1,8 +1,9 @@
 import type { DramaAssetReference, DramaProject, DramaShot } from "../types";
-import type { useEffectiveConfig } from "@/stores/use-config-store";
+import type { AiConfig } from "@/stores/use-config-store";
 import { resolveDramaGenerationSize } from "@/lib/drama-image-size";
 import type { ReferenceImage } from "@/types/image";
 import type { VideoReferenceRole } from "@/lib/video-reference-contract";
+import { modelOptionName } from "@/stores/use-config-store";
 
 export function shotReferenceImages(project: DramaProject, shot: DramaShot) {
     const assetUrls = [...project.characters.filter((item) => shot.characterIds.includes(item.id)), ...project.scenes.filter((item) => item.id === shot.sceneId), ...project.props.filter((item) => shot.propIds.includes(item.id))].flatMap((item) => {
@@ -38,8 +39,28 @@ export function dramaGenerationSize(project: DramaProject, prompt: string, refer
     return resolveDramaGenerationSize({ projectSize: project.ratio, prompt, references });
 }
 
-export function estimateTaskPoints(config: ReturnType<typeof useEffectiveConfig>, type: "image" | "video" | "audio", duration = 5) {
-    const model = type === "image" ? config.imageModel || config.model : type === "video" ? config.videoModel || config.model : config.audioModel;
+export function configuredDramaVideoModel(config: AiConfig, value?: string) {
+    const requested = normalizeModel(value);
+    return requested ? config.videoModels.find((model) => normalizeModel(model) === requested) || "" : "";
+}
+
+export function configuredDramaImageModel(config: AiConfig, value?: string) {
+    const requested = normalizeModel(value);
+    return requested ? config.imageModels.find((model) => normalizeModel(model) === requested) || "" : "";
+}
+
+export function resolveDramaImageModel(config: AiConfig, project: DramaProject, shot?: DramaShot) {
+    const requested = shot?.imageModel || shot?.storyboardModel || project.imageModel || config.imageModel;
+    return configuredDramaImageModel(config, requested);
+}
+
+export function resolveDramaVideoModel(config: AiConfig, project: DramaProject, shot?: DramaShot) {
+    const requested = shot?.videoModel || shot?.generationModel || project.videoModel || config.videoModel;
+    return configuredDramaVideoModel(config, requested);
+}
+
+export function estimateTaskPoints(config: AiConfig, type: "image" | "video" | "audio", duration = 5, selectedModel?: string) {
+    const model = selectedModel !== undefined ? selectedModel : type === "image" ? config.imageModel || config.model : type === "video" ? config.videoModel : config.audioModel;
     const base = Number(config.modelPointCosts[model] || 0);
     if (type === "image") return Number((base * (config.generationPointMultipliers.imageQuality[config.quality] || 1)).toFixed(2));
     if (type === "video") {
@@ -50,12 +71,19 @@ export function estimateTaskPoints(config: ReturnType<typeof useEffectiveConfig>
     return Number(base.toFixed(2));
 }
 
-export function estimateEpisodePoints(config: ReturnType<typeof useEffectiveConfig>, project: DramaProject, shots: DramaShot[]) {
+export function estimateEpisodePoints(config: AiConfig, project: DramaProject, shots: DramaShot[]) {
     const total = shots.reduce((sum, shot) => {
         const mode = shot.videoMode || project.defaultVideoMode;
-        const image = mode === "storyboard" ? estimateTaskPoints(config, "image") * (shot.storyboardFrameMode === "first_last" ? 2 : 1) : 0;
+        const image = mode === "storyboard" ? estimateTaskPoints(config, "image", 5, resolveDramaImageModel(config, project, shot)) * (shot.storyboardFrameMode === "first_last" ? 2 : 1) : 0;
         const audio = shot.audioMode === "voiceover" && (shot.subtitle || shot.dialogue || shot.narration).trim() ? estimateTaskPoints(config, "audio") : 0;
-        return sum + image + estimateTaskPoints(config, "video", shot.duration) + audio;
+        return sum + image + estimateTaskPoints(config, "video", shot.duration, resolveDramaVideoModel(config, project, { ...shot, generationModel: undefined })) + audio;
     }, 0);
     return Number(total.toFixed(2));
+}
+
+function normalizeModel(value?: string) {
+    return modelOptionName(value || "")
+        .replace(/^models\//i, "")
+        .trim()
+        .toLowerCase();
 }

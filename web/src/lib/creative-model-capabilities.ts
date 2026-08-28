@@ -12,10 +12,12 @@ export type CreativeModelCapabilityOption = {
 
 type LogicalModelLike = {
     id: string;
-    bindings: Array<{ enabled: boolean; capabilityProfile?: LogicalModelCapabilityProfile }>;
+    capabilityProfile?: CreativeModelCapabilityProfile;
+    bindings?: Array<{ enabled: boolean; capabilityProfile?: LogicalModelCapabilityProfile }>;
 };
 
 export function creativeModelProfileForLogicalModel(model: LogicalModelLike | undefined): CreativeModelCapabilityProfile | undefined {
+    if (model?.capabilityProfile) return model.capabilityProfile;
     const profiles = (model?.bindings || []).filter((binding) => binding.enabled && binding.capabilityProfile).map((binding) => binding.capabilityProfile!);
     if (!profiles.length) return undefined;
     return compactProfile({

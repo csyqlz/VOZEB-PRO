@@ -3,9 +3,22 @@ import { Tag, Tooltip } from "antd";
 import type { AdminGenerationTask } from "@/lib/admin-generation-operations";
 import { generationOperationThemeClasses } from "./generation-operations-theme";
 
-export function AgentPlannerAuditSummary({ task }: { task: AdminGenerationTask }) {
+export function AgentPlannerAuditSummary({ task, compact = false }: { task: AdminGenerationTask; compact?: boolean }) {
     const audit = task.plannerAudit;
     if (!audit && !task.plannerRuntime) return null;
+    if (compact) {
+        const runtime = task.plannerRuntime;
+        const facts = [
+            audit ? (audit.mode === "direct" ? "用户直选" : planningProtocolLabel(audit.protocol)) : "",
+            runtime?.transport === "stream" ? "流式" : runtime?.transport === "complete" ? "完整响应" : "",
+            runtime?.planningMs !== undefined ? `规划 ${durationLabel(runtime.planningMs)}` : "",
+        ].filter(Boolean);
+        return (
+            <Tooltip title={facts.join("\n")}>
+                <div className="mt-1 truncate text-[11px] leading-4 text-zinc-500 dark:text-zinc-400">{facts.join(" · ")}</div>
+            </Tooltip>
+        );
+    }
     return (
         <div className="mt-1.5 space-y-1 text-[11px] leading-4 text-zinc-500 dark:text-zinc-400">
             {audit ? (
@@ -73,7 +86,31 @@ export function AgentFailureSummary({ task }: { task: AdminGenerationTask }) {
     );
 }
 
-export function GenerationTaskRuntimeSummary({ task, compact = false }: { task: AdminGenerationTask; compact?: boolean }) {
+export function GenerationTaskRuntimeSummary({ task, compact = false, table = false }: { task: AdminGenerationTask; compact?: boolean; table?: boolean }) {
+    if (table) {
+        const terminal = ["success", "error", "cancelled"].includes(task.status);
+        const facts = terminal
+            ? [task.provider ? `Provider：${task.provider}` : "", `完成：${operationTimeLabel(task.updatedAt)}`]
+            : [
+                  `Worker：${task.workerId || "未认领"}`,
+                  `心跳：${operationTimeLabel(task.lastHeartbeatAt)}`,
+                  `租约：${operationTimeLabel(task.leaseUntil)}`,
+                  `下次查询：${operationTimeLabel(task.nextPollAt)}`,
+                  task.provider ? `Provider：${task.provider}` : "",
+              ];
+        const summary = facts.filter(Boolean).join(" · ");
+        return (
+            <div className="min-w-0 text-xs text-zinc-500 dark:text-zinc-400">
+                <div className="flex flex-wrap items-center gap-1.5">
+                    <Tag className={generationOperationThemeClasses.neutralTag}>{executionPhaseLabel(task.executionPhase)}</Tag>
+                    {task.leaseExpired ? <Tag className={generationOperationThemeClasses.reviewTag}>租约已过期</Tag> : null}
+                </div>
+                <Tooltip title={summary}>
+                    <div className="mt-1 truncate leading-5">{summary}</div>
+                </Tooltip>
+            </div>
+        );
+    }
     return (
         <div className={compact ? "mt-3 border-t border-zinc-100 pt-3 dark:border-zinc-900" : "space-y-1 text-xs text-zinc-500 dark:text-zinc-400"}>
             <div className="flex flex-wrap items-center gap-1.5">

@@ -211,16 +211,17 @@
     }
 
     .admin-section-nav-item.is-active {
-        background: #f4f4f5 !important;
+        background: #edf7f6 !important;
         border-color: transparent !important;
-        box-shadow: inset 2px 0 0 #18181b !important;
+        color: #0f766e !important;
+        box-shadow: inset 2px 0 0 #0f766e !important;
     }
 
     .dark .admin-section-nav-item.is-active {
-        background: #18181b !important;
+        background: rgb(45 212 191 / 0.12) !important;
         border-color: transparent !important;
-        color: #fafafa !important;
-        box-shadow: inset 2px 0 0 #fafafa !important;
+        color: #5eead4 !important;
+        box-shadow: inset 2px 0 0 #2dd4bf !important;
     }
 
     .admin-section-nav-icon {

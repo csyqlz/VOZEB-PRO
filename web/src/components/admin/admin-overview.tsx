@@ -1,11 +1,13 @@
 "use client";
 
-import { Button, Tag } from "antd";
-import { CircleDollarSign, Database, PlugZap, RefreshCw, UsersRound } from "lucide-react";
+import { Button, Segmented, Tooltip } from "antd";
+import { Activity, ArrowRight, CalendarDays, CircleHelp, CreditCard, PlugZap, RefreshCw, UsersRound } from "lucide-react";
+import Link from "next/link";
+import { useState, type ReactNode } from "react";
 
-import { generationKindLabel, generationSourceLabel } from "@/components/admin/admin-generation-log";
 import { AdminCommerceConversionPanel } from "@/components/admin/admin-commerce-conversion-panel";
-import { Metric, Panel, PanelHeader } from "@/components/admin/admin-panel";
+import { generationKindLabel, generationSourceLabel } from "@/components/admin/admin-generation-log";
+import { Panel, PanelHeader } from "@/components/admin/admin-panel";
 import { formatAdminMoney } from "@/components/admin/admin-values";
 import type { AdminBillingSummary } from "@/lib/admin-billing-types";
 import type { AdminGenerationOverviewSummary } from "@/lib/admin-generation-overview";
@@ -17,6 +19,7 @@ type SettingsSummary = { totalChannels: number; enabledChannels: number };
 type WalletSummary = { enabledPlans: number; usersWithPlan: number };
 type DistributionItem = { label: string; value: number; percent: number };
 type OperationsSummary = AdminGenerationOverviewSummary;
+type AnalysisMode = "trend" | "kind";
 type AdminOverviewProps = {
     stats: OverviewStats;
     settingsSummary: SettingsSummary;
@@ -33,222 +36,302 @@ type AdminOverviewProps = {
 };
 
 export function AdminOverview({ stats, settingsSummary, walletSummary, billingSummary, operationsSummary, promptCount, assetStats, enabledProducts, billingLoading, loading, onRefreshBilling, onRefresh }: AdminOverviewProps) {
+    const [analysisMode, setAnalysisMode] = useState<AnalysisMode>("trend");
+    const orders = billingSummary?.orders;
+    const paidOrderRate = percentage(orders?.paid || 0, orders?.total || 0);
+    const activeUserRate = percentage(stats.active, stats.total);
+    const todayCalls = operationsSummary.dailyCalls.at(-1)?.value || 0;
+
     return (
         <div className="space-y-3 sm:space-y-5">
-            <section className="admin-metric-grid grid grid-cols-2 overflow-hidden rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950 xl:grid-cols-4">
-                <Metric label="用户总数" value={stats.total} detail={stats.active + " 个可用账号"} icon={<UsersRound className="size-5" />} tone="slate" />
-                <Metric label="接口配置" value={settingsSummary.enabledChannels} detail={"共 " + settingsSummary.totalChannels + " 个渠道"} icon={<PlugZap className="size-5" />} tone="emerald" />
-                <Metric label="实收金额" value={formatAdminMoney(billingSummary?.orders.paidAmountCents || 0)} detail={(billingSummary?.orders.paid || 0) + " 笔已支付订单"} icon={<CircleDollarSign className="size-5" />} tone="slate" />
-                <Metric label="今日调用" value={operationsSummary.dailyCalls.at(-1)?.value || 0} detail={`近 ${operationsSummary.windowDays} 日 ${operationsSummary.totalCalls} 次调用`} icon={<Database className="size-5" />} tone="slate" />
+            <section className="grid min-w-0 grid-cols-2 gap-3 sm:gap-5 xl:grid-cols-4" aria-label="经营核心指标">
+                <AnalysisMetricCard
+                    title="实收金额"
+                    tooltip="累计已支付订单的实际入账金额"
+                    value={formatAdminMoney(orders?.paidAmountCents || 0)}
+                    detail={(orders?.paid || 0) + " 笔已支付订单"}
+                    footer={<MetricFooter left={"支付转化 " + paidOrderRate + "%"} right={"待支付 " + formatAdminMoney(orders?.pendingAmountCents || 0)} />}
+                >
+                    <MiniBars
+                        tone="amber"
+                        items={[
+                            { label: "订单总额", value: orders?.grossAmountCents || 0 },
+                            { label: "实收金额", value: orders?.paidAmountCents || 0 },
+                            { label: "退款金额", value: orders?.refundedAmountCents || 0 },
+                        ]}
+                    />
+                </AnalysisMetricCard>
+                <AnalysisMetricCard
+                    title="用户运营"
+                    tooltip="当前平台账号总量与可用账号比例"
+                    value={formatCompactNumber(stats.total)}
+                    detail={stats.active + " 个可用账号 · " + stats.admins + " 位管理员"}
+                    footer={<MetricFooter left={"可用率 " + activeUserRate + "%"} right={walletSummary.usersWithPlan + " 个套餐用户"} />}
+                >
+                    <AccountStructure active={stats.active} disabled={Math.max(0, stats.total - stats.active)} />
+                </AnalysisMetricCard>
+                <AnalysisMetricCard
+                    title="今日调用"
+                    tooltip={"统计近 " + operationsSummary.windowDays + " 日生成调用"}
+                    value={formatCompactNumber(todayCalls)}
+                    detail={"近 " + operationsSummary.windowDays + " 日共 " + formatCompactNumber(operationsSummary.totalCalls) + " 次"}
+                    footer={<MetricFooter left={operationsSummary.activeUsers + " 个活跃用户"} right={settingsSummary.enabledChannels + " 个可用渠道"} />}
+                >
+                    <MiniBars items={operationsSummary.dailyCalls} tone="cyan" />
+                </AnalysisMetricCard>
+                <AnalysisMetricCard
+                    title="调用成功率"
+                    tooltip="成功生成调用占全部生成调用的比例"
+                    value={operationsSummary.successRate + "%"}
+                    detail={formatCompactNumber(operationsSummary.successCalls) + " 次成功 · " + formatCompactNumber(operationsSummary.failedCalls) + " 次失败"}
+                    footer={<MetricFooter left={"总调用 " + formatCompactNumber(operationsSummary.totalCalls)} right={"模型 " + operationsSummary.modelDistribution.length + " 个"} />}
+                >
+                    <ProgressBar value={operationsSummary.successRate} tone="blue" />
+                </AnalysisMetricCard>
             </section>
+
+            <AnalysisPanel operationsSummary={operationsSummary} mode={analysisMode} loading={loading} onModeChange={setAnalysisMode} onRefresh={onRefresh} />
+            <QuickActionsPanel />
             <AdminCommerceConversionPanel billingSummary={billingSummary} billingLoading={billingLoading} onRefreshBilling={onRefreshBilling} />
             <Panel>
-                <PanelHeader
-                    title="平台运营拆分"
-                    description="把用户、收入、模型能力和初始化进度放在同一张运营看板里，方便按商业后台的方式巡检。"
-                    actions={
-                        <div className="flex flex-wrap justify-end gap-2">
-                            <Tag className="m-0">管理员 {stats.admins}</Tag>
-                            <Tag className="m-0">提示词 {promptCount}</Tag>
-                            <Tag className="m-0">资源 {assetStats ? assetStats.totalFiles : "-"}</Tag>
-                        </div>
-                    }
-                />
+                <PanelHeader title="运营资源" description="账号、商品、内容与媒体资源" />
                 <div className="admin-resource-grid grid grid-cols-2 lg:grid-cols-4">
-                    <ResourceStat label="成功调用" value={operationsSummary.successCalls + " 次"} detail={"成功率 " + operationsSummary.successRate + "%"} />
-                    <ResourceStat label="活跃用户" value={operationsSummary.activeUsers + " 人"} detail={`近 ${operationsSummary.windowDays} 日去重用户`} />
+                    <ResourceStat label="管理员" value={stats.admins + " 人"} detail={stats.active + " 个可用账号"} />
                     <ResourceStat label="上架商品" value={enabledProducts + " 个"} detail={walletSummary.enabledPlans + " 个在售套餐"} />
-                    <ResourceStat label="本地预览资源" value={assetStats ? assetStats.totalFiles + " 个" : "-"} detail={assetStats ? formatBytes(assetStats.totalBytes) : "等待统计"} />
-                </div>
-            </Panel>
-            <div className="grid gap-3 sm:gap-5 xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]">
-                <ModelDistributionPanel items={operationsSummary.modelDistribution} emptyText="暂无模型请求记录" />
-                <UsageLinePanel items={operationsSummary.dailyCalls} loading={loading} onRefresh={onRefresh} />
-            </div>
-            <div className="grid gap-3 sm:gap-5 lg:grid-cols-2">
-                <CompactDonutPanel title="入口分布" description="查看调用来自创作 Agent、画布、短剧或其他生成入口。" items={operationsSummary.sourceDistribution} emptyText="暂无入口记录" totalLabel="入口请求" />
-                <CompactDonutPanel title="内容类型分布" description="对图片、视频等生成类型做运营观察。" items={operationsSummary.kindDistribution} emptyText="暂无类型记录" totalLabel="类型请求" />
-            </div>
-            <Panel>
-                <PanelHeader title="业务健康" description="商业化后台首页只放运营判断相关信息；媒体文件维护已归入本地媒体页面。" />
-                <div className="admin-resource-grid grid grid-cols-2 lg:grid-cols-4">
-                    <ResourceStat label="在售套餐" value={walletSummary.enabledPlans + " 个"} detail={walletSummary.usersWithPlan + " 个套餐用户"} />
-                    <ResourceStat label="启用模型渠道" value={settingsSummary.enabledChannels + " 个"} detail={"共 " + settingsSummary.totalChannels + " 个渠道"} />
-                    <ResourceStat label="失败调用" value={operationsSummary.failedCalls + " 次"} detail="用于排查模型、额度或上游异常" />
-                    <ResourceStat label="资源异常" value={assetStats ? assetStats.missingReferences + " 个" : "-"} detail="日志记录存在但文件不存在" />
+                    <ResourceStat label="提示词" value={promptCount + " 条"} detail={walletSummary.usersWithPlan + " 个套餐用户"} />
+                    <ResourceStat label="本地资源" value={assetStats ? assetStats.totalFiles + " 个" : "-"} detail={assetStats ? formatBytes(assetStats.totalBytes) + " · " + assetStats.missingReferences + " 个异常" : "等待统计"} />
                 </div>
             </Panel>
         </div>
     );
 }
-function ModelDistributionPanel({ items, emptyText }: { items: DistributionItem[]; emptyText: string }) {
-    const displayItems = items.length ? items : [{ label: emptyText, value: 0, percent: 100 }];
+
+function AnalysisMetricCard({ title, tooltip, value, detail, children, footer }: { title: string; tooltip: string; value: string; detail: string; children: ReactNode; footer: ReactNode }) {
     return (
-        <Panel>
-            <PanelHeader title="模型分布" description="统计近 7 日不同模型的请求占比，便于调整默认模型和套餐成本。" />
-            <div className="grid gap-3 p-3 sm:gap-6 sm:p-5 lg:grid-cols-[220px_minmax(0,1fr)]">
-                <div className="flex items-center justify-center">
-                    <DonutChart items={items} emptyText={emptyText} totalLabel="请求总量" variant="large" />
-                </div>
-                <div className="min-w-0 overflow-hidden rounded-md border border-zinc-200 dark:border-zinc-800">
-                    <div className="grid grid-cols-[minmax(0,1.2fr)_58px_58px] border-b border-zinc-200 bg-zinc-50 px-3 py-2 text-[10px] font-semibold text-zinc-500 sm:grid-cols-[minmax(0,1.2fr)_72px_72px] sm:px-4 sm:py-2.5 sm:text-[11px] dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
-                        <span>模型</span>
-                        <span className="text-right">请求</span>
-                        <span className="text-right">占比</span>
-                    </div>
-                    {displayItems.map((item, index) => (
-                        <div
-                            key={item.label}
-                            className="grid grid-cols-[minmax(0,1.2fr)_58px_58px] items-center border-b border-zinc-100 px-3 py-2.5 text-xs last:border-b-0 sm:grid-cols-[minmax(0,1.2fr)_72px_72px] sm:px-4 sm:py-3 sm:text-sm dark:border-zinc-800/70"
-                        >
-                            <div className="flex min-w-0 items-center gap-2">
-                                <span className={`size-2.5 shrink-0 rounded-full ${items.length ? "" : "bg-stone-300 dark:bg-stone-700"}`} style={items.length ? { background: chartColor(index) } : undefined} />
-                                <span className={`min-w-0 truncate font-medium ${items.length ? "text-stone-900 dark:text-stone-100" : "text-stone-500 dark:text-stone-400"}`}>{item.label}</span>
-                            </div>
-                            <span className="text-right tabular-nums text-stone-500 dark:text-stone-400">{formatCompactNumber(item.value)}</span>
-                            <span className="text-right tabular-nums font-semibold text-stone-950 dark:text-stone-100">{items.length ? `${item.percent}%` : "-"}</span>
-                        </div>
-                    ))}
-                </div>
+        <article className="admin-analysis-metric-card admin-panel-surface min-w-0 overflow-hidden rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+            <div className="flex h-12 items-center justify-between border-b border-zinc-100 px-3.5 sm:px-5 dark:border-zinc-800">
+                <h2 className="truncate text-xs font-semibold text-zinc-800 sm:text-sm dark:text-zinc-100">{title}</h2>
+                <Tooltip title={tooltip}>
+                    <span className="grid size-6 shrink-0 place-items-center text-zinc-400" aria-label={tooltip}>
+                        <CircleHelp className="size-3.5" />
+                    </span>
+                </Tooltip>
             </div>
-        </Panel>
+            <div className="min-w-0 px-3.5 py-3 sm:px-5 sm:py-4">
+                <div className="truncate text-xl font-semibold tabular-nums text-zinc-950 sm:text-2xl dark:text-zinc-50">{value}</div>
+                <div className="mt-1 truncate text-[10px] text-zinc-500 sm:text-xs dark:text-zinc-400">{detail}</div>
+                <div className="mt-3 min-h-10">{children}</div>
+                <div className="mt-3 border-t border-zinc-100 pt-2.5 dark:border-zinc-800">{footer}</div>
+            </div>
+        </article>
     );
 }
 
-function CompactDonutPanel({ title, description, items, emptyText, totalLabel }: { title: string; description: string; items: DistributionItem[]; emptyText: string; totalLabel: string }) {
-    const displayItems = items.length ? items : [{ label: emptyText, value: 0, percent: 100 }];
+function ProgressBar({ value, tone }: { value: number; tone: "blue" | "emerald" | "amber" }) {
+    const color = tone === "blue" ? "bg-blue-500 dark:bg-blue-400" : tone === "emerald" ? "bg-emerald-500 dark:bg-emerald-400" : "bg-amber-500 dark:bg-amber-400";
     return (
-        <Panel>
-            <PanelHeader title={title} description={description} />
-            <div className="grid gap-3 p-3 sm:grid-cols-[180px_minmax(0,1fr)] sm:gap-5 sm:p-5">
-                <div className="flex items-center justify-center">
-                    <DonutChart items={items} emptyText={emptyText} totalLabel={totalLabel} variant="compact" />
-                </div>
-                <div className="min-w-0 self-center">
-                    {displayItems.map((item, index) => (
-                        <div key={item.label} className="min-w-0 border-b border-zinc-100 px-1 py-3 last:border-b-0 dark:border-zinc-800">
-                            <div className="flex items-center justify-between gap-3 text-sm">
-                                <span className="flex min-w-0 items-center gap-2">
-                                    <span className={`size-2.5 shrink-0 rounded-full ${items.length ? "" : "bg-stone-300 dark:bg-stone-700"}`} style={items.length ? { background: chartColor(index) } : undefined} />
-                                    <span className={`min-w-0 truncate font-medium ${items.length ? "text-stone-900 dark:text-stone-100" : "text-stone-500 dark:text-stone-400"}`}>{item.label}</span>
-                                </span>
-                                <span className="shrink-0 tabular-nums font-semibold text-stone-950 dark:text-stone-100">{items.length ? `${item.percent}%` : "-"}</span>
-                            </div>
-                            <div className="mt-2 text-xs tabular-nums text-stone-500 dark:text-stone-400">{formatCompactNumber(item.value)} 次</div>
-                        </div>
-                    ))}
-                </div>
-            </div>
-        </Panel>
-    );
-}
-
-const donutChartVariants = {
-    large: { sizeClass: "size-40 sm:size-56", viewBoxSize: 160, radius: 58, strokeWidth: 22, totalClassName: "text-xl sm:text-3xl", labelClassName: "text-[10px] sm:text-xs" },
-    compact: { sizeClass: "size-32 sm:size-44", viewBoxSize: 150, radius: 54, strokeWidth: 20, totalClassName: "text-lg sm:text-2xl", labelClassName: "text-[10px] sm:text-[11px]" },
-} as const;
-
-function DonutChart({ items, emptyText, totalLabel, variant }: { items: DistributionItem[]; emptyText: string; totalLabel: string; variant: keyof typeof donutChartVariants }) {
-    const { sizeClass, viewBoxSize, radius, strokeWidth, totalClassName, labelClassName } = donutChartVariants[variant];
-    const total = items.reduce((sum, item) => sum + item.value, 0);
-    const displayItems = items.length ? items : [{ label: emptyText, value: 0, percent: 100 }];
-    const center = viewBoxSize / 2;
-    const circumference = 2 * Math.PI * radius;
-    let offset = 0;
-    return (
-        <div className={`relative ${sizeClass}`}>
-            <svg className="size-full -rotate-90" viewBox={`0 0 ${viewBoxSize} ${viewBoxSize}`} aria-hidden="true">
-                <circle cx={center} cy={center} r={radius} fill="none" stroke="currentColor" className="text-stone-100 dark:text-stone-800" style={{ color: "var(--admin-chart-track)" }} strokeWidth={strokeWidth} />
-                {displayItems.map((item, index) => {
-                    const dash = items.length ? (item.value / Math.max(1, total)) * circumference : circumference;
-                    const segment = (
-                        <circle
-                            key={item.label}
-                            cx={center}
-                            cy={center}
-                            r={radius}
-                            fill="none"
-                            stroke="currentColor"
-                            className={items.length ? "" : "text-stone-200 dark:text-stone-800"}
-                            style={items.length ? { color: chartColor(index) } : undefined}
-                            strokeWidth={strokeWidth}
-                            strokeDasharray={`${dash} ${Math.max(0, circumference - dash)}`}
-                            strokeDashoffset={-offset}
-                            strokeLinecap="round"
-                        />
-                    );
-                    offset += dash;
-                    return segment;
-                })}
-            </svg>
-            <div className="absolute inset-0 grid place-items-center text-center">
-                <div>
-                    <div className={`${totalClassName} font-semibold tracking-normal text-stone-950 dark:text-stone-100`}>{formatCompactNumber(total)}</div>
-                    <div className={`mt-1 ${labelClassName} text-stone-500 dark:text-stone-400`}>{totalLabel}</div>
-                </div>
+        <div className="flex h-10 items-center">
+            <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
+                <span className={"block h-full rounded-full " + color} style={{ width: clampPercent(value) + "%" }} />
             </div>
         </div>
     );
 }
 
-function UsageLinePanel({ items, loading, onRefresh }: { items: Array<{ label: string; value: number }>; loading: boolean; onRefresh: () => void }) {
+function MiniBars({ items, tone }: { items: Array<{ label: string; value: number }>; tone: "amber" | "cyan" }) {
     const max = Math.max(1, ...items.map((item) => item.value));
-    const width = 640;
-    const height = 240;
-    const paddingX = 32;
-    const paddingY = 26;
-    const plotWidth = width - paddingX * 2;
-    const plotHeight = height - paddingY * 2;
-    const points = items.map((item, index) => {
-        const x = paddingX + (items.length <= 1 ? plotWidth : (index / (items.length - 1)) * plotWidth);
-        const y = paddingY + plotHeight - (item.value / max) * plotHeight;
-        return { ...item, x, y };
-    });
-    const polyline = points.map((point) => `${point.x},${point.y}`).join(" ");
-    const area = points.length ? `${paddingX},${paddingY + plotHeight} ${polyline} ${paddingX + plotWidth},${paddingY + plotHeight}` : "";
+    const color = tone === "amber" ? "bg-amber-500 hover:bg-amber-600 dark:bg-amber-400 dark:hover:bg-amber-300" : "bg-cyan-500 hover:bg-cyan-600 dark:bg-cyan-400 dark:hover:bg-cyan-300";
     return (
-        <Panel>
-            <PanelHeader
-                title="调用趋势"
-                description="近 7 日用户调用曲线，辅助判断增长、异常波动和接口稳定性。"
-                actions={
-                    <Button loading={loading} icon={<RefreshCw className="size-4" />} onClick={onRefresh}>
-                        刷新趋势
-                    </Button>
-                }
-            />
-            <div className="p-3 sm:p-5">
-                <div>
-                    <div className="mb-3 flex flex-wrap items-center gap-3 text-xs text-stone-500 sm:mb-4 dark:text-stone-400">
-                        <span className="inline-flex items-center gap-1.5">
-                            <span className="size-2.5 rounded-full" style={{ background: "var(--admin-chart-1)" }} />
-                            请求量
-                        </span>
-                        <span>峰值 {formatCompactNumber(max)}</span>
-                        {loading ? <Tag className="m-0">加载中</Tag> : null}
+        <div className="flex h-10 items-end gap-1.5" aria-label="近期调用微柱图">
+            {items.map((item) => (
+                <span key={item.label} className={"min-w-1 flex-1 rounded-t-sm transition-colors " + color} style={{ height: item.value ? Math.max(12, (item.value / max) * 100) + "%" : "2px" }} title={item.label + "：" + item.value} />
+            ))}
+        </div>
+    );
+}
+
+function AccountStructure({ active, disabled }: { active: number; disabled: number }) {
+    const total = active + disabled;
+    const activeWidth = total ? (active / total) * 100 : 0;
+    const disabledWidth = total ? (disabled / total) * 100 : 0;
+    return (
+        <div className="flex h-10 flex-col justify-center gap-2">
+            <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
+                {activeWidth ? <span className="h-full bg-emerald-500 dark:bg-emerald-400" style={{ width: activeWidth + "%" }} /> : null}
+                {disabledWidth ? <span className="h-full bg-zinc-300 dark:bg-zinc-600" style={{ width: disabledWidth + "%" }} /> : null}
+            </div>
+            <div className="flex items-center gap-3 text-[9px] text-zinc-500 sm:text-[10px] dark:text-zinc-400">
+                <span className="inline-flex items-center gap-1">
+                    <i className="size-1.5 rounded-full bg-emerald-500" />
+                    可用 {active}
+                </span>
+                <span className="inline-flex items-center gap-1">
+                    <i className="size-1.5 rounded-full bg-zinc-300 dark:bg-zinc-600" />
+                    停用 {disabled}
+                </span>
+            </div>
+        </div>
+    );
+}
+
+function MetricFooter({ left, right }: { left: string; right: string }) {
+    return (
+        <div className="flex min-w-0 items-center justify-between gap-2 text-[9px] text-zinc-500 sm:text-[11px] dark:text-zinc-400">
+            <span className="truncate">{left}</span>
+            <span className="truncate text-right">{right}</span>
+        </div>
+    );
+}
+
+function AnalysisPanel({ operationsSummary, mode, loading, onModeChange, onRefresh }: { operationsSummary: OperationsSummary; mode: AnalysisMode; loading: boolean; onModeChange: (mode: AnalysisMode) => void; onRefresh: () => void }) {
+    const chartItems = mode === "trend" ? operationsSummary.dailyCalls : operationsSummary.kindDistribution;
+    return (
+        <div data-admin-analysis-panel>
+            <Panel>
+                <div className="flex min-w-0 flex-col gap-3 border-b border-zinc-200 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5 dark:border-zinc-800">
+                    <div className="min-w-0 overflow-x-auto">
+                        <Segmented
+                            value={mode}
+                            onChange={onModeChange}
+                            options={[
+                                { label: "调用趋势", value: "trend" },
+                                { label: "生成类型", value: "kind" },
+                            ]}
+                        />
                     </div>
-                    <svg className="h-44 w-full overflow-visible sm:h-72" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" aria-hidden="true">
-                        {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
-                            const y = paddingY + ratio * plotHeight;
-                            return <line key={ratio} x1={paddingX} x2={paddingX + plotWidth} y1={y} y2={y} className="stroke-stone-200 dark:stroke-stone-800" strokeWidth="1" />;
-                        })}
-                        {area ? <polygon points={area} style={{ fill: "var(--admin-chart-area)" }} /> : null}
-                        {polyline ? <polyline points={polyline} fill="none" style={{ stroke: "var(--admin-chart-1)" }} strokeWidth="4" strokeLinejoin="round" strokeLinecap="round" /> : null}
-                        {points.map((point) => (
-                            <circle key={point.label} cx={point.x} cy={point.y} r="5" className="fill-white dark:fill-stone-950" style={{ stroke: "var(--admin-chart-1)" }} strokeWidth="3" />
-                        ))}
-                    </svg>
-                    <div className="mt-3 grid grid-cols-7 gap-2 text-center text-[11px] text-stone-400">
-                        {items.map((item) => (
-                            <div key={item.label} className="min-w-0">
-                                <div className="truncate">{item.label}</div>
-                                <div className="mt-1 font-semibold tabular-nums text-stone-700 dark:text-stone-300">{item.value}</div>
-                            </div>
-                        ))}
+                    <div className="flex items-center justify-between gap-2 sm:justify-end">
+                        <span className="inline-flex h-8 items-center gap-1.5 rounded-md border border-zinc-200 bg-zinc-50 px-2.5 text-[11px] text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
+                            <CalendarDays className="size-3.5" />近 {operationsSummary.windowDays} 日
+                        </span>
+                        <Button size="small" loading={loading} icon={<RefreshCw className="size-3.5" />} onClick={onRefresh}>
+                            刷新
+                        </Button>
                     </div>
                 </div>
+                <div className="grid min-w-0 xl:grid-cols-[minmax(0,1fr)_320px]">
+                    <div className="min-w-0 px-3 py-4 sm:px-5 sm:py-5">
+                        <div className="mb-4 flex min-w-0 items-end justify-between gap-3">
+                            <div className="min-w-0">
+                                <h2 className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">{mode === "trend" ? "调用量" : "生成类型分布"}</h2>
+                                <p className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">{mode === "trend" ? "按日统计平台真实生成调用" : "按图片、视频、音频与文本任务统计"}</p>
+                            </div>
+                            <div className="shrink-0 text-right">
+                                <div className="text-[10px] text-zinc-400">合计</div>
+                                <div className="mt-0.5 text-base font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">{formatCompactNumber(chartItems.reduce((sum, item) => sum + item.value, 0))}</div>
+                            </div>
+                        </div>
+                        <BarChart items={chartItems} />
+                    </div>
+                    <ModelRankingList items={operationsSummary.modelDistribution} operationsSummary={operationsSummary} />
+                </div>
+            </Panel>
+        </div>
+    );
+}
+
+function BarChart({ items }: { items: Array<{ label: string; value: number }> }) {
+    const max = Math.max(1, ...items.map((item) => item.value));
+    if (!items.length) return <div className="grid min-h-56 place-items-center text-sm text-zinc-400">暂无可分析数据</div>;
+    return (
+        <div className="relative min-w-0">
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-56 sm:h-64">
+                {[0, 1, 2, 3, 4].map((line) => (
+                    <span key={line} className="absolute inset-x-0 border-t border-zinc-100 dark:border-zinc-800" style={{ top: line * 25 + "%" }} />
+                ))}
+            </div>
+            <div className="relative grid h-56 min-w-0 items-end gap-2 sm:h-64 sm:gap-3" style={{ gridTemplateColumns: "repeat(" + items.length + ", minmax(0, 1fr))" }}>
+                {items.map((item) => (
+                    <div key={item.label} className="flex h-full min-w-0 flex-col items-center justify-end">
+                        <span className="mb-1.5 text-[9px] font-medium tabular-nums text-zinc-500 sm:text-[10px] dark:text-zinc-400">{formatCompactNumber(item.value)}</span>
+                        <span
+                            data-admin-analysis-bar
+                            className="w-full max-w-16 rounded-t-sm bg-blue-500 transition-colors hover:bg-blue-600 dark:bg-blue-400 dark:hover:bg-blue-300"
+                            style={{ height: item.value ? Math.max(4, (item.value / max) * 82) + "%" : "2px" }}
+                            title={item.label + "：" + item.value}
+                        />
+                        <span className="mt-2 w-full truncate text-center text-[9px] text-zinc-400 sm:text-[11px]" title={item.label}>
+                            {item.label}
+                        </span>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+}
+
+function ModelRankingList({ items, operationsSummary }: { items: DistributionItem[]; operationsSummary: OperationsSummary }) {
+    const displayItems = items.slice(0, 7);
+    return (
+        <aside className="min-w-0 border-t border-zinc-200 px-4 py-4 sm:px-5 xl:border-l xl:border-t-0 dark:border-zinc-800" aria-label="模型调用排行">
+            <div className="mb-3">
+                <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">模型调用排行</h2>
+                <p className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">近 {operationsSummary.windowDays} 日真实调用</p>
+            </div>
+            <div className="min-h-52">
+                {displayItems.length ? (
+                    displayItems.map((item, index) => (
+                        <div key={item.label} className="grid grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-2 border-b border-zinc-100 py-2.5 last:border-b-0 dark:border-zinc-800/80">
+                            <span
+                                className={
+                                    "grid size-5 place-items-center rounded-full text-[10px] font-semibold " + (index < 3 ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950" : "bg-zinc-100 text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400")
+                                }
+                            >
+                                {index + 1}
+                            </span>
+                            <span className="min-w-0 truncate text-xs text-zinc-700 dark:text-zinc-200">{item.label}</span>
+                            <span className="tabular-nums text-xs font-medium text-zinc-950 dark:text-zinc-100">{formatCompactNumber(item.value)}</span>
+                        </div>
+                    ))
+                ) : (
+                    <div className="grid min-h-52 place-items-center text-sm text-zinc-400">暂无调用记录</div>
+                )}
+            </div>
+            <div className="grid grid-cols-3 divide-x divide-zinc-100 border-t border-zinc-100 pt-3 text-center dark:divide-zinc-800 dark:border-zinc-800">
+                <RankingStat label="成功" value={operationsSummary.successCalls} />
+                <RankingStat label="失败" value={operationsSummary.failedCalls} />
+                <RankingStat label="活跃用户" value={operationsSummary.activeUsers} />
+            </div>
+        </aside>
+    );
+}
+
+const quickActions = [
+    { href: "/admin?section=users", label: "用户运营", detail: "账号、角色与套餐", icon: <UsersRound className="size-4" />, tone: "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-300" },
+    { href: "/admin?section=channels", label: "模型渠道", detail: "上游接口与模型", icon: <PlugZap className="size-4" />, tone: "bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-300" },
+    { href: "/admin?section=products", label: "套餐管理", detail: "商品、价格与权益", icon: <CreditCard className="size-4" />, tone: "bg-amber-50 text-amber-600 dark:bg-amber-950/50 dark:text-amber-300" },
+    { href: "/admin?section=generationOperations", label: "生成运维", detail: "任务状态与排障", icon: <Activity className="size-4" />, tone: "bg-cyan-50 text-cyan-600 dark:bg-cyan-950/50 dark:text-cyan-300" },
+] as const;
+
+function QuickActionsPanel() {
+    return (
+        <Panel>
+            <PanelHeader title="常用操作" description="高频经营与系统入口" />
+            <div className="grid min-w-0 sm:grid-cols-2 xl:grid-cols-4">
+                {quickActions.map((action) => (
+                    <Link
+                        key={action.href}
+                        href={action.href}
+                        className="group flex min-w-0 items-center gap-3 border-b border-zinc-100 px-4 py-3.5 transition hover:bg-zinc-50 sm:[&:nth-child(odd)]:border-r xl:border-b-0 xl:border-r xl:last:border-r-0 dark:border-zinc-800 dark:hover:bg-zinc-900/70"
+                    >
+                        <span className={"grid size-9 shrink-0 place-items-center rounded-md " + action.tone}>{action.icon}</span>
+                        <span className="min-w-0 flex-1">
+                            <span className="block truncate text-xs font-medium text-zinc-800 dark:text-zinc-200">{action.label}</span>
+                            <span className="mt-0.5 block truncate text-[10px] text-zinc-400 dark:text-zinc-500">{action.detail}</span>
+                        </span>
+                        <ArrowRight className="size-3.5 shrink-0 text-zinc-300 transition group-hover:translate-x-0.5 group-hover:text-zinc-500 dark:text-zinc-700 dark:group-hover:text-zinc-400" />
+                    </Link>
+                ))}
             </div>
         </Panel>
+    );
+}
+
+function RankingStat({ label, value }: { label: string; value: number }) {
+    return (
+        <div>
+            <div className="text-[10px] text-zinc-400">{label}</div>
+            <div className="mt-1 text-sm font-semibold tabular-nums text-zinc-800 dark:text-zinc-200">{formatCompactNumber(value)}</div>
+        </div>
     );
 }
 
@@ -316,9 +399,9 @@ function distributionFromValues(values: string[], normalize: (value: string) => 
 
 function formatCompactNumber(value: number) {
     const numberValue = Number(value || 0);
-    if (numberValue >= 100000000) return `${trimFixed(numberValue / 100000000, 2)}亿`;
-    if (numberValue >= 10000) return `${trimFixed(numberValue / 10000, 1)}万`;
-    return `${numberValue}`;
+    if (numberValue >= 100000000) return trimFixed(numberValue / 100000000, 2) + "亿";
+    if (numberValue >= 10000) return trimFixed(numberValue / 10000, 1) + "万";
+    return String(numberValue);
 }
 
 function trimFixed(value: number, digits: number) {
@@ -328,8 +411,12 @@ function trimFixed(value: number, digits: number) {
         .replace(/(\.\d*[1-9])0+$/, "$1");
 }
 
-function chartColor(index: number) {
-    return `var(--admin-chart-${(index % 6) + 1})`;
+function percentage(value: number, total: number) {
+    return total > 0 ? Math.round((value / total) * 100) : 0;
+}
+
+function clampPercent(value: number) {
+    return Math.min(100, Math.max(0, value));
 }
 
 function formatBytes(value: number) {
@@ -341,5 +428,5 @@ function formatBytes(value: number) {
         size /= 1024;
         unitIndex += 1;
     }
-    return `${size >= 10 || unitIndex === 0 ? size.toFixed(0) : size.toFixed(1)} ${units[unitIndex]}`;
+    return (size >= 10 || unitIndex === 0 ? size.toFixed(0) : size.toFixed(1)) + " " + units[unitIndex];
 }

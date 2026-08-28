@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => {
         listDramaProjectSummaries: vi.fn(),
         updateDramaProject: vi.fn(),
         createDramaProjectVersion: vi.fn(),
+        deleteDramaProjectVersion: vi.fn(),
         getDramaProjectVersion: vi.fn(),
         listDramaProjectVersions: vi.fn(),
         deleteUserMediaAssetsCascade: vi.fn(),
@@ -54,12 +55,23 @@ vi.mock("@/lib/server/drama-project-store", () => ({
 }));
 vi.mock("@/lib/server/drama-project-version-store", () => ({
     createDramaProjectVersion: mocks.createDramaProjectVersion,
+    deleteDramaProjectVersion: mocks.deleteDramaProjectVersion,
     getDramaProjectVersion: mocks.getDramaProjectVersion,
     listDramaProjectVersions: mocks.listDramaProjectVersions,
 }));
 vi.mock("@/lib/server/user-media-deletion-service", () => ({ deleteUserMediaAssetsCascade: mocks.deleteUserMediaAssetsCascade }));
 
-import { createDramaProjectForUser, deleteDramaAgentConversationForUser, deleteDramaProjectForUser, DramaProjectServiceError, restoreDramaProjectVersionForUser, updateDramaProjectForUser } from "./drama-project-service";
+import {
+    createDramaProjectForUser,
+    createDramaProjectVersionForUser,
+    deleteDramaAgentConversationForUser,
+    deleteDramaProjectForUser,
+    deleteDramaProjectVersionForUser,
+    DramaProjectServiceError,
+    mutateDramaProjectForUser,
+    restoreDramaProjectVersionForUser,
+    updateDramaProjectForUser,
+} from "./drama-project-service";
 import { DramaProjectStoreError } from "./drama-project-store";
 
 describe("drama project service updates", () => {
@@ -75,6 +87,7 @@ describe("drama project service updates", () => {
         mocks.findDramaProjectBySourceHandoffId.mockResolvedValue(null);
         mocks.listDramaProjectSummaries.mockResolvedValue([]);
         mocks.createDramaProjectVersion.mockResolvedValue({ id: "version-new", projectId: "drama-one", version: 2, reason: "恢复前自动快照", createdAt: new Date().toISOString() });
+        mocks.deleteDramaProjectVersion.mockResolvedValue(true);
     });
 
     it("does not let an older client snapshot overwrite the current project", async () => {
@@ -98,6 +111,56 @@ describe("drama project service updates", () => {
         expect(mocks.updateDramaProject).toHaveBeenCalledWith("user-one", expect.objectContaining({ id: current.id, title: "新标题", updatedAt: "2026-07-19T08:00:02.000Z" }), current.updatedAt);
     });
 
+    it("applies a server-side project mutation with optimistic concurrency", async () => {
+        const current = project("2026-07-19T08:00:01.000Z", "旧标题");
+        mocks.getDramaProject.mockResolvedValue(current);
+
+        const saved = await mutateDramaProjectForUser("user-one", current.id, (value) => ({ ...value, title: "工作流标题" }));
+
+        expect(saved.title).toBe("工作流标题");
+        expect(Date.parse(saved.updatedAt)).toBeGreaterThan(Date.parse(current.updatedAt));
+        expect(mocks.updateDramaProject).toHaveBeenCalledWith("user-one", expect.objectContaining({ title: "工作流标题" }), current.updatedAt);
+    });
+
+    it("stores only the requested episode in a scoped version snapshot", async () => {
+        const current = {
+            ...project("2026-07-19T08:00:01.000Z", "项目"),
+            episodes: [project("2026-07-19T08:00:01.000Z", "项目").episodes[0], { ...project("2026-07-19T08:00:01.000Z", "项目").episodes[0], id: "episode-two", title: "第 2 集" }],
+        };
+        mocks.getDramaProject.mockResolvedValue(current);
+
+        await createDramaProjectVersionForUser("user-one", current.id, { reason: "视觉方案生成前", scope: { episodeIds: ["episode-two"] }, snapshot: current });
+
+        expect(mocks.createDramaProjectVersion).toHaveBeenCalledWith(
+            "user-one",
+            current.id,
+            "视觉方案生成前",
+            expect.objectContaining({ episodes: [expect.objectContaining({ id: "episode-two" })], versionScope: "episodes", versionEpisodeIds: ["episode-two"] }),
+        );
+    });
+
+    it("restores scoped episodes without replacing current project metadata", async () => {
+        const base = project("2026-07-19T08:00:02.000Z", "当前项目");
+        const current = { ...base, episodes: [base.episodes[0], { ...base.episodes[0], id: "episode-two", title: "当前第 2 集", script: "当前剧本" }] };
+        mocks.getDramaProject.mockResolvedValue(current);
+        mocks.getDramaProjectVersion.mockResolvedValue({
+            id: "version-one",
+            projectId: current.id,
+            version: 1,
+            reason: "视觉方案生成前",
+            createdAt: current.createdAt,
+            snapshot: { ...current, title: "历史项目标题", episodes: [{ ...current.episodes[1], title: "历史第 2 集", script: "历史剧本" }], versionScope: "episodes", versionEpisodeIds: ["episode-two"] },
+        });
+
+        await restoreDramaProjectVersionForUser("user-one", current.id, "version-one");
+
+        expect(mocks.updateDramaProject).toHaveBeenCalledWith(
+            "user-one",
+            expect.objectContaining({ title: "当前项目", episodes: [expect.objectContaining({ title: "第 1 集" }), expect.objectContaining({ title: "历史第 2 集", script: "历史剧本" })] }),
+            current.updatedAt,
+        );
+    });
+
     it("preserves exact project dimensions and reference metadata", async () => {
         const current = project("2026-07-19T08:00:01.000Z", "旧标题");
         mocks.getDramaProject.mockResolvedValue(current);
@@ -117,6 +180,33 @@ describe("drama project service updates", () => {
         const saved = await updateDramaProjectForUser("user-one", current.id, input);
 
         expect(saved).toMatchObject({ ratio: "1080x1920", characters: [{ references: [{ width: 1080, height: 1920 }] }] });
+    });
+
+    it("persists the project video model, shot override and actual attempt model", async () => {
+        const current = project("2026-07-19T08:00:01.000Z", "旧标题");
+        mocks.getDramaProject.mockResolvedValue(current);
+        const input = {
+            ...project("2026-07-19T08:00:02.000Z", "新标题"),
+            videoModel: "video-project",
+            episodes: [
+                {
+                    ...current.episodes[0],
+                    shots: [
+                        {
+                            id: "shot-one",
+                            order: 1,
+                            title: "镜头一",
+                            videoModel: "video-shot",
+                            generationModel: "video-attempt",
+                        },
+                    ],
+                },
+            ],
+        };
+
+        const saved = await updateDramaProjectForUser("user-one", current.id, input);
+
+        expect(saved).toMatchObject({ videoModel: "video-project", episodes: [{ shots: [{ videoModel: "video-shot", generationModel: "video-attempt" }] }] });
     });
 
     it("preserves exact project dimensions without a platform ceiling", async () => {
@@ -281,6 +371,27 @@ describe("drama project service updates", () => {
 
         expect(mocks.getDramaProjectVersion).not.toHaveBeenCalled();
         expect(mocks.createDramaProjectVersion).not.toHaveBeenCalled();
+    });
+
+    it("deletes a version without changing the current project or deleting media", async () => {
+        const current = project("2026-07-19T08:00:02.000Z", "当前项目");
+        mocks.getDramaProject.mockResolvedValue(current);
+
+        await expect(deleteDramaProjectVersionForUser("user-one", current.id, "version-one")).resolves.toEqual({ deleted: true });
+
+        expect(mocks.deleteDramaProjectVersion).toHaveBeenCalledWith("user-one", current.id, "version-one");
+        expect(mocks.updateDramaProject).not.toHaveBeenCalled();
+        expect(mocks.deleteUserMediaAssetsCascade).not.toHaveBeenCalled();
+        expect(current.updatedAt).toBe("2026-07-19T08:00:02.000Z");
+    });
+
+    it("returns 404 for an absent, repeated or cross-user version deletion", async () => {
+        mocks.getDramaProject.mockResolvedValue(project("2026-07-19T08:00:02.000Z", "当前项目"));
+        mocks.deleteDramaProjectVersion.mockResolvedValue(false);
+
+        await expect(deleteDramaProjectVersionForUser("user-one", "drama-one", "version-missing")).rejects.toMatchObject({ status: 404, message: "短剧版本不存在" });
+        mocks.getDramaProject.mockResolvedValueOnce(null);
+        await expect(deleteDramaProjectVersionForUser("user-two", "drama-one", "version-one")).rejects.toMatchObject({ status: 404, message: "短剧项目不存在" });
     });
 });
 

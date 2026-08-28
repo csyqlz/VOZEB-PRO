@@ -6,6 +6,7 @@ export function proxy(request: NextRequest) {
     const contentSecurityPolicy = buildContentSecurityPolicy(nonce);
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set("x-nonce", nonce);
+    requestHeaders.set("x-vozeb-pathname", request.nextUrl.pathname);
     requestHeaders.set("content-security-policy", contentSecurityPolicy);
 
     if (!request.nextUrl.pathname.startsWith("/api/") || request.nextUrl.pathname.startsWith("/api/billing/webhooks/") || ["GET", "HEAD", "OPTIONS"].includes(request.method)) {

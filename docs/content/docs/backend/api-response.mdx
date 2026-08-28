@@ -182,6 +182,8 @@ Canvas 语义编辑通过 `PATCH /api/canvas/projects/{id}` 提交 compact mutat
 
 短剧接口使用 `{ code, data, msg }`，服务端校验项目归属并保存完整项目聚合快照。生成运营接口只允许管理员访问；取消和重试继续调用现有任务控制接口，渠道运行状态只读取真实业务请求形成的运行时数据，不建立独立任务状态机。
 
+`GET /api/vozeb-cms/tasks/{id}/events` 是统一任务只读 SSE。连接前先校验 Session、`asset.manage`、任务类型对应 Capability 与任务归属；事件名为 `task.snapshot`，事件 ID 由任务更新时间、状态、执行阶段和尝试号组成。重连携带 `Last-Event-ID` 时服务端仍回读并发送当前权威快照，不推进 Worker、不重建上游任务；任务进入 `success/error/cancelled` 后关闭流。
+
 ## 生成任务恢复、Worker 与回调
 
 文本、图片、视频和音频任务详情接口，以及 Agent Run SSE，只会唤醒当前用户正在读取的同一持久任务。业务状态与执行阶段分离：`pending/running` 任务可处于 `created/submitting/submitted/polling/result_ready/persisting`；普通 Agent 生成完成后可进入 `review_pending/reviewing/review_unavailable/completed`，持久 Worker 执行一次复盘，调用失败即记录为不可用，不会使用未配置的固定次数重复计费，也不改变用户已经收到的生成结果。`needs_review` 和普通终态不会被页面或 Worker 自动推进。已经保存上游任务 ID 后，恢复路径只能查询原任务；`result_ready` 只重试结果保存，不能再次创建上游任务。
@@ -194,7 +196,7 @@ Canvas 语义编辑通过 `PATCH /api/canvas/projects/{id}` 提交 compact mutat
 
 维护与 Worker 接口未配置各自令牌时返回 503，认证失败返回 401；两类令牌必须至少 32 个字符且不能相同。当前渠道未配置安全回调密钥时返回 409 并继续使用任务轮询；签名错误或时间戳过期返回 401。可信回调只按 `(channelId, upstreamTaskId)` 精确匹配一条已有图片、视频或音频任务，并使用 PostgreSQL 中的 `(channelId, eventId)` 保证幂等；相同事件 ID 对应不同载荷时记录冲突并返回 409。回调已登记但尚未匹配任务时返回成功并保留对账状态，不会创建新任务或重复扣费。以上接口均返回 `{ code, data, msg }`，日志与响应不得包含维护令牌、Worker 令牌、Webhook 密钥、渠道 API Key 或完整鉴权头。
 
-PostgreSQL Provider 在 Run、事件和助手消息的同一事务中写入 `pg_notify('vozeb_pro_run_events', runId)`；SSE 进程使用独立连接 `LISTEN` 后立即读取持久事件。通知只用于唤醒，跨实例恢复仍以事件表为准，并保留 2.5 秒轮询和 15 秒心跳作为断线或通知丢失兜底。文件 Provider 继续使用进程内通知。
+PostgreSQL Provider 在 Run、事件和助手消息的同一事务中写入 `pg_notify('vozeb_pro_run_events', runId)`；`generation_tasks` 的行级触发器向 `vozeb_pro_generation_task_events` 发送任务 ID。SSE 进程使用独立连接 `LISTEN` 后立即回读持久状态。通知只用于唤醒：Agent 跨实例恢复以事件表为准，统一 Task 以任务行快照为准，并保留 2.5 秒回读和 15 秒心跳作为通知丢失兜底。文件 Provider 在任务文件写锁内发送等价进程内通知。
 
 ## 模型路由设置快照
 

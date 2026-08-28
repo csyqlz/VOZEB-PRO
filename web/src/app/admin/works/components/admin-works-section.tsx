@@ -35,19 +35,24 @@ const STATUS_OPTIONS: Array<{ value: WorkPublicationModerationStatus | "all"; la
 export function AdminWorksSection() {
     const [view, setView] = useState<"reviews" | "governance">("reviews");
     return (
-        <div className="min-w-0 space-y-3">
-            <div className="flex justify-end">
-                <Segmented
-                    value={view}
-                    options={[
-                        { value: "reviews", label: "作品审核" },
-                        { value: "governance", label: "举报申诉" },
-                    ]}
-                    onChange={(value) => setView(value as typeof view)}
-                />
-            </div>
+        <Panel variant="page">
+            <PanelHeader
+                title="作品管理"
+                description="审核公开作品并处理举报与申诉；所有处置保留版本证据，不影响用户原始素材和项目。"
+                actions={
+                    <Segmented
+                        value={view}
+                        aria-label="切换作品管理视图"
+                        options={[
+                            { value: "reviews", label: "作品审核" },
+                            { value: "governance", label: "举报申诉" },
+                        ]}
+                        onChange={(value) => setView(value as typeof view)}
+                    />
+                }
+            />
             {view === "reviews" ? <AdminWorkReviewSection /> : <AdminWorkCasesSection />}
-        </div>
+        </Panel>
     );
 }
 
@@ -261,31 +266,31 @@ function AdminWorkReviewSection() {
         {
             title: "更新时间",
             dataIndex: "updatedAt",
-            width: 156,
+            width: 128,
             render: (value: string) => <span className="whitespace-nowrap text-xs text-zinc-500 dark:text-zinc-400">{formatAdminTime(value)}</span>,
         },
         {
             title: "作品",
             key: "work",
-            width: 330,
+            width: 280,
             render: (_, work) => <AdminWorkIdentity work={work} />,
         },
         {
             title: "用户",
             key: "owner",
-            width: 210,
+            width: 170,
             render: (_, work) => <AdminUserIdentity displayName={work.ownerDisplayName} username={work.ownerUsername} accountId={work.ownerAccountId} fallback="用户信息不可用" />,
         },
         {
             title: "来源",
             dataIndex: "sourceType",
-            width: 100,
+            width: 72,
             render: (value: WorkPublication["sourceType"]) => <span className="text-xs text-zinc-600 dark:text-zinc-300">{sourceTypeLabel(value)}</span>,
         },
         {
             title: "版本 / 可见性",
             key: "version",
-            width: 130,
+            width: 104,
             render: (_, work) => (
                 <div className="text-xs leading-5 text-zinc-600 dark:text-zinc-300">
                     <div>v{work.currentVersion?.versionNumber || 1}</div>
@@ -296,13 +301,13 @@ function AdminWorkReviewSection() {
         {
             title: "状态",
             key: "status",
-            width: 112,
+            width: 92,
             render: (_, work) => <AdminWorkStatus work={work} />,
         },
         {
             title: "数据",
             key: "metrics",
-            width: 110,
+            width: 92,
             render: (_, work) => (
                 <div className="text-xs leading-5 text-zinc-500 dark:text-zinc-400">
                     <div>{work.viewCount} 次访问</div>
@@ -314,27 +319,28 @@ function AdminWorkReviewSection() {
             title: "操作",
             key: "actions",
             fixed: "right",
-            width: 286,
+            width: 260,
             render: (_, work) => renderActions(work),
         },
     ];
 
     return (
-        <Panel>
-            <PanelHeader title="作品审核" description="按用户、来源和审核状态集中查看作品；驳回不影响旧线上版本，下架会立即关闭公开访问。" />
-            <div className="min-w-0 space-y-3 p-3 sm:p-5">
-                <div className="grid min-w-0 grid-cols-2 gap-2.5 md:grid-cols-[minmax(180px,1fr)_minmax(110px,130px)_minmax(120px,140px)_auto_auto_auto] md:items-center" data-testid="admin-work-filters">
-                    <Input
-                        className="col-span-2 min-w-0 md:col-span-1"
-                        allowClear
-                        prefix={<Search className="size-4 text-zinc-400" />}
-                        placeholder="搜索作品标题、用户、用户 ID 或作品链接"
-                        value={keyword}
-                        onChange={(event) => {
-                            setKeyword(event.target.value);
-                            setPage(1);
-                        }}
-                    />
+        <>
+            <div className="admin-panel-surface min-w-0 space-y-3 overflow-hidden rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950 sm:p-4">
+                <div className="grid min-w-0 grid-cols-2 gap-2.5 lg:grid-cols-[minmax(280px,360px)_120px_132px_auto_auto_auto] lg:items-center" data-testid="admin-work-filters">
+                    <div className="col-span-2 min-w-0 lg:col-span-1">
+                        <Input
+                            className="w-full"
+                            allowClear
+                            prefix={<Search className="size-4 text-zinc-400" />}
+                            placeholder="搜索作品标题、用户、用户 ID 或作品链接"
+                            value={keyword}
+                            onChange={(event) => {
+                                setKeyword(event.target.value);
+                                setPage(1);
+                            }}
+                        />
+                    </div>
                     <Select
                         className="min-w-0"
                         value={status}
@@ -358,11 +364,11 @@ function AdminWorkReviewSection() {
                             setPage(1);
                         }}
                     />
-                    <span className="col-span-2 whitespace-nowrap text-sm text-zinc-500 dark:text-zinc-400 md:col-span-1">共 {total} 条</span>
-                    <Button className="w-full md:w-auto" icon={<RefreshCw className="size-4" />} loading={loading} onClick={() => void load()}>
+                    <span className="col-span-2 whitespace-nowrap text-sm text-zinc-500 dark:text-zinc-400 lg:col-span-1">共 {total} 条</span>
+                    <Button className="w-full lg:w-auto" icon={<RefreshCw className="size-4" />} loading={loading} onClick={() => void load()}>
                         刷新
                     </Button>
-                    <Button className="w-full md:w-auto" onClick={clearFilters}>
+                    <Button className="w-full lg:w-auto" onClick={clearFilters}>
                         清除筛选
                     </Button>
                 </div>
@@ -395,7 +401,7 @@ function AdminWorkReviewSection() {
                                     onChange: setPage,
                                 }}
                                 locale={{ emptyText: <AdminWorksEmpty /> }}
-                                scroll={{ x: 1374 }}
+                                scroll={{ x: 1198 }}
                                 size="middle"
                                 tableLayout="fixed"
                             />
@@ -430,7 +436,7 @@ function AdminWorkReviewSection() {
             <Modal title="作品详情" open={Boolean(viewingWork)} width={760} footer={null} destroyOnHidden onCancel={() => setViewingWork(undefined)}>
                 {viewingWork ? <AdminWorkDetail work={viewingWork} /> : null}
             </Modal>
-        </Panel>
+        </>
     );
 }
 

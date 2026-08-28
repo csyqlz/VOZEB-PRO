@@ -238,7 +238,9 @@ function ChannelList({
     return (
         <div>
             <div className="mb-3 flex min-w-0 flex-col gap-2 md:flex-row">
-                <Input allowClear className="min-w-0 flex-1" prefix={<Search className="size-4 text-stone-400" />} value={query} placeholder="搜索渠道、地址、协议或模型" onChange={(event) => onQuery(event.target.value)} />
+                <div className="w-full min-w-0 md:w-96">
+                    <Input allowClear className="w-full" prefix={<Search className="size-4 text-stone-400" />} value={query} placeholder="搜索渠道、地址、协议或模型" onChange={(event) => onQuery(event.target.value)} />
+                </div>
                 <div className="grid grid-cols-2 gap-2 md:flex md:shrink-0">
                     <div className="min-w-0 md:w-32">
                         <Select

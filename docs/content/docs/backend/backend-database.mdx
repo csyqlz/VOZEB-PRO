@@ -33,13 +33,18 @@ VOZEB PRO 的 PostgreSQL 真实表名统一使用项目名前缀 `vozeb_pro_`。
 - `billing_orders` -> `vozeb_pro_billing_orders`
 - `generation_logs` -> `vozeb_pro_generation_logs`
 
-这样同一个 PostgreSQL 数据库里即使存在其他业务表，也能清楚区分 VOZEB PRO 的数据。Schema 中的显式索引和会生成索引的命名唯一约束也必须使用 `vozeb_pro_` 前缀，避免与同一 `public` Schema 的其他应用对象重名。无前缀表不会被自动删除；当前部署和后续读写只使用 `vozeb_pro_` 前缀表。
+这样同一个 PostgreSQL 数据库里即使存在其他业务表，也能清楚区分 VOZEB PRO 的数据。Schema 中的显式索引和会生成索引的命名唯一约束也必须使用 `vozeb_pro_` 前缀，避免与同一 `public` Schema 的其他应用对象重名。VOZEBCMS 的 `vozeb_module_states`、`vozeb_workflows`、`vozeb_workflow_runs`、`vozeb_workflow_events`、`vozeb_layouts` 和 `vozeb_layout_revisions` 是按产品名保留的短表名例外；无前缀表不会被自动删除。
 
 ## 核心表
 
 - `vozeb_pro_schema_migrations`：已应用的数据库结构版本。
 - `vozeb_pro_app_settings`：站点、注册、邮箱、积分、生成、支付配置、逻辑模型目录、渠道绑定和默认模型等全局设置；`logical_models` JSONB 保存用户可见模型及其能力、上游模型、渠道、启用状态和优先级，`generation_cost_control` JSONB 保存管理员配置的单任务、单用户每日和全站每日积分成本上限，三个值为 `0` 时均表示不限制；`data_lifecycle` JSONB 保存四类技术到期清理开关和单类批次大小，不承载对话、支付、审计等长期业务数据的法律保留期限。
 - `vozeb_pro_object_storage_settings`：S3 兼容外部存储单例配置，保存启用状态、Endpoint、Region、Bucket、对象前缀、path-style 模式及加密后的 Access Key/Secret Key；管理接口只返回密钥是否已配置，不回传明文。
+- `vozeb_module_states`：`v0.0.8` 官方模块运行状态，只保存模块 ID、启停状态、revision、幂等 mutation、操作者和更新时间；模块 Manifest、权限、能力和处理器仍由代码注册，数据库不能注入可执行模块。该新表按产品名使用简洁物理表名，不叠加历史 `vozeb_pro_` 前缀。
+- `vozeb_workflows`：VOZEBCMS 工作流定义，保存项目归属（`project_id` 与 `project_type`）、版本、启停状态和经过校验的 DAG 节点快照；节点只声明 Agent、AI、Task、人工审核或条件类型，不保存可执行代码。
+- `vozeb_workflow_runs` / `vozeb_workflow_events`：工作流运行快照与 SSE 事件。运行快照保存节点状态、上下文、版本、幂等键、下一次执行时间 `next_run_at` 和 Worker 租约（`lease_owner`、`lease_until`）；Worker 在长节点执行期间按租约所有者续租，状态写入使用 owner/CAS，避免多实例覆盖。事件表使用递增游标支持刷新恢复，Task 节点仍引用 `vozeb_pro_generation_tasks` 的既有任务，不复制队列或计费。生产 Worker 通过 `/api/maintenance/vozeb-workflows/run` 批量接管到期运行，SSE 只负责事件推送；人工审核等待不设置下一次轮询时间，绑定生成任务使用其 `next_poll_at` 唤醒。
+- `vozeb_layouts` / `vozeb_layout_revisions` / `vozeb_site_publications`：VOZEB PRO 站点设计的当前草稿、不可变发布快照和每个公开路径唯一的活动发布映射。`site_path` 保存草稿目标，公开读取只按 `vozeb_site_publications.path` 定向连接指定 `layout_id + revision`；发布在同一 PostgreSQL 事务或文件锁中原子替换映射，保存新草稿不会改变当前线上页面。定义只保存开发者注册主题 ID、模板、设计 Token、受控区块、数据源、动作、模块/能力引用和 ProjectRef，不保存 HTML、CSS、脚本或可执行函数。切换主题只改变展示层，Agent、Canvas、短剧、Task、Asset、权限、支付和 Provider 仍由平台内核持有；发布和回滚按 revision 处理。
+- VOZEBCMS Capability 的套餐映射不新增模块表字段，能力定义由代码注册 `feature` 标识；当 `entitlements.enabled` 时，服务端按用户当前套餐的 `features` 定向校验。`project_ref` 只保存项目类型和稳定 ID，真实所有权仍由 Canvas、短剧或会话服务验证。
 - `vozeb_pro_system_model_channels`：系统模型渠道、分别加密保存的 API Key 与渠道生成回调密钥、模型列表和高级配置；后台不保存渠道验证记录。
 - `vozeb_pro_entitlement_plans`：商业套餐权益、每日额度、调用限制和功能标记；新用户不再通过套餐获得注册初始积分。
 - `vozeb_pro_users`：用户账号、角色、状态、头像存储键、最多 160 字的个人简介、当前套餐、积分余额和密码哈希；`admin_permissions` JSONB 保存管理员的显式职责列表，并由 CHECK 约束保证为数组，普通用户保持空数组。管理员 TOTP MFA 使用 `mfa_secret_ciphertext` 保存 AES-GCM 密文，`mfa_enabled_at` 表示已完成验证并启用，CHECK 约束禁止启用时间存在但密文缺失。公开注册还原子保存当时的服务条款版本/链接、隐私政策版本/链接和同意时间，五个留痕字段必须同时为空或同时存在。管理员代建账号不伪造用户同意记录。公开创作者接口只按用户名返回允许公开的资料字段，不暴露邮箱、内部用户 ID、职责、MFA 密文或协议留痕。
@@ -69,7 +74,7 @@ VOZEB PRO 的 PostgreSQL 真实表名统一使用项目名前缀 `vozeb_pro_`。
 - `vozeb_pro_announcements`：站内公告。
 - `vozeb_pro_prompts` / `vozeb_pro_prompt_seed_sources`：公共提示词、用户提示词和种子来源。
 - `vozeb_pro_generation_logs` / `vozeb_pro_generation_log_assets`：图片/视频生成日志和结果资源地址；工作台日志通过 `conversation_id` 关联可恢复的 Agent 对话，`created_at` 独立索引用于后台近 7 日运营聚合，避免读取日志正文和媒体资产。
-- `vozeb_pro_generation_tasks`：文本、图片、视频、音频、Agent 和短剧整集合成（`render`）异步任务状态，用于跨请求、重启和多实例查询；数据库状态统一为 `pending/running/success/error/paused/cancelled`，各上游或 Agent 的 `planning/completed/failed` 等状态会在写入索引列时归一化，原始状态仍保留在 JSON payload 中。`execution_phase` 独立保存 `created/submitting/submitted/polling/result_ready/persisting/needs_review/review_pending/reviewing/review_unavailable/completed`，并通过 `upstream_task_id/channel_id/provider/query_path`、提交/轮询时间、上游状态、结果载荷、Worker 和租约字段恢复原任务。Agent 普通生成完成后以成功任务进入持久复盘阶段；复盘调用失败会直接记录为不可用，不使用未配置的固定次数重复计费，也不回滚已成功生成结果。表内同时保存 `conversation_id/run_id/surface/project_id/parent_task_id/attempt_no/client_request_id`，用于后台任务中心追踪会话、运行、项目、父任务、尝试次数和幂等请求；到期恢复索引只覆盖非终态且可自动推进的执行阶段。非空 `(channel_id, upstream_task_id)` 唯一，保证可信回调只能精确匹配一条本地任务。
+- `vozeb_pro_generation_tasks`：文本、图片、视频、音频、Agent 和短剧整集合成（`render`）异步任务状态，用于跨请求、重启和多实例查询；数据库状态统一为 `pending/running/success/error/paused/cancelled`，各上游或 Agent 的 `planning/completed/failed` 等状态会在写入索引列时归一化，原始状态仍保留在 JSON payload 中。`execution_phase` 独立保存 `created/submitting/submitted/polling/result_ready/persisting/needs_review/review_pending/reviewing/review_unavailable/completed`，并通过 `upstream_task_id/channel_id/provider/query_path`、提交/轮询时间、上游状态、结果载荷、Worker 和租约字段恢复原任务。Agent 普通生成完成后以成功任务进入持久复盘阶段；复盘调用失败会直接记录为不可用，不使用未配置的固定次数重复计费，也不回滚已成功生成结果。表内同时保存 `conversation_id/run_id/surface/project_id/parent_task_id/attempt_no/client_request_id`，用于后台任务中心追踪会话、运行、项目、父任务、尝试次数和幂等请求；到期恢复索引只覆盖非终态且可自动推进的执行阶段。非空 `(channel_id, upstream_task_id)` 唯一，保证可信回调只能精确匹配一条本地任务。行级写入触发器向 `vozeb_pro_generation_task_events` 发送任务 ID，只用于唤醒统一 Task SSE；客户端收到信号后仍按用户归属回读本表权威快照，不新增事件表或第二套队列。
 - `vozeb_pro_generation_concurrency_reservations`：PostgreSQL 多实例生成并发预约。事务只负责按用户和任务类型加 advisory lock、清理过期预约、计算活动任务与尚未物化的预约并写入稳定请求 ID；上游提交和任务创建在事务结束后执行，完成或异常时删除预约。已落库且 `client_request_id` 相同的活动任务不会和预约重复计数。
 - `vozeb_pro_generation_worker_heartbeats`：生成 Worker 的稳定 ID 与最近心跳时间；就绪检查按最近心跳和部署配置的失联窗口判断后台恢复是否可用。
 - `vozeb_pro_generation_webhook_events`：渠道级生成回调幂等与对账记录，以 `(channel_id, event_id)` 为主键，保存上游任务 ID、请求体哈希、签名时间、匹配到的站内任务、处理状态和收取/处理时间；相同事件 ID 的不同载荷会累计冲突次数并保存最近冲突哈希和时间，不保存回调密钥、渠道 API Key 或完整请求头。
@@ -80,8 +85,8 @@ VOZEB PRO 的 PostgreSQL 真实表名统一使用项目名前缀 `vozeb_pro_`。
 - `vozeb_pro_canvas_projects`：Canvas 项目聚合快照，保存用户、标题、创作会话 ID、节点、连线、视口和项目助手会话；列表查询只投影标题、时间和节点/连线计数，进入单项目后才读取完整快照。交互保存按用户、项目、`updatedAt` 和 mutation ID 执行单次条件更新，PostgreSQL 在 JSONB 内按稳定实体 ID 原位合并并保持数组顺序，文件 Provider 在项目锁内应用同一 mutation；幂等标识仅为服务端内部字段，不进入公开项目响应。
 - `vozeb_pro_library_assets`：用户素材库聚合记录，保存文本或服务器媒体引用、标签、来源和备注；不保存媒体 base64，素材页按用户、类型、关键词和页码在服务端裁剪。
 - `vozeb_pro_local_media_assets`：图片、视频和音频的统一媒体登记表，保存稳定站内 `storage_key`、本地/对象存储 Provider、对象存储配置与对象 Key、同步时间、临时/长期分类、用户归属、原文件名、来源、会话/Run/任务/项目关联、MIME、大小和过期时间；媒体读取与删除以该登记和业务引用检查为权限边界。
-- `vozeb_pro_drama_projects`：短剧项目聚合快照，保存用户、标题、状态和完整 `project_json`；项目内包含创作会话 ID、多集、角色/场景/道具/线索、内容审核状态、分镜及图片、视频、音频、整集合成任务状态，并按用户与更新时间建立列表索引。
-- `vozeb_pro_drama_project_versions`：短剧项目独立版本快照，按项目保存递增版本号、保存原因、完整快照和创建时间；项目或用户删除时级联删除，`(project_id, version)` 保持唯一。
+- `vozeb_pro_drama_projects`：短剧项目聚合快照，保存用户、标题、状态、完整 `project_json` 和仅用于分配版本号的 `version_sequence`；项目内包含创作会话 ID、多集、角色/场景/道具/线索、内容审核状态、分镜及图片、视频、音频、整集合成任务状态，并按用户与更新时间建立列表索引。
+- `vozeb_pro_drama_project_versions`：短剧项目独立版本快照，按项目保存递增且不复用的版本号、保存原因、完整快照和创建时间；每个项目固定保留版本号最新的三份，首次列表读取会定向收敛已有历史，创建版本时在同一写入边界删除排名第四及更早的快照；删除单个版本只留下编号空缺，不修改当前项目或直接删除媒体；项目或用户删除时级联删除，`(project_id, version)` 保持唯一。
 - `vozeb_pro_published_works`：作品稳定身份，保存所有者、公开 slug、素材/Canvas/短剧来源、当前编辑版本、当前公开版本、生命周期、访问量、精选状态和用户下架时间；slug 忽略大小写唯一，下架或公开版本变化会清除精选状态。
 - `vozeb_pro_published_work_versions`：不可变发布版本，保存标题、说明、用户确认公开的必填提示词 `public_prompt`、分类、标签、可见性、作者展示快照、内容审核 Provider/风险信号及 `draft/pending/approved/rejected/taken_down` 审核状态；同一作品的版本号唯一，审核通过时在事务内原子切换公开版本。自动信号不能直接批准公开，内部 Agent 规划与模型理由不得写入 `public_prompt`。
 - `vozeb_pro_published_work_assets`：版本媒体引用，只保存 `local_media_assets.storage_key`、媒体类型、封面/内容角色、顺序和公开展示元数据，不保存对象 Key、签名 URL、提示词或内部规划；外键与全局媒体引用计数共同阻止仍被作品版本使用的媒体被物理删除。用户或管理员先下架再永久删除作品时，会在事务中清空这些关联和全部发布快照，但不会删除源素材、源项目或媒体文件。
@@ -232,3 +237,13 @@ Chat 规划可以返回 Canvas 或短剧 `projectHandoff`。服务端使用 `han
 后台 Agent Skill 保存在 `app_settings.agent_skills` JSONB 字段中，包含名称、用途、执行规则、启用状态和触发关键词。系统默认内置并启用“电商生图”Skill，管理员可在模型渠道设置页修改、停用、删除或新增 Skill。
 
 Skill 还可记录 `sourceUrl`、`sourceVersion` 和 `license`。默认电商生图 Skill 来源为 `buluslan/gpt-image2-ecommerce` v0.1.0（MIT），项目仅适配其工作流与模板匹配规则，不使用其 Codex CLI/Shell 执行链。
+
+# VOZEBCMS 模块状态
+
+`vozeb_module_states` 只承载有界的官方模块启停状态。`module_id` 是内置 Manifest 的稳定 ID，`revision` 用于管理员并发更新，`last_mutation_id` 保证同一提交幂等。模块路由、权限、Capability 和服务端 Action 不写入数据库；状态表中不存在代码 Manifest 的记录不会生效。
+
+# VOZEBCMS 统一任务动作
+
+统一任务接口复用既有 `vozeb_pro_generation_tasks`（PostgreSQL）或 `generation-tasks.json`（文件 Provider），不会创建第二套队列。`GET /api/vozeb-cms/tasks` 和 `GET /api/vozeb-cms/tasks/{id}` 返回稳定 `taskId`、`projectId`、`runId`、`attemptNo`、`execution_phase`、`updated_at` 与公开输入/输出摘要；`GET /api/vozeb-cms/tasks/{id}/events` 发送 `task.snapshot`，支持浏览器通过 `Last-Event-ID` 重连后立即恢复最新快照；`POST /api/vozeb-cms/tasks/{id}` 支持 `cancel`、`recover`、`retry`。服务端按任务类型重新检查 Module/Capability 和用户归属，再委托原生任务 Store、调度器与恢复 Worker。PostgreSQL 使用行级通知唤醒其他实例，文件 Provider 在任务文件锁内比较写前写后快照并发送进程内信号；两者都保留 2.5 秒回读兜底，通知本身不承载业务数据。
+
+取消会先持久化本地 `cancelled` 状态，再由 Worker 使用已保存的上游任务 ID 处理取消确认；恢复只查询同一上游任务，不重建任务。显式重试仅允许可重试失败任务，递增 `attemptNo`、清除旧上游身份并复用原任务 ID、项目关联和请求上下文；原失败计费由各任务运行时的退款幂等机制处理，统一入口不重复扣费。

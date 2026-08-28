@@ -7,7 +7,20 @@ import { agentPlannerSystemPrompt, agentPlanReply, buildAgentPlannerInput, conve
 import { getCreativeAssetsByIds, getCreativeConversationContext, listRecentCreativeMediaAssets } from "@/lib/server/creative-runtime-store";
 import { toSafeGenerationErrorMessage } from "@/lib/server/generation-errors";
 import { parseAgentPlanCall, type AgentFunctionCallResult } from "./agent-function-call";
-import { agentModelOptions, agentPlanFallbackExample, agentPlanTool, canContinue, directAgentPlan, directGenerationPreferences, executeTasks, normalizeTasks, planToOps, refundFunctionCall, requestFunctionCall } from "./agent-run-execution";
+import {
+    agentModelOptions,
+    agentPlanFallbackExample,
+    agentPlanTool,
+    assertAgentPlanVozebCmsCapabilities,
+    canContinue,
+    directAgentPlan,
+    directGenerationPreferences,
+    executeTasks,
+    normalizeTasks,
+    planToOps,
+    refundFunctionCall,
+    requestFunctionCall,
+} from "./agent-run-execution";
 import { isExplicitProjectHandoffRequest, normalizeAgentProjectHandoff } from "./agent-run-project-handoff";
 import { normalizeCanvasPlanForSelection } from "./agent-run-task-input";
 import { GenerationSubmissionUncertainError } from "@/lib/server/generation-submission-error";
@@ -16,6 +29,7 @@ import { filterAgentPlannerModels } from "@/lib/server/agent-run-planning-profil
 import { buildAgentRunPlannerAudit } from "@/lib/server/agent-run-audit";
 import { agentRequestDigest, buildAgentRequest, serializeAgentRequest } from "@/lib/server/agent-prompt-json";
 import { orderCreativeAssetsByIds } from "@/lib/creative-asset-references";
+import { listEnabledVozebCmsCapabilities } from "@/lib/server/vozeb-cms/module-service";
 import { withDirectAgentExecutionContext } from "./agent-run-direct-context";
 
 const globalAgentExecutors = globalThis as typeof globalThis & { __vozebProAgentRunControllers?: Map<string, AbortController> };
@@ -55,14 +69,16 @@ export async function executeAgentRun(run: AgentRun, origin: string, cookie: str
         }
         const directModelSelection = Boolean(claimed.requestedModelIds?.length);
         const usesMemoryCandidates = !directModelSelection && claimed.surface === "chat" && claimed.referencedAssetIds.length === 0;
-        const [settings, loadedExplicitAssets, conversationContext, memoryAssets] = await Promise.all([
+        const [settings, loadedExplicitAssets, conversationContext, memoryAssets, enabledCapabilities] = await Promise.all([
             getAuthSettings(),
             getCreativeAssetsByIds(claimed.referencedAssetIds, claimed.userId),
             getCreativeConversationContext(claimed.conversationId, claimed.userId, claimed.id),
             usesMemoryCandidates ? listRecentCreativeMediaAssets(claimed.conversationId, claimed.userId, 6) : Promise.resolve([]),
+            listEnabledVozebCmsCapabilities(),
         ]);
+        const enabledCapabilityIds = new Set(enabledCapabilities.map((capability) => capability.id));
         const explicitAssets = orderCreativeAssetsByIds(loadedExplicitAssets, claimed.referencedAssetIds);
-        const allModels = agentModelOptions(settings);
+        const allModels = agentModelOptions(settings, enabledCapabilityIds);
         const availableModels = prioritizeAgentPlannerModels(filterAgentPlannerModels(allModels, claimed), claimed, settings);
         const skillOptions = plannerAgentSkills(settings, claimed);
         const skills = selectAgentSkills(settings, claimed.surface, claimed.selectedSkillIds);
@@ -72,6 +88,7 @@ export async function executeAgentRun(run: AgentRun, origin: string, cookie: str
             const selectedModels = claimed.requestedModelIds.map((id) => directModelOptions.find((item) => item.id === id && item.capability !== "text")).filter((item): item is ReturnType<typeof agentModelOptions>[number] => Boolean(item));
             if (selectedModels.length !== claimed.requestedModelIds.length) throw new Error("部分所选模型当前不可用，请重新选择");
             const plan = directAgentPlan(selectedModels, claimed.prompt, claimed.referencedAssetIds, claimed.generationPreferences);
+            assertAgentPlanVozebCmsCapabilities(plan, enabledCapabilityIds);
             const tasks = withDirectAgentExecutionContext(
                 normalizeTasks(plan, skills, settings, claimed.snapshot, claimed.prompt, claimed.surface, explicitAssets, claimed.requestedImageSize, directGenerationPreferences(claimed.generationPreferences)),
                 claimed.surface,
@@ -172,6 +189,7 @@ export async function executeAgentRun(run: AgentRun, origin: string, cookie: str
         }
         if (!plan) throw latestPlanningError instanceof Error ? latestPlanningError : new Error("没有可用的文本模型渠道");
         if (claimed.surface === "canvas") plan = normalizeCanvasPlanForSelection(plan, claimed.snapshot, claimed.prompt);
+        assertAgentPlanVozebCmsCapabilities(plan, enabledCapabilityIds);
         const plannerAudit = buildAgentRunPlannerAudit({
             mode: "model",
             logicalModelId: model,

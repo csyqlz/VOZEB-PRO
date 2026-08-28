@@ -1,5 +1,7 @@
 import { BookMarked, Clapperboard, Compass, FileText, GalleryVerticalEnd, Images, Maximize2, Sparkles, UserRound } from "lucide-react";
 
+import type { VozebCmsModuleId } from "@/lib/vozeb-cms/module-contract";
+
 export const navigationGroups = [
     { id: "create", label: "创作" },
     { id: "projects", label: "项目" },
@@ -21,6 +23,7 @@ export const navigationTools = [
         group: "create",
         icon: Sparkles,
         primary: true,
+        moduleId: "create",
     },
     {
         slug: "canvas",
@@ -28,6 +31,7 @@ export const navigationTools = [
         description: "节点式多媒体创作",
         group: "projects",
         icon: Maximize2,
+        moduleId: "canvas",
     },
     {
         slug: "drama",
@@ -35,6 +39,7 @@ export const navigationTools = [
         description: "剧本、分镜与成片",
         group: "projects",
         icon: Clapperboard,
+        moduleId: "drama",
     },
     {
         slug: "works",
@@ -82,6 +87,22 @@ export const navigationTools = [
 
 export type NavigationToolSlug = (typeof navigationTools)[number]["slug"];
 export type NavigationGroupId = (typeof navigationGroups)[number]["id"];
+
+export function navigationGroupsForModules(enabledModuleIds?: readonly VozebCmsModuleId[]) {
+    return navigationGroups
+        .map((group) => ({
+            ...group,
+            tools: navigationTools.filter((tool) => tool.group === group.id && (!("moduleId" in tool) || !enabledModuleIds || enabledModuleIds.includes(tool.moduleId))),
+        }))
+        .filter((group) => group.tools.length);
+}
+
+export function defaultWorkspaceHref(enabledModuleIds?: readonly VozebCmsModuleId[]) {
+    const visibleTools = navigationGroupsForModules(enabledModuleIds).flatMap((group) => group.tools);
+    const preferredSlugs: readonly NavigationToolSlug[] = ["create", "canvas", "drama", "assets"];
+    const preferredTool = preferredSlugs.map((slug) => visibleTools.find((tool) => tool.slug === slug)).find(Boolean);
+    return preferredTool ? `/${preferredTool.slug}` : "/";
+}
 
 export function navigationToolForPathname(pathname: string) {
     const slug = pathname.split("/").filter(Boolean)[0];

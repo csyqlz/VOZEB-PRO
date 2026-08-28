@@ -1,6 +1,7 @@
 import { getDatabaseProvider, ensurePostgresSchema, postgresQuery, withPostgresTransaction } from "@/lib/server/database";
 import { resolveGenerationReviewReason } from "@/lib/server/generation-task-review-reason";
 import { readJsonDataFile, withJsonDataFileLock, writeJsonDataFile } from "@/lib/server/data-adapter";
+import { notifyVozebCmsTaskEvent } from "@/lib/server/vozeb-cms/task-event-signal";
 import type {
     GenerationTaskContext,
     GenerationTaskCostAggregate,
@@ -83,6 +84,18 @@ export async function getStoredGenerationTaskRecord(type: GenerationTaskType, id
         return result.rows[0] ? mapStoredTaskRecord(result.rows[0]) : null;
     }
     return (await readFileTasks()).find((task) => task.id === id && task.type === type && task.expiresAt > Date.now()) || null;
+}
+
+export async function getStoredGenerationTaskRecordForUser(id: string, userId: string): Promise<StoredGenerationTaskRecord | null> {
+    const taskId = id.trim();
+    const ownerId = userId.trim();
+    if (!taskId || !ownerId) return null;
+    if (getDatabaseProvider() === "postgres") {
+        await ensurePostgresSchema();
+        const result = await postgresQuery<Record<string, unknown>>("SELECT * FROM generation_tasks WHERE id = $1 AND user_id = $2 AND expires_at > now()", [taskId, ownerId]);
+        return result.rows[0] ? mapStoredTaskRecord(result.rows[0]) : null;
+    }
+    return (await readFileTasks()).find((task) => task.id === taskId && task.userId === ownerId && task.expiresAt > Date.now()) || null;
 }
 
 export async function listStoredGenerationTaskRecordsByRunIds(runIds: string[], userIds: string[] = []) {
@@ -932,8 +945,11 @@ function mutateFileTasks(mutator: (tasks: StoredGenerationTaskRecord[]) => Store
 export function withGenerationTaskFileMutation<T>(mutator: (tasks: StoredGenerationTaskRecord[]) => Promise<{ tasks: StoredGenerationTaskRecord[]; result: T }>) {
     const run = fileMutationQueue.then(async () => {
         return withJsonDataFileLock(TASK_FILE, async () => {
-            const mutation = await mutator(await readFileTasks());
+            const previous = await readFileTasks();
+            const previousSignatures = taskSignatures(previous);
+            const mutation = await mutator(previous);
             await writeJsonDataFile(TASK_FILE, mutation.tasks);
+            notifyChangedTaskIds(previousSignatures, mutation.tasks);
             return mutation.result;
         });
     });
@@ -942,6 +958,18 @@ export function withGenerationTaskFileMutation<T>(mutator: (tasks: StoredGenerat
         () => undefined,
     );
     return run;
+}
+
+function taskSignatures(tasks: StoredGenerationTaskRecord[]) {
+    return new Map(tasks.map((task) => [task.id, JSON.stringify(task)]));
+}
+
+function notifyChangedTaskIds(previous: Map<string, string>, next: StoredGenerationTaskRecord[]) {
+    const after = new Map(next.map((task) => [task.id, JSON.stringify(task)]));
+    const ids = new Set([...previous.keys(), ...after.keys()]);
+    for (const id of ids) {
+        if (previous.get(id) !== after.get(id)) notifyVozebCmsTaskEvent(id);
+    }
 }
 
 function normalizeGenerationTaskContext(context: GenerationTaskContext): GenerationTaskContext {
@@ -1068,6 +1096,10 @@ function mapStoredTaskRecord(row: Record<string, unknown>): StoredGenerationTask
         leaseUntil: optionalDatabaseTime(row.lease_until),
         lastHeartbeatAt: optionalDatabaseTime(row.last_heartbeat_at),
     };
+}
+
+export function mapStoredGenerationTaskRecord(row: Record<string, unknown>) {
+    return mapStoredTaskRecord(row);
 }
 
 function mapGenerationTaskCostAggregate(row: Record<string, unknown>): GenerationTaskCostAggregate[] {

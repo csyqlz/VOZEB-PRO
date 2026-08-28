@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireVozebCmsCapability } from "@/app/api/vozeb-cms-capability";
 import { fileTypeFromBuffer } from "file-type";
 
 import { getCurrentUser } from "@/lib/auth/session";
@@ -18,6 +19,8 @@ type UploadInput = { dataUrl: string; type: "image" | "video" | "audio"; persist
 export async function POST(request: Request) {
     const currentUser = await getCurrentUser(request);
     if (!currentUser) return NextResponse.json({ error: "请先登录" }, { status: 401 });
+    const blocked = await requireVozebCmsCapability("asset.manage", currentUser.id);
+    if (blocked) return blocked;
 
     try {
         const input = await readUploadInput(request);

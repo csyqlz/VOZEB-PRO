@@ -1,0 +1,40 @@
+services:
+  app:
+    environment:
+      VOZEB_PRO_UPDATER_URL: http://updater:8787
+      VOZEB_PRO_UPDATER_TOKEN: ${VOZEB_PRO_UPDATER_TOKEN:?请在 .env 中配置独立的至少 32 位在线升级令牌}
+    depends_on:
+      updater:
+        condition: service_healthy
+
+  updater:
+    image: ${VOZEB_PRO_UPDATER_IMAGE:-ghcr.io/csyqlz/vozeb-pro-updater:v0.0.8}
+    build:
+      context: .
+      dockerfile: deploy/updater/Dockerfile
+    container_name: vozeb-pro-updater
+    environment:
+      VOZEB_PRO_UPDATER_TOKEN: ${VOZEB_PRO_UPDATER_TOKEN:?请在 .env 中配置独立的至少 32 位在线升级令牌}
+      VOZEB_PRO_GITHUB_TOKEN: ${VOZEB_PRO_GITHUB_TOKEN:-}
+      VOZEB_PRO_UPDATER_COMPOSE_FILES: ${VOZEB_PRO_UPDATER_COMPOSE_FILES:-docker-compose.yml,docker-compose.updater.yml}
+      VOZEB_PRO_UPDATER_POLL_AFTER_MS: ${VOZEB_PRO_UPDATER_POLL_AFTER_MS:-2000}
+    volumes:
+      - ./:/workspace
+      - /var/run/docker.sock:/var/run/docker.sock
+      - vozeb-pro-updater:/state
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8787/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+volumes:
+  vozeb-pro-updater:

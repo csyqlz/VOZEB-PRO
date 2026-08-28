@@ -35,18 +35,19 @@ const CANCELLATION_PHASES = new Set<GenerationTaskExecutionPhase>(["cancel_reque
 
 export async function scheduleGenerationTask(type: GenerationTaskType, id: string, patch: GenerationTaskSchedulePatch, options: GenerationTaskScheduleOptions = {}) {
     const normalized = normalizePatch(patch);
+    const resetUpstreamIdentity = options.resetUpstreamIdentity === true;
     if (getDatabaseProvider() === "postgres") {
         await ensurePostgresSchema();
         const result = await postgresQuery<Record<string, unknown>>(
             `UPDATE generation_tasks
-             SET execution_phase = COALESCE($3, execution_phase), upstream_task_id = COALESCE($4, upstream_task_id),
-                 channel_id = COALESCE($5, channel_id), provider = COALESCE($6, provider), query_path = COALESCE($7, query_path),
-                 submitted_at = COALESCE($8, submitted_at), next_poll_at = $9, last_poll_at = COALESCE($10, last_poll_at),
-                 last_upstream_status = COALESCE($11, last_upstream_status), result_payload = COALESCE($12::jsonb, result_payload)
+             SET execution_phase = COALESCE($3, execution_phase), upstream_task_id = CASE WHEN $14::boolean THEN NULL ELSE COALESCE($4, upstream_task_id) END,
+                 channel_id = COALESCE($5, channel_id), provider = COALESCE($6, provider), query_path = CASE WHEN $14::boolean THEN NULL ELSE COALESCE($7, query_path) END,
+                 submitted_at = CASE WHEN $14::boolean THEN NULL ELSE COALESCE($8, submitted_at) END, next_poll_at = $9, last_poll_at = CASE WHEN $14::boolean THEN NULL ELSE COALESCE($10, last_poll_at) END,
+                 last_upstream_status = COALESCE($11, last_upstream_status), result_payload = CASE WHEN $14::boolean THEN NULL ELSE COALESCE($12::jsonb, result_payload) END
              WHERE id = $1 AND task_type = $2
                AND ($13::boolean OR status <> 'cancelled' OR execution_phase NOT IN ('cancel_requested', 'cancel_polling'))
              RETURNING *`,
-            [...scheduleValues(id, type, normalized), options.cancellation === true],
+            [...scheduleValues(id, type, normalized), options.cancellation === true, resetUpstreamIdentity],
         );
         return result.rows[0] ? mapLease(result.rows[0]) : null;
     }
@@ -55,7 +56,7 @@ export async function scheduleGenerationTask(type: GenerationTaskType, id: strin
         const next = tasks.map((task) => {
             if (task.id !== id || task.type !== type) return task;
             if (!canApplySchedulePatch(task, options)) return task;
-            const updated = applyPatch(task, normalized);
+            const updated = applyPatch(task, normalized, resetUpstreamIdentity);
             result = toLease(updated);
             return updated;
         });
@@ -240,11 +241,11 @@ function normalizePatch(patch: GenerationTaskSchedulePatch): GenerationTaskSched
     };
 }
 
-function applyPatch(task: StoredGenerationTaskRecord, patch: GenerationTaskSchedulePatch): StoredGenerationTaskRecord {
+function applyPatch(task: StoredGenerationTaskRecord, patch: GenerationTaskSchedulePatch, resetUpstreamIdentity = false): StoredGenerationTaskRecord {
     return {
         ...task,
         ...(patch.executionPhase ? { executionPhase: patch.executionPhase } : {}),
-        ...(patch.upstreamTaskId ? { upstreamTaskId: patch.upstreamTaskId } : {}),
+        ...(resetUpstreamIdentity ? { upstreamTaskId: undefined, queryPath: undefined, submittedAt: undefined, lastPollAt: undefined, resultPayload: undefined } : patch.upstreamTaskId ? { upstreamTaskId: patch.upstreamTaskId } : {}),
         ...(patch.channelId ? { channelId: patch.channelId } : {}),
         ...(patch.provider ? { provider: patch.provider } : {}),
         ...(patch.queryPath ? { queryPath: patch.queryPath } : {}),

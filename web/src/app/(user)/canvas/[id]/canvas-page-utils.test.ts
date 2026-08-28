@@ -22,7 +22,7 @@ import {
     hydrateAssistantImages,
     hydrateCanvasImages,
     isHiddenBatchChild,
-    normalizeCanvasConfigNodeLayout,
+    normalizeCanvasNodeLayout,
     prepareAssistantImages,
     prepareCanvasImages,
     replaceCanvasNodeMediaMetadata,
@@ -145,7 +145,7 @@ describe("Canvas project hydration", () => {
 
 describe("Canvas config node layout", () => {
     it("keeps the persisted details state and node hit box in sync", () => {
-        const collapsed = normalizeCanvasConfigNodeLayout(configNode(320));
+        const collapsed = normalizeCanvasNodeLayout(configNode(320));
         const expanded = applyNodeConfigPatch(collapsed, { configDetailsOpen: true });
 
         expect(collapsed).toMatchObject({ height: CANVAS_CONFIG_NODE_HEIGHT.collapsed, metadata: { configDetailsOpen: false } });

@@ -7,6 +7,7 @@ import { CanvasImageDecompositionError, decomposeCanvasImage } from "@/lib/serve
 import { createCanvasImageLayerGrant } from "@/lib/server/canvas-image-layer-grant";
 import { resolveInternalOrigin } from "@/lib/server/internal-origin";
 import { checkGenerationRateLimit, rateLimitHeaders } from "@/lib/server/security";
+import { requireVozebCmsCapability } from "@/app/api/vozeb-cms-capability";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,6 +18,8 @@ type CanvasImageDecompositionBody = { requestId?: unknown; source?: unknown };
 export async function POST(request: Request) {
     const user = await getCurrentUser(request);
     if (!user) return NextResponse.json({ code: 401, data: null, msg: "请先登录" }, { status: 401 });
+    const blocked = await requireVozebCmsCapability("canvas.project.manage", user.id);
+    if (blocked) return blocked;
     const rate = await checkGenerationRateLimit(user.id, request, "text");
     if (!rate.allowed) return NextResponse.json({ code: 429, data: null, msg: "图片分层识别请求过于频繁，请稍后重试" }, { status: 429, headers: rateLimitHeaders(rate) });
 

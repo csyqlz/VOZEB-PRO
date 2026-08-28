@@ -1,4 +1,5 @@
 import { requestPublicOrigin } from "./image-task-reference-urls";
+import { requireVozebCmsCapability } from "@/app/api/vozeb-cms-capability";
 import { after, NextResponse } from "next/server";
 
 import { readJsonBody } from "@/lib/auth/request";
@@ -131,6 +132,8 @@ import {
 export async function POST(request: Request) {
     const currentUser = await getCurrentUser(request);
     if (!currentUser) return NextResponse.json({ error: "请先登录" }, { status: 401 });
+    const blocked = await requireVozebCmsCapability("image.generate", currentUser.id);
+    if (blocked) return blocked;
     const headerRequestId = request.headers.get("x-vozeb-pro-client-request-id")?.trim();
     const headerAttemptNo = positiveAttemptNo(request.headers.get("x-vozeb-pro-attempt-no"));
     if (headerRequestId) {

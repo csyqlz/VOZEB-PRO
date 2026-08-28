@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
     createAudioTask: vi.fn(),
 }));
 
+vi.mock("@/app/api/vozeb-cms-capability", () => ({ requireVozebCmsCapability: vi.fn(async () => null) }));
 vi.mock("next/server", async (importOriginal) => {
     const actual = await importOriginal<typeof import("next/server")>();
     return { ...actual, after: vi.fn() };

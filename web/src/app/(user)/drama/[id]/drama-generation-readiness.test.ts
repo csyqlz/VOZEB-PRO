@@ -30,6 +30,20 @@ describe("drama generation readiness", () => {
         expect(summary.missingAudioShotIds).toEqual(["running"]);
         expect(summary.progressPercent).toBe(50);
     });
+
+    it("keeps stale media visible while queueing only affected shots for update", () => {
+        const project = projectFixture([
+            shotFixture({ id: "current", videoUrl: "/current.mp4", generationStatus: "success", videoFreshness: "current" }),
+            shotFixture({ id: "stale", videoUrl: "/old.mp4", generationStatus: "success", videoFreshness: "stale" }),
+        ]);
+
+        const summary = summarizeDramaGeneration(project, project.episodes[0]);
+
+        expect(summary.completedVideoCount).toBe(1);
+        expect(summary.staleShotIds).toEqual(["stale"]);
+        expect(summary.staleQueueableShotIds).toEqual(["stale"]);
+        expect(summary.queueableShotIds).toEqual(["stale"]);
+    });
 });
 
 function projectFixture(shots: DramaShot[]): DramaProject {

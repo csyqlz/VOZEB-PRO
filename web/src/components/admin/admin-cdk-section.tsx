@@ -51,7 +51,7 @@ export function AdminCdkSection({ controller }: { controller: AdminDashboardCont
     } = controller;
     if (activeSection !== "cdk") return null;
     return (
-        <Panel>
+        <Panel variant="page">
             <PanelHeader
                 title="CDK 兑换"
                 description="生成积分或套餐兑换码，用于活动发放、客服补偿和私域转化；后台可复制、导出、查看兑换明细并删除密钥。"

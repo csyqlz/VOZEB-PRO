@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Button, Modal } from "antd";
+import { LoaderCircle } from "lucide-react";
 import { imagePreviewUrl } from "@/lib/media-image-url";
 import { CanvasConfigComposer } from "../components/canvas-config-composer";
 import { CanvasConfigNodePanel } from "../components/canvas-config-node-panel";
@@ -626,9 +627,10 @@ function VozebProCanvasPage() {
                     onCancel={() => setPreviewNodeId(null)}
                     footer={null}
                     width="auto"
+                    destroyOnHidden
                     styles={{ body: { padding: 0, display: "flex", justifyContent: "center", alignItems: "center", maxHeight: "80vh" } }}
                 >
-                    {previewNode?.metadata?.content ? <img src={imagePreviewUrl(previewNode.metadata.content, 1920)} alt={previewNode.title || "图片"} style={{ maxWidth: "100%", maxHeight: "80vh", objectFit: "contain" }} /> : null}
+                    {previewNode?.metadata?.content ? <CanvasImagePreview key={`${previewNode.id}:${previewNode.metadata.content}`} src={imagePreviewUrl(previewNode.metadata.content, 1920)} alt={previewNode.title || "图片"} /> : null}
                 </Modal>
 
                 <Modal
@@ -665,5 +667,15 @@ function VozebProCanvasPage() {
                 />
             ) : null}
         </main>
+    );
+}
+
+function CanvasImagePreview({ src, alt }: { src: string; alt: string }) {
+    const [loaded, setLoaded] = useState(false);
+    return (
+        <div className="relative grid min-h-40 min-w-[min(68vw,280px)] place-items-center overflow-hidden bg-black/5 dark:bg-white/5">
+            {!loaded ? <LoaderCircle className="size-5 animate-spin text-muted-foreground" aria-label="正在加载图片" /> : null}
+            <img src={src} alt={alt} onLoad={() => setLoaded(true)} onError={() => setLoaded(true)} className={loaded ? "block" : "hidden"} style={{ maxWidth: "100%", maxHeight: "80vh", objectFit: "contain" }} />
+        </div>
     );
 }

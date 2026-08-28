@@ -14,6 +14,7 @@ import {
     publicDatabaseIdentity,
     requireOfflineConfirmation,
     runPostgresTool,
+    verifyRecoveryPoint,
     writeJsonAtomic,
 } from "./disaster-recovery-core.mjs";
 
@@ -36,6 +37,7 @@ try {
     const databasePath = path.join(recoveryPointDir, databaseFile);
     await mkdir(path.dirname(databasePath), { recursive: true });
     await runPostgresTool(process.env.VOZEB_PRO_PG_DUMP_PATH || "pg_dump", ["--format=custom", "--compress=6", "--no-owner", "--no-privileges", "--file", databasePath], databaseUrl);
+    await runPostgresTool(process.env.VOZEB_PRO_PG_RESTORE_PATH || "pg_restore", ["--list", databasePath], databaseUrl, { silent: true });
     const database = { file: databaseFile, ...(await hashFile(databasePath)) };
 
     const dataDir = path.resolve(process.env.VOZEB_PRO_DATA_DIR || path.join(process.cwd(), ".data"));
@@ -69,6 +71,7 @@ try {
         objectStorage,
         requiredSecrets: ["DATABASE_URL", "VOZEB_PRO_ENCRYPTION_KEY"],
     };
+    await verifyRecoveryPoint(recoveryPointDir, manifest);
     await writeJsonAtomic(path.join(recoveryPointDir, DISASTER_MANIFEST_FILE), manifest);
     await rm(incompleteMarker, { force: true });
     process.stdout.write(`完整恢复点已创建：${recoveryPointDir}\n恢复点 ID：${recoveryPointId}\n`);

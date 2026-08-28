@@ -2,12 +2,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
     getCurrentUser: vi.fn(),
+    requireCapability: vi.fn(),
     writePersistent: vi.fn(),
     writeTemporary: vi.fn(),
     createSignedUrl: vi.fn(),
 }));
 
 vi.mock("@/lib/auth/session", () => ({ getCurrentUser: mocks.getCurrentUser }));
+vi.mock("@/app/api/vozeb-cms-capability", () => ({ requireVozebCmsCapability: mocks.requireCapability }));
 vi.mock("@/lib/server/reference-asset-store", () => ({ writePersistentMediaDataUrl: mocks.writePersistent, writeReferenceMediaDataUrl: mocks.writeTemporary }));
 vi.mock("@/lib/server/reference-asset-access", () => ({ createSignedReferenceAssetUrl: mocks.createSignedUrl }));
 
@@ -17,8 +19,18 @@ describe("reference asset upload boundary", () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.getCurrentUser.mockResolvedValue({ id: "user-one" });
+        mocks.requireCapability.mockResolvedValue(null);
         mocks.writePersistent.mockResolvedValue({ token: "permanent/asset.mp4", bytes: 4, mimeType: "video/mp4", storage: "local" });
         mocks.createSignedUrl.mockReturnValue("https://drama.example/api/reference-assets/permanent/asset.mp4?expires=1&signature=test");
+    });
+
+    it("requires the unified asset capability", async () => {
+        mocks.requireCapability.mockResolvedValueOnce(new Response(JSON.stringify({ code: 403 }), { status: 403 }));
+        const response = await POST(new Request("http://localhost/api/reference-assets", { method: "POST", body: JSON.stringify({ type: "image", dataUrl: "data:image/png;base64,AAAA" }), headers: { "Content-Type": "application/json" } }));
+
+        expect(response.status).toBe(403);
+        expect(mocks.writePersistent).not.toHaveBeenCalled();
+        expect(mocks.writeTemporary).not.toHaveBeenCalled();
     });
 
     it("always applies the 20MB user upload limit even when persistent is requested", async () => {

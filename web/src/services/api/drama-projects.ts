@@ -1,4 +1,4 @@
-import type { CreateDramaProjectInput, DramaCostSummary, DramaEpisode, DramaProject, DramaProjectSummary, DramaProjectVersion, DramaVisualReview } from "@/lib/drama-project-contract";
+import type { CreateDramaProjectInput, DramaCostSummary, DramaEpisode, DramaProject, DramaProjectSummary, DramaProjectVersion, DramaProjectVersionScope, DramaVisualReview } from "@/lib/drama-project-contract";
 
 export type DramaProjectSummaryResponse = { projects: DramaProjectSummary[]; total: number; page: number; pageSize: number };
 
@@ -27,11 +27,13 @@ export function deleteDramaAgentConversation(projectId: string, conversationId: 
     return request<{ deleted: boolean; activeConversationId: string; project: DramaProject }>(`/api/drama/projects/${encodeURIComponent(projectId)}/agent-conversations/${encodeURIComponent(conversationId)}`, { method: "DELETE" });
 }
 
-export function createDramaProjectVersion(project: DramaProject, reason: string) {
+export function createDramaProjectVersion(project: DramaProject, reason: string, scope: DramaProjectVersionScope = {}) {
+    const episodeIds = Array.from(new Set((scope.episodeIds || []).filter((id) => project.episodes.some((episode) => episode.id === id))));
+    const snapshot = episodeIds.length ? { ...project, episodes: project.episodes.filter((episode) => episodeIds.includes(episode.id)) } : project;
     return request<{ version: DramaProjectVersion }>(`/api/drama/projects/${encodeURIComponent(project.id)}/versions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason, snapshot: project }),
+        body: JSON.stringify({ reason, snapshot, scope: episodeIds.length ? { episodeIds } : undefined }),
     }).then((data) => data.version);
 }
 
@@ -41,6 +43,10 @@ export function listDramaProjectVersions(projectId: string) {
 
 export function restoreDramaProjectVersion(projectId: string, versionId: string) {
     return request<{ project: DramaProject }>(`/api/drama/projects/${encodeURIComponent(projectId)}/versions/${encodeURIComponent(versionId)}`, { method: "POST" }).then((data) => data.project);
+}
+
+export function deleteDramaProjectVersion(projectId: string, versionId: string) {
+    return request<{ deleted: true }>(`/api/drama/projects/${encodeURIComponent(projectId)}/versions/${encodeURIComponent(versionId)}`, { method: "DELETE" });
 }
 
 export function getDramaProjectCosts(projectId: string) {

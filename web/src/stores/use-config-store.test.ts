@@ -27,6 +27,22 @@ const audioSettings: PublicSystemSettings = {
 };
 
 describe("applyPublicSystemSettings", () => {
+    it("keeps model selection available when channel details are omitted from the public session", () => {
+        const config = applyPublicSystemSettings(defaultConfig, {
+            logicalModels: [
+                { id: "image-public", name: "公开图片模型", capability: "image", enabled: true, bindings: [] },
+                { id: "video-public", name: "公开视频模型", capability: "video", enabled: true, bindings: [] },
+            ],
+            defaultModels: { imageModel: "image-public", videoModel: "video-public" },
+        });
+
+        expect(config.channels).toEqual([]);
+        expect(config.imageModels).toEqual(["image-public"]);
+        expect(config.videoModels).toEqual(["video-public"]);
+        expect(config.imageModel).toBe("image-public");
+        expect(config.videoModel).toBe("video-public");
+    });
+
     it("does not reuse a persisted audio model when the administrator has no default", () => {
         const config = applyPublicSystemSettings({ ...defaultConfig, audioModel: "speech-v1" }, audioSettings);
 

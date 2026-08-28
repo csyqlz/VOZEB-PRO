@@ -8,7 +8,7 @@ import { CanvasNodeType, isCanvasImageNodeType } from "../types";
 import { classifyCanvasVideoTaskFailure } from "./canvas-video-task-recovery";
 
 import { NODE_STATUS_ERROR, NODE_STATUS_LOADING } from "./canvas-page-elements";
-import { buildGenerationConfig, isGenerationCanceled, normalizeCanvasConfigNodeLayout, prepareAssistantImages, prepareCanvasImages } from "./canvas-page-utils";
+import { buildGenerationConfig, isGenerationCanceled, normalizeCanvasNodeLayout, prepareAssistantImages, prepareCanvasImages } from "./canvas-page-utils";
 import { pauseCanvasGenerationReview } from "./canvas-generation-review";
 
 import type { CanvasPageState } from "./use-canvas-page-state";
@@ -184,7 +184,7 @@ export function useCanvasPersistenceEffects({ state, tasks }: { state: CanvasPag
         setProjectLoaded(false);
         void loadProject(projectId, true)
             .then((project) => {
-                const restoredNodes = prepareCanvasImages(project.nodes).map(normalizeCanvasConfigNodeLayout);
+                const restoredNodes = prepareCanvasImages(project.nodes).map(normalizeCanvasNodeLayout);
                 const restoredSessions = prepareAssistantImages(project.chatSessions || []);
                 if (cancelled) return;
                 skipInitialProjectSyncRef.current = true;

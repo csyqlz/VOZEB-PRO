@@ -1,4 +1,5 @@
 import { after, NextResponse } from "next/server";
+import { requireGenerationResourceAccess } from "@/app/api/generation-resource-access";
 import { readJsonBodyResult } from "@/lib/auth/request";
 import { getCurrentUser } from "@/lib/auth/session";
 import { getAuthSettings } from "@/lib/auth/store";
@@ -26,7 +27,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const status = actions[action];
     if (!status && action !== "retry" && action !== "cancel") return NextResponse.json({ code: 400, data: null, msg: "不支持的 Agent 操作" }, { status: 400 });
     const run = await getAgentRun(id);
-    if (!run || (run.userId !== user.id && user.role !== "admin")) return NextResponse.json({ code: 404, data: null, msg: "Agent 任务不存在" }, { status: 404 });
+    if (!run) return NextResponse.json({ code: 404, data: null, msg: "Agent 任务不存在" }, { status: 404 });
+    const blocked = await requireGenerationResourceAccess({ actor: user, ownerUserId: run.userId, capabilityId: "agent.run", adminPermission: "generation.manage", notFoundMessage: "Agent 任务不存在" });
+    if (blocked) return blocked;
     if (expectedConversationId && run.conversationId !== expectedConversationId) return NextResponse.json({ code: 409, data: null, msg: "当前对话与 Agent 任务不匹配" }, { status: 409 });
     if (action === "retry" && (run.status !== "failed" || run.tasks.length)) return NextResponse.json({ code: 409, data: null, msg: "只有规划阶段失败的任务可以整体重试" }, { status: 409 });
     if (action === "pause" && !["planning", "running"].includes(run.status)) return NextResponse.json({ code: 409, data: null, msg: "当前任务无法暂停" }, { status: 409 });

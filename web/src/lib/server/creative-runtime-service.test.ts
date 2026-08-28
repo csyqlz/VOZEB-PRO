@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+    createCreativeConversation: vi.fn(),
     getCreativeConversation: vi.fn(),
     getCreativeConversationsByIds: vi.fn(),
+    listCreativeConversations: vi.fn(),
     registerCreativeAssets: vi.fn(),
     writePersistentMediaDataUrl: vi.fn(),
     deleteCreativeConversationAggregates: vi.fn(),
@@ -10,12 +12,12 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/server/creative-runtime-store", () => ({
-    createCreativeConversation: vi.fn(),
+    createCreativeConversation: mocks.createCreativeConversation,
     getCreativeAsset: vi.fn(),
     getCreativeConversation: mocks.getCreativeConversation,
     getCreativeConversationsByIds: mocks.getCreativeConversationsByIds,
     listCreativeAssets: vi.fn(),
-    listCreativeConversations: vi.fn(),
+    listCreativeConversations: mocks.listCreativeConversations,
     listCreativeMessages: vi.fn(),
     registerCreativeAssets: mocks.registerCreativeAssets,
     updateCreativeConversation: vi.fn(),
@@ -32,8 +34,10 @@ function file(name: string, type: string, size = 4): File {
 
 describe("创作会话素材上传", () => {
     beforeEach(() => {
+        mocks.createCreativeConversation.mockReset().mockResolvedValue({ id: "conversation-generated", userId: "user-one", surface: "chat", status: "active" });
         mocks.getCreativeConversation.mockReset().mockResolvedValue({ id: "conversation-one", userId: "user-one", surface: "chat", status: "active" });
         mocks.getCreativeConversationsByIds.mockReset().mockResolvedValue([{ id: "conversation-one", userId: "user-one", surface: "chat", status: "active" }]);
+        mocks.listCreativeConversations.mockReset().mockResolvedValue([]);
         mocks.writePersistentMediaDataUrl.mockReset().mockResolvedValue({ token: "persistent-one.mp4", storage: "local", bytes: 4, mimeType: "video/mp4" });
         mocks.deleteCreativeConversationAggregates.mockReset().mockResolvedValue({ deletedConversations: 1, deletedProjects: 0, mediaStorageKeys: ["permanent/one.png"] });
         mocks.deleteUserMediaAssetsCascade.mockReset().mockResolvedValue({ deletedFiles: 1, deletedBytes: 4, blocked: [] });
@@ -95,5 +99,19 @@ describe("创作会话素材上传", () => {
 
         expect(assets[0]).toMatchObject({ type: "image", serverUrl: "/api/generation-log-assets/user/file.png", storageKind: "local" });
         expect(mocks.registerCreativeAssets).toHaveBeenCalledWith([expect.objectContaining({ conversationId: "conversation-one", sourceRunId: "run-one", sourceTaskId: "task-one", metadata: { surface: "chat", projectId: undefined } })]);
+    });
+
+    it("keeps direct generation outputs in the unified asset system without a conversation id", async () => {
+        const assets = await registerGenerationTaskAssetsForUser("user-one", {
+            surface: "drama",
+            projectId: "drama-one",
+            taskId: "task-direct",
+            title: "镜头视频",
+            assets: [{ type: "video", url: "/api/reference-assets/permanent/shot.mp4", mimeType: "video/mp4" }],
+        });
+
+        expect(assets[0]).toMatchObject({ conversationId: "conversation-generated", type: "video" });
+        expect(mocks.listCreativeConversations).toHaveBeenCalledWith("user-one", expect.objectContaining({ surface: "drama", source: "drama", projectId: "drama-one", status: "active", limit: 1 }));
+        expect(mocks.createCreativeConversation).toHaveBeenCalledWith("user-one", expect.objectContaining({ surface: "drama", source: "drama", projectId: "drama-one" }));
     });
 });

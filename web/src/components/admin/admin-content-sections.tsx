@@ -32,7 +32,7 @@ export function AdminAnnouncementsSection({ controller }: { controller: AdminDas
     } = controller;
     if (activeSection !== "announcements") return null;
     return (
-        <Panel>
+        <Panel variant="page">
             <PanelHeader
                 title="公告通知"
                 description="发布站内公告，并设置首页弹窗或登录后弹窗触达。"
@@ -194,7 +194,7 @@ export function AdminPromptsSection({ controller }: { controller: AdminDashboard
     } = controller;
     if (activeSection !== "prompts") return null;
     return (
-        <Panel>
+        <Panel variant="page">
             <PanelHeader
                 title="提示词运营"
                 description="维护用户端提示词库展示的公共提示词，沉淀可复用的内容资产。"
@@ -219,17 +219,19 @@ export function AdminPromptsSection({ controller }: { controller: AdminDashboard
                         </div>
                     </div>
                     <div className="flex flex-col gap-3 border-t border-stone-200/70 px-4 py-4 dark:border-white/10 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-                        <Input
-                            className="w-full sm:max-w-md"
-                            prefix={<Search className="size-4 text-stone-400" />}
-                            allowClear
-                            placeholder="搜索标题、分类、标签或提示词内容"
-                            value={promptSearch}
-                            onChange={(event) => {
-                                setPromptSearch(event.target.value);
-                                setPromptPage(1);
-                            }}
-                        />
+                        <div className="w-full min-w-0 sm:w-96">
+                            <Input
+                                className="w-full"
+                                prefix={<Search className="size-4 text-stone-400" />}
+                                allowClear
+                                placeholder="搜索标题、分类、标签或提示词内容"
+                                value={promptSearch}
+                                onChange={(event) => {
+                                    setPromptSearch(event.target.value);
+                                    setPromptPage(1);
+                                }}
+                            />
+                        </div>
                         <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-end">
                             <span className="text-xs text-stone-500 dark:text-stone-400">已选 {selectedPrompts.length} 条</span>
                             <Popconfirm title="批量删除选中提示词？" description="会从公共提示词库中移除，用户端将不再显示这些提示词。" okText="删除" cancelText="取消" onConfirm={() => void bulkDeletePrompts()}>

@@ -15,6 +15,7 @@ vi.mock("next/server", async (importOriginal) => {
     const actual = await importOriginal<typeof import("next/server")>();
     return { ...actual, after: vi.fn((callback: () => unknown) => callback()) };
 });
+vi.mock("@/app/api/generation-resource-access", () => ({ requireGenerationResourceAccess: vi.fn(async () => null) }));
 vi.mock("@/lib/auth/session", () => ({ getCurrentUser: vi.fn(async () => ({ id: "user" })) }));
 vi.mock("@/lib/auth/store", () => ({ getAuthSettings: mocks.getAuthSettings }));
 vi.mock("@/lib/server/agent-run-executor", () => ({ abortAgentRun: vi.fn() }));

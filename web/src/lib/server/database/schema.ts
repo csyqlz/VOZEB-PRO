@@ -326,6 +326,109 @@ CREATE INDEX IF NOT EXISTS generation_tasks_user_project_idx ON generation_tasks
 DROP INDEX IF EXISTS generation_tasks_recovery_due_idx;
 CREATE INDEX generation_tasks_recovery_due_idx ON generation_tasks (next_poll_at, lease_until, id) WHERE (status IN ('pending', 'running') AND execution_phase IN ('created', 'submitting', 'submitted', 'polling', 'result_ready', 'persisting')) OR (status = 'cancelled' AND execution_phase IN ('cancel_requested', 'cancel_polling')) OR (task_type = 'agent' AND status = 'success' AND execution_phase IN ('review_pending', 'reviewing'));
 
+CREATE TABLE IF NOT EXISTS vozeb_workflows (
+    id text PRIMARY KEY,
+    user_id text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    project_id text,
+    project_type text,
+    name text NOT NULL,
+    version integer NOT NULL DEFAULT 1,
+    enabled boolean NOT NULL DEFAULT true,
+    definition_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE vozeb_workflows ADD COLUMN IF NOT EXISTS project_type text;
+
+CREATE INDEX IF NOT EXISTS vozeb_workflows_user_project_idx ON vozeb_workflows (user_id, project_id, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS vozeb_workflow_runs (
+    id text PRIMARY KEY,
+    user_id text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    workflow_id text NOT NULL REFERENCES vozeb_workflows(id) ON DELETE CASCADE,
+    project_id text,
+    project_type text,
+    status text NOT NULL,
+    version integer NOT NULL DEFAULT 1,
+    idempotency_key text,
+    run_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+    next_run_at timestamptz,
+    lease_owner text,
+    lease_until timestamptz,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT vozeb_workflow_runs_status CHECK (status IN ('pending', 'running', 'waiting', 'paused', 'completed', 'failed', 'cancelled'))
+);
+
+ALTER TABLE vozeb_workflow_runs ADD COLUMN IF NOT EXISTS lease_owner text;
+ALTER TABLE vozeb_workflow_runs ADD COLUMN IF NOT EXISTS lease_until timestamptz;
+ALTER TABLE vozeb_workflow_runs ADD COLUMN IF NOT EXISTS next_run_at timestamptz;
+ALTER TABLE vozeb_workflow_runs ADD COLUMN IF NOT EXISTS project_type text;
+
+CREATE UNIQUE INDEX IF NOT EXISTS vozeb_workflow_runs_idempotency_idx ON vozeb_workflow_runs (user_id, workflow_id, idempotency_key) WHERE idempotency_key IS NOT NULL AND idempotency_key <> '';
+CREATE INDEX IF NOT EXISTS vozeb_workflow_runs_user_updated_idx ON vozeb_workflow_runs (user_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS vozeb_workflow_runs_workflow_updated_idx ON vozeb_workflow_runs (workflow_id, updated_at DESC);
+DROP INDEX IF EXISTS vozeb_workflow_runs_lease_idx;
+CREATE INDEX vozeb_workflow_runs_lease_idx ON vozeb_workflow_runs (next_run_at, lease_until, id) WHERE status IN ('pending', 'running', 'waiting') AND next_run_at IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS vozeb_workflow_events (
+    event_id bigserial PRIMARY KEY,
+    run_id text NOT NULL REFERENCES vozeb_workflow_runs(id) ON DELETE CASCADE,
+    type text NOT NULL,
+    data jsonb,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS vozeb_workflow_events_run_idx ON vozeb_workflow_events (run_id, event_id ASC);
+
+CREATE TABLE IF NOT EXISTS vozeb_layouts (
+    id text PRIMARY KEY,
+    user_id text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    project_id text,
+    project_type text,
+    module_id text,
+    site_path text,
+    name text NOT NULL,
+    status text NOT NULL DEFAULT 'draft',
+    draft_revision integer NOT NULL DEFAULT 1,
+    published_revision integer,
+    last_mutation_id text,
+    published_at timestamptz,
+    definition_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT vozeb_layouts_status CHECK (status IN ('draft', 'published')),
+    CONSTRAINT vozeb_layouts_revision_positive CHECK (draft_revision > 0)
+);
+
+ALTER TABLE vozeb_layouts ADD COLUMN IF NOT EXISTS site_path text;
+
+CREATE INDEX IF NOT EXISTS vozeb_layouts_user_project_idx ON vozeb_layouts (user_id, project_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS vozeb_layouts_site_path_published_idx ON vozeb_layouts (site_path, published_at DESC) WHERE published_revision IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS vozeb_layout_revisions (
+    layout_id text NOT NULL REFERENCES vozeb_layouts(id) ON DELETE CASCADE,
+    revision integer NOT NULL,
+    definition_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+    created_by text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (layout_id, revision)
+);
+
+CREATE INDEX IF NOT EXISTS vozeb_layout_revisions_created_idx ON vozeb_layout_revisions (layout_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS vozeb_site_publications (
+    path text PRIMARY KEY,
+    layout_id text NOT NULL,
+    revision integer NOT NULL,
+    published_by text NOT NULL,
+    published_at timestamptz NOT NULL DEFAULT now(),
+    FOREIGN KEY (layout_id, revision) REFERENCES vozeb_layout_revisions(layout_id, revision) ON DELETE CASCADE
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS vozeb_site_publications_layout_idx ON vozeb_site_publications (layout_id);
+
 CREATE TABLE IF NOT EXISTS generation_concurrency_reservations (
     user_id text NOT NULL,
     task_type text NOT NULL,
@@ -547,6 +650,18 @@ CREATE TABLE IF NOT EXISTS canvas_projects (
 
 CREATE INDEX IF NOT EXISTS canvas_projects_user_updated_idx ON canvas_projects (user_id, updated_at DESC);
 
+CREATE TABLE IF NOT EXISTS vozeb_module_states (
+    module_id text PRIMARY KEY,
+    enabled boolean NOT NULL DEFAULT true,
+    revision integer NOT NULL DEFAULT 1,
+    last_mutation_id text,
+    updated_by text,
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT vozeb_module_states_revision_positive CHECK (revision > 0)
+);
+
+CREATE INDEX IF NOT EXISTS vozeb_module_states_updated_idx ON vozeb_module_states (updated_at DESC, module_id ASC);
+
 CREATE TABLE IF NOT EXISTS library_assets (
     id text PRIMARY KEY,
     user_id text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -568,10 +683,13 @@ CREATE TABLE IF NOT EXISTS drama_projects (
     title text NOT NULL,
     status text NOT NULL DEFAULT 'active',
     project_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+    version_sequence integer NOT NULL DEFAULT 0,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT drama_projects_status CHECK (status IN ('active', 'archived'))
 );
+
+ALTER TABLE drama_projects ADD COLUMN IF NOT EXISTS version_sequence integer NOT NULL DEFAULT 0;
 
 CREATE INDEX IF NOT EXISTS drama_projects_user_updated_idx ON drama_projects (user_id, updated_at DESC);
 

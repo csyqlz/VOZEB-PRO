@@ -2,13 +2,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
     getCurrentUser: vi.fn(),
+    createConversationForUser: vi.fn(),
     listConversationsForUser: vi.fn(),
     deleteConversationsForUser: vi.fn(),
 }));
 
+vi.mock("@/app/api/vozeb-cms-capability", () => ({ requireVozebCmsCapability: vi.fn(async () => null) }));
 vi.mock("@/lib/auth/session", () => ({ getCurrentUser: mocks.getCurrentUser }));
 vi.mock("@/lib/server/creative-runtime-service", () => ({
-    createConversationForUser: vi.fn(),
+    createConversationForUser: mocks.createConversationForUser,
     CreativeRuntimeServiceError: class CreativeRuntimeServiceError extends Error {
         constructor(
             message: string,
@@ -21,7 +23,7 @@ vi.mock("@/lib/server/creative-runtime-service", () => ({
     deleteConversationsForUser: mocks.deleteConversationsForUser,
 }));
 
-import { DELETE, GET } from "./route";
+import { DELETE, GET, POST } from "./route";
 
 describe("creative conversation collection route", () => {
     beforeEach(() => {
@@ -32,6 +34,13 @@ describe("creative conversation collection route", () => {
             { id: "two", title: "二", updatedAt: 1 },
         ]);
         mocks.deleteConversationsForUser.mockResolvedValue(2);
+        mocks.createConversationForUser.mockResolvedValue({ id: "new-conversation" });
+    });
+
+    it("creates conversations through the Agent capability gate", async () => {
+        const response = await POST(new Request("http://localhost/api/creative/conversations", { method: "POST", body: JSON.stringify({ surface: "chat" }) }));
+        expect(response.status).toBe(200);
+        expect(mocks.createConversationForUser).toHaveBeenCalledWith("user-one", expect.anything());
     });
 
     it("returns one bounded conversation page with server-side filters", async () => {

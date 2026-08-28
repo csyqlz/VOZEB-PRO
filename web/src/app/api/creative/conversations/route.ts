@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth/session";
 import { readJsonBody } from "@/lib/auth/request";
 import { createConversationForUser, CreativeRuntimeServiceError, deleteConversationsForUser, listConversationsForUser } from "@/lib/server/creative-runtime-service";
+import { requireVozebCmsCapability } from "@/app/api/vozeb-cms-capability";
 
 export async function GET(request: Request) {
     const user = await getCurrentUser();
@@ -27,6 +28,8 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
     const user = await getCurrentUser();
     if (!user) return NextResponse.json({ code: 401, data: null, msg: "请先登录" }, { status: 401 });
+    const blocked = await requireVozebCmsCapability("agent.run", user.id);
+    if (blocked) return blocked;
     try {
         const conversation = await createConversationForUser(user.id, await readJsonBody<unknown>(request));
         return NextResponse.json({ code: 0, data: { conversation }, msg: "创作会话已创建" });

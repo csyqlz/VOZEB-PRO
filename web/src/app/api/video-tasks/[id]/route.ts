@@ -1,5 +1,6 @@
 import { after, NextResponse } from "next/server";
 
+import { requireGenerationResourceAccess } from "@/app/api/generation-resource-access";
 import { getCurrentUser } from "@/lib/auth/session";
 import { readJsonBodyResult } from "@/lib/auth/request";
 import { getVideoTask, transitionVideoTask } from "@/lib/server/video-task-store";
@@ -20,7 +21,9 @@ export const maxDuration = 2400;
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
     const user = await getCurrentUser(request);
     const task = user ? await getVideoTask((await params).id) : null;
-    if (!user || !task || (task.userId !== user.id && user.role !== "admin")) return NextResponse.json({ error: "视频任务不存在" }, { status: user ? 404 : 401 });
+    if (!user || !task) return NextResponse.json({ error: "视频任务不存在" }, { status: user ? 404 : 401 });
+    const blocked = await requireGenerationResourceAccess({ actor: user, ownerUserId: task.userId, capabilityId: "video.generate", adminPermission: "generation.read", notFoundMessage: "视频任务不存在" });
+    if (blocked) return blocked;
     const schedule = await getStoredGenerationTaskRecord("video", task.id);
     const executionPhase = schedule?.executionPhase || settledExecutionPhase(task.status);
     const shouldRefund = Boolean(task.upstream.pointsRecordId && !task.upstream.refunded && task.status === "error");
@@ -35,7 +38,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
     const user = await getCurrentUser(request);
     const task = user ? await getVideoTask((await params).id) : null;
-    if (!user || !task || (task.userId !== user.id && user.role !== "admin")) return NextResponse.json({ error: "视频任务不存在" }, { status: user ? 404 : 401 });
+    if (!user || !task) return NextResponse.json({ error: "视频任务不存在" }, { status: user ? 404 : 401 });
+    const blocked = await requireGenerationResourceAccess({ actor: user, ownerUserId: task.userId, capabilityId: "video.generate", adminPermission: "generation.manage", notFoundMessage: "视频任务不存在" });
+    if (blocked) return blocked;
     const parsed = await readJsonBodyResult<{ action?: string }>(request);
     if (!parsed.ok) return NextResponse.json({ error: parsed.message }, { status: parsed.status });
     if (parsed.data.action !== "recover") return NextResponse.json({ error: "不支持的视频任务操作" }, { status: 400 });
@@ -70,7 +75,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     const user = await getCurrentUser(request);
     const id = (await params).id;
     const task = user ? await getVideoTask(id) : null;
-    if (!user || !task || (task.userId !== user.id && user.role !== "admin")) return NextResponse.json({ error: "视频任务不存在" }, { status: user ? 404 : 401 });
+    if (!user || !task) return NextResponse.json({ error: "视频任务不存在" }, { status: user ? 404 : 401 });
+    const blocked = await requireGenerationResourceAccess({ actor: user, ownerUserId: task.userId, capabilityId: "video.generate", adminPermission: "generation.manage", notFoundMessage: "视频任务不存在" });
+    if (blocked) return blocked;
     const schedule = await getStoredGenerationTaskRecord("video", task.id);
     const executionPhase = schedule?.executionPhase || settledExecutionPhase(task.status);
     const parsed = await readJsonBodyResult<{ action?: string; status?: string; result?: unknown; error?: unknown }>(request);

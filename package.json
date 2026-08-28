@@ -1,10 +1,11 @@
 {
     "name": "vozeb-pro-workspace",
-    "version": "0.0.7",
+    "version": "0.0.8",
     "private": true,
     "packageManager": "pnpm@11.9.0",
     "scripts": {
         "licenses:generate": "node scripts/generate-third-party-licenses.mjs",
-        "licenses:check": "node scripts/generate-third-party-licenses.mjs --check"
+        "licenses:check": "node scripts/generate-third-party-licenses.mjs --check",
+        "check:release": "pnpm --dir web run check:release"
     }
 }

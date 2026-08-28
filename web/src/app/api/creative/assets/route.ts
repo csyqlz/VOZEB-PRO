@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { requireVozebCmsCapability } from "@/app/api/vozeb-cms-capability";
 import { getCurrentUser } from "@/lib/auth/session";
 import { CREATIVE_UPLOAD_MAX_BYTES } from "@/lib/creative-upload";
 import { CreativeRuntimeServiceError, uploadAssetForUser } from "@/lib/server/creative-runtime-service";
@@ -13,6 +14,8 @@ const MAX_UPLOAD_REQUEST_BYTES = CREATIVE_UPLOAD_MAX_BYTES + 64 * 1024;
 export async function POST(request: Request) {
     const user = await getCurrentUser();
     if (!user) return NextResponse.json({ code: 401, data: null, msg: "请先登录" }, { status: 401 });
+    const blocked = await requireVozebCmsCapability("asset.manage", user.id);
+    if (blocked) return blocked;
     try {
         const contentType = request.headers.get("content-type") || "";
         if (!contentType.toLowerCase().includes("multipart/form-data")) throw new CreativeRuntimeServiceError("上传内容格式不正确", 400);

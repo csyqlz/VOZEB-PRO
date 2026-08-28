@@ -1,4 +1,5 @@
 import { after, NextResponse } from "next/server";
+import { requireVozebCmsCapability } from "@/app/api/vozeb-cms-capability";
 import { getCurrentUser } from "@/lib/auth/session";
 import { getAuthSettings } from "@/lib/auth/store";
 import { CreativeRuntimeInputError, normalizeCreativeRunRequest, normalizeCreativeSurface } from "@/lib/creative-runtime-contract";
@@ -16,6 +17,8 @@ export const maxDuration = 2400;
 export async function GET(request: Request) {
     const user = await getCurrentUser(request);
     if (!user) return NextResponse.json({ code: 401, data: null, msg: "请先登录" }, { status: 401 });
+    const blocked = await requireVozebCmsCapability("agent.run", user.id);
+    if (blocked) return blocked;
     const url = new URL(request.url);
     const projectId = url.searchParams.get("projectId")?.trim() || "";
     const conversationId = url.searchParams.get("conversationId")?.trim() || "";
@@ -39,6 +42,8 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
     const user = await getCurrentUser(request);
     if (!user) return NextResponse.json({ code: 401, data: null, msg: "请先登录" }, { status: 401 });
+    const blocked = await requireVozebCmsCapability("agent.run", user.id);
+    if (blocked) return blocked;
     try {
         const input = normalizeCreativeRunRequest(await readJsonBody<unknown>(request));
         const existing = await getAgentRunByClientRequestId(user.id, input.clientRequestId);

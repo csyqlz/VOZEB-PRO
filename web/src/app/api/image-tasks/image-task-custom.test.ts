@@ -3,14 +3,16 @@ import { describe, expect, it, vi } from "vitest";
 import { emptyAdvancedConfig } from "@/lib/channel-protocol-registry";
 import type { ImageTask } from "@/lib/server/image-task-store";
 
-const mocks = vi.hoisted(() => ({ imageSubmissionFetch: vi.fn() }));
+const mocks = vi.hoisted(() => ({ imageSubmissionFetch: vi.fn(), taskFetch: vi.fn() }));
 
 vi.mock("./image-task-support", async () => ({
     ...(await vi.importActual<typeof import("./image-task-support")>("./image-task-support")),
     imageSubmissionFetch: mocks.imageSubmissionFetch,
+    taskFetch: mocks.taskFetch,
 }));
 
-import { resolveDeclarativeImageSize, runCustomImageTask } from "./image-task-custom";
+import { ImageQueryContractError } from "./image-task-support";
+import { pollCustomImageTask, resolveDeclarativeImageSize, runCustomImageTask } from "./image-task-custom";
 
 describe("declarative image request size", () => {
     it("does not turn Stable Diffusion intelligent requests into a square size", () => {
@@ -55,7 +57,7 @@ describe("declarative image request size", () => {
                     resultField: "data.image_url",
                 },
             },
-        } as ImageTask;
+        } as unknown as ImageTask;
 
         await expect(runCustomImageTask(task, "http://internal", "http://public", "", true)).resolves.toMatchObject({
             pending: {
@@ -64,5 +66,30 @@ describe("declarative image request size", () => {
                 pollBaseUrl: "http://internal/api/ai/system/channel-one/jobs",
             },
         });
+    });
+
+    it("classifies non-JSON query responses as contract errors instead of upstream failures", async () => {
+        const task = {
+            id: "image-query-contract",
+            userId: "user-one",
+            kind: "generation",
+            status: "running",
+            prompt: "create an image",
+            references: [],
+            config: {
+                baseUrl: "/api/ai/system/channel-one",
+                apiKey: "",
+                apiFormat: "openai",
+                model: "custom-image",
+                channelId: "channel-one",
+                advancedConfig: { ...emptyAdvancedConfig(), protocol: "custom", queryPath: "/jobs/:task_id" },
+            },
+        } as unknown as ImageTask;
+
+        for (const response of [new Response("<!doctype html><html>blocked</html>", { headers: { "content-type": "text/html" } }), new Response("not-json", { headers: { "content-type": "text/plain" } })]) {
+            mocks.taskFetch.mockResolvedValueOnce(response);
+            await expect(pollCustomImageTask(task, "upstream-one", "https://provider.example", "http://internal/api/ai/system/channel-one", "", true)).rejects.toBeInstanceOf(ImageQueryContractError);
+        }
+        expect(mocks.taskFetch).toHaveBeenCalledTimes(2);
     });
 });

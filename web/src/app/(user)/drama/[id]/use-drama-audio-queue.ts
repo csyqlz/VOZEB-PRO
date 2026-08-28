@@ -3,6 +3,7 @@ import { useEffect, useRef } from "react";
 import type { AiConfig } from "@/stores/use-config-store";
 import { createAudioGenerationTask, readAudioGenerationTask } from "@/services/api/audio";
 import { GENERATION_TASK_NEEDS_REVIEW_MESSAGE } from "@/services/api/generation-task-state";
+import { parseServerMediaUrl } from "@/services/server-media-storage";
 import type { DramaEpisode, DramaProject, DramaShot } from "../types";
 
 type UpdateShot = (projectId: string, episodeId: string, shotId: string, patch: Partial<DramaShot>) => void;
@@ -19,7 +20,10 @@ export function useDramaAudioQueue(project: DramaProject, episode: DramaEpisode,
             try {
                 const task = await readAudioGenerationTask(running.audioTaskId!, "system", controller.signal);
                 if (task.needsReview) return updateShot(project.id, episode.id, running.id, { audioStatus: "error", audioError: task.reviewReason || GENERATION_TASK_NEEDS_REVIEW_MESSAGE });
-                if (task.status === "success") return updateShot(project.id, episode.id, running.id, { audioStatus: "success", audioUrl: task.result?.url, audioError: undefined });
+                if (task.status === "success") {
+                    const audioUrl = task.result?.url;
+                    return updateShot(project.id, episode.id, running.id, { audioStatus: "success", audioUrl, audioStorageKey: parseServerMediaUrl(audioUrl || "")?.storageKey, audioError: undefined });
+                }
                 if (task.status === "error" || task.status === "cancelled") return updateShot(project.id, episode.id, running.id, { audioStatus: task.status, audioError: task.error });
                 timer = window.setTimeout(poll, 2000);
             } catch (error) {

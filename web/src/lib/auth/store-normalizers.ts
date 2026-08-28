@@ -8,6 +8,7 @@ import { DEFAULT_CREATIVE_SHORTCUT_SKILLS } from "@/lib/server/agent-skills/crea
 import { deriveLogicalModelsConfig, normalizeDefaultModelsConfig, normalizeLogicalModelsConfig } from "@/lib/model-routing-config";
 import { applyChannelProtocol } from "@/lib/channel-protocol-registry";
 import { resolveConfiguredModelPointCost } from "@/lib/model-point-cost";
+import { resolveSiteTitle } from "@/lib/site-brand";
 import { normalizeSystemChannelAdvancedConfig } from "./store-normalizers-channel";
 import {
     type UserRole,
@@ -450,8 +451,8 @@ export function normalizeDataLifecycle(settings: Partial<DataLifecycleSettings> 
 }
 
 export function normalizeSiteSettings(settings: Partial<SiteSettings> | undefined): SiteSettings {
-    const title = normalizeText(settings?.title, DEFAULT_SITE_SETTINGS.title, 40);
-    const seoTitle = normalizeBrandDefault(settings?.seoTitle, DEFAULT_SITE_SETTINGS.seoTitle, title, title, 72);
+    const title = resolveSiteTitle(normalizeText(settings?.title, DEFAULT_SITE_SETTINGS.title, 40));
+    const seoTitle = normalizeBrandDefault(normalizeLegacyBrandDefault(settings?.seoTitle, "VOZEB", DEFAULT_SITE_SETTINGS.seoTitle), DEFAULT_SITE_SETTINGS.seoTitle, title, title, 72);
     return {
         title,
         logoUrl: normalizeLogoUrl(settings?.logoUrl),
@@ -459,7 +460,13 @@ export function normalizeSiteSettings(settings: Partial<SiteSettings> | undefine
         seoTitle,
         seoDescription: normalizeText(settings?.seoDescription, DEFAULT_SITE_SETTINGS.seoDescription, 180),
         seoKeywords: normalizeBrandDefault(settings?.seoKeywords, DEFAULT_SITE_SETTINGS.seoKeywords, title, DEFAULT_SITE_SETTINGS.seoKeywords.replace(DEFAULT_SITE_SETTINGS.title, title), 240),
-        footerCopyright: normalizeBrandDefault(settings?.footerCopyright, DEFAULT_SITE_SETTINGS.footerCopyright, title, DEFAULT_SITE_SETTINGS.footerCopyright.replace(DEFAULT_SITE_SETTINGS.title, title), 120),
+        footerCopyright: normalizeBrandDefault(
+            normalizeLegacyBrandDefault(settings?.footerCopyright, "© 2026 VOZEB. All rights reserved.", DEFAULT_SITE_SETTINGS.footerCopyright),
+            DEFAULT_SITE_SETTINGS.footerCopyright,
+            title,
+            DEFAULT_SITE_SETTINGS.footerCopyright.replace(DEFAULT_SITE_SETTINGS.title, title),
+            120,
+        ),
         termsUrl: normalizeLinkUrl(settings?.termsUrl, DEFAULT_SITE_SETTINGS.termsUrl),
         termsVersion: normalizeText(settings?.termsVersion, DEFAULT_SITE_SETTINGS.termsVersion, 80),
         privacyUrl: normalizeLinkUrl(settings?.privacyUrl, DEFAULT_SITE_SETTINGS.privacyUrl),
@@ -467,6 +474,10 @@ export function normalizeSiteSettings(settings: Partial<SiteSettings> | undefine
         friendLinks: normalizeSiteFriendLinks(settings?.friendLinks, title),
         socials: normalizeSiteSocials(settings?.socials),
     };
+}
+
+function normalizeLegacyBrandDefault(value: unknown, legacyDefault: string, currentDefault: string) {
+    return typeof value === "string" && value.trim() === legacyDefault ? currentDefault : value;
 }
 
 function normalizeBrandDefault(value: unknown, defaultValue: string, siteTitle: string, fallback: string, maxLength: number) {

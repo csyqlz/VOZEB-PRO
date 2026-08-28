@@ -7,6 +7,7 @@ import { canvasPlan, canvasSettings, conversationPlan, creativeImageAsset, disab
 const mocks = vi.hoisted(() => ({
     fetchInternalApi: vi.fn(),
     getAuthSettings: vi.fn(),
+    listEnabledCapabilities: vi.fn(),
     refundUserPoints: vi.fn(async () => undefined),
     getCreativeAssetsByIds: vi.fn(async (_ids: string[] = []): Promise<Array<Record<string, unknown>>> => []),
     listRecentCreativeMediaAssets: vi.fn(async (): Promise<Array<Record<string, unknown>>> => []),
@@ -25,6 +26,7 @@ vi.mock("@/lib/auth/store", () => ({
     getAuthSettings: mocks.getAuthSettings,
     refundUserPoints: mocks.refundUserPoints,
 }));
+vi.mock("@/lib/server/vozeb-cms/module-service", () => ({ listEnabledVozebCmsCapabilities: mocks.listEnabledCapabilities }));
 vi.mock("@/lib/server/internal-origin", () => ({ fetchInternalApi: mocks.fetchInternalApi }));
 vi.mock("@/lib/server/creative-runtime-store", () => ({
     getCreativeAssetsByIds: mocks.getCreativeAssetsByIds,
@@ -54,6 +56,7 @@ describe("executeAgentRun backend settings", () => {
         vi.clearAllMocks();
         resetTextPlanningRuntime();
         mocks.events = [];
+        mocks.listEnabledCapabilities.mockResolvedValue([{ id: "agent.run" }, { id: "text.generate" }, { id: "image.generate" }, { id: "video.generate" }, { id: "audio.generate" }]);
         mocks.getCreativeAssetsByIds.mockResolvedValue([]);
         mocks.listRecentCreativeMediaAssets.mockResolvedValue([]);
         mocks.getCreativeConversationContext.mockResolvedValue({ summary: "", summaryThroughSequence: 0, recentMessages: [] });

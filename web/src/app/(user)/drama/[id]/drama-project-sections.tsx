@@ -11,6 +11,7 @@ import { useDramaStore } from "../stores/use-drama-store";
 import { DramaScriptWorkspace } from "./drama-script-workspace";
 import { DramaEpisodeSettings } from "./drama-episode-settings";
 import { DramaStageHeader } from "./drama-editor-elements";
+import { DramaEpisodeAutomation } from "./drama-episode-automation";
 import { DramaSourceImport } from "./drama-source-import";
 
 export type DramaProjectStage = "script" | "review" | "storyboard" | "generate";
@@ -269,6 +270,7 @@ export function DramaWorkspaceHeader({
                 })}
             </nav>
             <div className="col-start-2 row-start-1 flex min-w-0 shrink-0 items-center justify-end gap-1 px-2.5 py-2 sm:px-4 min-[1366px]:col-start-3 min-[1366px]:h-full min-[1366px]:py-0">
+                <DramaEpisodeAutomation projectId={project.id} episodeId={episode.id} />
                 <Tooltip title="项目资产">
                     <Button
                         className={`!h-9 !px-2.5 ${assetsOpen ? "!border-foreground !bg-foreground !text-background" : "!border-border !bg-background hover:!border-foreground/25 hover:!bg-muted"}`}

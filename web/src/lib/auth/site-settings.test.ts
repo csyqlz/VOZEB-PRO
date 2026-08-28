@@ -4,6 +4,27 @@ import { DEFAULT_SITE_SETTINGS } from "./store-foundation";
 import { normalizeSiteSettings, normalizeSiteSocial } from "./store-normalizers";
 
 describe("site settings", () => {
+    it("normalizes bundled legacy brand defaults while preserving custom brand copy", () => {
+        expect(
+            normalizeSiteSettings({
+                title: "VOZEB",
+                seoTitle: "VOZEB",
+                footerCopyright: "© 2026 VOZEB. All rights reserved.",
+            }),
+        ).toMatchObject({
+            title: "VOZEB PRO",
+            seoTitle: "VOZEB PRO",
+            footerCopyright: "© 2026 VOZEB PRO. All rights reserved.",
+        });
+        expect(
+            normalizeSiteSettings({
+                title: "无限创作",
+                seoTitle: "独立 SEO 标题",
+                footerCopyright: "© 独立运营主体",
+            }),
+        ).toMatchObject({ title: "无限创作", seoTitle: "独立 SEO 标题", footerCopyright: "© 独立运营主体" });
+    });
+
     it("uses the bundled browser icon when older settings have no icon URL", () => {
         expect(normalizeSiteSettings({ logoUrl: "/custom-logo.svg" }).iconUrl).toBe(DEFAULT_SITE_SETTINGS.iconUrl);
     });

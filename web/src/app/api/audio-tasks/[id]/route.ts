@@ -1,4 +1,5 @@
 import { after, NextResponse } from "next/server";
+import { requireGenerationResourceAccess } from "@/app/api/generation-resource-access";
 import { getCurrentUser } from "@/lib/auth/session";
 import { readJsonBodyResult } from "@/lib/auth/request";
 import { getAudioTask, transitionAudioTask } from "@/lib/server/audio-task-store";
@@ -19,7 +20,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     const user = await getCurrentUser(request);
     if (!user) return NextResponse.json({ error: "请先登录" }, { status: 401 });
     const task = await getAudioTask((await params).id);
-    if (!task || (task.userId !== user.id && user.role !== "admin")) return NextResponse.json({ error: "任务不存在或已过期" }, { status: 404 });
+    if (!task) return NextResponse.json({ error: "任务不存在或已过期" }, { status: 404 });
+    const blocked = await requireGenerationResourceAccess({ actor: user, ownerUserId: task.userId, capabilityId: "audio.generate", adminPermission: "generation.read", notFoundMessage: "任务不存在或已过期" });
+    if (blocked) return blocked;
     const shouldRefund = Boolean(task.billing?.pointsRecordId && !task.billing.refunded && task.status === "error");
     const settledTask = shouldRefund ? await refundAudioTask(task) : task;
     const refreshedUser = shouldRefund ? await getCurrentUser(request) : user;
@@ -29,7 +32,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
     const user = await getCurrentUser(request);
     const task = user ? await getAudioTask((await params).id) : null;
-    if (!user || !task || (task.userId !== user.id && user.role !== "admin")) return NextResponse.json({ error: "任务不存在或已过期" }, { status: user ? 404 : 401 });
+    if (!user || !task) return NextResponse.json({ error: "任务不存在或已过期" }, { status: user ? 404 : 401 });
+    const blocked = await requireGenerationResourceAccess({ actor: user, ownerUserId: task.userId, capabilityId: "audio.generate", adminPermission: "generation.manage", notFoundMessage: "任务不存在或已过期" });
+    if (blocked) return blocked;
     const parsed = await readJsonBodyResult<{ action?: string }>(request);
     if (!parsed.ok) return NextResponse.json({ error: parsed.message }, { status: parsed.status });
     if (parsed.data.action !== "recover") return NextResponse.json({ error: "不支持的音频任务操作" }, { status: 400 });
@@ -63,7 +68,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
     const user = await getCurrentUser(request);
     const task = user ? await getAudioTask((await params).id) : null;
-    if (!user || !task || (task.userId !== user.id && user.role !== "admin")) return NextResponse.json({ error: "任务不存在或已过期" }, { status: user ? 404 : 401 });
+    if (!user || !task) return NextResponse.json({ error: "任务不存在或已过期" }, { status: user ? 404 : 401 });
+    const blocked = await requireGenerationResourceAccess({ actor: user, ownerUserId: task.userId, capabilityId: "audio.generate", adminPermission: "generation.manage", notFoundMessage: "任务不存在或已过期" });
+    if (blocked) return blocked;
     const parsed = await readJsonBodyResult<{ status?: string }>(request);
     if (!parsed.ok) return NextResponse.json({ error: parsed.message }, { status: parsed.status });
     const body = parsed.data;

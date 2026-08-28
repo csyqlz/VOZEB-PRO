@@ -242,11 +242,11 @@ export function AdminExternalStorage() {
     };
 
     return (
-        <div className="grid gap-4 sm:gap-6">
-            <Panel>
+        <>
+            <Panel variant="page">
                 <PanelHeader
-                    title="外部存储配置"
-                    description="启用后新媒体直接写入 S3 兼容存储；关闭后新媒体恢复写入本机。"
+                    title="外部存储"
+                    description="集中管理 S3 兼容存储的写入配置、历史媒体迁移和对象文件；存储开关只影响新文件。"
                     actions={
                         <>
                             <Tooltip title="检测读写权限">
@@ -263,16 +263,22 @@ export function AdminExternalStorage() {
                     }
                 />
                 <Form<ObjectStorageSettingsUpdate> form={form} layout="vertical" requiredMark={false} disabled={loadingSettings} onFinish={save}>
-                    <div className="px-4 py-5 sm:px-5 sm:py-6">
+                    <section className="border-b border-zinc-200 px-4 py-5 dark:border-zinc-800 sm:px-5 sm:py-6" aria-labelledby="external-storage-settings-title">
                         <div className="max-w-[1080px]">
-                            <div className="mb-5 flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-2 border-b border-zinc-200 pb-4 dark:border-zinc-800">
-                                <Cloud className={enabled ? "size-4 text-emerald-600 dark:text-emerald-400" : "size-4 text-zinc-400"} />
-                                <span className="text-xs text-zinc-500 dark:text-zinc-400">写入位置</span>
-                                <span className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{enabled ? "外部存储" : "本机存储"}</span>
-                                <Form.Item name="enabled" valuePropName="checked" className="!mb-0">
-                                    <Switch size="small" aria-label="切换外部存储" />
-                                </Form.Item>
-                                <span className="text-xs text-zinc-400 dark:text-zinc-500">仅影响新文件</span>
+                            <div className="mb-5 flex min-w-0 flex-col justify-between gap-3 border-b border-zinc-200 pb-4 sm:flex-row sm:items-center dark:border-zinc-800">
+                                <div className="min-w-0">
+                                    <h3 id="external-storage-settings-title" className="text-sm font-semibold text-zinc-950 dark:text-zinc-100">
+                                        写入配置
+                                    </h3>
+                                    <p className="mt-1 mb-0 text-xs leading-5 text-zinc-500 dark:text-zinc-400">配置 Endpoint、Bucket 和服务端密钥；已保存的密钥不会返回浏览器。</p>
+                                </div>
+                                <div className="flex shrink-0 items-center gap-2.5">
+                                    <Cloud className={enabled ? "size-4 text-emerald-600 dark:text-emerald-400" : "size-4 text-zinc-400"} />
+                                    <span className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{enabled ? "新文件写入外部存储" : "新文件写入本机"}</span>
+                                    <Form.Item name="enabled" valuePropName="checked" className="!mb-0">
+                                        <Switch size="small" aria-label="切换外部存储" />
+                                    </Form.Item>
+                                </div>
                             </div>
 
                             <div className="grid gap-x-4 md:grid-cols-2 xl:grid-cols-6">
@@ -299,16 +305,18 @@ export function AdminExternalStorage() {
                                 </Form.Item>
                             </div>
                         </div>
-                    </div>
+                    </section>
                 </Form>
-            </Panel>
 
-            <Panel>
-                <PanelHeader
-                    title="外部存储文件"
-                    description={files ? `${files.bucket} / ${files.prefix}` : "保存配置后可查看和管理对象。"}
-                    actions={
-                        <>
+                <section className="px-4 py-5 sm:px-5 sm:py-6" aria-labelledby="external-storage-files-title">
+                    <div className="mb-4 flex min-w-0 flex-col justify-between gap-3 lg:flex-row lg:items-center">
+                        <div className="min-w-0">
+                            <h3 id="external-storage-files-title" className="text-sm font-semibold text-zinc-950 dark:text-zinc-100">
+                                对象文件
+                            </h3>
+                            <p className="mt-1 mb-0 truncate text-xs leading-5 text-zinc-500 dark:text-zinc-400">{files ? `${files.bucket} / ${files.prefix}` : "保存配置后可查看和管理对象。"}</p>
+                        </div>
+                        <div className="flex min-w-0 flex-wrap items-center gap-2 lg:justify-end">
                             <Popconfirm title="把已有本地媒体迁移到外部存储？" description="每个文件上传并登记成功后才会删除本地源文件。" okText="开始迁移" cancelText="取消" onConfirm={() => void migrate()}>
                                 <Tooltip title="迁移本地媒体">
                                     <Button aria-label="迁移本地媒体" className="!w-8 !px-0 sm:!w-auto sm:!px-3" icon={<DatabaseBackup className="size-4" />} loading={syncing} disabled={!settings?.enabled}>
@@ -342,10 +350,8 @@ export function AdminExternalStorage() {
                                     </Button>
                                 </Tooltip>
                             </Popconfirm>
-                        </>
-                    }
-                />
-                <div className="p-4 sm:p-5">
+                        </div>
+                    </div>
                     {syncResult ? (
                         <div className="mb-4 grid grid-cols-2 overflow-hidden rounded-md border border-zinc-200 text-center sm:grid-cols-4 dark:border-zinc-800">
                             <StatusMetric label="已迁移" value={syncResult.migrated} />
@@ -377,7 +383,7 @@ export function AdminExternalStorage() {
                                 setType(value);
                             }}
                         />
-                        <div className="grid max-w-[1180px] grid-cols-[minmax(0,1fr)_40px] gap-3 xl:grid-cols-[minmax(260px,1fr)_40px_190px_220px]">
+                        <div className="grid max-w-[920px] grid-cols-[minmax(0,1fr)_40px] gap-2 xl:grid-cols-[360px_40px_180px_220px]">
                             <Input
                                 value={prefixInput}
                                 allowClear
@@ -491,7 +497,7 @@ export function AdminExternalStorage() {
                             下一页
                         </Button>
                     </div>
-                </div>
+                </section>
             </Panel>
 
             <Modal
@@ -511,7 +517,7 @@ export function AdminExternalStorage() {
             >
                 {preview ? <MediaViewer file={preview} /> : null}
             </Modal>
-        </div>
+        </>
     );
 }
 

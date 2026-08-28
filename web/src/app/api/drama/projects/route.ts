@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireVozebCmsCapability } from "@/app/api/vozeb-cms-capability";
 
 import { getCurrentUser } from "@/lib/auth/session";
 import { readJsonBodyResult } from "@/lib/auth/request";
@@ -7,6 +8,8 @@ import { createDramaProjectForUser, DramaProjectServiceError, listDramaProjectSu
 export async function GET(request: Request) {
     const user = await getCurrentUser();
     if (!user) return NextResponse.json({ code: 401, data: null, msg: "请先登录" }, { status: 401 });
+    const blocked = await requireVozebCmsCapability("drama.project.manage", user.id, request);
+    if (blocked) return blocked;
     const params = new URL(request.url).searchParams;
     const result = await listDramaProjectSummariesForUser(user.id, {
         page: Math.max(1, Number(params.get("page")) || 1),
@@ -18,6 +21,8 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
     const user = await getCurrentUser();
     if (!user) return NextResponse.json({ code: 401, data: null, msg: "请先登录" }, { status: 401 });
+    const blocked = await requireVozebCmsCapability("drama.project.manage", user.id);
+    if (blocked) return blocked;
     try {
         const parsed = await readJsonBodyResult<unknown>(request, 8 * 1024 * 1024);
         if (!parsed.ok) return NextResponse.json({ code: parsed.status, data: null, msg: parsed.message }, { status: parsed.status });

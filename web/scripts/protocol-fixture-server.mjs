@@ -441,6 +441,7 @@ function toolArguments(name, payload) {
     if (name === "review_creative_outputs") return { mode: "visual", status: "passed", score: 100, summary: "协议测试产物通过", issues: [], retryTaskIds: [] };
     if (name === "analyze_drama_content") {
         const sourceText = dramaSourceText(payload) || "主角推门说：测试开始。";
+        const dialogue = dramaDialogueText(sourceText);
         return {
             episode: { outline: "主角进入测试场景并完成一句对白。", hook: "门突然打开。", nextPreview: "下一幕继续。", sourceRange: "全文" },
             characters: [{ name: "主角", description: "协议测试角色" }],
@@ -453,9 +454,9 @@ function toolArguments(name, payload) {
                     description: sourceText,
                     sourceText,
                     shotBoundary: "角色进入形成新镜头",
-                    dialogue: "测试开始。",
+                    dialogue,
                     narration: "",
-                    utterances: [{ type: "dialogue", speaker: "主角", text: "测试开始。" }],
+                    utterances: dialogue ? [{ type: "dialogue", speaker: "主角", text: dialogue }] : [],
                     duration: 5,
                     characterNames: ["主角"],
                     sceneName: "测试房间",
@@ -509,6 +510,10 @@ function dramaSourceText(payload) {
     } catch {
         return "";
     }
+}
+
+function dramaDialogueText(sourceText) {
+    return sourceText.match(/(?:说|说道|开口|喊|问|回答)\s*[：:]\s*(.+)$/u)?.[1]?.trim() || sourceText.match(/[“「『"]([^”」』"]+)[”」』"]/u)?.[1]?.trim() || "";
 }
 
 function plannerGenerationMode(payload) {

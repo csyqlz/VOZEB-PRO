@@ -20,6 +20,34 @@ describe("Drama generation production workspace", () => {
         expect(source).not.toContain("sm:grid-cols-4");
         expect(source).toContain("costRefreshKey");
         expect(source).not.toContain("window.setInterval(load, 5000)");
+        expect(source).toContain("data-drama-video-model");
+        expect(source).toContain("DramaModelSelector");
+        expect(source).not.toContain("data-drama-models");
+        expect(source).toContain("data-drama-shot-video-model");
+        expect(source).not.toContain("DramaDirectorPlanSelector");
+        expect(source).toContain("imageValue={project.imageModel}");
+        expect(source).toContain("videoValue={project.videoModel}");
+        expect(source).toContain("onClearImage={() => updateProject(project.id, { imageModel: undefined })}");
+        expect(source).toContain("onClearVideo={() => updateProject(project.id, { videoModel: undefined })}");
+        expect(source).not.toContain("resolveModelChannel");
+        expect(source).not.toContain("渠道");
+        expect(source).toContain("publicModelLabel");
+        expect(source).not.toContain("resolveModelChannel");
+        expect(source).not.toContain("项目默认 ·");
+
+        const shotRow = source.slice(source.indexOf("function ShotTaskRow"), source.indexOf("function ShotErrors"));
+        expect(shotRow.indexOf("data-drama-shot-video-model")).toBeLessThan(shotRow.indexOf("动态提示词尚未填写"));
+        expect(shotRow).toContain("sm:ml-auto sm:basis-auto");
+        expect(shotRow).not.toContain("改用项目默认视频模型");
+    });
+
+    it("creates video attempts only from the resolved video model", async () => {
+        const source = await readFile(resolve(process.cwd(), "src/app/(user)/drama/[id]/page.tsx"), "utf8");
+
+        expect(source).toContain("resolveDramaVideoModel(config, project, next)");
+        expect(source).toContain("{ ...config, model: videoModel, videoModel");
+        expect(source).toContain("generationModel: videoModel");
+        expect(source).not.toContain("model: config.videoModel || config.model");
     });
 
     it("keeps shot task rows mobile-safe and exposes exact failure labels", async () => {

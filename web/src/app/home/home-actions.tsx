@@ -8,6 +8,7 @@ import { AuthForm } from "@/components/auth/auth-form";
 import { BillingPlansModal } from "@/components/billing/billing-plans-modal";
 import { SiteLogo } from "@/components/layout/site-logo";
 import { createAgentPromptHref, type CreateAgentMode } from "@/lib/create-agent-prompt";
+import { DEFAULT_SITE_SOCIALS } from "@/lib/auth/store-types";
 import { usePublicSessionStore } from "@/stores/use-public-session-store";
 import { useUserStore } from "@/stores/use-user-store";
 import type { HomeSiteSettings } from "./home-data";
@@ -24,6 +25,25 @@ type HomeActions = {
 };
 
 const HomeActionsContext = createContext<HomeActions | null>(null);
+const previewSite: HomeSiteSettings = {
+    title: "VOZEB PRO",
+    logoUrl: "/logo.svg",
+    seoDescription: "以项目为中心的 AI 创作平台。",
+    footerCopyright: "VOZEB PRO",
+    termsUrl: "/terms",
+    privacyUrl: "/privacy",
+    friendLinks: [],
+    socials: DEFAULT_SITE_SOCIALS,
+};
+const previewActions: HomeActions = {
+    authenticated: false,
+    sessionReady: true,
+    site: previewSite,
+    openLogin: () => undefined,
+    openBillingPlans: () => undefined,
+    openProtectedPath: () => undefined,
+    startCreating: () => undefined,
+};
 
 export function HomeActionsProvider({ initialSite, children }: { initialSite: HomeSiteSettings; children: ReactNode }) {
     const router = useRouter();
@@ -89,6 +109,10 @@ export function HomeActionsProvider({ initialSite, children }: { initialSite: Ho
             <BillingPlansModal open={billingPlansOpen} onClose={() => setBillingPlansOpen(false)} onSelect={(product) => openProtectedPath(`/billing/checkout?product=${encodeURIComponent(product.id)}`)} />
         </HomeActionsContext.Provider>
     );
+}
+
+export function HomeActionsPreviewProvider({ children }: { children: ReactNode }) {
+    return <HomeActionsContext.Provider value={previewActions}>{children}</HomeActionsContext.Provider>;
 }
 
 export function useHomeActions() {

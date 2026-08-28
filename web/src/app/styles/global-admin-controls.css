@@ -201,58 +201,17 @@
         margin-top: 0.35rem;
     }
 
-    .admin-update-primary-button {
-        background: #ffffff !important;
-        border: 1px solid #ffffff !important;
-        color: #0c0a09 !important;
-        min-width: 7.25rem;
-        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
-    }
-
-    .admin-update-primary-button:hover {
-        background: #f5f5f4 !important;
-        border-color: #f5f5f4 !important;
-        color: #0c0a09 !important;
-    }
-
-    .admin-update-secondary-link {
-        background: rgba(255, 255, 255, 0.06) !important;
-        border-color: rgba(255, 255, 255, 0.34) !important;
-        color: #ffffff !important;
-    }
-
-    .admin-update-secondary-link:hover {
-        background: rgba(255, 255, 255, 0.14) !important;
-        border-color: rgba(255, 255, 255, 0.52) !important;
-        color: #ffffff !important;
-    }
-
-    .dark .admin-update-primary-button {
-        background: #0c0a09 !important;
-        border-color: #0c0a09 !important;
-        color: #ffffff !important;
-        box-shadow: 0 10px 24px rgba(12, 10, 9, 0.16);
-    }
-
-    .dark .admin-update-primary-button:hover {
-        background: #1c1917 !important;
-        border-color: #1c1917 !important;
-        color: #ffffff !important;
-    }
-
-    .dark .admin-update-secondary-link {
-        background: #ffffff !important;
-        border-color: #a8a29e !important;
-        color: #0c0a09 !important;
-    }
-
-    .dark .admin-update-secondary-link:hover {
-        background: #f5f5f4 !important;
-        border-color: #78716c !important;
-        color: #0c0a09 !important;
-    }
-
     @media (min-width: 1024px) {
+        .admin-section-nav-item {
+            font-size: 15px !important;
+            line-height: 1.35 !important;
+        }
+
+        .admin-section-nav-group-title {
+            font-size: 13px !important;
+            line-height: 1.35 !important;
+        }
+
         .admin-dashboard-shell {
             display: grid;
             grid-template-columns: 232px minmax(0, 1fr);
@@ -391,44 +350,12 @@
         vertical-align: middle;
     }
 
-    .admin-generation-log-table .ant-table-cell-fix-right,
-    .admin-generation-log-table .ant-table-cell-fix-right-first {
-        background: #ffffff !important;
-        box-shadow: -10px 0 18px rgba(15, 23, 42, 0.08);
-    }
-
-    .dark .admin-generation-log-table .ant-table-cell-fix-right,
-    .dark .admin-generation-log-table .ant-table-cell-fix-right-first {
-        background: #0c0a09 !important;
-        box-shadow: -10px 0 18px rgba(0, 0, 0, 0.28);
-    }
-
     .admin-generation-log-table .ant-table-tbody > tr.ant-table-row-selected > td {
         background: #f1f5f9 !important;
     }
 
-    .admin-generation-log-table .ant-table-tbody > tr.ant-table-row-selected > td.ant-table-cell-fix-right {
-        background: #f8fafc !important;
-    }
-
     .dark .admin-generation-log-table .ant-table-tbody > tr.ant-table-row-selected > td {
         background: #1c1917 !important;
-    }
-
-    .dark .admin-generation-log-table .ant-table-tbody > tr.ant-table-row-selected > td.ant-table-cell-fix-right {
-        background: #292524 !important;
-    }
-
-    .admin-generation-log-prompt-cell {
-        max-width: 328px;
-        width: 328px;
-    }
-
-    .admin-generation-log-actions {
-        display: flex;
-        flex-wrap: nowrap;
-        gap: 6px;
-        white-space: nowrap;
     }
 
     @media (max-width: 640px) {

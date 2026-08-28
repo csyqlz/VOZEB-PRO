@@ -4,7 +4,7 @@ import { GenerationTaskNeedsReviewError, GenerationTaskTerminalError, type Gener
 import { refreshUserPointsIfSystem, syncUserPointsFromHeaders } from "@/services/api/points";
 import { throwIfClientSessionExpired } from "@/services/api/session-expiration";
 
-type RequestOptions = { signal?: AbortSignal };
+type RequestOptions = { signal?: AbortSignal; timeoutMs?: number };
 
 export type TextGenerationTask = {
     id: string;
@@ -57,8 +57,9 @@ export async function recoverTextGenerationTask(taskId: string, options?: Reques
 
 export async function waitForTextGenerationTask(config: AiConfig, task: TextGenerationTask, options?: RequestOptions) {
     const startedAt = Date.now();
+    const timeoutMs = options?.timeoutMs ?? TEXT_TASK_TIMEOUT_MS;
     for (;;) {
-        if (Date.now() - startedAt > TEXT_TASK_TIMEOUT_MS) throw new Error("文本生成超时，请稍后重试");
+        if (timeoutMs > 0 && Date.now() - startedAt > timeoutMs) throw new Error("文本生成超时，请稍后重试");
         const response = await fetch(`/api/text-tasks/${encodeURIComponent(task.id)}`, { signal: options?.signal, cache: "no-store" });
         throwIfClientSessionExpired(response);
         const payload = (await response.json().catch(() => ({}))) as TextTaskPayload;

@@ -43,7 +43,7 @@ export const adminHelpArticles: AdminHelpArticle[] = [
             },
             {
                 title: "配置站点和模型能力",
-                description: "先设置站点名称与无限进化 Logo，再配置上游渠道、逻辑模型和默认文本模型。",
+                description: "先设置站点名称与站点 Logo，再配置上游渠道、逻辑模型和默认文本模型。",
                 checks: ["前台、登录页和后台品牌一致", "用户端文本调用成功", "已设置默认文本逻辑模型"],
             },
             {
@@ -240,8 +240,8 @@ export const adminHelpArticles: AdminHelpArticle[] = [
         steps: [
             {
                 title: "维护站点资料和品牌",
-                description: "设置站点名称、SEO、社交入口、首页展示和无限进化 Logo；浏览器图标与助手头像使用同一品牌来源。",
-                checks: ["Logo、ICO、favicon 和后台标识一致", "默认与回退图标均不是三角形品牌", "浅色和深色背景下清晰可读"],
+                description: "设置站点名称、SEO、社交入口、首页展示和站点 Logo；浏览器图标与助手头像使用同一品牌来源。",
+                checks: ["Logo、ICO、favicon 和后台标识一致", "默认与回退图标均为当前站点品牌", "浅色和深色背景下清晰可读"],
             },
             {
                 title: "配置注册、SMTP、生成与数据维护",
@@ -259,7 +259,7 @@ export const adminHelpArticles: AdminHelpArticle[] = [
                 checks: ["当前版本与目标版本明确", "升级前备份可恢复", "升级后执行核心页面与能力回归"],
             },
         ],
-        checks: ["站点所有品牌入口使用无限进化 Logo", "注册、验证码和找回密码流程与 SMTP 状态一致", "注销和升级操作都有可追踪记录"],
+        checks: ["站点所有品牌入口使用同一站点 Logo", "注册、验证码和找回密码流程与 SMTP 状态一致", "注销和升级操作都有可追踪记录"],
         warnings: ["更换 Logo 后要同时检查 favicon、manifest、metadata、登录页、用户端、后台和助手头像。", "开启邮箱注册前必须完成真实收件测试，避免用户无法登录或找回密码。"],
         links: [
             { label: "站点资料", description: "管理品牌、SEO 与首页内容", section: "site" },

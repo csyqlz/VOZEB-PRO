@@ -127,13 +127,13 @@ export async function verifyRecoveryPoint(recoveryPointDir, manifest) {
     return { files: artifacts.length };
 }
 
-export async function runPostgresTool(executable, argumentsList, databaseUrl) {
+export async function runPostgresTool(executable, argumentsList, databaseUrl, options = {}) {
     if (!databaseUrl) throw new Error("缺少 DATABASE_URL");
     const connectionEnvironment = postgresConnectionEnvironment(databaseUrl);
     await new Promise((resolve, reject) => {
         const child = spawn(executable, argumentsList, {
             env: { ...process.env, ...connectionEnvironment },
-            stdio: "inherit",
+            stdio: options.silent ? ["ignore", "ignore", "inherit"] : "inherit",
             windowsHide: true,
         });
         child.once("error", reject);

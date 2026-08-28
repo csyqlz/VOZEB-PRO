@@ -8,6 +8,7 @@ import type { RuntimeFileDatabase } from "@/lib/server/creative-runtime-reposito
 import type { GenerationLogDatabase } from "@/lib/server/generation-log-types";
 import type { StoredGenerationTaskRecord } from "@/lib/server/generation-task-store";
 import { collectLocalMediaStorageKeys } from "@/lib/server/local-media-references";
+import { notifyVozebCmsTaskEvents } from "@/lib/server/vozeb-cms/task-event-signal";
 
 const FILES = ["canvas-projects.json", "drama-projects.json", "creative-runtime.json", "generation-logs.json", "generation-tasks.json", "local-media-assets.json"] as const;
 
@@ -271,6 +272,7 @@ async function deleteFileEntities(userId: string, scope: DeletionScope): Promise
         };
         try {
             await writeDeletionFiles(next);
+            notifyVozebCmsTaskEvents(taskIds);
         } catch (error) {
             await Promise.allSettled([
                 writeJsonDataFile("creative-runtime.json", before.runtime),

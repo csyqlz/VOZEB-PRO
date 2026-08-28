@@ -73,7 +73,8 @@ type LogicalModel = {
     name: string;
     capability: ModelCapability;
     enabled: boolean;
-    bindings: Array<{ id: string; channelId: string; upstreamModel: string; enabled: boolean; priority: number; capabilityProfile?: LogicalModelCapabilityProfile }>;
+    capabilityProfile?: Pick<LogicalModelCapabilityProfile, "aspectRatios" | "resolutions" | "durationSeconds" | "minDurationSeconds" | "maxDurationSeconds" | "maxBatchSize">;
+    bindings?: Array<{ id: string; channelId: string; upstreamModel: string; enabled: boolean; priority: number; capabilityProfile?: LogicalModelCapabilityProfile }>;
 };
 
 export type AiConfig = {
@@ -226,8 +227,7 @@ function modelListKey(capability: ModelCapability) {
 }
 
 function isAiConfigReady(config: AiConfig, model: string) {
-    const channel = resolveModelChannel(config, model);
-    if (config.apiSource === "system") return Boolean(model.trim() && channel.baseUrl.trim().startsWith("/api/ai/system/"));
+    if (config.apiSource === "system") return Boolean(model.trim() && (config.logicalModels.some((item) => item.enabled && item.id.toLowerCase() === model.trim().toLowerCase()) || config.channels.length));
     return false;
 }
 
@@ -243,11 +243,7 @@ export function applyPublicSystemSettings(config: AiConfig, settings?: PublicSys
             models: uniqueRawModels(channel.models || []),
             ...(channel.advancedConfig ? { advancedConfig: channel.advancedConfig } : {}),
         }));
-    const logicalModels = (settings?.logicalModels || []).filter(
-        (model) =>
-            model.enabled &&
-            model.bindings.some((binding) => binding.enabled && channels.some((channel) => channel.id === binding.channelId && channel.models.some((upstream) => normalizedModelName(upstream) === normalizedModelName(binding.upstreamModel)))),
-    );
+    const logicalModels = (settings?.logicalModels || []).filter((model) => model.enabled);
     const rawModels = modelOptionsFromChannels(channels);
     const capabilityModels = resolvePublicCapabilityModels(logicalModels, {
         image: filterModelsByCapability(rawModels, "image"),
@@ -269,7 +265,7 @@ export function applyPublicSystemSettings(config: AiConfig, settings?: PublicSys
         channels,
         logicalModels,
         baseUrl: channels[0]?.baseUrl || "",
-        apiKey: "system",
+        apiKey: channels.length ? "system" : "",
         apiFormat: "openai",
         models,
         imageModels,
@@ -429,7 +425,7 @@ function resolveLogicalDefaultModel(value: string | undefined, options: string[]
     const requested = modelOptionName(value || "").trim();
     const direct = findEquivalentModelOption(requested, options);
     if (direct) return direct;
-    const logical = logicalModels.find((model) => model.enabled && (normalizedModelName(model.id) === normalizedModelName(requested) || model.bindings.some((binding) => normalizedModelName(binding.upstreamModel) === normalizedModelName(requested))));
+    const logical = logicalModels.find((model) => model.enabled && (normalizedModelName(model.id) === normalizedModelName(requested) || model.bindings?.some((binding) => normalizedModelName(binding.upstreamModel) === normalizedModelName(requested))));
     return logical ? findEquivalentModelOption(logical.id, options) : "";
 }
 
@@ -458,7 +454,7 @@ export function resolveModelChannel(config: AiConfig, value: string) {
     const model = decoded?.model || value;
     const logical = config.logicalModels.find((item) => item.id === model && item.enabled);
     const binding = logical?.bindings
-        .filter((item) => item.enabled)
+        ?.filter((item) => item.enabled)
         .sort((a, b) => a.priority - b.priority)
         .find((item) => channels.some((channel) => channel.id === item.channelId));
     const matched = binding ? channels.find((channel) => channel.id === binding.channelId) : decoded ? channels.find((channel) => channel.id === decoded.channelId) : channels.find((channel) => channel.models.includes(model));

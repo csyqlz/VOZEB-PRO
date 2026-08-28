@@ -64,8 +64,10 @@ test("every administrator section renders its server-backed surface", async ({ p
     for (const section of ADMIN_SECTION_KEYS) {
         await verifyRoute(page, { path: section === "overview" ? "/admin" : `/admin?section=${section}` }, `${testInfo.project.name} admin ${section}`);
         await expect(page.locator("[data-hydrated='true']")).toBeVisible();
-        await expect(page.locator("h1").first()).toBeVisible();
+        await expect(page.locator("h1")).toHaveCount(1);
+        await expect(page.locator("h1").first()).toHaveClass(/sr-only/);
         await expect(page.getByText("正在加载分区...", { exact: true })).toHaveCount(0);
+        await expectAdminShellHierarchy(page, `${testInfo.project.name} admin ${section}`);
         if (!USES_POSTGRES && ["orders", "products", "promotions", "coupons"].includes(section)) {
             await expect(page.getByText("商业运营需要启用 PostgreSQL", { exact: true })).toHaveCount(1);
         }
@@ -120,6 +122,31 @@ async function createPageFixtures(request: APIRequestContext, viewportWidth: num
     expect(drama.ok(), await drama.text()).toBe(true);
     const dramaPayload = (await drama.json()) as { data: { project: { id: string } } };
     return { canvasId: canvasPayload.data.project.id, dramaId: dramaPayload.data.project.id };
+}
+
+async function expectAdminShellHierarchy(page: Page, label: string) {
+    const metrics = await page.evaluate(() => {
+        const style = (selector: string) => {
+            const element = document.querySelector<HTMLElement>(selector);
+            if (!element) return null;
+            const computed = getComputedStyle(element);
+            return { fontSize: Number.parseFloat(computed.fontSize), width: element.getBoundingClientRect().width, height: element.getBoundingClientRect().height };
+        };
+        return {
+            desktop: matchMedia("(min-width: 1024px)").matches,
+            brand: style(".admin-section-brand-copy > span:first-child"),
+            logo: style(".admin-section-brand > :first-child"),
+            group: style(".admin-section-nav-group-title"),
+            item: style(".admin-section-nav-item"),
+        };
+    });
+    if (!metrics.desktop) return;
+    expect(metrics.brand?.fontSize, `${label} brand title`).toBeGreaterThanOrEqual(16);
+    expect(metrics.logo?.width, `${label} brand logo`).toBeGreaterThanOrEqual(32);
+    expect(metrics.logo?.height, `${label} brand logo`).toBeGreaterThanOrEqual(32);
+    expect(metrics.group?.fontSize, `${label} navigation group`).toBeGreaterThanOrEqual(13);
+    expect(metrics.item?.fontSize, `${label} navigation item`).toBeGreaterThanOrEqual(15);
+    expect(metrics.item?.height, `${label} navigation item height`).toBeGreaterThanOrEqual(40);
 }
 
 async function setTheme(page: Page, theme: "light" | "dark") {

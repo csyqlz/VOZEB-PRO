@@ -16,7 +16,7 @@ export function AdminSiteSection({ controller }: { controller: AdminDashboardCon
     const { logoInputRef, iconInputRef, settings, settingsLoading, activeSection, saveSettings, updateSiteSetting, getLatestSiteSettings, updateSiteSocialSetting, addFriendLink, updateFriendLink, deleteFriendLink } = controller;
     if (activeSection !== "site") return null;
     return (
-        <Panel>
+        <Panel variant="page">
             <PanelHeader
                 title="网站设置"
                 description="统一管理前台品牌、Logo、浏览器标题和搜索引擎展示信息。"
@@ -210,7 +210,7 @@ export function AdminSettingsSection({ controller }: { controller: AdminDashboar
     const navigationClass =
         access.system && access.upstream ? "grid grid-cols-1 gap-1.5 sm:grid-cols-3 sm:gap-2 2xl:grid-cols-1" : access.system ? "grid grid-cols-1 gap-1.5 sm:grid-cols-2 sm:gap-2 2xl:grid-cols-1" : "grid grid-cols-1 gap-1.5 2xl:grid-cols-1";
     return (
-        <Panel>
+        <Panel variant="page">
             <PanelHeader
                 title="系统设置"
                 description={description}

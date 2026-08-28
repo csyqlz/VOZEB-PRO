@@ -1,3 +1,4 @@
+import { requireGenerationResourceAccess } from "@/app/api/generation-resource-access";
 import { getCurrentUser } from "@/lib/auth/session";
 import { getAgentRun } from "@/lib/server/agent-run-store";
 import { CREATIVE_RUN_EVENT_BATCH_SIZE, getLatestCreativeRunEventId, listCreativeRunEvents } from "@/lib/server/creative-runtime-store";
@@ -10,7 +11,9 @@ export const maxDuration = 2400;
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
     const user = await getCurrentUser();
     const run = user ? await getAgentRun((await params).id) : null;
-    if (!user || !run || run.userId !== user.id) return new Response("Agent 任务不存在", { status: user ? 404 : 401 });
+    if (!user || !run) return new Response("Agent 任务不存在", { status: user ? 404 : 401 });
+    const blocked = await requireGenerationResourceAccess({ actor: user, ownerUserId: run.userId, capabilityId: "agent.run", adminPermission: "generation.read", notFoundMessage: "Agent 任务不存在" });
+    if (blocked) return blocked;
     const encoder = new TextEncoder();
     const requestedEventId = request.headers.get("last-event-id") || new URL(request.url).searchParams.get("lastEventId") || "";
     const retryEventIds = requestedEventId ? [] : await Promise.all([getLatestCreativeRunEventId(run.id, "task.retry.requested"), getLatestCreativeRunEventId(run.id, "run.retry.requested")]);

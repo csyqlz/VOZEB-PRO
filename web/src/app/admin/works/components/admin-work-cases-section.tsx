@@ -4,7 +4,6 @@ import { App, Button, Input, Modal, Pagination, Select, Tag } from "antd";
 import { Check, Eye, RefreshCw, Search, ShieldAlert, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { Panel, PanelHeader } from "@/components/admin/admin-panel";
 import { AdminAccountId } from "@/components/admin/admin-user-identity";
 import { listAdminWorkCases, resolveAdminWorkCase, type WorkGovernanceCase, type WorkGovernanceCaseStatus, type WorkGovernanceCaseType } from "@/services/api/work-governance";
 
@@ -67,18 +66,9 @@ export function AdminWorkCasesSection() {
     };
 
     return (
-        <Panel>
-            <PanelHeader
-                title="举报与申诉"
-                description="举报绑定提交时的公开版本；通过申诉只恢复被下架且没有其他线上版本的作品。"
-                actions={
-                    <Button icon={<RefreshCw className="size-4" />} loading={loading} onClick={() => void load()}>
-                        刷新
-                    </Button>
-                }
-            />
-            <div className="min-w-0 space-y-4 p-3 sm:p-5">
-                <div className="grid min-w-0 grid-cols-2 gap-2 border-b border-zinc-200 pb-4 lg:flex lg:items-center dark:border-zinc-800">
+        <>
+            <div className="admin-panel-surface min-w-0 space-y-4 overflow-hidden rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950 sm:p-4">
+                <div className="grid min-w-0 grid-cols-2 gap-2 border-b border-zinc-200 pb-4 lg:grid-cols-[136px_136px_minmax(280px,380px)_auto] lg:items-center lg:justify-start dark:border-zinc-800">
                     <div className="min-w-0 lg:w-36 lg:shrink-0">
                         <Select
                             className="w-full"
@@ -110,17 +100,22 @@ export function AdminWorkCasesSection() {
                             }}
                         />
                     </div>
-                    <Input
-                        className="col-span-2 min-w-0 lg:flex-1"
-                        allowClear
-                        prefix={<Search className="size-4 text-zinc-400" />}
-                        placeholder="搜索作品标题、作者、提交人、用户 ID 或作品链接"
-                        value={keyword}
-                        onChange={(event) => {
-                            setKeyword(event.target.value);
-                            setPage(1);
-                        }}
-                    />
+                    <div className="col-span-2 min-w-0 lg:col-span-1">
+                        <Input
+                            className="w-full"
+                            allowClear
+                            prefix={<Search className="size-4 text-zinc-400" />}
+                            placeholder="搜索作品标题、作者、提交人、用户 ID 或作品链接"
+                            value={keyword}
+                            onChange={(event) => {
+                                setKeyword(event.target.value);
+                                setPage(1);
+                            }}
+                        />
+                    </div>
+                    <Button className="col-span-2 w-full lg:col-span-1 lg:w-auto" icon={<RefreshCw className="size-4" />} loading={loading} onClick={() => void load()}>
+                        刷新
+                    </Button>
                 </div>
 
                 {error ? (
@@ -162,7 +157,7 @@ export function AdminWorkCasesSection() {
                 <p className="mb-3 text-sm leading-6 text-zinc-600 dark:text-zinc-400">处理说明会作为案件证据保存。确认举报将只下架被举报的同一线上版本；通过申诉会恢复目标下架版本。</p>
                 <Input.TextArea value={resolution} rows={5} maxLength={1000} showCount placeholder="填写核验结论、依据和后续处理说明" onChange={(event) => setResolution(event.target.value)} />
             </Modal>
-        </Panel>
+        </>
     );
 }
 

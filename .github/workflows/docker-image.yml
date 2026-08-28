@@ -62,6 +62,7 @@ jobs:
           src/lib/server/admin-backup-store.postgres.test.ts
           src/lib/server/points-wallet-idempotency.postgres.test.ts
           src/lib/server/database/work-community-postgres.test.ts
+          src/lib/server/vozeb-cms/layout-publication.postgres.test.ts
         env:
           VOZEB_PRO_DATABASE_PROVIDER: postgres
           DATABASE_URL: postgres://vozeb:vozeb-e2e-password@127.0.0.1:5432/vozeb_pro_e2e
@@ -89,6 +90,46 @@ jobs:
           languages: javascript-typescript
       - name: Analyze JavaScript and TypeScript
         uses: github/codeql-action/analyze@47be0dbd5113ab1b79fe2dd3f68bdf7e426cdc87 # v3
+
+  updater:
+    needs:
+      - quality
+      - security
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: docker/setup-qemu-action@2b82ce82d56a2a04d2637cd93a637ae1b359c0a7 # v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        with:
+          images: ghcr.io/csyqlz/vozeb-pro-updater
+          tags: |
+            type=raw,value=latest
+            type=ref,event=tag
+      - id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: deploy/updater/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: mode=max
+          sbom: true
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+      - name: Sign updater image digest
+        run: cosign sign --yes "ghcr.io/csyqlz/vozeb-pro-updater@${{ steps.build.outputs.digest }}"
 
   meta:
     runs-on: ubuntu-latest

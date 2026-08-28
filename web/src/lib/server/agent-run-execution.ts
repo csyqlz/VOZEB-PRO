@@ -260,9 +260,16 @@ export function normalizeTasks(
     return tasks;
 }
 
-export function agentModelOptions(settings: Awaited<ReturnType<typeof getAuthSettings>>) {
+export function assertAgentPlanVozebCmsCapabilities(plan: AgentPlan, enabledCapabilityIds: ReadonlySet<string>) {
+    for (const deliverable of plan.deliverables) {
+        const capabilityId = `${deliverable.type}.generate`;
+        if (!enabledCapabilityIds.has(capabilityId)) throw new Error(`${deliverable.type === "image" ? "图片生成" : deliverable.type === "video" ? "视频生成" : deliverable.type === "audio" ? "音频生成" : "文本生成"}模块当前不可用`);
+    }
+}
+
+export function agentModelOptions(settings: Awaited<ReturnType<typeof getAuthSettings>>, enabledCapabilityIds?: ReadonlySet<string>) {
     return settings.logicalModels
-        .filter((model) => model.enabled && resolveLogicalModel(settings, model.capability, model.id))
+        .filter((model) => model.enabled && (!enabledCapabilityIds || enabledCapabilityIds.has(`${model.capability}.generate`)) && resolveLogicalModel(settings, model.capability, model.id))
         .map((model) => {
             const resolved = resolveLogicalModel(settings, model.capability, model.id);
             return { id: model.id, name: model.name, capability: model.capability, capabilityProfile: resolved?.capabilityProfile };

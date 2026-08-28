@@ -2,6 +2,7 @@ import { after, NextResponse } from "next/server";
 import { mkdtemp, open, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { requireVozebCmsCapability } from "@/app/api/vozeb-cms-capability";
 
 import { getCurrentUser } from "@/lib/auth/session";
 import { getAuthSettings, isAuthInputError } from "@/lib/auth/store";
@@ -24,6 +25,8 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request) {
     const user = await getCurrentUser();
     if (!user) return NextResponse.json({ code: 401, data: null, msg: "请先登录" }, { status: 401 });
+    const blocked = await requireVozebCmsCapability("drama.workflow.run", user.id);
+    if (blocked) return blocked;
     const rate = await checkGenerationRateLimit(user.id, request, "render");
     if (!rate.allowed) return NextResponse.json({ code: 429, data: null, msg: "成片合成请求过于频繁，请稍后重试" }, { status: 429, headers: rateLimitHeaders(rate) });
     const renderLimit = (await getAuthSettings()).generationConcurrency.render;

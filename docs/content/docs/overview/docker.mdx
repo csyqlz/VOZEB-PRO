@@ -120,6 +120,36 @@ curl --http2 -I -H 'Accept-Encoding: gzip' https://vozeb-pro.example.com/_next/s
 
 ## 更新
 
+### 后台在线升级（推荐）
+
+在线升级仅适用于使用官方 GHCR 镜像的 Docker Compose 部署。先生成独立令牌并写入 `.env`：
+
+```bash
+openssl rand -hex 32
+```
+
+```dotenv
+VOZEB_PRO_UPDATER_TOKEN=上一步生成的独立令牌
+VOZEB_PRO_UPDATER_COMPOSE_FILES=docker-compose.yml,docker-compose.updater.yml
+```
+
+使用受控升级 Overlay 启动：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.updater.yml pull
+docker compose -f docker-compose.yml -f docker-compose.updater.yml up -d
+```
+
+管理员随后可在“帮助与支持 → 版本更新”中检查 GitHub 正式 Release，并在确认升级准备项后执行在线升级。升级监督器只在内部 Compose 网络监听，使用独立令牌鉴权；它会先验证 Release、拉取镜像，并把镜像 digest 的 Cosign 身份绑定到本次 Release 的确切 Git Tag。校验完成后，`.env` 中的应用和升级器镜像会固定为不可变的 `repository@sha256:...` 引用，再停止 Worker 与应用，创建并复核 PostgreSQL、媒体和对象存储灾备恢复点。新应用通过容器存活检查后恢复 Worker，并继续使用 `/api/health/ready` 验证数据库、表结构、加密配置和 Worker 心跳；任一步失败都会按持久化的上一镜像 digest 自动切回，状态和恢复点路径保存在独立数据卷中。
+
+GitHub 暂时不可用时，更新中心会单独标记 Release 检查失败，但仍保留升级监督器的当前操作状态，便于管理员确认升级、健康检查或回滚是否仍在进行。
+
+升级器必须独占访问 Docker Socket，因此 Overlay 不默认启用。不要给主应用挂载 Docker Socket，不要暴露升级器端口，也不要复用安装、维护或 Worker 令牌。页面中的“回滚”只切换到最近一次应用镜像；如果新版执行了不兼容的数据变更，必须按升级前灾备恢复点进行离线数据库恢复。
+
+源码部署、宝塔 host 网络或自定义 Compose 需要把实际文件列表写入 `VOZEB_PRO_UPDATER_COMPOSE_FILES` 并完成专门验证；未配置监督器时后台只提供版本检查和手动升级说明，不会伪装成一键升级成功。
+
+### 手动更新
+
 ```bash
 git pull
 docker compose pull

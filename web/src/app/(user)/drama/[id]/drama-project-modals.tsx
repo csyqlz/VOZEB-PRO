@@ -1,12 +1,30 @@
 "use client";
 
-import { Button, Empty, Input, Modal, Segmented, Spin } from "antd";
-import { Save } from "lucide-react";
+import { Button, Empty, Input, Modal, Segmented, Spin, Tooltip } from "antd";
+import { Save, Trash2 } from "lucide-react";
 
 import { buildSubtitleCues, formatTimelineTime } from "../subtitle";
 import type { DramaProjectVersion, DramaShot } from "../types";
 
-export function DramaVersionModal({ open, loading, versions, onClose, onSave, onRestore }: { open: boolean; loading: boolean; versions: DramaProjectVersion[]; onClose: () => void; onSave: () => void; onRestore: (version: DramaProjectVersion) => void }) {
+export function DramaVersionModal({
+    open,
+    loading,
+    deletingVersionId,
+    versions,
+    onClose,
+    onSave,
+    onRestore,
+    onDelete,
+}: {
+    open: boolean;
+    loading: boolean;
+    deletingVersionId?: string;
+    versions: DramaProjectVersion[];
+    onClose: () => void;
+    onSave: () => void;
+    onRestore: (version: DramaProjectVersion) => void;
+    onDelete: (version: DramaProjectVersion) => void;
+}) {
     return (
         <Modal title="版本历史" open={open} onCancel={onClose} footer={<Button onClick={onClose}>关闭</Button>} width={640}>
             <div className="space-y-3 pt-3">
@@ -29,9 +47,24 @@ export function DramaVersionModal({ open, loading, versions, onClose, onSave, on
                                     {version.reason} · {new Date(version.createdAt).toLocaleString()}
                                 </div>
                             </div>
-                            <Button className="!w-full sm:!w-auto" onClick={() => onRestore(version)}>
-                                恢复
-                            </Button>
+                            <div className="flex items-center gap-2">
+                                <Button className="!min-w-0 !flex-1 sm:!flex-none" disabled={deletingVersionId === version.id} onClick={() => onRestore(version)}>
+                                    恢复
+                                </Button>
+                                <Tooltip title="删除版本">
+                                    <Button
+                                        danger
+                                        type="text"
+                                        shape="circle"
+                                        className="!size-8 !min-w-8"
+                                        aria-label={`删除版本 ${version.version}`}
+                                        icon={<Trash2 className="size-4" />}
+                                        loading={deletingVersionId === version.id}
+                                        disabled={Boolean(deletingVersionId)}
+                                        onClick={() => onDelete(version)}
+                                    />
+                                </Tooltip>
+                            </div>
                         </div>
                     ))
                 ) : (

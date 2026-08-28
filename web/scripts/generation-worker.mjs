@@ -21,7 +21,7 @@ process.once("SIGINT", stop);
 console.log(`Generation worker started: ${workerId}`);
 void sendHeartbeat();
 const heartbeatTimer = setInterval(() => void sendHeartbeat(), heartbeatIntervalMs);
-await Promise.all([...Array.from({ length: lanes }, (_, index) => runLane(index + 1)), runRefundLane()]);
+await Promise.all([...Array.from({ length: lanes }, (_, index) => runLane(index + 1)), runRefundLane(), runWorkflowLane()]);
 clearInterval(heartbeatTimer);
 console.log("Generation worker stopped");
 
@@ -98,6 +98,33 @@ async function runRefundLane() {
             consecutiveErrors += 1;
             const retryMs = Math.min(60_000, 2_000 * 2 ** Math.min(consecutiveErrors - 1, 5));
             console.error("Billing refund worker failed", error instanceof Error ? error.message : error, `retrying in ${retryMs}ms`);
+            await delay(retryMs);
+        }
+    }
+}
+
+async function runWorkflowLane() {
+    let consecutiveErrors = 0;
+    let idleBatches = 0;
+    while (!stopping) {
+        try {
+            const response = await fetch(`${origin}/api/maintenance/vozeb-workflows/run`, {
+                method: "POST",
+                headers: { authorization: `Bearer ${token}`, "x-vozeb-pro-worker-id": `${workerId}:workflows` },
+                signal: AbortSignal.timeout(40 * 60_000),
+            });
+            const payload = await response.json().catch(() => null);
+            if (!response.ok) throw new Error(payload?.msg || `Workflow endpoint returned HTTP ${response.status}`);
+            consecutiveErrors = 0;
+            const claimed = Number(payload?.data?.claimed || 0);
+            const policy = nextGenerationWorkerPollPolicy({ claimed, idleBatches, baseIdleDelayMs: idleDelayMs, nextDueAt: payload?.data?.nextDueAt, now: Date.now() });
+            idleBatches = policy.idleBatches;
+            await delay(policy.delayMs);
+        } catch (error) {
+            if (stopping) break;
+            consecutiveErrors += 1;
+            const retryMs = Math.min(60_000, 1_000 * 2 ** Math.min(consecutiveErrors - 1, 6));
+            console.error("Workflow worker batch failed", error instanceof Error ? error.message : error, `retrying in ${retryMs}ms`);
             await delay(retryMs);
         }
     }

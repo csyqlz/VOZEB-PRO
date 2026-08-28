@@ -37,6 +37,7 @@ import {
     type RunMutation,
 } from "./creative-runtime-repository";
 import { notifyCreativeRunEvent } from "./creative-run-event-signal";
+import type { VozebCmsProjectType } from "@/lib/vozeb-cms/project-ref";
 
 export { CreativeStoreConflict, CREATIVE_CONVERSATION_CONTEXT_MESSAGE_LIMIT } from "./creative-runtime-repository";
 import { CreativeStoreConflict } from "./creative-runtime-repository";
@@ -283,6 +284,41 @@ export async function listCreativeAssets(conversationId: string, userId: string)
         return result.rows.map(mapAsset);
     }
     return (await readRuntimeFile()).assets.filter((item) => item.conversationId === conversationId && item.userId === userId && item.status !== "deleted").sort((a, b) => a.createdAt - b.createdAt || a.ordinal - b.ordinal);
+}
+
+export async function listCreativeAssetsForProject(userId: string, projectId?: string, limit = 100, projectType?: VozebCmsProjectType) {
+    const boundedLimit = Math.max(1, Math.min(100, Math.floor(Number(limit) || 100)));
+    if (getDatabaseProvider() === "postgres") {
+        await ensurePostgresSchema();
+        const result = await postgresQuery(
+            `SELECT asset.*
+             FROM creative_assets asset
+             JOIN creative_conversations conversation ON conversation.id = asset.conversation_id
+             WHERE asset.user_id = $1 AND asset.status <> 'deleted'
+               AND ($2::text IS NULL OR ($3::text IS NULL AND conversation.project_id = $2) OR ($3::text = 'conversation' AND conversation.id = $2) OR ($3::text IN ('canvas', 'drama') AND conversation.project_id = $2 AND conversation.surface = $3))
+             ORDER BY asset.created_at DESC, asset.ordinal ASC
+             LIMIT $4`,
+            [userId, projectId || null, projectType || null, boundedLimit],
+        );
+        return result.rows.map(mapAsset);
+    }
+    const database = await readRuntimeFile();
+    const projectConversationIds = new Set(
+        database.conversations
+            .filter(
+                (conversation) =>
+                    conversation.userId === userId &&
+                    (!projectId ||
+                        (!projectType && conversation.projectId === projectId) ||
+                        (projectType === "conversation" && conversation.id === projectId) ||
+                        ((projectType === "canvas" || projectType === "drama") && conversation.projectId === projectId && conversation.surface === projectType)),
+            )
+            .map((conversation) => conversation.id),
+    );
+    return database.assets
+        .filter((asset) => asset.userId === userId && asset.status !== "deleted" && projectConversationIds.has(asset.conversationId))
+        .sort((left, right) => right.createdAt - left.createdAt || left.ordinal - right.ordinal)
+        .slice(0, boundedLimit);
 }
 
 export async function listRecentCreativeMediaAssets(conversationId: string, userId: string, limit = 20) {

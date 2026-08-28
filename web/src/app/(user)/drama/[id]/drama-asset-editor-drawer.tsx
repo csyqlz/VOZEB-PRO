@@ -14,7 +14,7 @@ import { useEffectiveConfig } from "@/stores/use-config-store";
 import { useDramaStore } from "../stores/use-drama-store";
 import { DRAMA_ASSET_DEFINITIONS, type DramaAssetKind } from "./drama-asset-definitions";
 import { dramaAssetReferences, imageResultsToReferences } from "./drama-asset-reference-utils";
-import { dramaGenerationSize } from "./drama-shot-generation-utils";
+import { dramaGenerationSize, resolveDramaImageModel } from "./drama-shot-generation-utils";
 
 type AssetDraft = {
     name: string;
@@ -181,7 +181,9 @@ export function DramaAssetEditorDrawer({ project, kind, assetId, open, onClose }
         setGenerating(true);
         try {
             const prompt = compileDramaAssetReferencePrompt(project, asset, kind === "characters" ? "角色" : kind === "scenes" ? "场景" : "道具");
-            const imageConfig = { ...config, model: config.imageModel || config.model, imageModel: config.imageModel || config.model, size: dramaGenerationSize(project, prompt), count: "1" };
+            const imageModel = resolveDramaImageModel(config, project);
+            if (!imageModel) throw new Error("未配置可用的图片模型，请先选择图片模型");
+            const imageConfig = { ...config, model: imageModel, imageModel, size: dramaGenerationSize(project, prompt), count: "1" };
             const task = await createImageGenerationTask(imageConfig, prompt, [], undefined, {
                 logSource: "drama",
                 logTitle: `${project.title} · ${asset.name}设定图`,

@@ -238,6 +238,7 @@ const POSTGRES_SCHEMA_OBJECTS = [
     "generation_logs_set_updated_at",
     "drama_projects_set_updated_at",
     "object_storage_settings_set_updated_at",
+    "generation_tasks_event_notify",
 ] as const;
 
 const POSTGRES_RELATION_NAMES = new Set<string>([...POSTGRES_TABLES, ...POSTGRES_SCHEMA_OBJECTS]);

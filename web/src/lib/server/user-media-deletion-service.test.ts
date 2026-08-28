@@ -7,9 +7,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 const dataDir = resolve(tmpdir(), `vozeb-pro-user-media-delete-${process.pid}-${Date.now()}`);
 const previousDataDir = process.env.VOZEB_PRO_DATA_DIR;
 const previousProvider = process.env.VOZEB_PRO_DATABASE_PROVIDER;
-const mocks = vi.hoisted(() => ({ deleteExternalMediaObject: vi.fn() }));
+const mocks = vi.hoisted(() => ({ deleteExternalMediaObject: vi.fn(), taskEvents: vi.fn() }));
 
 vi.mock("@/lib/server/object-storage-service", () => ({ deleteExternalMediaObject: mocks.deleteExternalMediaObject }));
+vi.mock("@/lib/server/vozeb-cms/task-event-signal", () => ({ notifyVozebCmsTaskEvents: mocks.taskEvents }));
 
 describe("user media cascade deletion", () => {
     beforeAll(async () => {
@@ -21,6 +22,7 @@ describe("user media cascade deletion", () => {
 
     beforeEach(() => {
         mocks.deleteExternalMediaObject.mockReset().mockResolvedValue(true);
+        mocks.taskEvents.mockReset();
     });
 
     afterAll(async () => {
@@ -46,6 +48,7 @@ describe("user media cascade deletion", () => {
         const files = await Promise.all(["auth.json", "canvas-projects.json", "creative-runtime.json", "drama-projects.json", "generation-logs.json", "generation-tasks.json", "library-assets.json", "local-media-assets.json"].map(readJson));
         expect(JSON.stringify(files)).not.toContain(storageKey);
         expect(files[1]).toMatchObject({ projects: [{ project: { backgroundMode: "lines", nodes: [{ id: "text-one" }], connections: [] } }] });
+        expect(mocks.taskEvents).toHaveBeenCalledWith(expect.arrayContaining(["run-one"]));
     });
 
     it("preserves another user's references and blocks OSS deletion", async () => {

@@ -281,13 +281,13 @@ export function useAdminDashboardTableModel({ state, data, settingsActions }: { 
         {
             title: "时间",
             dataIndex: "createdAt",
-            width: 170,
+            width: 132,
             render: (value) => <span className="text-sm text-stone-700 dark:text-stone-200">{formatAdminLogTime(String(value))}</span>,
         },
         {
             title: "类型",
             dataIndex: "kind",
-            width: 92,
+            width: 58,
             render: (_, record) => (
                 <Tag className="m-0" color={record.kind === "video" ? "purple" : "blue"}>
                     {generationKindLabel(record.kind)}
@@ -296,44 +296,44 @@ export function useAdminDashboardTableModel({ state, data, settingsActions }: { 
         },
         {
             title: "用户",
-            width: 200,
+            width: 145,
             render: (_, record) => <AdminUserIdentity displayName={record.displayName} username={record.username} accountId={record.accountId} fallback="用户信息不可用" />,
         },
         {
             title: "入口",
             dataIndex: "source",
-            width: 120,
+            width: 88,
             render: (value) => <span className="text-sm text-stone-600 dark:text-stone-300">{generationSourceLabel(String(value))}</span>,
         },
         {
             title: "模型",
             dataIndex: "model",
-            width: 160,
+            width: 100,
             render: (value) => <span className="line-clamp-1 text-sm text-stone-600 dark:text-stone-300">{formatGenerationLogModel(String(value || ""))}</span>,
         },
         {
             title: "耗时",
             dataIndex: "durationMs",
-            width: 90,
+            width: 64,
             render: (value) => <span className="text-sm tabular-nums text-stone-700 dark:text-stone-200">{formatAdminLogDuration(Number(value) || 0)}</span>,
         },
         {
             title: "状态",
             dataIndex: "status",
-            width: 92,
+            width: 66,
             render: (_, record) => <span className={generationStatusClass(record.status)}>{generationStatusLabel(record.status)}</span>,
         },
         {
             title: "结果",
-            width: 100,
+            width: 60,
             render: (_, record) => <GenerationLogAssetPreview log={record} />,
         },
         {
             title: "提示词",
             dataIndex: "prompt",
-            width: 360,
+            width: 250,
             render: (_, record) => (
-                <div className="admin-generation-log-prompt-cell min-w-0">
+                <div className="min-w-0 max-w-full">
                     <div className="truncate text-sm font-medium text-stone-900 dark:text-stone-100">{record.title}</div>
                     <div className="mt-1 line-clamp-2 text-xs leading-5 text-stone-500 dark:text-stone-400">{record.prompt || record.summary}</div>
                 </div>
@@ -341,17 +341,12 @@ export function useAdminDashboardTableModel({ state, data, settingsActions }: { 
         },
         {
             title: "操作",
-            width: 176,
-            fixed: "right",
+            width: 78,
             render: (_, record) => (
-                <div className="admin-generation-log-actions">
-                    <Button size="small" type="text" icon={<Eye className="size-3.5" />} onClick={() => setViewingGenerationLog(record)}>
-                        详情
-                    </Button>
+                <div className="flex flex-nowrap justify-end gap-0.5 whitespace-nowrap">
+                    <Button aria-label="查看调用详情" title="查看详情" size="small" type="text" icon={<Eye className="size-3.5" />} onClick={() => setViewingGenerationLog(record)} />
                     <Popconfirm title="删除这条生成日志？" okText="删除" cancelText="取消" onConfirm={() => void deleteGenerationLogsByIds([record.id])}>
-                        <Button size="small" type="text" danger icon={<Trash2 className="size-3.5" />}>
-                            删除
-                        </Button>
+                        <Button aria-label="删除调用记录" title="删除" size="small" type="text" danger icon={<Trash2 className="size-3.5" />} />
                     </Popconfirm>
                 </div>
             ),

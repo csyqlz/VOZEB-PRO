@@ -63,7 +63,7 @@ export function isSeedanceVideoConfig(config: AiConfig | Pick<AiConfig, "model" 
     if ("channels" in config) {
         const channel = resolveModelChannel(config, selectedModel);
         const logical = config.logicalModels.find((model) => normalizeModelId(model.id) === normalizeModelId(modelOptionName(selectedModel)));
-        const binding = logical?.bindings.filter((item) => item.enabled && item.channelId === channel.id).sort((left, right) => left.priority - right.priority)[0];
+        const binding = logical?.bindings?.filter((item) => item.enabled && item.channelId === channel.id).sort((left, right) => left.priority - right.priority)[0];
         const modelProtocol = channel.advancedConfig?.modelConfigs?.[normalizeModelId(binding?.upstreamModel || selectedModel)]?.protocol;
         if (modelProtocol && modelProtocol !== "auto") return modelProtocol === "seedance" || modelProtocol === "volcengine-video";
         if (channel.advancedConfig?.protocol === "seedance" || channel.advancedConfig?.protocol === "volcengine-video") return true;

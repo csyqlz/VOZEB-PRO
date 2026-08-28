@@ -1,6 +1,6 @@
 "use client";
 
-import { Button, Input, InputNumber, Modal } from "antd";
+import { Alert, Button, Input, InputNumber, Modal } from "antd";
 import { ArrowLeft, Check, ChevronDown, SlidersHorizontal } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -38,8 +38,8 @@ export function DramaReviewPanel({ project, episode, onDesignVisuals, designing,
                 step="02"
                 title="内容审核"
                 description="确认剧本事实、镜头边界、对白与叙事信息；视觉模型不会在这个阶段改写内容。"
-                status={!episode.shots.length ? "等待内容结构" : episode.reviewStatus === "visual_ready" ? "视觉方案已生成" : "待确认"}
-                tone={!episode.shots.length ? "attention" : episode.reviewStatus === "visual_ready" ? "ready" : "neutral"}
+                status={!episode.shots.length ? "等待内容结构" : episode.visualTaskId ? "视觉方案生成中" : episode.reviewStatus === "visual_ready" ? "视觉方案已生成" : "待确认"}
+                tone={!episode.shots.length || episode.visualTaskId ? "attention" : episode.reviewStatus === "visual_ready" ? "ready" : "neutral"}
                 metrics={
                     episode.shots.length
                         ? [
@@ -66,6 +66,7 @@ export function DramaReviewPanel({ project, episode, onDesignVisuals, designing,
                     </Button>
                 }
             />
+            {episode.visualError ? <Alert className="mt-2.5" type="error" showIcon message="视觉方案生成失败" description={episode.visualError} /> : null}
             {episode.shots.length ? (
                 <div className="mt-2.5 space-y-2.5">
                     {episode.shots.map((shot) => {

@@ -27,7 +27,7 @@ export function AdminPointsSection({ controller }: { controller: AdminDashboardC
     if (activeSection !== "points") return null;
 
     return (
-        <Panel>
+        <Panel variant="page">
             <PanelHeader
                 title="积分规则"
                 description="统一配置免费用户每日额度、模型基础扣费与图片、视频参数倍率。"

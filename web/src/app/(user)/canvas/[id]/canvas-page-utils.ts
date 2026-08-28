@@ -378,7 +378,7 @@ export function applyNodeConfigPatch(node: CanvasNodeData, patch: Partial<Canvas
     return size && (node.type === CanvasNodeType.Image || node.type === CanvasNodeType.Video) ? { ...next, ...size, position: { x: node.position.x + node.width / 2 - size.width / 2, y: node.position.y + node.height / 2 - size.height / 2 } } : next;
 }
 
-export function normalizeCanvasConfigNodeLayout(node: CanvasNodeData) {
+export function normalizeCanvasNodeLayout(node: CanvasNodeData) {
     if (node.type !== CanvasNodeType.Config) return node;
     const configDetailsOpen = node.metadata?.configDetailsOpen === true;
     const height = configDetailsOpen ? CANVAS_CONFIG_NODE_HEIGHT.expanded : CANVAS_CONFIG_NODE_HEIGHT.collapsed;

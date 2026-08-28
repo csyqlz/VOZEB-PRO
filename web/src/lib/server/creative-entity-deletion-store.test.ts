@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
     provider: "file" as "file" | "postgres",
     writeFailure: "",
     transaction: vi.fn(),
+    taskEvents: vi.fn(),
 }));
 
 vi.mock("@/lib/server/database", () => ({
@@ -24,6 +25,7 @@ vi.mock("@/lib/server/data-adapter", () => ({
     }),
     withJsonDataFileLocks: vi.fn(async (_names: string[], callback: () => Promise<unknown>) => callback()),
 }));
+vi.mock("@/lib/server/vozeb-cms/task-event-signal", () => ({ notifyVozebCmsTaskEvents: mocks.taskEvents }));
 
 import { CreativeEntityDeletionConflict, deleteCanvasAssistantConversationAggregates, deleteCanvasProjectAggregates, deleteCreativeConversationAggregates, deleteDramaConversationAggregate } from "./creative-entity-deletion-store";
 
@@ -34,6 +36,7 @@ describe("creative entity deletion file provider", () => {
         mocks.files.clear();
         seedFiles();
         mocks.transaction.mockReset();
+        mocks.taskEvents.mockReset();
     });
 
     it("hard-deletes one conversation and all of its owned records", async () => {
@@ -46,6 +49,7 @@ describe("creative entity deletion file provider", () => {
         expect(file<{ assets: Array<{ conversationId: string }> }>("creative-runtime.json").assets).toHaveLength(1);
         expect(file<{ events: Array<{ runId: string }> }>("creative-runtime.json").events).toEqual([{ id: "2", runId: "run-two" }]);
         expect(file<Array<{ id: string }>>("generation-tasks.json").map((item) => item.id)).toEqual(["run-two"]);
+        expect([...mocks.taskEvents.mock.calls[0][0]]).toEqual(expect.arrayContaining(["run-one"]));
         expect(file<{ logs: Array<{ id: string }> }>("generation-logs.json").logs.map((item) => item.id)).toEqual(["log-two"]);
     });
 
@@ -59,6 +63,7 @@ describe("creative entity deletion file provider", () => {
         expect(file<{ projects: Array<{ project: { id: string } }> }>("canvas-projects.json").projects.map((item) => item.project.id)).toEqual(["canvas-two"]);
         expect(file<{ conversations: Array<{ id: string }> }>("creative-runtime.json").conversations.map((item) => item.id)).toEqual(["conversation-two"]);
         expect(file<Array<{ id: string }>>("generation-tasks.json").map((item) => item.id)).toEqual(["run-two"]);
+        expect([...mocks.taskEvents.mock.calls[0][0]]).toEqual(expect.arrayContaining(["run-one"]));
     });
 
     it("deletes a directly requested Canvas assistant conversation without deleting its project", async () => {

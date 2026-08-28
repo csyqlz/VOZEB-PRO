@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import { composeProfiles, docsComposeProfiles, validateComposeContract, validateComposeContracts, validateDocsComposeContract, validateDocsComposeContracts } from "./compose-contract.mjs";
+import { composeProfiles, docsComposeProfiles, validateComposeContract, validateComposeContracts, validateDocsComposeContract, validateDocsComposeContracts, validateUpdaterComposeContract } from "./compose-contract.mjs";
 
 const webRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = path.resolve(webRoot, "..");
@@ -18,6 +18,7 @@ describe("Docker Compose contracts", () => {
             })),
         );
         expect(validateDocsComposeContracts({ repoRoot })).toEqual(docsComposeProfiles.map(({ file }) => ({ file, services: ["docs"] })));
+        expect(validateUpdaterComposeContract({ repoRoot })).toEqual({ file: "docker-compose.updater.yml", services: ["app", "updater"] });
     });
 
     it("rejects a Worker that can bypass the application database boundary", () => {
@@ -29,7 +30,7 @@ describe("Docker Compose contracts", () => {
 
     it("rejects mutable latest release images", () => {
         const profile = composeProfiles.find(({ file }) => file === "docker-compose.yml");
-        const source = readFileSync(path.join(repoRoot, profile.file), "utf8").replaceAll("ghcr.io/csyqlz/vozeb-pro:v0.0.7", "ghcr.io/csyqlz/vozeb-pro:latest");
+        const source = readFileSync(path.join(repoRoot, profile.file), "utf8").replaceAll("ghcr.io/csyqlz/vozeb-pro:v0.0.8", "ghcr.io/csyqlz/vozeb-pro:latest");
 
         expect(() => validateComposeContract(source, profile)).toThrow("app 必须使用当前发布版本的明确镜像");
     });

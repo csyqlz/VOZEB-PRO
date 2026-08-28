@@ -5,8 +5,21 @@ import { createClientSessionEpoch, type ClientSessionStamp } from "@/lib/client-
 import type { CreateDramaProjectInput, DramaCharacter, DramaClue, DramaContentAnalysis, DramaEpisode, DramaProject, DramaProjectSummary, DramaProp, DramaScene, DramaShot, DramaVisualAnalysis } from "@/lib/drama-project-contract";
 import { summarizeDramaProject } from "@/lib/drama-project-summary";
 import type { DramaSourceEpisodeDraft } from "@/lib/drama-source-splitter";
-import { createDramaProject, createDramaProjectVersion, deleteDramaProject, getDramaProject, listDramaProjectSummaries, listDramaProjectVersions, restoreDramaProjectVersion, saveDramaProject } from "@/services/api/drama-projects";
+import {
+    createDramaProject,
+    createDramaProjectVersion,
+    deleteDramaProject,
+    deleteDramaProjectVersion,
+    getDramaProject,
+    listDramaProjectSummaries,
+    listDramaProjectVersions,
+    restoreDramaProjectVersion,
+    saveDramaProject,
+} from "@/services/api/drama-projects";
+import { useConfigStore } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
+import { buildDramaShotInputFingerprints } from "../[id]/drama-shot-input-fingerprint";
+import { applyDramaShotFingerprintUpdate, applyDramaVisualFreshness, type DramaVisualFingerprintUpdate } from "../drama-visual-freshness";
 
 type DramaStore = {
     hydrated: boolean;
@@ -24,7 +37,7 @@ type DramaStore = {
     loadProject: (id: string, force?: boolean) => Promise<DramaProject>;
     createProject: (input: CreateDramaProjectInput) => Promise<string>;
     deleteProject: (id: string) => Promise<void>;
-    updateProject: (id: string, patch: Partial<Pick<DramaProject, "title" | "summary" | "style" | "ratio" | "status" | "creativeConversationId" | "defaultVideoMode">>) => void;
+    updateProject: (id: string, patch: Partial<Pick<DramaProject, "title" | "summary" | "style" | "ratio" | "status" | "creativeConversationId" | "defaultVideoMode" | "imageModel" | "videoModel">>) => void;
     addCharacter: (projectId: string, input: Omit<DramaCharacter, "id">) => void;
     addScene: (projectId: string, input: Omit<DramaScene, "id">) => void;
     addProp: (projectId: string, input: Omit<DramaProp, "id">) => void;
@@ -39,16 +52,17 @@ type DramaStore = {
     updateEpisode: (
         projectId: string,
         episodeId: string,
-        patch: Partial<Pick<DramaEpisode, "episodeNumber" | "title" | "script" | "scriptRichContent" | "outline" | "hook" | "nextPreview" | "sourceRange" | "reviewStatus" | "renderTask" | "visualReview">>,
+        patch: Partial<Pick<DramaEpisode, "episodeNumber" | "title" | "script" | "scriptRichContent" | "outline" | "hook" | "nextPreview" | "sourceRange" | "reviewStatus" | "visualTaskId" | "visualError" | "renderTask" | "visualReview">>,
     ) => void;
     buildStoryboard: (projectId: string, episodeId: string) => void;
     updateShot: (projectId: string, episodeId: string, shotId: string, patch: Partial<DramaShot>) => void;
     queueShots: (projectId: string, episodeId: string, shotIds: string[]) => void;
     applyContentAnalysis: (projectId: string, episodeId: string, analysis: DramaContentAnalysis) => void;
-    applyVisualAnalysis: (projectId: string, episodeId: string, analysis: DramaVisualAnalysis) => void;
+    applyVisualAnalysis: (projectId: string, episodeId: string, analysis: DramaVisualAnalysis, fingerprints: DramaVisualFingerprintUpdate[]) => void;
     replaceProject: (project: DramaProject) => void;
-    createVersion: (project: DramaProject, reason: string) => Promise<void>;
+    createVersion: (project: DramaProject, reason: string, scope?: import("@/lib/drama-project-contract").DramaProjectVersionScope) => Promise<void>;
     listVersions: (projectId: string) => Promise<import("@/lib/drama-project-contract").DramaProjectVersion[]>;
+    deleteVersion: (projectId: string, versionId: string) => Promise<void>;
     restoreVersion: (projectId: string, versionId: string) => Promise<void>;
     queueAudio: (projectId: string, episodeId: string, shotIds: string[]) => void;
     reset: () => void;
@@ -186,29 +200,40 @@ export const useDramaStore = create<DramaStore>((set, get) => ({
         latestProjectTimes.delete(key);
         set((state) => ({ projects: state.projects.filter((project) => project.id !== id), summaries: state.summaries.filter((project) => project.id !== id), summaryTotal: Math.max(0, state.summaryTotal - 1) }));
     },
-    updateProject: (id, patch) => mutateProject(id, (project) => ({ ...project, ...patch })),
+    updateProject: (id, patch) =>
+        mutateProject(id, (project) => {
+            const next = { ...project, ...patch };
+            return reconcileProjectGenerationInputs(project, next, "项目生成设置已更新");
+        }),
     addCharacter: (projectId, input) => mutateProject(projectId, (project) => ({ ...project, characters: [...project.characters, { ...input, id: `character-${nanoid()}` }] })),
     addScene: (projectId, input) => mutateProject(projectId, (project) => ({ ...project, scenes: [...project.scenes, { ...input, id: `scene-${nanoid()}` }] })),
     addProp: (projectId, input) => mutateProject(projectId, (project) => ({ ...project, props: [...project.props, { ...input, id: `prop-${nanoid()}` }] })),
     addClue: (projectId, input) => mutateProject(projectId, (project) => ({ ...project, clues: [...project.clues, { ...input, id: `clue-${nanoid()}` }] })),
-    updateAsset: (projectId, kind, id, patch) => mutateProject(projectId, (project) => ({ ...project, [kind]: project[kind].map((item) => (item.id === id ? { ...item, ...patch, id } : item)) })),
+    updateAsset: (projectId, kind, id, patch) =>
+        mutateProject(projectId, (project) => {
+            const next = { ...project, [kind]: project[kind].map((item) => (item.id === id ? { ...item, ...patch, id } : item)) };
+            return reconcileProjectGenerationInputs(project, next, "项目资产已更新");
+        }),
     removeAsset: (projectId, kind, id) =>
-        mutateProject(projectId, (project) => ({
-            ...project,
-            [kind]: project[kind].filter((item) => item.id !== id),
-            episodes: project.episodes.map((episode) => ({
-                ...episode,
-                shots: episode.shots.map((shot) =>
-                    kind === "characters"
-                        ? { ...shot, characterIds: shot.characterIds.filter((value) => value !== id) }
-                        : kind === "scenes"
-                          ? { ...shot, sceneId: shot.sceneId === id ? undefined : shot.sceneId }
-                          : kind === "props"
-                            ? { ...shot, propIds: shot.propIds.filter((value) => value !== id) }
-                            : { ...shot, clueIds: shot.clueIds.filter((value) => value !== id) },
-                ),
-            })),
-        })),
+        mutateProject(projectId, (project) => {
+            const next = {
+                ...project,
+                [kind]: project[kind].filter((item) => item.id !== id),
+                episodes: project.episodes.map((episode) => ({
+                    ...episode,
+                    shots: episode.shots.map((shot) =>
+                        kind === "characters"
+                            ? { ...shot, characterIds: shot.characterIds.filter((value) => value !== id) }
+                            : kind === "scenes"
+                              ? { ...shot, sceneId: shot.sceneId === id ? undefined : shot.sceneId }
+                              : kind === "props"
+                                ? { ...shot, propIds: shot.propIds.filter((value) => value !== id) }
+                                : { ...shot, clueIds: shot.clueIds.filter((value) => value !== id) },
+                    ),
+                })),
+            };
+            return reconcileProjectGenerationInputs(project, next, "项目资产已移除");
+        }),
     addEpisode: (projectId) =>
         mutateProject(projectId, (project) => {
             const episode: DramaEpisode = {
@@ -258,73 +283,24 @@ export const useDramaStore = create<DramaStore>((set, get) => ({
             const title = /^第\s*\d+\s*集$/u.test(current.title.trim()) && current.title.trim() === `第 ${currentNumber} 集` ? `第 ${nextNumber} 集` : current.title;
             return { ...project, episodes: project.episodes.map((episode) => (episode.id === episodeId ? { ...episode, episodeNumber: nextNumber, title } : episode)) };
         }),
-    updateEpisode: (projectId, episodeId, patch) => mutateProject(projectId, (project) => ({ ...project, episodes: project.episodes.map((episode) => (episode.id === episodeId ? { ...episode, ...patch } : episode)) })),
+    updateEpisode: (projectId, episodeId, patch) =>
+        mutateProject(projectId, (project) => {
+            const next = { ...project, episodes: project.episodes.map((episode) => (episode.id === episodeId ? { ...episode, ...patch } : episode)) };
+            return reconcileProjectGenerationInputs(project, next, "剧集生成设置已更新");
+        }),
     buildStoryboard: (projectId, episodeId) =>
         mutateProject(projectId, (project) => ({ ...project, episodes: project.episodes.map((episode) => (episode.id === episodeId ? { ...episode, shots: scriptToShots(episode.script, project), renderTask: undefined } : episode)) })),
     updateShot: (projectId, episodeId, shotId, patch) =>
         mutateProject(projectId, (project) => ({
             ...project,
-            episodes: project.episodes.map((episode) => (episode.id === episodeId ? { ...episode, shots: episode.shots.map((shot) => (shot.id === shotId ? { ...shot, ...patch } : shot)) } : episode)),
+            episodes: project.episodes.map((episode) => (episode.id === episodeId ? { ...episode, shots: episode.shots.map((shot) => (shot.id === shotId ? applyShotPatch(project, episode, shot, patch) : shot)) } : episode)),
         })),
     queueShots: (projectId, episodeId, shotIds) =>
         mutateProject(projectId, (project) => {
             if (project.episodes.find((episode) => episode.id === episodeId)?.reviewStatus !== "visual_ready") return project;
-            return updateShots(project, episodeId, shotIds, (shot) =>
-                (shot.videoMode || project.defaultVideoMode) !== "storyboard"
-                    ? {
-                          ...shot,
-                          generationStatus: "queued",
-                          generationAttempt: (shot.generationAttempt || 0) + 1,
-                          generationTaskId: undefined,
-                          generationError: undefined,
-                          videoUrl: undefined,
-                          audioStatus: "idle",
-                          audioTaskId: undefined,
-                          audioUrl: undefined,
-                      }
-                    : shot.storyboardStatus === "success" && shot.storyboardImageUrl && (shot.storyboardFrameMode !== "first_last" || (shot.storyboardEndStatus === "success" && shot.storyboardEndImageUrl))
-                      ? {
-                            ...shot,
-                            generationStatus: "queued",
-                            generationAttempt: (shot.generationAttempt || 0) + 1,
-                            generationTaskId: undefined,
-                            generationError: undefined,
-                            videoUrl: undefined,
-                            audioStatus: "idle",
-                            audioTaskId: undefined,
-                            audioUrl: undefined,
-                        }
-                      : shot.storyboardStatus === "success" && shot.storyboardImageUrl && shot.storyboardFrameMode === "first_last"
-                        ? {
-                              ...shot,
-                              storyboardEndStatus: "queued",
-                              storyboardEndAttempt: (shot.storyboardEndAttempt || 0) + 1,
-                              storyboardEndTaskId: undefined,
-                              storyboardEndError: undefined,
-                              generationStatus: "idle",
-                              generationTaskId: undefined,
-                              generationError: undefined,
-                              videoUrl: undefined,
-                          }
-                        : {
-                              ...shot,
-                              storyboardStatus: "queued",
-                              storyboardAttempt: (shot.storyboardAttempt || 0) + 1,
-                              storyboardTaskId: undefined,
-                              storyboardError: undefined,
-                              storyboardImageUrl: undefined,
-                              storyboardEndStatus: shot.storyboardEndStatus === "success" && shot.storyboardEndImageUrl ? "success" : "idle",
-                              storyboardEndTaskId: shot.storyboardEndStatus === "success" && shot.storyboardEndImageUrl ? shot.storyboardEndTaskId : undefined,
-                              storyboardEndError: shot.storyboardEndStatus === "success" && shot.storyboardEndImageUrl ? undefined : shot.storyboardEndError,
-                              generationStatus: "idle",
-                              generationTaskId: undefined,
-                              generationError: undefined,
-                              videoUrl: undefined,
-                              audioStatus: "idle",
-                              audioTaskId: undefined,
-                              audioUrl: undefined,
-                          },
-            );
+            const episode = project.episodes.find((item) => item.id === episodeId);
+            if (!episode) return project;
+            return updateShots(project, episodeId, shotIds, (shot) => queueShotGeneration(project, episode, shot));
         }),
     applyContentAnalysis: (projectId, episodeId, analysis) =>
         mutateProject(projectId, (project) => {
@@ -363,6 +339,7 @@ export const useDramaStore = create<DramaStore>((set, get) => ({
                               propIds: shot.propNames.map((name) => propIds.get(normalizeName(name))).filter((id): id is string => Boolean(id)),
                               clueIds: shot.clueNames.map((name) => clueIds.get(normalizeName(name))).filter((id): id is string => Boolean(id)),
                               videoMode: project.defaultVideoMode,
+                              imageModel: project.imageModel,
                               storyboardFrameMode: "single" as const,
                               storyboardStatus: "idle" as const,
                               generationStatus: "idle" as const,
@@ -374,9 +351,10 @@ export const useDramaStore = create<DramaStore>((set, get) => ({
             );
             return { ...project, characters, scenes, props, clues, episodes };
         }),
-    applyVisualAnalysis: (projectId, episodeId, analysis) =>
+    applyVisualAnalysis: (projectId, episodeId, analysis, fingerprints) =>
         mutateProject(projectId, (project) => {
             const visualByShot = new Map(analysis.shots.map((shot) => [shot.shotId, shot]));
+            const fingerprintsByShot = new Map(fingerprints.map((item) => [item.shotId, item]));
             return {
                 ...project,
                 episodes: project.episodes.map((episode) =>
@@ -384,30 +362,10 @@ export const useDramaStore = create<DramaStore>((set, get) => ({
                         ? {
                               ...episode,
                               reviewStatus: "visual_ready" as const,
-                              renderTask: undefined,
                               shots: episode.shots.map((shot) => {
                                   const visual = visualByShot.get(shot.id);
-                                  return visual
-                                      ? {
-                                            ...shot,
-                                            imagePrompt: visual.imagePrompt,
-                                            videoPrompt: visual.videoPrompt,
-                                            cameraMotion: visual.cameraMotion,
-                                            startFramePrompt: visual.startFramePrompt,
-                                            endFramePrompt: visual.endFramePrompt,
-                                            negativePrompt: visual.negativePrompt,
-                                            continuity: visual.continuity,
-                                            storyboardStatus: "idle" as const,
-                                            storyboardTaskId: undefined,
-                                            storyboardImageUrl: undefined,
-                                            storyboardEndStatus: "idle" as const,
-                                            storyboardEndTaskId: undefined,
-                                            storyboardEndImageUrl: undefined,
-                                            generationStatus: "idle" as const,
-                                            generationTaskId: undefined,
-                                            videoUrl: undefined,
-                                        }
-                                      : shot;
+                                  const fingerprint = fingerprintsByShot.get(shot.id);
+                                  return visual && fingerprint ? applyDramaVisualFreshness(shot, visual, fingerprint) : shot;
                               }),
                           }
                         : episode,
@@ -415,10 +373,13 @@ export const useDramaStore = create<DramaStore>((set, get) => ({
             };
         }),
     replaceProject: (project) => set((state) => ({ projects: state.projects.map((item) => (item.id === project.id ? project : item)), summaries: upsertSummary(state.summaries, project) })),
-    createVersion: async (project, reason) => {
-        await createDramaProjectVersion(project, reason);
+    createVersion: async (project, reason, scope) => {
+        await createDramaProjectVersion(project, reason, scope);
     },
     listVersions: (projectId) => listDramaProjectVersions(projectId),
+    deleteVersion: async (projectId, versionId) => {
+        await deleteDramaProjectVersion(projectId, versionId);
+    },
     restoreVersion: async (projectId, versionId) => {
         const session = requireSession();
         const key = sessionEpoch.key(session, projectId);
@@ -438,7 +399,9 @@ export const useDramaStore = create<DramaStore>((set, get) => ({
     queueAudio: (projectId, episodeId, shotIds) =>
         mutateProject(projectId, (project) =>
             updateShots(project, episodeId, shotIds, (shot) =>
-                shot.videoUrl && (shot.subtitle || shot.dialogue).trim() ? { ...shot, audioMode: "voiceover", audioStatus: "queued", audioAttempt: (shot.audioAttempt || 0) + 1, audioTaskId: undefined, audioError: undefined, audioUrl: undefined } : shot,
+                shot.videoUrl && (shot.subtitle || shot.dialogue).trim()
+                    ? { ...shot, audioMode: "voiceover", audioStatus: "queued", audioAttempt: (shot.audioAttempt || 0) + 1, audioTaskId: undefined, audioError: undefined, audioUrl: undefined, audioStorageKey: undefined }
+                    : shot,
             ),
         ),
     reset: () => {
@@ -502,6 +465,98 @@ function normalizeName(value: string) {
 
 function hasActiveShotTask(shot: DramaShot) {
     return [shot.storyboardStatus, shot.storyboardEndStatus, shot.generationStatus, shot.audioStatus].some((status) => status === "queued" || status === "running");
+}
+
+function applyShotPatch(project: DramaProject, episode: DramaEpisode, shot: DramaShot, patch: Partial<DramaShot>) {
+    const config = useConfigStore.getState().config;
+    const before = buildDramaShotInputFingerprints(config, project, episode, shot);
+    const next = { ...shot, ...patch };
+    const after = buildDramaShotInputFingerprints(config, project, episode, next);
+
+    if (patch.storyboardStatus === "queued") next.storyboardAttemptFingerprint = after.storyboard;
+    if (patch.storyboardEndStatus === "queued") next.storyboardEndAttemptFingerprint = after.storyboardEnd;
+    if (patch.generationStatus === "queued") next.videoAttemptFingerprint = after.video;
+
+    if ("storyboardImageUrl" in patch && patch.storyboardImageUrl !== shot.storyboardImageUrl && !("storyboardResultFingerprint" in patch)) {
+        next.storyboardResultFingerprint = patch.storyboardImageUrl ? after.storyboard : undefined;
+        if (!("storyboardImageStorageKey" in patch)) next.storyboardImageStorageKey = undefined;
+    }
+    if ("storyboardEndImageUrl" in patch && patch.storyboardEndImageUrl !== shot.storyboardEndImageUrl && !("storyboardEndResultFingerprint" in patch)) {
+        next.storyboardEndResultFingerprint = patch.storyboardEndImageUrl ? after.storyboardEnd : undefined;
+        if (!("storyboardEndImageStorageKey" in patch)) next.storyboardEndImageStorageKey = undefined;
+    }
+    if ("videoUrl" in patch && patch.videoUrl !== shot.videoUrl && !("videoResultFingerprint" in patch)) {
+        next.videoResultFingerprint = patch.videoUrl ? next.videoAttemptFingerprint || after.video : undefined;
+        if (!("videoStorageKey" in patch)) next.videoStorageKey = undefined;
+    }
+    if ("audioUrl" in patch && patch.audioUrl !== shot.audioUrl && !("audioStorageKey" in patch)) next.audioStorageKey = undefined;
+
+    return applyDramaShotFingerprintUpdate(next, { before, after }, "镜头生成输入已更新");
+}
+
+function reconcileProjectGenerationInputs(beforeProject: DramaProject, afterProject: DramaProject, reason: string) {
+    const config = useConfigStore.getState().config;
+    return {
+        ...afterProject,
+        episodes: afterProject.episodes.map((episode) => {
+            const previousEpisode = beforeProject.episodes.find((item) => item.id === episode.id);
+            if (!previousEpisode) return episode;
+            return {
+                ...episode,
+                shots: episode.shots.map((shot) => {
+                    const previousShot = previousEpisode.shots.find((item) => item.id === shot.id);
+                    if (!previousShot) return shot;
+                    return applyDramaShotFingerprintUpdate(
+                        shot,
+                        {
+                            before: buildDramaShotInputFingerprints(config, beforeProject, previousEpisode, previousShot),
+                            after: buildDramaShotInputFingerprints(config, afterProject, episode, shot),
+                        },
+                        reason,
+                    );
+                }),
+            };
+        }),
+    };
+}
+
+function queueShotGeneration(project: DramaProject, episode: DramaEpisode, shot: DramaShot) {
+    const fingerprints = buildDramaShotInputFingerprints(useConfigStore.getState().config, project, episode, shot);
+    const mode = shot.videoMode || project.defaultVideoMode;
+    const currentStoryboard = shot.storyboardStatus === "success" && shot.storyboardFreshness !== "stale" && Boolean(shot.storyboardImageUrl);
+    const currentEndFrame = shot.storyboardEndStatus === "success" && shot.storyboardEndFreshness !== "stale" && Boolean(shot.storyboardEndImageUrl);
+
+    if (mode === "storyboard" && !currentStoryboard) {
+        return {
+            ...shot,
+            storyboardStatus: "queued" as const,
+            storyboardAttempt: (shot.storyboardAttempt || 0) + 1,
+            storyboardAttemptFingerprint: fingerprints.storyboard,
+            storyboardModel: undefined,
+            storyboardTaskId: undefined,
+            storyboardError: undefined,
+        };
+    }
+    if (mode === "storyboard" && shot.storyboardFrameMode === "first_last" && !currentEndFrame) {
+        return {
+            ...shot,
+            storyboardEndStatus: "queued" as const,
+            storyboardEndAttempt: (shot.storyboardEndAttempt || 0) + 1,
+            storyboardEndAttemptFingerprint: fingerprints.storyboardEnd,
+            storyboardEndModel: undefined,
+            storyboardEndTaskId: undefined,
+            storyboardEndError: undefined,
+        };
+    }
+    return {
+        ...shot,
+        generationStatus: "queued" as const,
+        generationAttempt: (shot.generationAttempt || 0) + 1,
+        videoAttemptFingerprint: fingerprints.video,
+        generationTaskId: undefined,
+        generationModel: shot.generationStatus === "error" || shot.generationStatus === "cancelled" ? shot.generationModel : undefined,
+        generationError: undefined,
+    };
 }
 
 function queueSave(session: ClientSessionStamp, project: DramaProject) {

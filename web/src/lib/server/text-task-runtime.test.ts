@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/server/safe-outbound-fetch", () => ({ fetchSafeOutbound: (url: string | URL, init?: RequestInit) => fetch(url, init) }));
+vi.mock("@/lib/server/internal-origin", () => ({ fetchInternalApi: (url: string | URL, init?: RequestInit) => fetch(url, init), isInternalApiBaseUrl: (baseUrl: string) => baseUrl.startsWith("/") }));
 
 const mocks = vi.hoisted(() => ({
     getTask: vi.fn(),
@@ -78,6 +79,27 @@ describe("text task runtime recovery", () => {
         } finally {
             await new Promise<void>((resolve, reject) => fixture.server.close((error) => (error ? reject(error) : resolve())));
         }
+    });
+
+    it("runs a queued drama visual analysis through the authenticated worker route", async () => {
+        const token = "w".repeat(32);
+        vi.stubEnv("VOZEB_PRO_MAINTENANCE_TOKEN", `${token}-maintenance`);
+        vi.stubEnv("VOZEB_PRO_WORKER_TOKEN", token);
+        state = {
+            ...textTask(openAiConfig("text-channel", "/api/ai/system/text-channel")),
+            surface: "drama",
+            projectId: "project-one",
+            episodeId: "episode-one",
+            dramaAnalysis: { body: { requestId: "drama-visual-one", projectId: "project-one", phase: "visual", shots: [{ id: "shot-one" }] } },
+        };
+        const fetchMock = vi.fn().mockResolvedValue(Response.json({ code: 0, data: { shots: [{ shotId: "shot-one", imagePrompt: "画面", videoPrompt: "视频" }] } }));
+        vi.stubGlobal("fetch", fetchMock);
+
+        await expect(runTextTaskStep(state, "http://internal", "session=test")).resolves.toEqual({ state: "completed" });
+
+        expect(fetchMock).toHaveBeenCalledWith("http://internal/api/drama/analyze", expect.objectContaining({ method: "POST", headers: expect.objectContaining({ authorization: `Bearer ${token}`, "x-vozeb-pro-worker-user-id": "user-one" }) }));
+        expect(state.status).toBe("success");
+        expect(JSON.parse(state.result?.content || "{}")).toMatchObject({ shots: [{ shotId: "shot-one" }] });
     });
 
     it("persists an asynchronous task ID and queries only one step per worker run", async () => {

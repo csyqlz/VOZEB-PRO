@@ -2,6 +2,7 @@ import { resolveDramaShotDuration } from "@/lib/server/drama-shot-config";
 
 export type DramaAnalyzeBody = {
     requestId?: string;
+    projectId?: string;
     phase?: "content" | "visual";
     script?: string;
     summary?: string;

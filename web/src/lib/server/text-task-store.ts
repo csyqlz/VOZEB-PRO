@@ -4,6 +4,7 @@ import type { LogicalModelCapabilityProfile, SystemChannelAdvancedConfig } from 
 import type { AiTextMessage } from "@/types/ai";
 import { createStoredGenerationTask, getStoredGenerationTask, mutateStoredGenerationTask, touchStoredGenerationTask, transitionStoredGenerationTask } from "@/lib/server/generation-task-store";
 import type { GenerationAttempt } from "@/lib/server/generation-attempt";
+import type { GenerationTaskContext } from "@/lib/server/generation-task-store";
 import { GENERATION_TASK_RETENTION_MS } from "@/lib/server/generation-task-retention";
 
 type TextTaskStatus = "pending" | "running" | "success" | "error" | "cancelled";
@@ -21,7 +22,7 @@ export type TextTaskConfig = {
     systemPrompt?: string;
 };
 
-export type TextTask = {
+export type TextTask = GenerationTaskContext & {
     id: string;
     userId: string;
     status: TextTaskStatus;
@@ -37,6 +38,7 @@ export type TextTask = {
     candidateConfigs?: TextTaskConfig[];
     attempts?: GenerationAttempt[];
     attemptNo?: number;
+    dramaAnalysis?: { body: import("@/lib/server/drama-analysis-input").DramaAnalyzeBody };
 };
 
 export async function createTextTask(input: Omit<TextTask, "id" | "status" | "createdAt" | "updatedAt">) {

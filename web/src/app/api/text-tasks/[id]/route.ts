@@ -1,5 +1,6 @@
 import { after, NextResponse } from "next/server";
 
+import { requireGenerationResourceAccess } from "@/app/api/generation-resource-access";
 import { getCurrentUser } from "@/lib/auth/session";
 import { readJsonBodyResult } from "@/lib/auth/request";
 import { runGenerationTaskRecoveryBatch } from "@/lib/server/generation-task-recovery-service";
@@ -26,7 +27,9 @@ export async function GET(request: Request, context: RouteContext) {
 
     const { id } = await context.params;
     const task = await getTextTask(id);
-    if (!task || (task.userId !== currentUser.id && currentUser.role !== "admin")) return NextResponse.json({ error: "任务不存在或已过期" }, { status: 404 });
+    if (!task) return NextResponse.json({ error: "任务不存在或已过期" }, { status: 404 });
+    const blocked = await requireGenerationResourceAccess({ actor: currentUser, ownerUserId: task.userId, capabilityId: "text.generate", adminPermission: "generation.read", notFoundMessage: "任务不存在或已过期" });
+    if (blocked) return blocked;
     const schedule = await getStoredGenerationTaskRecord("text", task.id);
     const executionPhase = schedule?.executionPhase || settledExecutionPhase(task.status);
 
@@ -53,7 +56,9 @@ export async function GET(request: Request, context: RouteContext) {
 export async function POST(request: Request, context: RouteContext) {
     const user = await getCurrentUser(request);
     const task = user ? await getTextTask((await context.params).id) : null;
-    if (!user || !task || (task.userId !== user.id && user.role !== "admin")) return NextResponse.json({ error: "任务不存在或已过期" }, { status: user ? 404 : 401 });
+    if (!user || !task) return NextResponse.json({ error: "任务不存在或已过期" }, { status: user ? 404 : 401 });
+    const blocked = await requireGenerationResourceAccess({ actor: user, ownerUserId: task.userId, capabilityId: "text.generate", adminPermission: "generation.manage", notFoundMessage: "任务不存在或已过期" });
+    if (blocked) return blocked;
     const parsed = await readJsonBodyResult<{ action?: string }>(request);
     if (!parsed.ok) return NextResponse.json({ error: parsed.message }, { status: parsed.status });
     if (parsed.data.action !== "recover") return NextResponse.json({ error: "不支持的文本任务操作" }, { status: 400 });
@@ -87,7 +92,9 @@ export async function POST(request: Request, context: RouteContext) {
 export async function PATCH(request: Request, context: RouteContext) {
     const user = await getCurrentUser(request);
     const task = user ? await getTextTask((await context.params).id) : null;
-    if (!user || !task || (task.userId !== user.id && user.role !== "admin")) return NextResponse.json({ error: "任务不存在或已过期" }, { status: user ? 404 : 401 });
+    if (!user || !task) return NextResponse.json({ error: "任务不存在或已过期" }, { status: user ? 404 : 401 });
+    const blocked = await requireGenerationResourceAccess({ actor: user, ownerUserId: task.userId, capabilityId: "text.generate", adminPermission: "generation.manage", notFoundMessage: "任务不存在或已过期" });
+    if (blocked) return blocked;
     const schedule = await getStoredGenerationTaskRecord("text", task.id);
     const executionPhase = schedule?.executionPhase || settledExecutionPhase(task.status);
     const parsed = await readJsonBodyResult<{ status?: string }>(request);

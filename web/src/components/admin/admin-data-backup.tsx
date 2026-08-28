@@ -69,7 +69,7 @@ export function AdminDataBackup() {
 
     return (
         <>
-            <Panel>
+            <Panel variant="page">
                 <PanelHeader
                     title="数据备份"
                     description="导出和恢复脱敏业务数据；文件模式与 PostgreSQL 使用同一备份格式。"

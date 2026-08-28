@@ -86,19 +86,9 @@ describe("serializePublicSettings", () => {
         const result = serializePublicSettings(settings);
         const serialized = JSON.stringify(result);
 
-        expect(result.systemChannels).toEqual([
-            {
-                id: "channel-one",
-                name: "渠道一",
-                baseUrl: "/api/ai/system/channel-one",
-                apiKey: "system",
-                apiFormat: "openai",
-                models: ["vendor-image"],
-                enabled: true,
-                hasApiKey: true,
-            },
-        ]);
-        expect(result.logicalModels[0]?.bindings[0]).toEqual({ id: "binding-one", channelId: "channel-one", upstreamModel: "vendor-image", enabled: true, priority: 1 });
+        expect(result).not.toHaveProperty("systemChannels");
+        expect(result.logicalModels[0]).toMatchObject({ id: "image-main", name: "图片模型", capability: "image", enabled: true });
+        expect(result.logicalModels[0]).not.toHaveProperty("bindings");
         expect(serialized).not.toContain("provider-secret");
         expect(serialized).not.toContain("internal-provider.example");
         expect(serialized).not.toContain("smtp.internal");
@@ -110,6 +100,7 @@ describe("serializePublicSettings", () => {
         expect(result).not.toHaveProperty("entitlements");
         expect(result).not.toHaveProperty("allowUserApiConfig");
         expect(result).not.toHaveProperty("freeDailyPoints");
+        expect(result).not.toHaveProperty("generationConcurrency");
         expect(result.site).not.toHaveProperty("homeShowcaseMode");
         expect(result.site).not.toHaveProperty("homeShowcaseItems");
         expect(result.site.socials).toEqual(settings.site.socials);

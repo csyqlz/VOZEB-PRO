@@ -97,6 +97,26 @@ describe("generation task scheduler", () => {
         expect(mocks.records[0].resultPayload).toBeUndefined();
     });
 
+    it("clears upstream identity for a direct user retry without a worker lease", async () => {
+        mocks.records[0] = {
+            ...mocks.records[0],
+            upstreamTaskId: "upstream-failed",
+            queryPath: "/jobs/upstream-failed",
+            submittedAt: 500,
+            lastPollAt: 900,
+            resultPayload: { previous: true },
+        };
+
+        await scheduleGenerationTask("image", "due", { executionPhase: "created", nextPollAt: 1_000, lastUpstreamStatus: "user_retry" }, { resetUpstreamIdentity: true });
+
+        expect(mocks.records[0]).toMatchObject({ executionPhase: "created", nextPollAt: 1_000, lastUpstreamStatus: "user_retry" });
+        expect(mocks.records[0].upstreamTaskId).toBeUndefined();
+        expect(mocks.records[0].queryPath).toBeUndefined();
+        expect(mocks.records[0].submittedAt).toBeUndefined();
+        expect(mocks.records[0].lastPollAt).toBeUndefined();
+        expect(mocks.records[0].resultPayload).toBeUndefined();
+    });
+
     it("claims a completed Agent only while a persistent review is due", async () => {
         mocks.records = [{ ...record("review", 900), type: "agent", status: "success", executionPhase: "review_pending" }];
 

@@ -80,7 +80,9 @@ describe("protocol fixture server", () => {
                 tool_choice: { type: "function", function: { name: "analyze_drama_content" } },
             }),
         }).then((value) => value.json());
-        expect(JSON.parse(drama.choices[0].message.tool_calls[0].function.arguments).shots[0].sourceText).toBe(script);
+        const dramaShot = JSON.parse(drama.choices[0].message.tool_calls[0].function.arguments).shots[0];
+        expect(dramaShot.sourceText).toBe(script);
+        expect(dramaShot.utterances).toEqual([{ type: "dialogue", speaker: "主角", text: "测试开始。" }]);
     });
 
     it("serves OpenAI and Stable Diffusion image results", async () => {

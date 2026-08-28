@@ -23,15 +23,16 @@ describe("Drama project Agent references", () => {
 
     it("offers stage-aware actions and keeps the project snapshot semantic without arbitrary array slicing", async () => {
         const source = await readFile(resolve(process.cwd(), "src/app/(user)/drama/[id]/drama-agent-panel.tsx"), "utf8");
-        const snapshotSource = source.slice(source.indexOf("function dramaSnapshot"), source.indexOf("function agentAssetDownloads"));
+        const contextSource = await readFile(resolve(process.cwd(), "src/app/(user)/drama/[id]/drama-agent-context.ts"), "utf8");
+        const snapshotSource = contextSource.slice(contextSource.indexOf("export function dramaSnapshot"), contextSource.indexOf("export function agentAssetDownloads"));
 
         expect(source).toContain("DRAMA_AGENT_STAGE_GUIDES");
-        expect(source).toContain("检查阶段完成度");
-        expect(source).toContain("检查缺失资产");
-        expect(source).toContain("检查一致性");
-        expect(source).toContain("建议下一步");
-        expect(source).toContain("currentStage: stage");
-        expect(source).toContain("agentAssetSnapshot");
+        expect(contextSource).toContain("检查阶段完成度");
+        expect(contextSource).toContain("检查缺失资产");
+        expect(contextSource).toContain("检查一致性");
+        expect(contextSource).toContain("建议下一步");
+        expect(contextSource).toContain("currentStage: stage");
+        expect(contextSource).toContain("agentAssetSnapshot");
         expect(source).toContain('styles={{ wrapper: { maxWidth: "calc(100vw - 8px)" }, body: { padding: 0 } }}');
         expect(source).toContain("size={360}");
         expect(source).toContain("mask={false}");
@@ -76,7 +77,7 @@ describe("Drama project Agent references", () => {
         expect(source).not.toContain("<Input.TextArea");
         expect(source).toContain("dramaAgentMentionAtCursor");
         expect(source).toContain("<DramaAgentMentionPicker");
-        expect(source).toContain("currentTurnReferences");
+        expect(contextSource).toContain("currentTurnReferences");
         expect(source).not.toContain("CompactAgentGenerationSettings");
         expect(source).not.toContain("generationPreferences");
         expect(source).not.toContain("preferences: submission.preferences");

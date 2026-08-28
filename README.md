@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="web/public/logo.svg?v=0.0.7" width="108" alt="VOZEB PRO logo">
+  <img src="web/public/logo.svg?v=0.0.8" width="108" alt="VOZEB PRO logo">
 </p>
 
 <h1 align="center">VOZEB PRO</h1>
@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="https://github.com/csyqlz/VOZEB-PRO"><img src="https://img.shields.io/github/stars/csyqlz/VOZEB-PRO?style=flat-square&logo=github" alt="GitHub stars"></a>
-  <a href="VERSION"><img src="https://img.shields.io/badge/version-v0.0.7-2563eb?style=flat-square" alt="Version"></a>
+  <a href="VERSION"><img src="https://img.shields.io/badge/version-v0.0.8-2563eb?style=flat-square" alt="Version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-BUSL--1.1-f97316?style=flat-square" alt="License"></a>
   <a href="https://nextjs.org/"><img src="https://img.shields.io/badge/Next.js-16.2-000000?style=flat-square&logo=nextdotjs" alt="Next.js"></a>
   <a href="https://www.postgresql.org/"><img src="https://img.shields.io/badge/PostgreSQL-16-4169e1?style=flat-square&logo=postgresql" alt="PostgreSQL"></a>
@@ -396,7 +396,7 @@ VOZEB PRO 调用外部 AI 模型，不要求 GPU。服务器主要承担 Web、P
 
 ## 快速开始
 
-> 安装过 0.0.2 的用户必须先删除旧数据库或数据库卷，再重新安装 0.0.7，并通过 `/install` 重新初始化数据库；不支持沿用旧数据库或原地升级。
+> 安装过 0.0.2 的用户必须先删除旧数据库或数据库卷，再重新安装 0.0.8，并通过 `/install` 重新初始化数据库；不支持沿用旧数据库或原地升级。
 
 ### Docker Compose
 
@@ -417,9 +417,11 @@ VOZEB_PRO_ENCRYPTION_KEY=replace-with-openssl-rand-hex-32
 VOZEB_PRO_INSTALL_TOKEN=replace-with-one-time-openssl-rand-hex-32
 VOZEB_PRO_MAINTENANCE_TOKEN=replace-with-another-openssl-rand-hex-32
 VOZEB_PRO_WORKER_TOKEN=replace-with-a-distinct-openssl-rand-hex-32
+# 可选：后台一键升级专用令牌，必须与前三者不同
+VOZEB_PRO_UPDATER_TOKEN=replace-with-a-distinct-openssl-rand-hex-32
 ```
 
-为四个变量分别执行一次下面的命令，并保存每次不同的输出。维护令牌与 Worker 令牌必须不同：
+为敏感令牌分别执行一次下面的命令，并保存每次不同的输出。安装、维护、Worker 与在线升级令牌必须彼此不同：
 
 ```bash
 openssl rand -hex 32
@@ -434,6 +436,15 @@ docker compose ps
 ```
 
 `VOZEB_PRO_INSTALL_TOKEN` 只用于初始化数据库和创建首个管理员，必须从服务器 `.env` 粘贴到安装向导；安装完成后可从环境变量中移除。`VOZEB_PRO_MAINTENANCE_TOKEN` 只授权外部计划维护任务，`VOZEB_PRO_WORKER_TOKEN` 只授权 App 与生成 Worker 的内部任务领取、心跳和回调。Worker 不读取包含数据库、支付、安装令牌或外部维护令牌的完整 `.env`。完整变量说明见[配置说明](docs/content/docs/overview/configuration.mdx)。
+
+需要在后台“版本更新”执行 GitHub Release 在线升级时，使用受控 Overlay 启动；它会在停机前拉取并校验官方签名镜像，再停止应用与 Worker 创建灾备恢复点，切换后同时验证 Web 存活、数据库与 Worker 就绪状态，失败自动回退应用镜像：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.updater.yml pull
+docker compose -f docker-compose.yml -f docker-compose.updater.yml up -d
+```
+
+升级器独占 Docker Socket，只在 Compose 内网监听；不要给主应用挂载 Docker Socket或把升级器端口暴露到公网。完整安全边界和数据库恢复说明见 [Docker 部署](docs/content/docs/overview/docker.mdx)。
 
 打开 `https://你的域名/install`，依次检查数据库、初始化表结构并创建首个管理员。
 

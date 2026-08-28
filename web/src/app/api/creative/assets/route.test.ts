@@ -2,10 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
     getCurrentUser: vi.fn(),
+    requireCapability: vi.fn(),
     uploadAssetForUser: vi.fn(),
 }));
 
 vi.mock("@/lib/auth/session", () => ({ getCurrentUser: mocks.getCurrentUser }));
+vi.mock("@/app/api/vozeb-cms-capability", () => ({ requireVozebCmsCapability: mocks.requireCapability }));
 vi.mock("@/lib/server/creative-runtime-service", () => ({
     CreativeRuntimeServiceError: class CreativeRuntimeServiceError extends Error {
         constructor(
@@ -24,6 +26,7 @@ describe("POST /api/creative/assets", () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.getCurrentUser.mockResolvedValue({ id: "user-one" });
+        mocks.requireCapability.mockResolvedValue(null);
         mocks.uploadAssetForUser.mockResolvedValue({ id: "asset-one", type: "audio" });
     });
 
@@ -32,6 +35,14 @@ describe("POST /api/creative/assets", () => {
         const response = await POST(request("conversation-one", new File(["audio"], "voice.mp3", { type: "audio/mpeg" })));
 
         expect(response.status).toBe(401);
+        expect(mocks.uploadAssetForUser).not.toHaveBeenCalled();
+    });
+
+    it("requires the unified asset capability", async () => {
+        mocks.requireCapability.mockResolvedValueOnce(new Response(JSON.stringify({ code: 403 }), { status: 403 }));
+        const response = await POST(request("conversation-one", new File(["audio"], "voice.mp3", { type: "audio/mpeg" })));
+
+        expect(response.status).toBe(403);
         expect(mocks.uploadAssetForUser).not.toHaveBeenCalled();
     });
 

@@ -52,6 +52,8 @@ const loadUsersSection = () => import("./admin-users-section").then((module) => 
 const loadLogsSection = () => import("./admin-logs-section").then((module) => module.AdminLogsSection);
 const loadGenerationOperationsSection = () => import("./admin-generation-operations-section").then((module) => module.AdminGenerationOperationsSection);
 const loadAccountDeletionSection = () => import("./admin-account-deletion-section").then((module) => module.AdminAccountDeletionSection);
+const loadModulesSection = () => import("@/app/admin/components/admin-modules-section").then((module) => module.AdminModulesSection);
+const loadWorkflowsSection = () => import("@/app/admin/components/admin-workflows-section").then((module) => module.AdminWorkflowsSection);
 
 const sectionLoaders: Partial<Record<AdminSectionKey, () => Promise<unknown>>> = {
     site: loadSiteSection,
@@ -79,6 +81,8 @@ const sectionLoaders: Partial<Record<AdminSectionKey, () => Promise<unknown>>> =
     logs: loadLogsSection,
     generationOperations: loadGenerationOperationsSection,
     accountDeletion: loadAccountDeletionSection,
+    modules: loadModulesSection,
+    workflows: loadWorkflowsSection,
 };
 
 const AdminSiteSection = dynamic(loadSiteSection, { loading: AdminSectionLoading });
@@ -106,6 +110,8 @@ const AdminUsersSection = dynamic(loadUsersSection, { loading: AdminSectionLoadi
 const AdminLogsSection = dynamic(loadLogsSection, { loading: AdminSectionLoading });
 const AdminGenerationOperationsSection = dynamic(loadGenerationOperationsSection, { loading: AdminSectionLoading });
 const AdminAccountDeletionSection = dynamic(loadAccountDeletionSection, { loading: AdminSectionLoading });
+const AdminModulesSection = dynamic(loadModulesSection, { loading: AdminSectionLoading });
+const AdminWorkflowsSection = dynamic(loadWorkflowsSection, { loading: AdminSectionLoading });
 
 function AdminSectionLoading() {
     return <div className="flex min-h-36 items-center justify-center text-sm text-zinc-500 dark:text-zinc-400">正在加载分区...</div>;
@@ -179,10 +185,9 @@ export function AdminDashboard(props: AdminDashboardProps) {
                             >
                                 <Menu className="size-4" />
                             </button>
-                            <div className="min-w-0 items-center gap-2 text-xs text-zinc-400 lg:flex">
-                                <span>后台</span>
-                                <span>/</span>
-                                <strong className="truncate font-medium text-zinc-700 dark:text-zinc-300">{activeSectionInfo.label}</strong>
+                            <div className="hidden min-w-0 lg:block">
+                                <strong className="block truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">{activeSectionInfo.label}</strong>
+                                <span className="mt-0.5 block max-w-xl truncate text-[10px] text-zinc-400 dark:text-zinc-500">{activeSectionInfo.description}</span>
                             </div>
                         </div>
                         <div className="admin-dashboard-actions flex min-w-0 items-center gap-2 sm:justify-end">
@@ -211,11 +216,8 @@ export function AdminDashboard(props: AdminDashboardProps) {
                     </div>
                 </header>
 
-                <div className="mx-auto w-full max-w-[1600px] min-w-0 space-y-3 px-3 py-3 sm:space-y-5 sm:px-6 sm:py-6 lg:px-8 xl:px-9 xl:py-7">
-                    <section className="border-b border-zinc-200 pb-3 sm:pb-5 dark:border-zinc-800">
-                        <h1 className="text-lg font-semibold text-zinc-950 sm:text-xl dark:text-zinc-100">{activeSectionInfo.label}</h1>
-                        <div className="mt-1 line-clamp-2 max-w-3xl text-xs leading-5 text-zinc-500 sm:mt-1.5 sm:line-clamp-none sm:text-sm sm:leading-6 dark:text-zinc-400">{activeSectionInfo.description}</div>
-                    </section>
+                <div className="mx-auto w-full max-w-[1600px] min-w-0 space-y-3 px-3 py-3 sm:space-y-5 sm:px-6 sm:py-5 lg:px-8 xl:px-9 xl:py-5">
+                    <h1 className="sr-only">{activeSectionInfo.label}</h1>
 
                     {activeSection === "overview" ? (
                         <AdminOverview
@@ -236,6 +238,8 @@ export function AdminDashboard(props: AdminDashboardProps) {
                     {activeSection === "site" ? <AdminSiteSection controller={controller} /> : null}
                     {activeSection === "settings" ? <AdminSettingsSection controller={controller} /> : null}
                     {activeSection === "accountDeletion" ? <AdminAccountDeletionSection active /> : null}
+                    {activeSection === "modules" ? <AdminModulesSection /> : null}
+                    {activeSection === "workflows" ? <AdminWorkflowsSection /> : null}
                     {activeSection === "mediaStorage" ? <AdminMediaStorageSection controller={controller} /> : null}
                     {activeSection === "externalStorage" ? <AdminExternalStorageSection controller={controller} /> : null}
                     {activeSection === "backup" ? <AdminBackupSection controller={controller} /> : null}

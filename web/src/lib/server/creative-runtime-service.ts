@@ -137,16 +137,16 @@ export async function registerGenerationTaskAssetsForUser(
         assets: Array<{ type: "image" | "video" | "audio"; url: string; mimeType?: string; width?: number; height?: number; durationMs?: number; bytes?: number }>;
     },
 ) {
-    if (!input.conversationId || !input.assets.length) return [];
-    await getConversationForUser(userId, input.conversationId);
+    if (!input.assets.length) return [];
+    const conversationId = await resolveGenerationAssetConversation(userId, input);
     return registerCreativeAssets(
         input.assets.map((asset, ordinal) => {
             const remoteUrl = /^https?:\/\//i.test(asset.url) ? asset.url : undefined;
             const serverUrl = asset.url.startsWith("/") ? asset.url : undefined;
             return {
                 userId,
-                conversationId: input.conversationId!,
-                sourceRunId: input.runId || `${input.surface || "task"}:${input.projectId || input.conversationId}`,
+                conversationId,
+                sourceRunId: input.runId || `${input.surface || "task"}:${input.projectId || conversationId}`,
                 sourceTaskId: input.taskId,
                 ordinal,
                 type: asset.type,
@@ -163,6 +163,21 @@ export async function registerGenerationTaskAssetsForUser(
             };
         }),
     );
+}
+
+async function resolveGenerationAssetConversation(userId: string, input: { conversationId?: string; surface?: "chat" | "canvas" | "drama"; projectId?: string; title: string }) {
+    if (input.conversationId) {
+        await getConversationForUser(userId, input.conversationId);
+        return input.conversationId;
+    }
+
+    const surface = input.surface || "chat";
+    const source = creativeConversationSourceForSurface(surface);
+    const existing = await listCreativeConversations(userId, { surface, source, projectId: input.projectId, status: "active", limit: 1 });
+    if (existing[0]) return existing[0].id;
+
+    const created = await createCreativeConversation(userId, { surface, source, projectId: input.projectId, title: `${input.title || "生成任务"}资产` });
+    return created.id;
 }
 
 function normalizeStatus(value: unknown): CreativeConversationStatus | undefined {

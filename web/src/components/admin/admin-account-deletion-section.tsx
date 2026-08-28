@@ -104,7 +104,7 @@ export function AdminAccountDeletionSection({ active }: { active: boolean }) {
     ];
 
     return (
-        <Panel>
+        <Panel variant="page">
             <PanelHeader
                 title="注销申请"
                 description="受理仅代表进入线下注销处理，不会自动停用账号或删除订单、创作数据和媒体。"
@@ -114,24 +114,30 @@ export function AdminAccountDeletionSection({ active }: { active: boolean }) {
                     </Button>
                 }
             />
-            <div className="grid gap-3 border-b border-zinc-200 bg-zinc-50/50 p-3 sm:grid-cols-[minmax(0,1fr)_180px_auto] sm:p-5 dark:border-zinc-800 dark:bg-zinc-900/20">
-                <Input allowClear prefix={<Search className="size-4 text-zinc-400" />} placeholder="搜索用户名、昵称、邮箱或用户 ID" value={keyword} onChange={(event) => setKeyword(event.target.value)} onPressEnter={() => void load(1)} />
-                <Select
-                    allowClear
-                    placeholder="全部状态"
-                    value={status}
-                    options={[
-                        { value: "pending", label: "待处理" },
-                        { value: "accepted", label: "已受理" },
-                        { value: "rejected", label: "已拒绝" },
-                        { value: "withdrawn", label: "已撤回" },
-                    ]}
-                    onChange={(value) => setStatus(value)}
-                />
-                <Button type="primary" icon={<Search className="size-4" />} onClick={() => void load(1)}>
-                    查询
-                </Button>
-            </div>
+            <section className="admin-panel-surface min-w-0 overflow-hidden rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+                <div className="grid gap-2 border-b border-zinc-200 bg-zinc-50/50 p-3 md:grid-cols-[minmax(260px,360px)_160px_auto] md:items-center md:justify-start sm:p-4 dark:border-zinc-800 dark:bg-zinc-900/20">
+                    <div className="min-w-0">
+                        <Input className="w-full" allowClear prefix={<Search className="size-4 text-zinc-400" />} placeholder="搜索用户名、昵称、邮箱或用户 ID" value={keyword} onChange={(event) => setKeyword(event.target.value)} onPressEnter={() => void load(1)} />
+                    </div>
+                    <div className="min-w-0">
+                        <Select
+                            className="w-full"
+                            allowClear
+                            placeholder="全部状态"
+                            value={status}
+                            options={[
+                                { value: "pending", label: "待处理" },
+                                { value: "accepted", label: "已受理" },
+                                { value: "rejected", label: "已拒绝" },
+                                { value: "withdrawn", label: "已撤回" },
+                            ]}
+                            onChange={(value) => setStatus(value)}
+                        />
+                    </div>
+                    <Button type="primary" icon={<Search className="size-4" />} onClick={() => void load(1)}>
+                        查询
+                    </Button>
+                </div>
 
             {screens.md ? (
                 <Table rowKey="id" columns={columns} dataSource={items} loading={loading} pagination={{ current: page, pageSize: PAGE_SIZE, total, showSizeChanger: false, hideOnSinglePage: true, onChange: (nextPage) => void load(nextPage) }} />
@@ -163,6 +169,7 @@ export function AdminAccountDeletionSection({ active }: { active: boolean }) {
                     {total > PAGE_SIZE ? <Pagination size="small" current={page} pageSize={PAGE_SIZE} total={total} showSizeChanger={false} onChange={(nextPage) => void load(nextPage)} /> : null}
                 </div>
             )}
+            </section>
 
             <Modal
                 title={reviewing?.status === "accepted" ? "受理注销申请" : "拒绝注销申请"}

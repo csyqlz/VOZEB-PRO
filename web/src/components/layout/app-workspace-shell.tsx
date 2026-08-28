@@ -10,7 +10,8 @@ import { isFullscreenWorkspacePath } from "@/components/layout/app-workspace-pat
 import { MobileNavDrawer } from "@/components/layout/mobile-nav-drawer";
 import { SiteLogo } from "@/components/layout/site-logo";
 import { UserStatusActions } from "@/components/layout/user-status-actions";
-import { navigationToolForPathname } from "@/constant/navigation-tools";
+import { defaultWorkspaceHref, navigationToolForPathname } from "@/constant/navigation-tools";
+import type { VozebCmsModuleId } from "@/lib/vozeb-cms/module-contract";
 import { DEFAULT_SITE_TITLE, resolveSiteTitle } from "@/lib/site-brand";
 import { usePublicSessionStore } from "@/stores/use-public-session-store";
 
@@ -20,7 +21,7 @@ const PAGE_TITLES: Record<string, string> = {
     profile: "个人中心",
 };
 
-export function AppWorkspaceShell({ children }: { children: ReactNode }) {
+export function AppWorkspaceShell({ children, enabledModuleIds }: { children: ReactNode; enabledModuleIds?: readonly VozebCmsModuleId[] }) {
     const pathname = usePathname();
     const [mobileNavOpen, setMobileNavOpen] = useState(false);
     const [sidebarExpanded, setSidebarExpanded] = useState(true);
@@ -30,12 +31,13 @@ export function AppWorkspaceShell({ children }: { children: ReactNode }) {
     const fullscreen = isFullscreenWorkspacePath(pathname);
     const rootSlug = pathname.split("/").filter(Boolean)[0] || "";
     const pageTitle = tool?.label || PAGE_TITLES[rootSlug] || "工作空间";
+    const workspaceHref = defaultWorkspaceHref(enabledModuleIds);
 
     if (fullscreen) return <div className="h-dvh min-h-0 overflow-hidden">{children}</div>;
 
     return (
         <div className="workspace-shell flex h-dvh min-h-0 overflow-hidden bg-white text-foreground dark:bg-[#111316]">
-            <AppSidebar activeToolSlug={tool?.slug} expanded={sidebarExpanded} />
+            <AppSidebar activeToolSlug={tool?.slug} expanded={sidebarExpanded} enabledModuleIds={enabledModuleIds} />
             <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
                 <header className="flex h-16 shrink-0 items-center justify-between gap-3 border-b border-[#eaecf0] bg-white/96 px-3 backdrop-blur-xl sm:px-4 lg:px-7 dark:border-[#292d33] dark:bg-[#111316]/95">
                     <div className="flex min-w-0 items-center gap-2.5">
@@ -48,7 +50,7 @@ export function AppWorkspaceShell({ children }: { children: ReactNode }) {
                         >
                             <Menu className="size-5" />
                         </button>
-                        <Link href="/create" className="inline-flex shrink-0 items-center lg:hidden" aria-label={siteTitle}>
+                        <Link href={workspaceHref} className="inline-flex shrink-0 items-center lg:hidden" aria-label={siteTitle}>
                             <SiteLogo logoUrl={site.logoUrl} className="size-6" />
                         </Link>
                         <button
@@ -71,7 +73,7 @@ export function AppWorkspaceShell({ children }: { children: ReactNode }) {
                 </header>
                 <div className="min-h-0 min-w-0 flex-1 overflow-hidden bg-white dark:bg-[#111316]">{children}</div>
             </div>
-            <MobileNavDrawer open={mobileNavOpen} activeToolSlug={tool?.slug} onClose={() => setMobileNavOpen(false)} />
+            <MobileNavDrawer open={mobileNavOpen} activeToolSlug={tool?.slug} enabledModuleIds={enabledModuleIds} onClose={() => setMobileNavOpen(false)} />
         </div>
     );
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { directAgentPlan, directGenerationPreferences, normalizeTasks, planToOps, readFunctionCallResult, taskResultOps } from "./agent-run-execution";
+import { agentModelOptions, assertAgentPlanVozebCmsCapabilities, directAgentPlan, directGenerationPreferences, normalizeTasks, planToOps, readFunctionCallResult, taskResultOps } from "./agent-run-execution";
 import { agentSurfaceImageSize, normalizeCanvasPlanForSelection, resolveAgentTaskRatio } from "./agent-run-task-input";
 
 describe("directAgentPlan", () => {
@@ -21,6 +21,15 @@ describe("directAgentPlan", () => {
 
     it("拒绝把文本规划模型作为直接媒体模型", () => {
         expect(() => directAgentPlan([{ id: "planner", name: "规划模型", capability: "text", capabilityProfile: undefined }], "你好", [])).toThrow("当前模型不支持直接生成媒体");
+    });
+
+    it("不向 Agent 暴露已停用模块的模型并拒绝绕过规划结果", () => {
+        const enabled = new Set(["agent.run", "text.generate", "video.generate", "audio.generate"]);
+        const models = agentModelOptions(generationSettings() as never, enabled);
+        const imagePlan = directAgentPlan([{ id: "image-pro", name: "专业图片模型", capability: "image", capabilityProfile: undefined }], "生成商品主图", []);
+
+        expect(models.map((model) => model.capability)).toEqual(["text", "video", "audio"]);
+        expect(() => assertAgentPlanVozebCmsCapabilities(imagePlan, enabled)).toThrow("图片生成模块当前不可用");
     });
 
     it("把多模型图片数量按本轮总数分配而不是逐模型倍增", () => {

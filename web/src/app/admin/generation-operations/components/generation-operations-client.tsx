@@ -2,7 +2,7 @@
 
 import { App, Button, Input, Modal, Pagination, Select, Table, Tag, Tooltip } from "antd";
 import type { TableColumnsType } from "antd";
-import { Activity, CircleCheckBig, CircleStop, Clock3, Coins, RefreshCw, RotateCcw, Route, ShieldAlert } from "lucide-react";
+import { Activity, CircleCheckBig, CircleStop, Clock3, Coins, PanelRightOpen, RefreshCw, RotateCcw, Route, ShieldAlert } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Panel, PanelHeader } from "@/components/admin/admin-panel";
@@ -10,7 +10,9 @@ import { AdminUserIdentity } from "@/components/admin/admin-user-identity";
 import type { AdminGenerationOperationsPayload, AdminGenerationTask } from "@/lib/admin-generation-operations";
 import { GenerationChannelStatus } from "./generation-channel-status";
 import { AgentFailureSummary, AgentPlannerAuditSummary, executionPhaseLabel, GenerationTaskRuntimeSummary, generationTaskPointsLabel } from "./generation-operation-task-details";
+import { formatGenerationDuration } from "./generation-operations-format";
 import { generationOperationStatusTagClass, generationOperationThemeClasses } from "./generation-operations-theme";
+import { GenerationTaskDetailsDrawer } from "./generation-task-details-drawer";
 
 const PAGE_SIZE = 20;
 
@@ -29,6 +31,8 @@ export function GenerationOperationsClient() {
     const [reviewAction, setReviewAction] = useState<"resume_upstream" | "provide_result" | "confirm_failed">("resume_upstream");
     const [reviewValue, setReviewValue] = useState("");
     const [reviewing, setReviewing] = useState(false);
+    const [inspectingTask, setInspectingTask] = useState<AdminGenerationTask>();
+    const [lastUpdatedAt, setLastUpdatedAt] = useState<number>();
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -42,6 +46,7 @@ export function GenerationOperationsClient() {
             const payload = (await response.json().catch(() => ({}))) as { data?: AdminGenerationOperationsPayload; msg?: string };
             if (!response.ok || !payload.data) throw new Error(payload.msg || "任务数据加载失败");
             setData(payload.data);
+            setLastUpdatedAt(Date.now());
         } catch (error) {
             message.error(error instanceof Error ? error.message : "任务数据加载失败");
         } finally {
@@ -53,34 +58,37 @@ export function GenerationOperationsClient() {
         void load();
     }, [load]);
 
-    const runAction = async (task: AdminGenerationTask, action: "cancel" | "retry") => {
-        setActingId(`${task.id}:${action}`);
-        try {
-            const url =
-                action === "retry"
-                    ? `/api/agent/runs/${encodeURIComponent(task.id)}/tasks/${encodeURIComponent(task.retryTaskId || "")}/retry`
-                    : task.type === "agent"
-                      ? `/api/agent/runs/${encodeURIComponent(task.id)}/cancel`
-                      : task.type === "render"
-                        ? `/api/drama/render/${encodeURIComponent(task.id)}`
-                        : `/api/${task.type}-tasks/${encodeURIComponent(task.id)}`;
-            const response = await fetch(url, action === "retry" || task.type === "agent" ? { method: "POST" } : { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "cancelled" }) });
-            const payload = (await response.json().catch(() => ({}))) as { msg?: string; error?: string };
-            if (!response.ok) throw new Error(payload.msg || payload.error || "任务操作失败");
-            message.success(action === "retry" ? "失败子任务已重新提交" : "任务已取消");
-            await load();
-        } catch (error) {
-            message.error(error instanceof Error ? error.message : "任务操作失败");
-        } finally {
-            setActingId("");
-        }
-    };
+    const runAction = useCallback(
+        async (task: AdminGenerationTask, action: "cancel" | "retry") => {
+            setActingId(`${task.id}:${action}`);
+            try {
+                const url =
+                    action === "retry"
+                        ? `/api/agent/runs/${encodeURIComponent(task.id)}/tasks/${encodeURIComponent(task.retryTaskId || "")}/retry`
+                        : task.type === "agent"
+                          ? `/api/agent/runs/${encodeURIComponent(task.id)}/cancel`
+                          : task.type === "render"
+                            ? `/api/drama/render/${encodeURIComponent(task.id)}`
+                            : `/api/${task.type}-tasks/${encodeURIComponent(task.id)}`;
+                const response = await fetch(url, action === "retry" || task.type === "agent" ? { method: "POST" } : { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "cancelled" }) });
+                const payload = (await response.json().catch(() => ({}))) as { msg?: string; error?: string };
+                if (!response.ok) throw new Error(payload.msg || payload.error || "任务操作失败");
+                message.success(action === "retry" ? "失败子任务已重新提交" : "任务已取消");
+                await load();
+            } catch (error) {
+                message.error(error instanceof Error ? error.message : "任务操作失败");
+            } finally {
+                setActingId("");
+            }
+        },
+        [load, message],
+    );
 
-    const openReview = (task: AdminGenerationTask) => {
+    const openReview = useCallback((task: AdminGenerationTask) => {
         setReviewingTask(task);
         setReviewAction("resume_upstream");
         setReviewValue(task.upstreamTaskId || "");
-    };
+    }, []);
 
     const submitReview = async () => {
         if (!reviewingTask) return;
@@ -114,7 +122,7 @@ export function GenerationOperationsClient() {
             {
                 title: "任务",
                 dataIndex: "id",
-                width: 260,
+                width: 220,
                 render: (_, task) => (
                     <div className="min-w-0">
                         <div className="flex items-center gap-2">
@@ -124,12 +132,15 @@ export function GenerationOperationsClient() {
                         <Tooltip title={task.id}>
                             <div className="mt-2 truncate font-mono text-xs text-zinc-500 dark:text-zinc-400">{task.id}</div>
                         </Tooltip>
+                        <Button aria-label="查看任务详情" className="-ml-2 mt-0.5 px-2" type="link" size="small" icon={<PanelRightOpen className="size-3.5" />} onClick={() => setInspectingTask(task)}>
+                            详情
+                        </Button>
                     </div>
                 ),
             },
             {
                 title: "用户",
-                width: 210,
+                width: 180,
                 render: (_, task) => <AdminUserIdentity displayName={task.displayName} username={task.username} accountId={task.accountId} fallback="用户信息不可用" />,
             },
             {
@@ -140,10 +151,9 @@ export function GenerationOperationsClient() {
                         <div className="truncate text-sm">{task.model || "未记录"}</div>
                         <div className="mt-1 text-xs text-zinc-500">
                             {surfaceLabel(task.surface)}
-                            {task.channelId ? ` · 渠道 ${task.channelId}` : ""}
                             {task.projectId ? ` · 项目 ${task.projectId.slice(0, 8)}` : ""}
                         </div>
-                        <AgentPlannerAuditSummary task={task} />
+                        <AgentPlannerAuditSummary task={task} compact />
                     </div>
                 ),
             },
@@ -153,7 +163,7 @@ export function GenerationOperationsClient() {
                     <div>
                         <div className="line-clamp-2 text-sm leading-5">{task.prompt || task.error || "无请求摘要"}</div>
                         <div className="mt-1 text-xs text-zinc-500">
-                            {formatDuration(task.durationMs)} · {generationTaskPointsLabel(task)}
+                            {formatGenerationDuration(task.durationMs)} · {generationTaskPointsLabel(task)}
                             {task.attempts && task.attempts.length > 1 ? ` · ${task.attempts.length} 次渠道尝试` : ""}
                         </div>
                     </div>
@@ -163,72 +173,65 @@ export function GenerationOperationsClient() {
                 title: "执行诊断",
                 width: 220,
                 render: (_, task) => (
-                    <div>
-                        <GenerationTaskRuntimeSummary task={task} />
+                    <div className="min-w-0">
+                        <GenerationTaskRuntimeSummary task={task} table />
                         <AgentFailureSummary task={task} />
-                    </div>
-                ),
-            },
-            {
-                title: "操作",
-                width: 118,
-                fixed: "right",
-                render: (_, task) => (
-                    <div className="flex gap-1">
-                        {task.canCancel ? (
-                            <Tooltip title="取消任务">
-                                <Button danger type="text" shape="circle" icon={<CircleStop className="size-4" />} loading={actingId === `${task.id}:cancel`} onClick={() => void runAction(task, "cancel")} />
-                            </Tooltip>
-                        ) : null}
-                        {task.retryTaskId ? (
-                            <Tooltip title="重试失败子任务">
-                                <Button type="text" shape="circle" icon={<RotateCcw className="size-4" />} loading={actingId === `${task.id}:retry`} onClick={() => void runAction(task, "retry")} />
-                            </Tooltip>
-                        ) : null}
-                        {task.canReview ? (
-                            <Tooltip title="接管待确认任务">
-                                <Button aria-label="接管待确认任务" type="text" shape="circle" icon={<ShieldAlert className="size-4 text-amber-600 dark:text-amber-300" />} onClick={() => openReview(task)} />
-                            </Tooltip>
-                        ) : null}
+                        <TaskActionButtons className="mt-1.5" task={task} actingId={actingId} onAction={runAction} onReview={openReview} />
                     </div>
                 ),
             },
         ],
-        [actingId],
+        [actingId, openReview, runAction],
     );
 
     const summary = data?.summary;
     return (
         <>
-            <div className="space-y-3 sm:space-y-4">
-                <Panel>
+            <Panel variant="page">
+                <div className="lg:hidden">
                     <PanelHeader
-                        title="运行概览"
-                        description="快速查看任务吞吐、成功率、耗时与积分消耗。"
+                        title="生成运维"
+                        description="统一查看生成吞吐、Agent 分阶段性能、任务队列和渠道健康，快速定位失败、长尾与成本异常。"
                         actions={
                             <Button aria-label="刷新生成运维数据" icon={<RefreshCw className="size-4" />} loading={loading} onClick={() => void load()}>
                                 刷新
                             </Button>
                         }
                     />
-                    <section className="grid grid-cols-2 gap-px bg-zinc-200 dark:bg-zinc-800 sm:grid-cols-3 xl:grid-cols-6">
+                </div>
+                <section className="p-3 sm:p-5" aria-labelledby="generation-runtime-summary-title">
+                    <OperationsSectionHeader
+                        id="generation-runtime-summary-title"
+                        title="运行概览"
+                        description="任务吞吐、成功率、耗时与积分消耗。"
+                        actions={
+                            <div className="hidden items-center gap-3 lg:flex">
+                                <span className="text-[11px] text-zinc-400 dark:text-zinc-500">{lastUpdatedAt ? `更新于 ${new Date(lastUpdatedAt).toLocaleTimeString("zh-CN", { hour12: false })}` : "等待刷新"}</span>
+                                <Button aria-label="刷新生成运维数据" icon={<RefreshCw className="size-4" />} loading={loading} onClick={() => void load()}>
+                                    刷新
+                                </Button>
+                            </div>
+                        }
+                    />
+                    <div className="mt-4 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-zinc-200 bg-zinc-200 dark:border-zinc-800 dark:bg-zinc-800 sm:grid-cols-3 xl:grid-cols-6">
                         <SummaryMetric icon={<Activity />} label="任务总数" value={summary?.total || 0} detail="全部生成记录" />
                         <SummaryMetric icon={<Route />} label="执行中" value={summary?.active || 0} detail="排队与运行任务" />
                         <SummaryMetric icon={<CircleCheckBig />} label="成功" value={summary?.success || 0} detail="已完成任务" />
                         <SummaryMetric icon={<CircleStop />} label="失败" value={summary?.failed || 0} detail="需要关注" tone="danger" />
-                        <SummaryMetric icon={<Clock3 />} label="平均耗时" value={formatDuration(summary?.averageDurationMs || 0)} detail="全部任务平均" />
+                        <SummaryMetric icon={<Clock3 />} label="平均耗时" value={formatGenerationDuration(summary?.averageDurationMs || 0)} detail="全部任务平均" />
                         <SummaryMetric icon={<Coins />} label="积分消耗" value={summary?.totalPointsCost || 0} detail="累计扣减" />
-                    </section>
-                </Panel>
+                    </div>
+                </section>
 
                 {data?.agentPerformance.sampleSize ? (
-                    <Panel>
-                        <PanelHeader
+                    <section className="border-t border-zinc-200 p-3 dark:border-zinc-800 sm:p-5" aria-labelledby="generation-agent-performance-title">
+                        <OperationsSectionHeader
+                            id="generation-agent-performance-title"
                             title="Agent 分阶段性能"
                             description="拆分规划、首个结果、排队、上游保存与复盘耗时，定位实际瓶颈。"
                             actions={<Tag className={generationOperationThemeClasses.neutralTag}>{data.agentPerformance.sampleSize} 次样本</Tag>}
                         />
-                        <section className="grid grid-cols-2 gap-px bg-zinc-200 dark:bg-zinc-800 sm:grid-cols-4 xl:grid-cols-7">
+                        <div className="mt-4 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-zinc-200 bg-zinc-200 dark:border-zinc-800 dark:bg-zinc-800 sm:grid-cols-4 xl:grid-cols-7">
                             <PerformanceValue label="规划 P50" value={data.agentPerformance.planningP50Ms} detail="典型规划耗时" />
                             <PerformanceValue label="规划 P95" value={data.agentPerformance.planningP95Ms} detail="慢请求边界" />
                             <PerformanceValue label="首结果 P50" value={data.agentPerformance.firstResultP50Ms} detail="典型首屏等待" />
@@ -236,95 +239,103 @@ export function GenerationOperationsClient() {
                             <PerformanceValue label="排队平均" value={data.agentPerformance.queueAverageMs} detail="调度等待" />
                             <PerformanceValue label="上游及保存" value={data.agentPerformance.upstreamAverageMs} detail="生成与落盘" />
                             <PerformanceValue className="col-span-2 sm:col-span-1" label="复盘平均" value={data.agentPerformance.reviewAverageMs} detail="后台质量复盘" />
-                        </section>
-                    </Panel>
+                        </div>
+                    </section>
                 ) : null}
 
-                <Panel>
-                    <PanelHeader title="任务队列" description={`共 ${data?.total || 0} 条记录，可按任务、用户、模型、状态和创作入口定位问题。`} />
-                    <section className="border-b border-zinc-200 bg-zinc-50/70 p-3 dark:border-zinc-800 dark:bg-zinc-900/40 sm:p-4">
-                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-[minmax(280px,1fr)_repeat(3,minmax(140px,180px))] xl:gap-3">
-                            <Input.Search
-                                className="col-span-2 sm:col-span-3 xl:col-span-1"
-                                value={search}
-                                allowClear
-                                aria-label="搜索生成任务"
-                                placeholder="任务、用户 ID、模型、会话或项目"
-                                enterButton="查询"
-                                onChange={(event) => setSearch(event.target.value)}
-                                onSearch={(value) => {
-                                    setPage(1);
-                                    setSubmittedSearch(value.trim());
-                                }}
-                            />
-                            <div className="min-w-0">
-                                <Select
-                                    className="w-full"
-                                    aria-label="按任务类型筛选"
-                                    value={type || undefined}
-                                    allowClear
-                                    placeholder="任务类型"
-                                    options={["agent", "text", "image", "video", "audio", "render"].map((value) => ({ value, label: taskTypeLabel(value) }))}
-                                    onChange={(value) => {
-                                        setPage(1);
-                                        setType(value || "");
-                                    }}
-                                />
-                            </div>
-                            <div className="min-w-0">
-                                <Select
-                                    className="w-full"
-                                    aria-label="按任务状态筛选"
-                                    value={status || undefined}
-                                    allowClear
-                                    placeholder="任务状态"
-                                    options={["pending", "running", "paused", "success", "error", "cancelled"].map((value) => ({ value, label: statusLabel(value) }))}
-                                    onChange={(value) => {
-                                        setPage(1);
-                                        setStatus(value || "");
-                                    }}
-                                />
-                            </div>
-                            <div className="col-span-2 min-w-0 sm:col-span-1">
-                                <Select
-                                    className="w-full"
-                                    aria-label="按创作入口筛选"
-                                    value={surface || undefined}
-                                    allowClear
-                                    placeholder="创作入口"
-                                    options={[
-                                        { value: "chat", label: "创作对话" },
-                                        { value: "canvas", label: "Canvas" },
-                                        { value: "drama", label: "短剧" },
-                                    ]}
-                                    onChange={(value) => {
-                                        setPage(1);
-                                        setSurface(value || "");
-                                    }}
-                                />
-                            </div>
+                <section className="border-t border-zinc-200 p-3 dark:border-zinc-800 sm:p-5" aria-labelledby="generation-task-queue-title">
+                    <div data-testid="generation-task-queue-surface" className="admin-panel-surface min-w-0 overflow-hidden rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+                        <div className="px-3 py-3 sm:px-4 sm:py-4">
+                            <OperationsSectionHeader id="generation-task-queue-title" title="任务队列" description={`共 ${data?.total || 0} 条记录，可按任务、用户、模型、状态和创作入口定位问题。`} />
                         </div>
-                    </section>
+                        <section className="border-y border-zinc-200 bg-zinc-50/70 p-3 dark:border-zinc-800 dark:bg-zinc-900/40 sm:p-4">
+                            <div data-testid="generation-task-filters" className="flex min-w-0 flex-wrap items-center gap-2">
+                                <div className="w-full min-w-0 sm:w-[380px] xl:w-[420px]">
+                                    <Input.Search
+                                        className="w-full"
+                                        value={search}
+                                        allowClear
+                                        aria-label="搜索生成任务"
+                                        placeholder="任务、用户 ID、模型、会话或项目"
+                                        enterButton="查询"
+                                        onChange={(event) => setSearch(event.target.value)}
+                                        onSearch={(value) => {
+                                            setPage(1);
+                                            setSubmittedSearch(value.trim());
+                                        }}
+                                    />
+                                </div>
+                                <div className="w-[calc(50%-0.25rem)] min-w-0 sm:w-36">
+                                    <Select
+                                        className="w-full"
+                                        aria-label="按任务类型筛选"
+                                        value={type || undefined}
+                                        allowClear
+                                        placeholder="任务类型"
+                                        options={["agent", "text", "image", "video", "audio", "render"].map((value) => ({ value, label: taskTypeLabel(value) }))}
+                                        onChange={(value) => {
+                                            setPage(1);
+                                            setType(value || "");
+                                        }}
+                                    />
+                                </div>
+                                <div className="w-[calc(50%-0.25rem)] min-w-0 sm:w-36">
+                                    <Select
+                                        className="w-full"
+                                        aria-label="按任务状态筛选"
+                                        value={status || undefined}
+                                        allowClear
+                                        placeholder="任务状态"
+                                        options={["pending", "running", "paused", "success", "error", "cancelled"].map((value) => ({ value, label: statusLabel(value) }))}
+                                        onChange={(value) => {
+                                            setPage(1);
+                                            setStatus(value || "");
+                                        }}
+                                    />
+                                </div>
+                                <div className="w-full min-w-0 sm:w-40">
+                                    <Select
+                                        className="w-full"
+                                        aria-label="按创作入口筛选"
+                                        value={surface || undefined}
+                                        allowClear
+                                        placeholder="创作入口"
+                                        options={[
+                                            { value: "chat", label: "创作对话" },
+                                            { value: "canvas", label: "Canvas" },
+                                            { value: "drama", label: "短剧" },
+                                        ]}
+                                        onChange={(value) => {
+                                            setPage(1);
+                                            setSurface(value || "");
+                                        }}
+                                    />
+                                </div>
+                            </div>
+                        </section>
 
-                    <section className="min-w-0 p-3 sm:p-4">
-                        <div className="hidden overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800 md:block">
-                            <Table rowKey="id" size="middle" loading={loading} columns={columns} dataSource={data?.items || []} pagination={false} scroll={{ x: 1200 }} />
-                        </div>
-                        <div className="space-y-3 md:hidden">
-                            {(data?.items || []).map((task) => (
-                                <TaskCard key={task.id} task={task} actingId={actingId} onAction={runAction} onReview={openReview} />
-                            ))}
-                            {loading ? <div className="py-8 text-center text-sm text-zinc-500 dark:text-zinc-400">正在加载任务…</div> : null}
-                            {!loading && !data?.items.length ? <div className="py-8 text-center text-sm text-zinc-500 dark:text-zinc-400">没有匹配任务</div> : null}
-                        </div>
-                        <div className="mt-4 flex justify-end border-t border-zinc-100 pt-4 dark:border-zinc-900">
-                            <Pagination current={page} pageSize={PAGE_SIZE} total={data?.total || 0} showSizeChanger={false} responsive onChange={setPage} />
-                        </div>
-                    </section>
-                </Panel>
+                        <section className="min-w-0 p-3 sm:p-4">
+                            <div className="hidden overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800 md:block">
+                                <Table rowKey="id" size="small" tableLayout="fixed" loading={loading} columns={columns} dataSource={data?.items || []} pagination={false} scroll={{ x: 980 }} />
+                            </div>
+                            <div className="space-y-3 md:hidden">
+                                {(data?.items || []).map((task) => (
+                                    <TaskCard key={task.id} task={task} actingId={actingId} onAction={runAction} onReview={openReview} onInspect={setInspectingTask} />
+                                ))}
+                                {loading ? <div className="py-8 text-center text-sm text-zinc-500 dark:text-zinc-400">正在加载任务…</div> : null}
+                                {!loading && !data?.items.length ? <div className="py-8 text-center text-sm text-zinc-500 dark:text-zinc-400">没有匹配任务</div> : null}
+                            </div>
+                            <div className="mt-4 flex justify-end border-t border-zinc-100 pt-4 dark:border-zinc-900">
+                                <Pagination current={page} pageSize={PAGE_SIZE} total={data?.total || 0} showSizeChanger={false} responsive onChange={setPage} />
+                            </div>
+                        </section>
+                    </div>
+                </section>
 
                 <GenerationChannelStatus channels={data?.channels || []} loading={loading} />
-            </div>
+            </Panel>
+
+            <GenerationTaskDetailsDrawer task={inspectingTask} onClose={() => setInspectingTask(undefined)} />
 
             <Modal
                 open={Boolean(reviewingTask)}
@@ -376,6 +387,20 @@ export function GenerationOperationsClient() {
     );
 }
 
+function OperationsSectionHeader({ id, title, description, actions }: { id: string; title: string; description: string; actions?: React.ReactNode }) {
+    return (
+        <div className="flex min-w-0 flex-col justify-between gap-3 sm:flex-row sm:items-start">
+            <div className="min-w-0">
+                <h2 id={id} className="text-sm font-semibold text-zinc-950 dark:text-zinc-100 sm:text-[15px]">
+                    {title}
+                </h2>
+                <p className="mt-1 mb-0 text-xs leading-5 text-zinc-500 dark:text-zinc-400">{description}</p>
+            </div>
+            {actions ? <div className="shrink-0">{actions}</div> : null}
+        </div>
+    );
+}
+
 function SummaryMetric({ icon, label, value, detail, tone = "default" }: { icon: React.ReactNode; label: string; value: string | number; detail: string; tone?: "default" | "danger" }) {
     return (
         <div className="flex min-h-[94px] min-w-0 flex-col justify-between bg-white p-3 dark:bg-zinc-950 sm:min-h-28 sm:p-4">
@@ -395,13 +420,25 @@ function PerformanceValue({ label, value, detail, className = "" }: { label: str
     return (
         <div className={`min-h-[82px] min-w-0 bg-white p-3 dark:bg-zinc-950 sm:min-h-24 sm:p-4 ${className}`}>
             <div className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">{label}</div>
-            <div className="mt-2 truncate text-base font-semibold tabular-nums text-zinc-950 dark:text-zinc-100 sm:text-lg">{formatDuration(value)}</div>
+            <div className="mt-2 truncate text-base font-semibold tabular-nums text-zinc-950 dark:text-zinc-100 sm:text-lg">{formatGenerationDuration(value)}</div>
             <div className="mt-1 truncate text-[10px] text-zinc-400 dark:text-zinc-500">{detail}</div>
         </div>
     );
 }
 
-function TaskCard({ task, actingId, onAction, onReview }: { task: AdminGenerationTask; actingId: string; onAction: (task: AdminGenerationTask, action: "cancel" | "retry") => Promise<void>; onReview: (task: AdminGenerationTask) => void }) {
+function TaskCard({
+    task,
+    actingId,
+    onAction,
+    onReview,
+    onInspect,
+}: {
+    task: AdminGenerationTask;
+    actingId: string;
+    onAction: (task: AdminGenerationTask, action: "cancel" | "retry") => Promise<void>;
+    onReview: (task: AdminGenerationTask) => void;
+    onInspect: (task: AdminGenerationTask) => void;
+}) {
     return (
         <article className="min-w-0 rounded-lg border border-zinc-200 bg-white p-3.5 dark:border-zinc-800 dark:bg-zinc-950">
             <div className="flex items-start justify-between gap-3">
@@ -409,22 +446,11 @@ function TaskCard({ task, actingId, onAction, onReview }: { task: AdminGeneratio
                     <TaskTypeTag type={task.type} />
                     {task.canReview ? <ReviewTag /> : <StatusTag status={task.status} />}
                 </div>
-                <div className="flex shrink-0 gap-0.5">
-                    {task.canCancel ? (
-                        <Tooltip title="取消任务">
-                            <Button aria-label="取消任务" danger type="text" shape="circle" icon={<CircleStop className="size-4" />} loading={actingId === `${task.id}:cancel`} onClick={() => void onAction(task, "cancel")} />
-                        </Tooltip>
-                    ) : null}
-                    {task.retryTaskId ? (
-                        <Tooltip title="重试失败子任务">
-                            <Button aria-label="重试失败子任务" type="text" shape="circle" icon={<RotateCcw className="size-4" />} loading={actingId === `${task.id}:retry`} onClick={() => void onAction(task, "retry")} />
-                        </Tooltip>
-                    ) : null}
-                    {task.canReview ? (
-                        <Tooltip title="接管待确认任务">
-                            <Button aria-label="接管待确认任务" type="text" shape="circle" icon={<ShieldAlert className="size-4 text-amber-600 dark:text-amber-300" />} onClick={() => onReview(task)} />
-                        </Tooltip>
-                    ) : null}
+                <div className="flex shrink-0 items-center gap-0.5">
+                    <Tooltip title="查看任务详情">
+                        <Button aria-label="查看任务详情" size="small" type="text" shape="circle" icon={<PanelRightOpen className="size-4" />} onClick={() => onInspect(task)} />
+                    </Tooltip>
+                    <TaskActionButtons task={task} actingId={actingId} onAction={onAction} onReview={onReview} />
                 </div>
             </div>
             <Tooltip title={task.id}>
@@ -436,7 +462,7 @@ function TaskCard({ task, actingId, onAction, onReview }: { task: AdminGeneratio
             <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 border-y border-zinc-100 py-3 text-xs dark:border-zinc-900">
                 <TaskCardFact label="模型" value={task.model || "未记录"} />
                 <TaskCardFact label="入口" value={surfaceLabel(task.surface)} />
-                <TaskCardFact label="耗时" value={formatDuration(task.durationMs)} />
+                <TaskCardFact label="耗时" value={formatGenerationDuration(task.durationMs)} />
                 <TaskCardFact label="积分" value={generationTaskPointsLabel(task)} />
             </div>
             <AgentPlannerAuditSummary task={task} />
@@ -447,6 +473,41 @@ function TaskCard({ task, actingId, onAction, onReview }: { task: AdminGeneratio
                 <p className="mt-1 line-clamp-3 text-sm leading-5 text-zinc-700 dark:text-zinc-300">{task.prompt || task.error || "无请求摘要"}</p>
             </div>
         </article>
+    );
+}
+
+function TaskActionButtons({
+    task,
+    actingId,
+    onAction,
+    onReview,
+    className = "",
+}: {
+    task: AdminGenerationTask;
+    actingId: string;
+    onAction: (task: AdminGenerationTask, action: "cancel" | "retry") => Promise<void>;
+    onReview: (task: AdminGenerationTask) => void;
+    className?: string;
+}) {
+    if (!task.canCancel && !task.retryTaskId && !task.canReview) return null;
+    return (
+        <div className={`flex shrink-0 gap-0.5 ${className}`}>
+            {task.canCancel ? (
+                <Tooltip title="取消任务">
+                    <Button aria-label="取消任务" danger size="small" type="text" shape="circle" icon={<CircleStop className="size-4" />} loading={actingId === `${task.id}:cancel`} onClick={() => void onAction(task, "cancel")} />
+                </Tooltip>
+            ) : null}
+            {task.retryTaskId ? (
+                <Tooltip title="重试失败子任务">
+                    <Button aria-label="重试失败子任务" size="small" type="text" shape="circle" icon={<RotateCcw className="size-4" />} loading={actingId === `${task.id}:retry`} onClick={() => void onAction(task, "retry")} />
+                </Tooltip>
+            ) : null}
+            {task.canReview ? (
+                <Tooltip title="接管待确认任务">
+                    <Button aria-label="接管待确认任务" size="small" type="text" shape="circle" icon={<ShieldAlert className="size-4 text-amber-600 dark:text-amber-300" />} onClick={() => onReview(task)} />
+                </Tooltip>
+            ) : null}
+        </div>
     );
 }
 
@@ -479,8 +540,4 @@ function statusLabel(value: string) {
 }
 function surfaceLabel(value?: string) {
     return value === "canvas" ? "Canvas" : value === "drama" ? "短剧" : value === "chat" ? "创作对话" : "专业工作台";
-}
-function formatDuration(ms: number) {
-    if (!ms) return "0 秒";
-    return ms < 60_000 ? `${Math.max(1, Math.round(ms / 1000))} 秒` : `${Math.floor(ms / 60_000)} 分 ${Math.round((ms % 60_000) / 1000)} 秒`;
 }

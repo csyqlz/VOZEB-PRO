@@ -10,6 +10,7 @@ import { DramaShotAudioModeEditor } from "./drama-shot-audio-mode-editor";
 import { DramaShotContinuityEditor } from "./drama-shot-continuity-editor";
 import { DramaShotDialogueEditor } from "./drama-shot-dialogue-editor";
 import { DramaShotFrameEditor } from "./drama-shot-frame-editor";
+import { DramaResultFreshnessTag } from "./drama-result-freshness-tag";
 
 const shotFieldClass = "!shadow-none hover:!border-foreground/25 focus:!border-foreground/35 focus:!shadow-none";
 
@@ -40,6 +41,7 @@ export function DramaStoryboardShotCard({ project, episodeId, shot, expanded, on
                 <Input variant="borderless" className="!min-w-0 !w-full !p-0 !font-semibold" value={shot.title} onChange={(event) => updateShot(project.id, episodeId, shot.id, { title: event.target.value })} />
                 <div className="flex shrink-0 items-center gap-1.5">
                     <StoryboardTag status={shot.storyboardStatus} />
+                    <DramaResultFreshnessTag shot={shot} />
                     <Tag className="!m-0">#{shot.order}</Tag>
                     <Button size="small" className="!h-8 !px-2.5" icon={<ChevronDown className={`size-3.5 transition-transform ${expanded ? "rotate-180" : ""}`} />} iconPlacement="end" aria-expanded={expanded} onClick={onToggle}>
                         {expanded ? "收起" : "展开"}

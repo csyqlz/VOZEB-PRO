@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
     getInstallStatus: vi.fn(),
     serializeCurrentUser: vi.fn(),
     serializePublicSettings: vi.fn(),
+    serializePublicSiteSettings: vi.fn(),
 }));
 
 vi.mock("@/lib/auth/store", () => ({
@@ -17,6 +18,7 @@ vi.mock("@/lib/auth/session", () => ({
     getCurrentUser: mocks.getCurrentUser,
     serializeCurrentUser: mocks.serializeCurrentUser,
     serializePublicSettings: mocks.serializePublicSettings,
+    serializePublicSiteSettings: mocks.serializePublicSiteSettings,
 }));
 
 vi.mock("@/lib/server/install-status", () => ({
@@ -52,11 +54,11 @@ describe("public session route before installation", () => {
         mocks.getCurrentUser.mockResolvedValue(user);
         mocks.getAuthSettings.mockResolvedValue({ site: { title: "站点" } });
         mocks.serializeCurrentUser.mockReturnValue(user);
-        mocks.serializePublicSettings.mockReturnValue({ site: { title: "站点" } });
+        mocks.serializePublicSettings.mockReturnValue({ site: { title: "站点" }, logicalModels: [{ id: "image-main", name: "图片模型", capability: "image" }] });
 
         const response = await GET();
 
-        await expect(response.json()).resolves.toMatchObject({ user, settings: { site: { title: "站点" } }, install: { ready: true, database: { healthy: true } } });
+        await expect(response.json()).resolves.toMatchObject({ user, settings: { site: { title: "站点" }, logicalModels: [{ id: "image-main" }] }, install: { ready: true, database: { healthy: true } } });
         expect(mocks.getInstallStatus).not.toHaveBeenCalled();
         expect(mocks.getAuthSettings).toHaveBeenCalledTimes(1);
     });
@@ -64,13 +66,21 @@ describe("public session route before installation", () => {
     it("checks installation before loading settings for an anonymous installed session", async () => {
         mocks.getCurrentUser.mockResolvedValue(null);
         mocks.getInstallStatus.mockResolvedValue({ ready: true, firstAdminRequired: false, database: { configured: true, healthy: true, schemaReady: true } });
-        mocks.getAuthSettings.mockResolvedValue({ site: { title: "站点" } });
-        mocks.serializePublicSettings.mockReturnValue({ site: { title: "站点" } });
+        mocks.getAuthSettings.mockResolvedValue({
+            site: { title: "站点" },
+            systemChannels: [{ id: "secret-channel", baseUrl: "https://provider.internal/v1", apiKey: "secret-key", models: ["private-model"] }],
+            logicalModels: [{ id: "private-logical-model", capability: "image", bindings: [] }],
+        });
+        mocks.serializePublicSiteSettings.mockReturnValue({ title: "站点" });
 
         const response = await GET();
+        const payload = await response.json();
 
-        await expect(response.json()).resolves.toMatchObject({ user: null, settings: { site: { title: "站点" } }, install: { ready: true } });
+        expect(payload).toMatchObject({ user: null, settings: { site: { title: "站点" } }, install: { ready: true } });
         expect(mocks.getInstallStatus).toHaveBeenCalledTimes(1);
         expect(mocks.getAuthSettings).toHaveBeenCalledTimes(1);
+        expect(mocks.serializePublicSettings).not.toHaveBeenCalled();
+        expect(JSON.stringify(payload)).not.toMatch(/secret-channel|provider\.internal|secret-key|private-model/);
+        expect(response.headers.get("cache-control")).toBe("private, no-store");
     });
 });

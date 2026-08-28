@@ -23,6 +23,7 @@ export function DramaShotAudioModeEditor({ projectId, episodeId, shot }: { proje
             audioTaskId: undefined,
             audioError: undefined,
             audioUrl: undefined,
+            audioStorageKey: undefined,
             generationStatus: shot.videoUrl ? shot.generationStatus : "idle",
         });
     };

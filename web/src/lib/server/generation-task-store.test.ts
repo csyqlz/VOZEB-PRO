@@ -17,6 +17,7 @@ vi.mock("@/lib/server/data-adapter", () => ({
 }));
 
 import { getDatabaseProvider, postgresQuery, withPostgresTransaction } from "@/lib/server/database";
+import { waitForVozebCmsTaskEvent } from "@/lib/server/vozeb-cms/task-event-signal";
 import {
     cleanupExpiredStoredGenerationTasks,
     createStoredGenerationTask,
@@ -70,6 +71,15 @@ describe("mutateStoredGenerationTask", () => {
         ]);
 
         expect((mocks.records[0].payload as TestTask).events).toEqual(["first", "second"]);
+    });
+
+    it("notifies file-provider task observers after the authoritative file is written", async () => {
+        const waiting = waitForVozebCmsTaskEvent("agent-one", 10_000);
+
+        await mutateStoredGenerationTask<TestTask>("agent", "agent-one", 60_000, (current) => ({ ...current, status: "success" }));
+
+        await expect(waiting).resolves.toBe(true);
+        expect(mocks.records[0]).toMatchObject({ id: "agent-one", status: "success" });
     });
 
     it("removes only one stable bounded batch of expired file tasks", async () => {

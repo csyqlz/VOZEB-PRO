@@ -6,6 +6,8 @@ export const ADMIN_SECTION_KEYS = [
     "channels",
     "skills",
     "settings",
+    "modules",
+    "workflows",
     "accountDeletion",
     "mediaStorage",
     "externalStorage",
@@ -49,6 +51,8 @@ export const ADMIN_SECTION_PERMISSIONS: Record<AdminSectionKey, readonly AdminPe
     skills: ["upstream.manage"],
     site: ["system.manage"],
     settings: ["system.manage", "upstream.manage"],
+    modules: ["system.manage"],
+    workflows: ["system.manage"],
     accountDeletion: ["system.manage"],
     mediaStorage: ["system.manage"],
     externalStorage: ["system.manage"],
@@ -56,7 +60,7 @@ export const ADMIN_SECTION_PERMISSIONS: Record<AdminSectionKey, readonly AdminPe
     announcements: ["content.manage"],
     works: ["content.manage"],
     prompts: ["content.manage"],
-    updates: [],
+    updates: ["system.manage"],
     adminHelp: [],
 };
 

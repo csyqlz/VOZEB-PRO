@@ -3,6 +3,7 @@ export type DramaReviewStatus = "draft" | "content_review" | "approved" | "visua
 export type DramaVideoMode = "storyboard" | "direct" | "reference";
 export type DramaStoryboardFrameMode = "single" | "first_last";
 export type DramaShotAudioMode = "source" | "voiceover" | "mute";
+export type DramaResultFreshness = "current" | "stale";
 
 export type DramaAssetReference = {
     id: string;
@@ -88,26 +89,49 @@ export type DramaShot = {
     clueIds: string[];
     sceneId?: string;
     videoMode?: DramaVideoMode;
+    imageModel?: string;
+    videoModel?: string;
+    storyboardModel?: string;
+    storyboardEndModel?: string;
     storyboardStatus?: DramaTaskStatus;
     storyboardFrameMode?: DramaStoryboardFrameMode;
     storyboardAttempt?: number;
     storyboardTaskId?: string;
     storyboardError?: string;
+    storyboardInputFingerprint?: string;
+    storyboardAttemptFingerprint?: string;
+    storyboardResultFingerprint?: string;
+    storyboardFreshness?: DramaResultFreshness;
+    storyboardStaleReason?: string;
     storyboardImageUrl?: string;
+    storyboardImageStorageKey?: string;
     storyboardImageWidth?: number;
     storyboardImageHeight?: number;
     storyboardEndStatus?: DramaTaskStatus;
     storyboardEndAttempt?: number;
     storyboardEndTaskId?: string;
     storyboardEndError?: string;
+    storyboardEndInputFingerprint?: string;
+    storyboardEndAttemptFingerprint?: string;
+    storyboardEndResultFingerprint?: string;
+    storyboardEndFreshness?: DramaResultFreshness;
+    storyboardEndStaleReason?: string;
     storyboardEndImageUrl?: string;
+    storyboardEndImageStorageKey?: string;
     storyboardEndImageWidth?: number;
     storyboardEndImageHeight?: number;
     generationStatus?: DramaTaskStatus;
     generationAttempt?: number;
     generationTaskId?: string;
+    generationModel?: string;
     generationError?: string;
+    videoInputFingerprint?: string;
+    videoAttemptFingerprint?: string;
+    videoResultFingerprint?: string;
+    videoFreshness?: DramaResultFreshness;
+    videoStaleReason?: string;
     videoUrl?: string;
+    videoStorageKey?: string;
     subtitle?: string;
     audioMode?: DramaShotAudioMode;
     audioStatus?: DramaTaskStatus;
@@ -115,6 +139,7 @@ export type DramaShot = {
     audioTaskId?: string;
     audioError?: string;
     audioUrl?: string;
+    audioStorageKey?: string;
 };
 
 export type DramaRenderTask = {
@@ -144,6 +169,8 @@ export type DramaEpisode = {
     nextPreview: string;
     sourceRange: string;
     reviewStatus: DramaReviewStatus;
+    visualTaskId?: string;
+    visualError?: string;
     shots: DramaShot[];
     renderTask?: DramaRenderTask;
     visualReview?: DramaVisualReview;
@@ -177,6 +204,8 @@ export type DramaProject = {
     props: DramaProp[];
     clues: DramaClue[];
     defaultVideoMode: DramaVideoMode;
+    imageModel?: string;
+    videoModel?: string;
     episodes: DramaEpisode[];
     sourceAssets?: DramaSourceAsset[];
     createdAt: string;
@@ -204,6 +233,8 @@ export type CreateDramaProjectInput = Pick<DramaProject, "title" | "summary" | "
     initialScript?: string;
     sourceAssets?: DramaSourceAsset[];
     defaultVideoMode?: DramaVideoMode;
+    imageModel?: string;
+    videoModel?: string;
 };
 
 export type DramaContentAnalysis = {
@@ -237,6 +268,10 @@ export type DramaProjectVersion = {
     version: number;
     reason: string;
     createdAt: string;
+};
+
+export type DramaProjectVersionScope = {
+    episodeIds?: string[];
 };
 
 export type DramaCostSummary = {

@@ -14,7 +14,7 @@ export function AdminChannelsSection({ controller }: { controller: AdminDashboar
     const { settings, setSettings, settingsLoading, fetchingModelId, activeSection, saveSettings, deleteChannel, fetchModelsForChannel, fetchAllModels } = controller;
     if (activeSection !== "channels") return null;
     return (
-        <Panel>
+        <Panel variant="page">
             <PanelHeader
                 title="模型渠道"
                 description="管理上游渠道、协议、模型能力与站内逻辑模型路由。"
@@ -52,7 +52,7 @@ export function AdminSkillsSection({ controller }: { controller: AdminDashboardC
     const [createModalOpen, setCreateModalOpen] = useState(false);
     if (activeSection !== "skills") return null;
     return (
-        <Panel>
+        <Panel variant="page">
             <PanelHeader
                 title="Agent Skills"
                 description="管理 Agent 的专业能力、触发关键词、来源版本和执行规则。"
@@ -90,7 +90,7 @@ export function AdminSkillsSection({ controller }: { controller: AdminDashboardC
                     </div>
                 </div>
             ) : null}
-            <div className="columns-1 gap-4 p-3 sm:p-5 lg:columns-2">
+            <div className="columns-1 gap-3 p-3 sm:p-5 lg:columns-2 xl:columns-3">
                 {settings.agentSkills.map((skill) => (
                     <section key={skill.id} className="mb-3 break-inside-avoid rounded-lg border border-stone-200 bg-stone-50/70 p-3 sm:mb-4 sm:p-4 dark:border-stone-800 dark:bg-stone-900/40">
                         <div className="flex items-center justify-between gap-3 sm:mb-3">
@@ -124,32 +124,33 @@ export function AdminSkillsSection({ controller }: { controller: AdminDashboardC
                                 <ChevronDown className="size-3.5 transition group-open:rotate-180" />
                             </summary>
                             <div className="mt-3 hidden group-open:block sm:mt-0 sm:!block">
-                                <Input
-                                    value={skill.name}
-                                    placeholder="Skill 名称"
-                                    onChange={(event) => setSettings((current) => ({ ...current, agentSkills: current.agentSkills.map((item) => (item.id === skill.id ? { ...item, name: event.target.value } : item)) }))}
-                                />
-                                <Input
-                                    className="mt-3"
-                                    value={skill.keywords.join("、")}
-                                    placeholder="触发词"
-                                    onChange={(event) =>
-                                        setSettings((current) => ({
-                                            ...current,
-                                            agentSkills: current.agentSkills.map((item) =>
-                                                item.id === skill.id
-                                                    ? {
-                                                          ...item,
-                                                          keywords: event.target.value
-                                                              .split(/[、,，]/)
-                                                              .map((word) => word.trim())
-                                                              .filter(Boolean),
-                                                      }
-                                                    : item,
-                                            ),
-                                        }))
-                                    }
-                                />
+                                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+                                    <Input
+                                        value={skill.name}
+                                        placeholder="Skill 名称"
+                                        onChange={(event) => setSettings((current) => ({ ...current, agentSkills: current.agentSkills.map((item) => (item.id === skill.id ? { ...item, name: event.target.value } : item)) }))}
+                                    />
+                                    <Input
+                                        value={skill.keywords.join("、")}
+                                        placeholder="触发词"
+                                        onChange={(event) =>
+                                            setSettings((current) => ({
+                                                ...current,
+                                                agentSkills: current.agentSkills.map((item) =>
+                                                    item.id === skill.id
+                                                        ? {
+                                                              ...item,
+                                                              keywords: event.target.value
+                                                                  .split(/[、,，]/)
+                                                                  .map((word) => word.trim())
+                                                                  .filter(Boolean),
+                                                          }
+                                                        : item,
+                                                ),
+                                            }))
+                                        }
+                                    />
+                                </div>
                                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
                                     <Select
                                         mode="multiple"

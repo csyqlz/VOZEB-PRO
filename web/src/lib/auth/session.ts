@@ -104,30 +104,33 @@ export function serializeCurrentUser(user: CurrentUser) {
     };
 }
 
+export function serializePublicSiteSettings(site: AuthSettings["site"]) {
+    return {
+        title: site.title,
+        logoUrl: site.logoUrl,
+        iconUrl: site.iconUrl,
+        seoDescription: site.seoDescription,
+        footerCopyright: site.footerCopyright,
+        termsUrl: site.termsUrl,
+        termsVersion: site.termsVersion,
+        privacyUrl: site.privacyUrl,
+        privacyVersion: site.privacyVersion,
+        friendLinks: site.friendLinks.map((item) => ({ id: item.id, label: item.label, url: item.url, enabled: item.enabled })),
+        socials: Object.fromEntries(Object.entries(site.socials).map(([key, item]) => [key, { enabled: item.enabled, label: item.label, url: item.url }])),
+    };
+}
+
 export function serializePublicSettings(settings: AuthSettings) {
     return {
-        site: {
-            title: settings.site.title,
-            logoUrl: settings.site.logoUrl,
-            iconUrl: settings.site.iconUrl,
-            seoDescription: settings.site.seoDescription,
-            footerCopyright: settings.site.footerCopyright,
-            termsUrl: settings.site.termsUrl,
-            termsVersion: settings.site.termsVersion,
-            privacyUrl: settings.site.privacyUrl,
-            privacyVersion: settings.site.privacyVersion,
-            friendLinks: settings.site.friendLinks.map((item) => ({ id: item.id, label: item.label, url: item.url, enabled: item.enabled })),
-            socials: Object.fromEntries(Object.entries(settings.site.socials).map(([key, item]) => [key, { enabled: item.enabled, label: item.label, url: item.url }])),
-        },
+        site: serializePublicSiteSettings(settings.site),
         registrationEnabled: settings.registrationEnabled,
         emailRegistrationEnabled: settings.emailRegistrationEnabled,
-        modelPointCosts: { ...settings.modelPointCosts },
+        modelPointCosts: publicModelPointCosts(settings),
         generationPointMultipliers: {
             imageQuality: { ...settings.generationPointMultipliers.imageQuality },
             videoQuality: { ...settings.generationPointMultipliers.videoQuality },
             videoSeconds: { ...settings.generationPointMultipliers.videoSeconds },
         },
-        generationConcurrency: { ...settings.generationConcurrency },
         generationDefaults: {
             canvasImageCount: settings.generationDefaults.canvasImageCount,
             imageSize: settings.generationDefaults.imageSize,
@@ -146,44 +149,70 @@ export function serializePublicSettings(settings: AuthSettings) {
                 name: model.name,
                 capability: model.capability,
                 enabled: true,
-                bindings: model.bindings
-                    .filter((binding) => binding.enabled)
-                    .map((binding) => {
-                        const capabilityProfile = publicCapabilityProfile(binding.capabilityProfile);
-                        return {
-                            id: binding.id,
-                            channelId: binding.channelId,
-                            upstreamModel: binding.upstreamModel,
-                            enabled: true,
-                            priority: binding.priority,
-                            ...(capabilityProfile ? { capabilityProfile } : {}),
-                        };
-                    }),
-            })),
-        systemChannels: settings.systemChannels
-            .filter((channel) => channel.enabled)
-            .map((channel) => ({
-                id: channel.id,
-                name: channel.name,
-                baseUrl: `/api/ai/system/${channel.id}`,
-                apiKey: "system",
-                apiFormat: channel.apiFormat,
-                models: channel.models,
-                enabled: channel.enabled,
-                hasApiKey: Boolean(channel.apiKey),
+                ...(publicLogicalModelCapabilityProfile(model.bindings) ? { capabilityProfile: publicLogicalModelCapabilityProfile(model.bindings) } : {}),
             })),
     };
 }
 
-function publicCapabilityProfile(profile: AuthSettings["logicalModels"][number]["bindings"][number]["capabilityProfile"]) {
-    if (!profile) return undefined;
+function publicLogicalModelCapabilityProfile(bindings: AuthSettings["logicalModels"][number]["bindings"]) {
+    const profiles = bindings.filter((binding) => binding.enabled && binding.capabilityProfile).map((binding) => binding.capabilityProfile!);
+    if (!profiles.length) return undefined;
+    const aspectRatios = uniqueTextValues(profiles.flatMap((profile) => profile.aspectRatios || []));
+    const resolutions = uniqueTextValues(profiles.flatMap((profile) => profile.resolutions || []));
+    const durationSeconds = Array.from(new Set(profiles.flatMap((profile) => profile.durationSeconds || []))).sort((left, right) => left - right);
+    const minDurationSeconds = minimumFinite(profiles.map((profile) => profile.minDurationSeconds));
+    const maxDurationSeconds = maximumFinite(profiles.map((profile) => profile.maxDurationSeconds));
+    const maxBatchSize = maximumFinite(profiles.map((profile) => profile.maxBatchSize));
     const result = {
-        aspectRatios: profile.aspectRatios?.slice(),
-        resolutions: profile.resolutions?.slice(),
-        durationSeconds: profile.durationSeconds?.slice(),
-        minDurationSeconds: profile.minDurationSeconds,
-        maxDurationSeconds: profile.maxDurationSeconds,
-        maxBatchSize: profile.maxBatchSize,
+        ...(aspectRatios.length ? { aspectRatios } : {}),
+        ...(resolutions.length ? { resolutions } : {}),
+        ...(durationSeconds.length ? { durationSeconds } : {}),
+        ...(minDurationSeconds !== undefined ? { minDurationSeconds } : {}),
+        ...(maxDurationSeconds !== undefined ? { maxDurationSeconds } : {}),
+        ...(maxBatchSize !== undefined ? { maxBatchSize } : {}),
     };
-    return Object.values(result).some((value) => value !== undefined && (!Array.isArray(value) || value.length)) ? result : undefined;
+    return Object.keys(result).length ? result : undefined;
+}
+
+function uniqueTextValues(values: string[]) {
+    const entries = values.map((value) => [value.trim().toLowerCase(), value.trim()] as const).filter(([key]) => Boolean(key));
+    return Array.from(new Map(entries).values());
+}
+
+function minimumFinite(values: Array<number | undefined>) {
+    const configured = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+    return configured.length ? Math.min(...configured) : undefined;
+}
+
+function maximumFinite(values: Array<number | undefined>) {
+    const configured = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+    return configured.length ? Math.max(...configured) : undefined;
+}
+
+function publicModelPointCosts(settings: AuthSettings) {
+    const costs: Record<string, number> = {};
+    const configured = settings.modelPointCosts || {};
+    for (const model of settings.logicalModels) {
+        const direct = configuredCost(configured, model.id);
+        if (direct !== undefined) {
+            costs[model.id] = direct;
+            continue;
+        }
+        const alias = model.bindings
+            .filter((binding) => binding.enabled)
+            .sort((left, right) => left.priority - right.priority)
+            .map((binding) => configuredCost(configured, binding.upstreamModel))
+            .find((value): value is number => value !== undefined);
+        if (alias !== undefined) costs[model.id] = alias;
+    }
+    const fallback = configuredCost(configured, "__default__");
+    if (fallback !== undefined) costs.__default__ = fallback;
+    return costs;
+}
+
+function configuredCost(costs: Record<string, number>, key: string) {
+    const match = Object.keys(costs).find((candidate) => candidate.trim().toLowerCase() === key.trim().toLowerCase());
+    if (!match) return undefined;
+    const value = Number(costs[match]);
+    return Number.isFinite(value) && value >= 0 ? Number(value.toFixed(2)) : undefined;
 }

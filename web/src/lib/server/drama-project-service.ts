@@ -8,11 +8,12 @@ import { listAgentRuns } from "@/lib/server/agent-run-store";
 import { CreativeEntityDeletionConflict, deleteDramaConversationAggregate } from "@/lib/server/creative-entity-deletion-store";
 import { createCreativeConversation, getCreativeConversation, listCreativeConversations, updateCreativeConversation } from "@/lib/server/creative-runtime-store";
 import { createDramaProject, deleteDramaProject, DramaProjectStoreError, findDramaProjectBySourceHandoffId, getDramaProject, listDramaProjectSummaries, updateDramaProject } from "@/lib/server/drama-project-store";
-import { createDramaProjectVersion, getDramaProjectVersion, listDramaProjectVersions } from "@/lib/server/drama-project-version-store";
+import { createDramaProjectVersion, deleteDramaProjectVersion, getDramaProjectVersion, listDramaProjectVersions } from "@/lib/server/drama-project-version-store";
 import { collectLocalMediaStorageKeys } from "@/lib/server/local-media-references";
 import { deleteUserMediaAssetsCascade } from "@/lib/server/user-media-deletion-service";
 
 const MAX_PROJECT_BYTES = 2 * 1024 * 1024;
+type VersionSnapshot = DramaProject & { versionScope?: "episodes"; versionEpisodeIds?: string[] };
 
 export class DramaProjectServiceError extends Error {
     constructor(
@@ -69,6 +70,8 @@ export async function createDramaProjectForUser(userId: string, value: unknown) 
         props: [],
         clues: [],
         defaultVideoMode: input.defaultVideoMode,
+        imageModel: input.imageModel || undefined,
+        videoModel: input.videoModel || undefined,
         episodes: [episode],
         sourceAssets: input.sourceAssets,
         createdAt: now,
@@ -98,6 +101,17 @@ export async function updateDramaProjectForUser(userId: string, id: string, valu
     }
 }
 
+export async function mutateDramaProjectForUser(userId: string, id: string, mutate: (project: DramaProject) => DramaProject) {
+    const current = await getDramaProjectForUser(userId, id);
+    const project = normalizeProject(mutate(current), current);
+    try {
+        return await updateDramaProject(userId, project, current.updatedAt);
+    } catch (error) {
+        if (error instanceof DramaProjectStoreError) throw new DramaProjectServiceError(error.message, error.status);
+        throw error;
+    }
+}
+
 export async function listDramaProjectVersionsForUser(userId: string, id: string) {
     await getDramaProjectForUser(userId, cleanText(id));
     return listDramaProjectVersions(userId, cleanText(id));
@@ -106,7 +120,10 @@ export async function listDramaProjectVersionsForUser(userId: string, id: string
 export async function createDramaProjectVersionForUser(userId: string, id: string, value: unknown) {
     const current = await getDramaProjectForUser(userId, cleanText(id));
     const input = object(value);
-    const snapshot = normalizeProject(input.snapshot, current);
+    const scope = normalizeVersionEpisodeIds(input.scope, current);
+    const normalized = normalizeProject(input.snapshot, current);
+    const snapshot: VersionSnapshot = scope.length ? { ...normalized, episodes: normalized.episodes.filter((episode) => scope.includes(episode.id)), versionScope: "episodes", versionEpisodeIds: scope } : normalized;
+    if (!snapshot.episodes.length) throw new DramaProjectServiceError("版本至少需要包含一集", 400);
     if (Buffer.byteLength(JSON.stringify(snapshot)) > MAX_PROJECT_BYTES) throw new DramaProjectServiceError("短剧版本数据过大", 413);
     const reason = cleanText(input.reason) || "手动保存版本";
     return createDramaProjectVersion(userId, current.id, reason, snapshot);
@@ -119,11 +136,22 @@ export async function restoreDramaProjectVersionForUser(userId: string, id: stri
     if (!version) throw new DramaProjectServiceError("短剧版本不存在", 404);
     await createDramaProjectVersion(userId, projectId, "恢复前自动快照", current);
     try {
-        return await updateDramaProject(userId, normalizeProject(version.snapshot, current), current.updatedAt);
+        const snapshot = version.snapshot as VersionSnapshot;
+        const normalized = normalizeProject(snapshot, current);
+        const restored = snapshot.versionScope === "episodes" ? mergeVersionEpisodes(current, normalized, snapshot.versionEpisodeIds || normalized.episodes.map((episode) => episode.id)) : normalized;
+        return await updateDramaProject(userId, restored, current.updatedAt);
     } catch (error) {
         if (error instanceof DramaProjectStoreError) throw new DramaProjectServiceError(error.message, error.status);
         throw error;
     }
+}
+
+export async function deleteDramaProjectVersionForUser(userId: string, id: string, versionId: string) {
+    const projectId = cleanText(id);
+    await getDramaProjectForUser(userId, projectId);
+    const deleted = await deleteDramaProjectVersion(userId, projectId, cleanText(versionId));
+    if (!deleted) throw new DramaProjectServiceError("短剧版本不存在", 404);
+    return { deleted: true };
 }
 
 export async function deleteDramaProjectForUser(userId: string, id: string) {
@@ -185,6 +213,8 @@ function normalizeCreateInput(value: unknown): Required<Omit<CreateDramaProjectI
         initialScript: cleanText(input.initialScript),
         sourceAssets: normalizeSourceAssets(input.sourceAssets),
         defaultVideoMode: videoMode(input.defaultVideoMode),
+        imageModel: cleanText(input.imageModel),
+        videoModel: cleanText(input.videoModel),
     };
 }
 
@@ -212,6 +242,8 @@ export function normalizeProject(value: unknown, current: DramaProject): DramaPr
         props: normalizeNamedAssets(input.props, "prop"),
         clues: normalizeClues(input.clues),
         defaultVideoMode: videoMode(input.defaultVideoMode),
+        imageModel: optionalText(input.imageModel),
+        videoModel: optionalText(input.videoModel),
         episodes,
         sourceAssets: normalizeSourceAssets(input.sourceAssets),
         createdAt: current.createdAt,
@@ -247,10 +279,25 @@ function normalizeEpisode(value: unknown, index: number): DramaEpisode | null {
         nextPreview: cleanText(input.nextPreview),
         sourceRange: cleanText(input.sourceRange),
         reviewStatus: reviewStatus(input.reviewStatus),
+        visualTaskId: optionalText(input.visualTaskId),
+        visualError: optionalText(input.visualError),
         shots: array(input.shots).map(normalizeShot),
         renderTask,
         visualReview: normalizeVisualReview(input.visualReview),
     };
+}
+
+function normalizeVersionEpisodeIds(value: unknown, current: DramaProject) {
+    const input = object(value);
+    if (input.episodeIds === undefined) return [];
+    const ids = Array.from(new Set(array(input.episodeIds).map(cleanText).filter(Boolean)));
+    if (!ids.length || ids.some((id) => !current.episodes.some((episode) => episode.id === id))) throw new DramaProjectServiceError("版本范围中的剧集不存在", 400);
+    return ids;
+}
+
+function mergeVersionEpisodes(current: DramaProject, snapshot: DramaProject, episodeIds: string[]) {
+    const selected = new Map(snapshot.episodes.filter((episode) => episodeIds.includes(episode.id)).map((episode) => [episode.id, episode]));
+    return normalizeProject({ ...current, episodes: current.episodes.map((episode) => selected.get(episode.id) || episode) }, current);
 }
 
 function normalizeVisualReview(value: unknown): DramaEpisode["visualReview"] {
@@ -313,26 +360,49 @@ function normalizeShot(value: unknown, index: number): DramaShot {
         clueIds: ids(input.clueIds),
         sceneId: optionalText(input.sceneId),
         videoMode: videoMode(input.videoMode),
+        imageModel: optionalText(input.imageModel),
+        videoModel: optionalText(input.videoModel),
+        storyboardModel: optionalText(input.storyboardModel),
+        storyboardEndModel: optionalText(input.storyboardEndModel),
         storyboardFrameMode: input.storyboardFrameMode === "first_last" ? "first_last" : "single",
         storyboardStatus: taskStatus(input.storyboardStatus),
         storyboardAttempt: optionalPositiveInteger(input.storyboardAttempt),
         storyboardTaskId: optionalText(input.storyboardTaskId),
         storyboardError: optionalText(input.storyboardError),
+        storyboardInputFingerprint: optionalText(input.storyboardInputFingerprint),
+        storyboardAttemptFingerprint: optionalText(input.storyboardAttemptFingerprint),
+        storyboardResultFingerprint: optionalText(input.storyboardResultFingerprint),
+        storyboardFreshness: resultFreshness(input.storyboardFreshness),
+        storyboardStaleReason: optionalText(input.storyboardStaleReason),
         storyboardImageUrl: stableUrl(input.storyboardImageUrl),
+        storyboardImageStorageKey: optionalText(input.storyboardImageStorageKey),
         storyboardImageWidth: optionalPositiveInteger(input.storyboardImageWidth),
         storyboardImageHeight: optionalPositiveInteger(input.storyboardImageHeight),
         storyboardEndStatus: taskStatus(input.storyboardEndStatus),
         storyboardEndAttempt: optionalPositiveInteger(input.storyboardEndAttempt),
         storyboardEndTaskId: optionalText(input.storyboardEndTaskId),
         storyboardEndError: optionalText(input.storyboardEndError),
+        storyboardEndInputFingerprint: optionalText(input.storyboardEndInputFingerprint),
+        storyboardEndAttemptFingerprint: optionalText(input.storyboardEndAttemptFingerprint),
+        storyboardEndResultFingerprint: optionalText(input.storyboardEndResultFingerprint),
+        storyboardEndFreshness: resultFreshness(input.storyboardEndFreshness),
+        storyboardEndStaleReason: optionalText(input.storyboardEndStaleReason),
         storyboardEndImageUrl: stableUrl(input.storyboardEndImageUrl),
+        storyboardEndImageStorageKey: optionalText(input.storyboardEndImageStorageKey),
         storyboardEndImageWidth: optionalPositiveInteger(input.storyboardEndImageWidth),
         storyboardEndImageHeight: optionalPositiveInteger(input.storyboardEndImageHeight),
         generationStatus: taskStatus(input.generationStatus),
         generationAttempt: optionalPositiveInteger(input.generationAttempt),
         generationTaskId: optionalText(input.generationTaskId),
+        generationModel: optionalText(input.generationModel),
         generationError: optionalText(input.generationError),
+        videoInputFingerprint: optionalText(input.videoInputFingerprint),
+        videoAttemptFingerprint: optionalText(input.videoAttemptFingerprint),
+        videoResultFingerprint: optionalText(input.videoResultFingerprint),
+        videoFreshness: resultFreshness(input.videoFreshness),
+        videoStaleReason: optionalText(input.videoStaleReason),
         videoUrl: stableUrl(input.videoUrl),
+        videoStorageKey: optionalText(input.videoStorageKey),
         subtitle: optionalText(input.subtitle),
         audioMode: input.audioMode === "voiceover" || input.audioMode === "mute" ? input.audioMode : "source",
         audioStatus: taskStatus(input.audioStatus),
@@ -340,6 +410,7 @@ function normalizeShot(value: unknown, index: number): DramaShot {
         audioTaskId: optionalText(input.audioTaskId),
         audioError: optionalText(input.audioError),
         audioUrl: stableUrl(input.audioUrl),
+        audioStorageKey: optionalText(input.audioStorageKey),
     };
 }
 
@@ -500,6 +571,10 @@ function normalizeSourceAssets(value: unknown) {
 
 function taskStatus(value: unknown) {
     return ["idle", "queued", "running", "success", "error", "cancelled"].includes(String(value)) ? (value as DramaShot["generationStatus"]) : undefined;
+}
+
+function resultFreshness(value: unknown) {
+    return value === "current" || value === "stale" ? value : undefined;
 }
 
 function optionalPositiveInteger(value: unknown) {

@@ -6,6 +6,7 @@ import Link from "next/link";
 import {
     Activity,
     BadgePercent,
+    Boxes,
     BookOpen,
     CircleDollarSign,
     Cloud,
@@ -33,6 +34,7 @@ import {
     UsersRound,
     UserRoundX,
     WalletCards,
+    Workflow,
     X,
 } from "lucide-react";
 import { canAccessAdminSection, type AdminSectionKey } from "@/components/admin/admin-sections";
@@ -69,16 +71,19 @@ export function AdminSectionNav({
     const activeGroup = allowedGroups.find((group) => group.items.some((section) => section.key === activeKey));
     const activeGroupTitle = activeGroup?.title;
     const site = usePublicSessionStore((state) => state.payload?.settings?.site) || { title: DEFAULT_SITE_TITLE, logoUrl: "/logo.svg" };
-    const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+    const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>(() => Object.fromEntries(adminSectionGroups.map((group) => [group.title, group.title !== activeGroupTitle])));
 
     useEffect(() => {
         if (!activeGroupTitle) return;
-        setCollapsedGroups((current) => {
-            const next = { ...current };
-            if (next[activeGroupTitle]) next[activeGroupTitle] = false;
-            return next;
-        });
+        setCollapsedGroups(Object.fromEntries(adminSectionGroups.map((group) => [group.title, group.title !== activeGroupTitle])));
     }, [activeGroupTitle]);
+
+    const toggleGroup = (title: string) =>
+        setCollapsedGroups((current) => {
+            const opening = current[title] !== false;
+            if (!opening) return { ...current, [title]: true };
+            return Object.fromEntries(adminSectionGroups.map((group) => [group.title, group.title !== title]));
+        });
 
     const renderSectionItems = (items: AdminSection[]) =>
         items.map((section) => {
@@ -89,7 +94,7 @@ export function AdminSectionNav({
                     type="button"
                     title={desktopCollapsed ? section.label : undefined}
                     aria-label={section.label}
-                    className={`admin-section-nav-item relative flex h-9 w-full min-w-0 items-center gap-2.5 rounded-md px-2.5 text-left text-sm transition ${active ? "is-active bg-zinc-100 font-medium text-zinc-950 dark:bg-zinc-900 dark:text-zinc-50" : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-white"}`}
+                    className={`admin-section-nav-item relative flex h-10 w-full min-w-0 items-center gap-2.5 rounded-md px-2.5 text-left text-[15px] transition ${active ? "is-active bg-zinc-100 font-medium text-zinc-950 dark:bg-zinc-900 dark:text-zinc-50" : "text-zinc-700 hover:bg-zinc-50 hover:text-zinc-950 dark:text-zinc-300 dark:hover:bg-zinc-900 dark:hover:text-white"}`}
                     onPointerEnter={() => onIntent?.(section.key)}
                     onPointerDown={() => onIntent?.(section.key)}
                     onFocus={() => onIntent?.(section.key)}
@@ -98,7 +103,7 @@ export function AdminSectionNav({
                         onMobileClose();
                     }}
                 >
-                    <span className="admin-section-nav-icon flex size-4 shrink-0 items-center justify-center">{section.icon}</span>
+                    <span className="admin-section-nav-icon flex size-[18px] shrink-0 items-center justify-center [&_svg]:size-[18px]">{section.icon}</span>
                     <span className="admin-section-nav-copy min-w-0 truncate">{section.label}</span>
                 </button>
             );
@@ -118,19 +123,19 @@ export function AdminSectionNav({
                         {mobileOpen ? <X className="size-4" /> : <Menu className="size-4" />}
                     </button>
                     <Link href="/" className="admin-section-mobile-brand flex min-w-0 flex-1 items-center gap-2.5 px-1 text-zinc-950 dark:text-zinc-100" onClick={onMobileClose}>
-                        <SiteLogo logoUrl={site.logoUrl} className="size-7" />
+                        <SiteLogo logoUrl={site.logoUrl} className="size-8" />
                         <span className="min-w-0">
-                            <span className="block truncate text-sm font-semibold">{site.title}</span>
-                            <span className="block truncate text-[10px] text-zinc-400 dark:text-zinc-500">管理控制台</span>
+                            <span className="block truncate text-base font-semibold">{site.title}</span>
+                            <span className="block truncate text-[11px] text-zinc-500 dark:text-zinc-400">管理控制台</span>
                         </span>
                     </Link>
                 </div>
                 <div className="admin-section-desktop-head hidden h-[58px] shrink-0 min-w-0 items-center gap-2 border-b border-zinc-200 px-3 dark:border-zinc-800 lg:flex">
                     <Link href="/" className="admin-section-brand flex min-w-0 flex-1 items-center gap-2.5 text-zinc-950 dark:text-zinc-100">
-                        <SiteLogo logoUrl={site.logoUrl} className="size-7" />
+                        <SiteLogo logoUrl={site.logoUrl} className="size-8" />
                         <span className="admin-section-brand-copy min-w-0">
-                            <span className="block truncate text-sm font-semibold">{site.title}</span>
-                            <span className="block truncate text-[10px] text-zinc-400 dark:text-zinc-500">管理控制台</span>
+                            <span className="block truncate text-base font-semibold">{site.title}</span>
+                            <span className="block truncate text-[11px] text-zinc-500 dark:text-zinc-400">管理控制台</span>
                         </span>
                     </Link>
                     <button
@@ -151,13 +156,13 @@ export function AdminSectionNav({
                             <div key={group.title} className="admin-section-nav-group block min-w-0">
                                 <button
                                     type="button"
-                                    className="admin-section-nav-group-title relative flex w-full items-center rounded-md px-2 pb-1.5 pr-7 text-left text-[10px] font-semibold text-zinc-400 transition hover:text-zinc-700 dark:text-zinc-600 dark:hover:text-zinc-300"
+                                    className="admin-section-nav-group-title relative flex min-h-7 w-full items-center rounded-md px-2 pr-7 text-left text-[13px] font-semibold text-zinc-700 transition hover:text-zinc-950 dark:text-zinc-300 dark:hover:text-white"
                                     aria-expanded={!collapsed}
                                     aria-controls={`admin-section-group-${group.title}`}
-                                    onClick={() => setCollapsedGroups((current) => ({ ...current, [group.title]: !current[group.title] }))}
+                                    onClick={() => toggleGroup(group.title)}
                                 >
                                     <span>{group.title}</span>
-                                    <ChevronDown className={`admin-section-nav-group-chevron absolute right-2 top-1/2 size-3 shrink-0 -translate-y-1/2 transition-transform ${collapsed ? "-rotate-90" : ""}`} />
+                                    <ChevronDown className={`admin-section-nav-group-chevron absolute right-2 top-1/2 size-3.5 shrink-0 -translate-y-1/2 transition-transform ${collapsed ? "-rotate-90" : ""}`} />
                                 </button>
                                 {!collapsed ? (
                                     <div id={`admin-section-group-${group.title}`} className="admin-section-nav-group-items flex flex-col gap-1">
@@ -191,6 +196,8 @@ export const adminSections: AdminSection[] = [
     { key: "channels", label: "模型渠道", description: "添加上游接口，维护模型目录、逻辑绑定和各能力默认模型。", shortDescription: "上游接口", icon: <PlugZap className="size-4" /> },
     { key: "skills", label: "Agent Skills", description: "管理 Agent 专业能力、触发词、来源和执行规则。", shortDescription: "专业能力", icon: <Sparkles className="size-4" /> },
     { key: "settings", label: "基础设置", description: "管理注册、邮箱、生成与数据维护。", shortDescription: "账号与生成", icon: <SlidersHorizontal className="size-4" /> },
+    { key: "modules", label: "系统功能", description: "启用或停用用户可使用的官方创作功能。", shortDescription: "功能开关", icon: <Boxes className="size-4" /> },
+    { key: "workflows", label: "自动化运行", description: "处理跨项目失败、人工审核和运行恢复。", shortDescription: "监控与恢复", icon: <Workflow className="size-4" /> },
     { key: "accountDeletion", label: "注销申请", description: "查看用户账号注销申请，完成身份核验、受理或拒绝并保留审计记录。", shortDescription: "用户权利请求", icon: <UserRoundX className="size-4" /> },
     { key: "mediaStorage", label: "本地媒体", description: "查看服务器图片、视频和音频文件，管理临时期限与长期存储。", shortDescription: "文件与期限", icon: <HardDrive className="size-4" /> },
     { key: "externalStorage", label: "外部存储", description: "配置 S3 兼容存储，迁移本地媒体并管理外部对象。", shortDescription: "S3 与 OSS", icon: <Cloud className="size-4" /> },
@@ -204,14 +211,13 @@ export const adminSections: AdminSection[] = [
 
 export const adminSectionGroups: AdminSectionGroup[] = [
     { title: "经营分析", items: sectionsFor(["overview", "users", "logs", "generationOperations"]) },
-    { title: "商品运营", items: sectionsFor(["products", "orders"]) },
-    { title: "营销推广", items: sectionsFor(["promotions", "coupons", "referrals"]) },
-    { title: "财务管理", items: sectionsFor(["points", "payments", "cdk", "wallet"]) },
+    { title: "商品运营", items: sectionsFor(["products", "promotions", "coupons", "referrals"]) },
+    { title: "财务管理", items: sectionsFor(["orders", "points", "payments", "cdk", "wallet"]) },
     { title: "上游配置", items: sectionsFor(["channels", "skills"]) },
-    { title: "系统管理", items: sectionsFor(["site", "settings", "accountDeletion"]) },
-    { title: "存储与备份", items: sectionsFor(["mediaStorage", "externalStorage", "backup"]) },
+    { title: "系统管理", items: sectionsFor(["site", "settings", "modules", "workflows"]) },
+    { title: "存储与数据", items: sectionsFor(["mediaStorage", "externalStorage", "backup"]) },
+    { title: "系统维护", items: sectionsFor(["updates", "accountDeletion", "adminHelp"]) },
     { title: "内容运营", items: sectionsFor(["works", "announcements", "prompts"]) },
-    { title: "帮助与支持", items: sectionsFor(["updates", "adminHelp"]) },
 ];
 
 function sectionsFor(keys: AdminSectionKey[]) {

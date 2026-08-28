@@ -7,12 +7,15 @@ import { nanoid } from "nanoid";
 import { useParams, useRouter } from "next/navigation";
 
 import { createImageGenerationTask, waitForImageGenerationTask } from "@/services/api/image";
+import { waitForTextGenerationTask } from "@/services/api/text";
 import { createServerVideoGenerationTask } from "@/services/api/video";
 import { syncUserPointsFromHeaders } from "@/services/api/points";
+import { parseServerMediaUrl } from "@/services/server-media-storage";
 import { compileDramaShotPrompts } from "@/lib/drama-prompt-compiler";
 import { useEffectiveConfig } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
 import { useDramaStore } from "../stores/use-drama-store";
+import { applyDramaVisualFields } from "../drama-visual-freshness";
 import type { DramaContentAnalysis, DramaProject, DramaProjectVersion, DramaVisualAnalysis } from "../types";
 import { useDramaAudioQueue } from "./use-drama-audio-queue";
 import { DramaAgentPanel } from "./drama-agent-panel";
@@ -22,7 +25,8 @@ import { DramaGenerationPanel } from "./drama-generation-panel";
 import { DramaReviewPanel } from "./drama-review-panel";
 import { DramaStoryboardShotCard } from "./drama-storyboard-shot-card";
 import { DramaVersionModal } from "./drama-project-modals";
-import { dramaGenerationSize, estimateTaskPoints, referenceImage, shotReferenceImages, storyboardReferenceImages } from "./drama-shot-generation-utils";
+import { buildDramaShotInputFingerprints } from "./drama-shot-input-fingerprint";
+import { dramaGenerationSize, estimateTaskPoints, referenceImage, resolveDramaImageModel, resolveDramaVideoModel, shotReferenceImages, storyboardReferenceImages } from "./drama-shot-generation-utils";
 import { useGenerationCapacityRetry } from "./use-generation-capacity-retry";
 import { DramaEpisodeSidebar, DramaScriptPanel, DramaWorkspaceHeader, type DramaProjectStage } from "./drama-project-sections";
 
@@ -58,7 +62,7 @@ export default function DramaProjectPage() {
 }
 
 function DramaProjectEditor({ project }: { project: DramaProject }) {
-    const { message } = App.useApp();
+    const { message, modal } = App.useApp();
     const router = useRouter();
     const updateProject = useDramaStore((state) => state.updateProject);
     const updateEpisode = useDramaStore((state) => state.updateEpisode);
@@ -67,6 +71,7 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
     const applyVisualAnalysis = useDramaStore((state) => state.applyVisualAnalysis);
     const createVersion = useDramaStore((state) => state.createVersion);
     const listVersions = useDramaStore((state) => state.listVersions);
+    const deleteVersion = useDramaStore((state) => state.deleteVersion);
     const restoreVersion = useDramaStore((state) => state.restoreVersion);
     const config = useEffectiveConfig();
     const startingShotRef = useRef("");
@@ -81,6 +86,7 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
     const [versionsOpen, setVersionsOpen] = useState(false);
     const [versions, setVersions] = useState<DramaProjectVersion[]>([]);
     const [versionsLoading, setVersionsLoading] = useState(false);
+    const [deletingVersionId, setDeletingVersionId] = useState("");
     const [expandedStoryboardShotId, setExpandedStoryboardShotId] = useState("");
     const { isWaiting: isCapacityWaiting, schedule: scheduleCapacityRetry } = useGenerationCapacityRetry();
     const audioReady = Boolean(config.audioModel.trim());
@@ -110,12 +116,12 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
             const response = await fetch("/api/drama/analyze", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ requestId: `drama-content:${project.id}:${episode.id}:${nanoid()}`, phase: "content", script: episode.script, summary: project.summary, style: project.style, videoModel: config.videoModel || config.model }),
+                body: JSON.stringify({ requestId: `drama-content:${project.id}:${episode.id}:${nanoid()}`, phase: "content", script: episode.script, summary: project.summary, style: project.style, videoModel: resolveDramaVideoModel(config, project) }),
             });
             syncUserPointsFromHeaders(response.headers, "system");
             const payload = (await response.json().catch(() => ({}))) as { data?: DramaContentAnalysis; msg?: string };
             if (!response.ok || !payload.data) throw new Error(payload.msg || "AI 剧本解析失败");
-            await createVersion(project, "AI 内容解析前");
+            await createVersion(project, "AI 内容解析前", { episodeIds: [episode.id] });
             applyContentAnalysis(project.id, episode.id, payload.data);
             setStage("review");
             message.success(`已提取 ${payload.data.characters.length} 个角色、${payload.data.scenes.length} 个场景和 ${payload.data.shots.length} 个待审核镜头`);
@@ -127,7 +133,6 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
     };
     const designVisuals = async () => {
         if (!episode.shots.length) return message.warning("请先完成内容解析");
-        updateEpisode(project.id, episode.id, { reviewStatus: "approved" });
         setDesigning(true);
         try {
             const response = await fetch("/api/drama/analyze", {
@@ -135,6 +140,7 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     requestId: `drama-visual:${project.id}:${episode.id}:${nanoid()}`,
+                    projectId: project.id,
                     phase: "visual",
                     summary: project.summary,
                     style: project.style,
@@ -154,18 +160,49 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
                 }),
             });
             syncUserPointsFromHeaders(response.headers, "system");
-            const payload = (await response.json().catch(() => ({}))) as { data?: DramaVisualAnalysis; msg?: string };
-            if (!response.ok || !payload.data) throw new Error(payload.msg || "AI 视觉方案生成失败");
-            await createVersion(project, "视觉方案生成前");
-            applyVisualAnalysis(project.id, episode.id, payload.data);
-            setStage("storyboard");
-            message.success("已按审核内容生成视觉方案");
+            const payload = (await response.json().catch(() => ({}))) as { data?: { task?: { id?: string; status?: string } }; msg?: string };
+            const taskId = payload.data?.task?.id;
+            if (!response.ok || !taskId) throw new Error(payload.msg || "AI 视觉方案任务创建失败");
+            updateEpisode(project.id, episode.id, { reviewStatus: "approved", visualTaskId: taskId, visualError: undefined });
+            message.success("视觉方案已进入生成队列，可离开页面后再返回查看");
         } catch (error) {
             message.error(error instanceof Error ? error.message : "AI 视觉方案生成失败");
         } finally {
             setDesigning(false);
         }
     };
+    useEffect(() => {
+        const taskId = episode.visualTaskId;
+        if (!taskId) return;
+        const controller = new AbortController();
+        void waitForTextGenerationTask(config, { id: taskId, model: config.textModel || config.model }, { signal: controller.signal, timeoutMs: 0 })
+            .then(async (content) => {
+                if (controller.signal.aborted) return;
+                const analysis = JSON.parse(content) as DramaVisualAnalysis;
+                const currentProject = useDramaStore.getState().projects.find((item) => item.id === project.id);
+                if (!currentProject) return;
+                const currentEpisode = currentProject.episodes.find((item) => item.id === episode.id);
+                if (!currentEpisode) return;
+                const visualByShot = new Map(analysis.shots.map((shot) => [shot.shotId, shot]));
+                const fingerprints = currentEpisode.shots.flatMap((shot) => {
+                    const visual = visualByShot.get(shot.id);
+                    if (!visual) return [];
+                    return [{ shotId: shot.id, before: buildDramaShotInputFingerprints(config, currentProject, currentEpisode, shot), after: buildDramaShotInputFingerprints(config, currentProject, currentEpisode, applyDramaVisualFields(shot, visual)) }];
+                });
+                await createVersion({ ...currentProject, episodes: currentProject.episodes.map((item) => (item.id === episode.id ? { ...item, visualTaskId: undefined, visualError: undefined } : item)) }, "视觉方案生成前", { episodeIds: [episode.id] });
+                if (controller.signal.aborted) return;
+                applyVisualAnalysis(project.id, episode.id, analysis, fingerprints);
+                setStage("storyboard");
+                message.success("已按审核内容生成视觉方案");
+            })
+            .catch((error) => {
+                if (controller.signal.aborted) return;
+                const detail = error instanceof Error ? error.message : "AI 视觉方案生成失败";
+                updateEpisode(project.id, episode.id, { visualTaskId: undefined, visualError: detail });
+                message.error(detail);
+            });
+        return () => controller.abort();
+    }, [applyVisualAnalysis, config, createVersion, episode.id, episode.visualTaskId, message, project.id, updateEpisode]);
     const openVersions = async () => {
         setVersionsOpen(true);
         setVersionsLoading(true);
@@ -187,24 +224,54 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
             message.error(error instanceof Error ? error.message : "版本恢复失败");
         }
     };
+    const removeVersion = (version: DramaProjectVersion) => {
+        modal.confirm({
+            title: `删除版本 ${version.version}？`,
+            content: "删除后无法恢复，当前短剧项目和已生成媒体不会改变。",
+            okText: "删除",
+            okButtonProps: { danger: true },
+            cancelText: "取消",
+            onOk: async () => {
+                setDeletingVersionId(version.id);
+                try {
+                    await deleteVersion(project.id, version.id);
+                    setVersions((current) => current.filter((item) => item.id !== version.id));
+                    message.success(`版本 ${version.version} 已删除`);
+                } catch (error) {
+                    message.error(error instanceof Error ? error.message : "版本删除失败");
+                    throw error;
+                } finally {
+                    setDeletingVersionId("");
+                }
+            },
+        });
+    };
     useEffect(() => {
         const runningEnd = episode.shots.find((shot) => shot.storyboardEndStatus === "running" && shot.storyboardEndTaskId);
         if (runningEnd) {
             const key = `${episode.id}:${runningEnd.id}:${runningEnd.storyboardEndTaskId}`;
             if (storyboardTaskRef.current === key) return;
             storyboardTaskRef.current = key;
-            const imageConfig = { ...config, model: config.imageModel || config.model, imageModel: config.imageModel || config.model, size: project.ratio, count: "1" };
-            void waitForImageGenerationTask(imageConfig, { id: runningEnd.storyboardEndTaskId!, kind: "generation", model: imageConfig.model })
+            const imageModel = runningEnd.storyboardEndModel || resolveDramaImageModel(config, project, runningEnd);
+            const imageConfig = { ...config, model: imageModel, imageModel, size: project.ratio, count: "1" };
+            void waitForImageGenerationTask(imageConfig, { id: runningEnd.storyboardEndTaskId!, kind: "generation", model: imageModel })
                 .then((result) => {
                     const imageUrl = stableTaskUrl(result.remoteUrl, result.serverUrl, result.dataUrl);
                     if (!imageUrl) throw new Error("尾帧图没有可持久化的访问地址");
+                    const imageStorageKey = parseServerMediaUrl(imageUrl)?.storageKey;
+                    const latest = currentDramaShot(project.id, episode.id, runningEnd.id) || runningEnd;
+                    const resultIsCurrent = attemptMatchesCurrent(latest.storyboardEndAttemptFingerprint, latest.storyboardEndInputFingerprint);
                     updateShot(project.id, episode.id, runningEnd.id, {
                         storyboardEndStatus: "success",
+                        storyboardEndModel: latest.storyboardEndModel || imageModel,
+                        storyboardEndResultFingerprint: latest.storyboardEndAttemptFingerprint || latest.storyboardEndInputFingerprint,
                         storyboardEndImageUrl: imageUrl,
+                        storyboardEndImageStorageKey: imageStorageKey,
                         storyboardEndImageWidth: result.width,
                         storyboardEndImageHeight: result.height,
                         storyboardEndError: undefined,
-                        generationStatus: "queued",
+                        generationStatus: resultIsCurrent ? "queued" : latest.generationStatus,
+                        ...(resultIsCurrent ? { generationAttempt: (latest.generationAttempt || 0) + 1 } : {}),
                     });
                 })
                 .catch((error) => updateShot(project.id, episode.id, runningEnd.id, { storyboardEndStatus: "error", storyboardEndError: error instanceof Error ? error.message : "尾帧图生成失败" }))
@@ -218,20 +285,29 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
             const key = `${episode.id}:${running.id}:${running.storyboardTaskId}`;
             if (storyboardTaskRef.current === key) return;
             storyboardTaskRef.current = key;
-            const imageConfig = { ...config, model: config.imageModel || config.model, imageModel: config.imageModel || config.model, size: project.ratio, count: "1" };
-            void waitForImageGenerationTask(imageConfig, { id: running.storyboardTaskId!, kind: "generation", model: imageConfig.model })
+            const imageModel = running.storyboardModel || resolveDramaImageModel(config, project, running);
+            const imageConfig = { ...config, model: imageModel, imageModel, size: project.ratio, count: "1" };
+            void waitForImageGenerationTask(imageConfig, { id: running.storyboardTaskId!, kind: "generation", model: imageModel })
                 .then((result) => {
                     const imageUrl = stableTaskUrl(result.remoteUrl, result.serverUrl, result.dataUrl);
                     if (!imageUrl) throw new Error("分镜图没有可持久化的访问地址");
-                    const hasEndFrame = running.storyboardFrameMode === "first_last" && running.storyboardEndStatus === "success" && Boolean(running.storyboardEndImageUrl);
+                    const imageStorageKey = parseServerMediaUrl(imageUrl)?.storageKey;
+                    const latest = currentDramaShot(project.id, episode.id, running.id) || running;
+                    const resultIsCurrent = attemptMatchesCurrent(latest.storyboardAttemptFingerprint, latest.storyboardInputFingerprint);
+                    const needsEndFrame = resultIsCurrent && latest.storyboardFrameMode === "first_last";
                     updateShot(project.id, episode.id, running.id, {
                         storyboardStatus: "success",
+                        storyboardModel: latest.storyboardModel || imageModel,
+                        storyboardResultFingerprint: latest.storyboardAttemptFingerprint || latest.storyboardInputFingerprint,
                         storyboardImageUrl: imageUrl,
+                        storyboardImageStorageKey: imageStorageKey,
                         storyboardImageWidth: result.width,
                         storyboardImageHeight: result.height,
                         storyboardError: undefined,
-                        storyboardEndStatus: running.storyboardFrameMode === "first_last" ? (hasEndFrame ? "success" : "queued") : "idle",
-                        generationStatus: running.storyboardFrameMode === "first_last" && !hasEndFrame ? "idle" : "queued",
+                        storyboardEndStatus: needsEndFrame ? "queued" : latest.storyboardEndStatus,
+                        ...(needsEndFrame ? { storyboardEndAttempt: (latest.storyboardEndAttempt || 0) + 1 } : {}),
+                        generationStatus: resultIsCurrent && !needsEndFrame ? "queued" : latest.generationStatus,
+                        ...(resultIsCurrent && !needsEndFrame ? { generationAttempt: (latest.generationAttempt || 0) + 1 } : {}),
                     });
                 })
                 .catch((error) => updateShot(project.id, episode.id, running.id, { storyboardStatus: "error", storyboardError: error instanceof Error ? error.message : "分镜图生成失败" }))
@@ -247,7 +323,13 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
             storyboardTaskRef.current = `${episode.id}:${nextEnd.id}:creating-end`;
             const prompt = compileDramaShotPrompts(project, episode, nextEnd).endFramePrompt;
             const references = [referenceImage(`storyboard-start-${nextEnd.id}`, `${nextEnd.title}-起始帧.png`, nextEnd.storyboardImageUrl!, "image/png", nextEnd.storyboardImageWidth, nextEnd.storyboardImageHeight)];
-            const imageConfig = { ...config, model: config.imageModel || config.model, imageModel: config.imageModel || config.model, size: dramaGenerationSize(project, prompt, references), count: "1" };
+            const imageModel = resolveDramaImageModel(config, project, nextEnd);
+            const imageConfig = { ...config, model: imageModel, imageModel, size: dramaGenerationSize(project, prompt, references), count: "1" };
+            if (!imageModel) {
+                updateShot(project.id, episode.id, nextEnd.id, { storyboardEndStatus: "error", storyboardEndError: "未配置可用的图片模型，请先选择图片模型" });
+                storyboardTaskRef.current = "";
+                return;
+            }
             void createImageGenerationTask(imageConfig, prompt, references, undefined, {
                 logSource: "drama",
                 logTitle: `${project.title} · ${nextEnd.title}尾帧`,
@@ -260,7 +342,7 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
                 attemptNo: nextEnd.storyboardEndAttempt || 1,
                 clientRequestId: `drama-storyboard-end:${project.id}:${episode.id}:${nextEnd.id}:attempt-${nextEnd.storyboardEndAttempt || 1}`,
             })
-                .then((task) => updateShot(project.id, episode.id, nextEnd.id, { storyboardEndStatus: "running", storyboardEndTaskId: task.id, storyboardEndError: undefined }))
+                .then((task) => updateShot(project.id, episode.id, nextEnd.id, { storyboardEndStatus: "running", storyboardEndTaskId: task.id, storyboardEndModel: imageModel, storyboardEndError: undefined }))
                 .catch((error) =>
                     scheduleCapacityRetry(retryKey, error)
                         ? updateShot(project.id, episode.id, nextEnd.id, { storyboardEndStatus: "queued", storyboardEndError: undefined })
@@ -278,7 +360,13 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
         storyboardTaskRef.current = `${episode.id}:${next.id}:creating`;
         const prompts = compileDramaShotPrompts(project, episode, next);
         const references = shotReferenceImages(project, next);
-        const imageConfig = { ...config, model: config.imageModel || config.model, imageModel: config.imageModel || config.model, size: dramaGenerationSize(project, prompts.imagePrompt, references), count: "1" };
+        const imageModel = resolveDramaImageModel(config, project, next);
+        const imageConfig = { ...config, model: imageModel, imageModel, size: dramaGenerationSize(project, prompts.imagePrompt, references), count: "1" };
+        if (!imageModel) {
+            updateShot(project.id, episode.id, next.id, { storyboardStatus: "error", storyboardError: "未配置可用的图片模型，请先选择图片模型" });
+            storyboardTaskRef.current = "";
+            return;
+        }
         void createImageGenerationTask(imageConfig, prompts.imagePrompt, references, undefined, {
             logSource: "drama",
             logTitle: `${project.title} · ${next.title}`,
@@ -291,7 +379,7 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
             attemptNo: next.storyboardAttempt || 1,
             clientRequestId: `drama-storyboard:${project.id}:${episode.id}:${next.id}:attempt-${next.storyboardAttempt || 1}`,
         })
-            .then((task) => updateShot(project.id, episode.id, next.id, { storyboardStatus: "running", storyboardTaskId: task.id, storyboardError: undefined }))
+            .then((task) => updateShot(project.id, episode.id, next.id, { storyboardStatus: "running", storyboardTaskId: task.id, storyboardModel: imageModel, storyboardError: undefined }))
             .catch((error) =>
                 scheduleCapacityRetry(retryKey, error)
                     ? updateShot(project.id, episode.id, next.id, { storyboardStatus: "queued", storyboardError: undefined })
@@ -308,16 +396,25 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
         const timer = window.setInterval(async () => {
             const response = await fetch(`/api/video-tasks/${encodeURIComponent(running.generationTaskId!)}`, { cache: "no-store" });
             syncUserPointsFromHeaders(response.headers, "system");
-            const payload = (await response.json().catch(() => ({}))) as { task?: { status?: string; result?: { url?: string }; error?: string }; error?: string };
+            const payload = (await response.json().catch(() => ({}))) as { task?: { status?: string; model?: string; result?: { url?: string }; error?: string }; error?: string };
             if (!response.ok) return updateShot(project.id, episode.id, running.id, { generationStatus: "error", generationError: payload.error || "视频任务查询失败" });
-            if (payload.task?.status === "success")
+            if (payload.task?.status === "success") {
+                const latest = currentDramaShot(project.id, episode.id, running.id) || running;
+                const videoUrl = payload.task.result?.url;
                 updateShot(project.id, episode.id, running.id, {
                     generationStatus: "success",
-                    videoUrl: payload.task.result?.url,
+                    generationModel: payload.task.model || latest.generationModel,
+                    videoResultFingerprint: latest.videoAttemptFingerprint || latest.videoInputFingerprint,
+                    videoUrl,
+                    videoStorageKey: parseServerMediaUrl(videoUrl || "")?.storageKey,
                     generationError: undefined,
-                    ...(running.audioMode === "voiceover" && (running.subtitle || running.dialogue).trim() && audioReady ? { audioStatus: "queued" as const, audioError: undefined } : {}),
+                    ...(attemptMatchesCurrent(latest.videoAttemptFingerprint, latest.videoInputFingerprint) && latest.audioMode === "voiceover" && (latest.subtitle || latest.dialogue).trim() && audioReady
+                        ? { audioStatus: "queued" as const, audioError: undefined }
+                        : {}),
                 });
-            if (payload.task?.status === "error" || payload.task?.status === "cancelled") updateShot(project.id, episode.id, running.id, { generationStatus: payload.task.status, generationError: payload.task.error });
+            }
+            if (payload.task?.status === "error" || payload.task?.status === "cancelled")
+                updateShot(project.id, episode.id, running.id, { generationStatus: payload.task.status, generationModel: payload.task.model || running.generationModel, generationError: payload.task.error });
         }, 2500);
         return () => window.clearInterval(timer);
     }, [audioReady, episode.id, episode.shots, project.id, updateShot]);
@@ -330,8 +427,18 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
         if (isCapacityWaiting(retryKey)) return;
         startingShotRef.current = next.id;
         const mode = next.videoMode || project.defaultVideoMode;
+        const videoModel = resolveDramaVideoModel(config, project, next);
+        const requestedVideoModel = next.videoModel || next.generationModel || project.videoModel || config.videoModel;
         const references = mode === "reference" ? shotReferenceImages(project, next) : storyboardReferenceImages(next);
         const prompts = compileDramaShotPrompts(project, episode, next);
+        if (!videoModel) {
+            updateShot(project.id, episode.id, next.id, {
+                generationStatus: "error",
+                generationError: config.videoModels.length && requestedVideoModel ? `视频模型“${requestedVideoModel}”已停用或移除，请重新选择视频模型` : "当前没有可用的视频模型，请联系管理员完成模型服务配置",
+            });
+            startingShotRef.current = "";
+            return;
+        }
         if (mode === "reference" && !references.length) {
             updateShot(project.id, episode.id, next.id, { generationStatus: "error", generationError: "参考图模式需要先为关联角色、场景、道具或项目素材配置参考图" });
             startingShotRef.current = "";
@@ -347,8 +454,9 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
             startingShotRef.current = "";
             return;
         }
+        updateShot(project.id, episode.id, next.id, { generationModel: videoModel, generationError: undefined });
         void createServerVideoGenerationTask(
-            { ...config, model: config.videoModel || config.model, size: dramaGenerationSize(project, prompts.videoPrompt, references), videoSeconds: String(next.duration), videoGenerateAudio: String((next.audioMode || "source") === "source") },
+            { ...config, model: videoModel, videoModel, size: dramaGenerationSize(project, prompts.videoPrompt, references), videoSeconds: String(next.duration), videoGenerateAudio: String((next.audioMode || "source") === "source") },
             prompts.videoPrompt,
             references,
             [],
@@ -359,13 +467,13 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
                 projectId: project.id,
                 episodeId: episode.id,
                 shotId: next.id,
-                estimatedPoints: estimateTaskPoints(config, "video", next.duration),
+                estimatedPoints: estimateTaskPoints(config, "video", next.duration, videoModel),
                 parentTaskId: next.storyboardTaskId,
                 attemptNo: next.generationAttempt || 1,
                 clientRequestId: `drama-video:${project.id}:${episode.id}:${next.id}:attempt-${next.generationAttempt || 1}`,
             },
         )
-            .then((task) => updateShot(project.id, episode.id, next.id, { generationStatus: "running", generationTaskId: task.serverTaskId || task.id, generationError: undefined }))
+            .then((task) => updateShot(project.id, episode.id, next.id, { generationStatus: "running", generationTaskId: task.serverTaskId || task.id, generationModel: videoModel, generationError: undefined }))
             .catch((error) =>
                 scheduleCapacityRetry(retryKey, error)
                     ? updateShot(project.id, episode.id, next.id, { generationStatus: "queued", generationError: undefined })
@@ -393,7 +501,10 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
                 }}
                 onCloseAssets={() => setAssetsOpen(false)}
                 onEpisodeNavigatorOpenChange={setEpisodeNavigatorOpen}
-                onToggleAgent={() => setAgentOpen((open) => !open)}
+                onToggleAgent={() => {
+                    setAgentOpen((open) => !open);
+                    setAssetsOpen(false);
+                }}
                 onOpenVersions={() => void openVersions()}
             />
             <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden" data-drama-workspace-body>
@@ -500,13 +611,27 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
             <DramaVersionModal
                 open={versionsOpen}
                 loading={versionsLoading}
+                deletingVersionId={deletingVersionId}
                 versions={versions}
                 onClose={() => setVersionsOpen(false)}
                 onSave={() => void createVersion(project, "手动保存版本").then(() => openVersions())}
                 onRestore={(version) => void restore(version)}
+                onDelete={removeVersion}
             />
         </main>
     );
+}
+
+function attemptMatchesCurrent(attempt?: string, current?: string) {
+    return !attempt || !current || attempt === current;
+}
+
+function currentDramaShot(projectId: string, episodeId: string, shotId: string) {
+    return useDramaStore
+        .getState()
+        .projects.find((project) => project.id === projectId)
+        ?.episodes.find((episode) => episode.id === episodeId)
+        ?.shots.find((shot) => shot.id === shotId);
 }
 
 function DramaScriptGlobalBar({

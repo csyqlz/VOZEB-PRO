@@ -6,6 +6,7 @@ import { useRef, useState } from "react";
 
 import { imagePreviewUrl } from "@/lib/media-image-url";
 import { uploadImage } from "@/services/image-storage";
+import { parseServerMediaUrl } from "@/services/server-media-storage";
 import { useDramaStore } from "../stores/use-drama-store";
 import type { DramaShot } from "../types";
 
@@ -32,17 +33,25 @@ export function DramaShotFrameEditor({ projectId, episodeId, shot }: { projectId
             const url = stored.serverUrl || stored.url;
             updateShot(projectId, episodeId, shot.id, {
                 ...(uploadTarget === "start"
-                    ? { storyboardStatus: "success" as const, storyboardTaskId: undefined, storyboardError: undefined, storyboardImageUrl: url, storyboardImageWidth: stored.width, storyboardImageHeight: stored.height }
+                    ? {
+                          storyboardStatus: "success" as const,
+                          storyboardTaskId: undefined,
+                          storyboardError: undefined,
+                          storyboardImageUrl: url,
+                          storyboardImageStorageKey: stored.storageKey || parseServerMediaUrl(url)?.storageKey,
+                          storyboardImageWidth: stored.width,
+                          storyboardImageHeight: stored.height,
+                      }
                     : {
                           storyboardFrameMode: "first_last" as const,
                           storyboardEndStatus: "success" as const,
                           storyboardEndTaskId: undefined,
                           storyboardEndError: undefined,
                           storyboardEndImageUrl: url,
+                          storyboardEndImageStorageKey: stored.storageKey || parseServerMediaUrl(url)?.storageKey,
                           storyboardEndImageWidth: stored.width,
                           storyboardEndImageHeight: stored.height,
                       }),
-                ...clearedGeneratedMedia,
             });
             message.success(`${uploadTarget === "start" ? "起始帧" : "结束帧"}已上传`);
         } catch (error) {
@@ -55,9 +64,8 @@ export function DramaShotFrameEditor({ projectId, episodeId, shot }: { projectId
     const removeFrame = (kind: FrameKind) => {
         updateShot(projectId, episodeId, shot.id, {
             ...(kind === "start"
-                ? { storyboardStatus: "idle" as const, storyboardImageUrl: undefined, storyboardImageWidth: undefined, storyboardImageHeight: undefined }
-                : { storyboardEndStatus: "idle" as const, storyboardEndImageUrl: undefined, storyboardEndImageWidth: undefined, storyboardEndImageHeight: undefined }),
-            ...clearedGeneratedMedia,
+                ? { storyboardStatus: "idle" as const, storyboardImageUrl: undefined, storyboardImageStorageKey: undefined, storyboardImageWidth: undefined, storyboardImageHeight: undefined }
+                : { storyboardEndStatus: "idle" as const, storyboardEndImageUrl: undefined, storyboardEndImageStorageKey: undefined, storyboardEndImageWidth: undefined, storyboardEndImageHeight: undefined }),
         });
     };
 
@@ -76,7 +84,7 @@ export function DramaShotFrameEditor({ projectId, episodeId, shot }: { projectId
                         { label: "单帧", value: "single" },
                         { label: "首尾帧", value: "first_last" },
                     ]}
-                    onChange={(value) => updateShot(projectId, episodeId, shot.id, { storyboardFrameMode: value as "single" | "first_last", ...clearedGeneratedMedia })}
+                    onChange={(value) => updateShot(projectId, episodeId, shot.id, { storyboardFrameMode: value as "single" | "first_last" })}
                 />
             </div>
             <div className="mt-3 grid min-w-0 gap-2.5 sm:grid-cols-2">
@@ -118,14 +126,3 @@ function FrameSlot({ title, url, loading, disabled, onUpload, onRemove }: { titl
         </div>
     );
 }
-
-const clearedGeneratedMedia = {
-    generationStatus: "idle" as const,
-    generationTaskId: undefined,
-    generationError: undefined,
-    videoUrl: undefined,
-    audioStatus: "idle" as const,
-    audioTaskId: undefined,
-    audioError: undefined,
-    audioUrl: undefined,
-};

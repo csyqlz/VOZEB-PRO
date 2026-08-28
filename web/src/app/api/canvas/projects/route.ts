@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireVozebCmsCapability } from "@/app/api/vozeb-cms-capability";
 
 import { getCurrentUser } from "@/lib/auth/session";
 import { readJsonBodyResult } from "@/lib/auth/request";
@@ -14,6 +15,8 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
     const user = await getCurrentUser();
     if (!user) return NextResponse.json({ code: 401, data: null, msg: "请先登录" }, { status: 401 });
+    const blocked = await requireVozebCmsCapability("canvas.project.manage", user.id);
+    if (blocked) return blocked;
     try {
         const parsed = await readJsonBodyResult<unknown>(request, 16 * 1024 * 1024);
         if (!parsed.ok) return NextResponse.json({ code: parsed.status, data: null, msg: parsed.message }, { status: parsed.status });
@@ -29,6 +32,8 @@ export async function POST(request: Request) {
 export async function DELETE(request: Request) {
     const user = await getCurrentUser();
     if (!user) return NextResponse.json({ code: 401, data: null, msg: "请先登录" }, { status: 401 });
+    const blocked = await requireVozebCmsCapability("canvas.project.manage", user.id);
+    if (blocked) return blocked;
     const parsed = await readJsonBodyResult<{ ids?: unknown }>(request);
     if (!parsed.ok) return NextResponse.json({ code: parsed.status, data: null, msg: parsed.message }, { status: parsed.status });
     const body = parsed.data;
