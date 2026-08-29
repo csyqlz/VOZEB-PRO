@@ -10,14 +10,33 @@ export function toSafeGenerationErrorMessage(error: unknown, fallback: string) {
     if (hasInsufficientPointsError(error)) return "积分不足";
     if (isTimeoutError(error, message)) return "生成接口响应超时，请稍后重试或检查模型服务。";
     if (isFetchNetworkError(error, message)) return DEFAULT_CHANNEL_CONNECT_ERROR;
+    const upstreamHttpError = publicUpstreamHttpError(message);
+    if (upstreamHttpError) return upstreamHttpError;
     if (isHtmlGatewayError(message)) return DEFAULT_CHANNEL_CONNECT_ERROR;
     if (containsInfrastructureDetails(message)) return /参考|素材|公网/i.test(message) ? "参考素材暂时无法提交给当前生成渠道，请重新上传或稍后重试。" : DEFAULT_CHANNEL_CONNECT_ERROR;
     return message || fallback;
 }
 
 export function toSafeGenerationReviewReason(error: unknown, fallback: string) {
-    if (error instanceof GenerationSubmissionUncertainError) return UNKNOWN_SUBMISSION_REVIEW_ERROR;
+    if (error instanceof GenerationSubmissionUncertainError) {
+        const upstreamHttpError = publicUpstreamHttpError(error.message);
+        return upstreamHttpError ? `${upstreamHttpError}；创建结果无法确认，为避免重复生成和扣费，系统已停止自动重试。` : UNKNOWN_SUBMISSION_REVIEW_ERROR;
+    }
     return toSafeGenerationErrorMessage(error, fallback);
+}
+
+function publicUpstreamHttpError(message: string) {
+    const match = message.match(/^(.*?)，?上游返回了网页错误（HTTP\s+(\d{3})(?:，地址\s+(https?:\/\/[^，）\s]+))?(?:，类型\s+([^）]+))?）/u);
+    if (!match) return "";
+    let path = "";
+    try {
+        path = new URL(match[3]).pathname.slice(0, 160);
+    } catch {
+        path = "";
+    }
+    const contentType = match[4]?.trim().match(/^[\w.+-]+\/[\w.+-]+(?:;\s*charset=[\w-]+)?$/i)?.[0];
+    const label = match[1].trim().replace(/[，,:：]+$/u, "") || "生成失败";
+    return `${label}：上游接口${path ? ` ${path}` : ""} 返回 HTTP ${match[2]}${contentType ? `（${contentType}）` : ""}`;
 }
 
 function generationErrorMessage(error: unknown) {

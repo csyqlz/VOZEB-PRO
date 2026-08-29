@@ -494,6 +494,34 @@ describe("video generation candidate failover", () => {
         expect(intelligentBody.get("size")).toBeNull();
     });
 
+    it("keeps New API single-image multipart and uses JSON content for advanced references", async () => {
+        mocks.getAuthSettings.mockResolvedValue(newApiSettings());
+        mocks.fetchInternalApi.mockImplementation(async () => json({ id: "upstream-newapi", status: "queued" }));
+        const inlineImage = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
+
+        const singleResponse = await POST(request({ model: "video", videoSeconds: "5", size: "16:9" }, [{ type: "image", url: inlineImage }], { clientRequestId: "newapi-single" }));
+        const singleInit = (mocks.fetchInternalApi.mock.calls[0] as [string, RequestInit])[1];
+        expect(singleResponse.status).toBe(200);
+        expect(singleInit.body).toBeInstanceOf(FormData);
+        expect((singleInit.body as FormData).get("input_reference")).toBeInstanceOf(File);
+        expect(new Headers(singleInit.headers).has("content-type")).toBe(false);
+
+        const imageReferences = [
+            { type: "image", url: "https://cdn.example.com/product.png" },
+            { type: "image", url: "https://cdn.example.com/poster.png" },
+        ];
+        const multiResponse = await POST(request({ model: "video", videoSeconds: "5", size: "16:9" }, imageReferences, { clientRequestId: "newapi-multi" }));
+        const multiInit = (mocks.fetchInternalApi.mock.calls[1] as [string, RequestInit])[1];
+        const multiBody = JSON.parse(String(multiInit.body));
+        expect(multiResponse.status).toBe(200);
+        expect(new Headers(multiInit.headers).get("content-type")).toBe("application/json");
+        expect(multiBody.content).toEqual([
+            { type: "image_url", role: "reference_image", image_url: { url: imageReferences[0].url } },
+            { type: "image_url", role: "reference_image", image_url: { url: imageReferences[1].url } },
+        ]);
+        expect(multiBody).not.toHaveProperty("images");
+    });
+
     it("persists the Drama project, episode and shot task context", async () => {
         mocks.fetchInternalApi.mockResolvedValue(json({ id: "upstream-drama", status: "queued" }));
         const context = { surface: "drama", projectId: "drama-one", episodeId: "episode-one", shotId: "shot-one", estimatedPoints: 8, attemptNo: 2, clientRequestId: "drama-video:one" };
@@ -943,6 +971,29 @@ function publicUrlCompatibleSettings() {
             },
         ],
         logicalModels: [{ ...settings.logicalModels[0], bindings: [settings.logicalModels[0].bindings[0]] }],
+    };
+}
+
+function newApiSettings() {
+    const operation = {
+        capability: "video" as const,
+        source: "manual" as const,
+        protocol: "newapi" as const,
+        apiFormat: "openai" as const,
+        createPath: "/videos",
+        imageToVideoPath: "/videos",
+        queryPath: "/videos/:task_id",
+        requestTemplate: "multipart/form-data: model、prompt、seconds、size、input_reference",
+        resultField: "/videos/:task_id/content",
+        statusField: "status",
+        supportsReferenceImage: true,
+        supportsReferenceVideo: true,
+        supportsReferenceAudio: true,
+    };
+    return {
+        ...settings,
+        systemChannels: [{ ...channels[0], advancedConfig: { protocol: "openai" as const, modelConfigs: { "video-one": operation } } }],
+        logicalModels: [{ ...settings.logicalModels[0], bindings: [{ ...settings.logicalModels[0].bindings[0], capabilityProfile: { supportsReferenceImage: true, supportsReferenceVideo: true, supportsReferenceAudio: true, maxReferenceImages: 9 } }] }],
     };
 }
 

@@ -47,6 +47,17 @@ const openAiOperations: ChannelProtocolDefinition["operations"] = {
     audio: { capability: "audio", createPath: "/audio/speech", requestTemplate: '{"model":"{{model}}","input":"{{prompt}}","voice":"alloy","response_format":"mp3"}', resultField: "binary" },
 };
 
+const newApiOperations: ChannelProtocolDefinition["operations"] = {
+    ...openAiOperations,
+    video: {
+        ...openAiOperations.video!,
+        referenceRule: "单张普通参考图使用 multipart/form-data input_reference；多图、首尾帧或视频/音频参考使用 JSON content 多模态数组。",
+        supportsReferenceImage: true,
+        supportsReferenceVideo: true,
+        supportsReferenceAudio: true,
+    },
+};
+
 const geminiVideoOperation: ProtocolOperation = {
     capability: "video",
     createPath: "/models/:model:predictLongRunning",
@@ -212,12 +223,12 @@ export const registeredChannelProtocolDefinitions: ChannelProtocolDefinition[] =
     {
         id: "newapi",
         label: "New API",
-        description: "New API 聚合网关，按 OpenAI 路径调用并保留独立协议身份。",
+        description: "New API 聚合网关，按 OpenAI 路径调用，视频支持 content 多模态参考素材。",
         apiFormat: "openai",
         authMode: "bearer",
         modelCatalogPaths: ["/v1/models"],
         capabilities: ["text", "image", "video", "audio"],
-        operations: openAiOperations,
+        operations: newApiOperations,
         strict: true,
     },
     {
