@@ -4,6 +4,7 @@ import type { SystemModelChannel } from "@/lib/auth/store";
 import {
     applyChannelProtocol,
     applyModelProtocol,
+    channelConnectionReady,
     channelCredentialsReady,
     channelProtocolDefinition,
     channelProtocolDefinitions,
@@ -11,6 +12,7 @@ import {
     channelProtocolOptions,
     channelSupportsModelCatalog,
     channelProtocolValidationErrors,
+    channelRequiresApiKey,
     normalizeStrictProtocolModelConfig,
     protocolAuthHeaders,
     resolveChannelModelConfig,
@@ -29,7 +31,7 @@ const channel = {
 describe("channel protocol registry", () => {
     it("exposes only active protocols and keeps SD2 separate from Stable Diffusion", () => {
         const protocols = channelProtocolOptions().map((item) => item.value);
-        expect(protocols).toEqual(["openai", "yumeng", "gemini", "seedance", "stable-diffusion", "volcengine-video", "sub2api", "newapi", "custom", "compatible", "auto"]);
+        expect(protocols).toEqual(["openai", "yumeng", "gemini", "gcp-agent-platform", "seedance", "stable-diffusion", "volcengine-video", "sub2api", "newapi", "custom", "compatible", "auto"]);
         expect(protocols).not.toEqual(expect.arrayContaining(["vozeb-recommended", "seedance-special", "globalaiopc"]));
         expect(channelProtocolDefinition("openai").modelCatalogPaths).toEqual(["/v1/models"]);
         expect(channelProtocolDefinition("sub2api").modelCatalogPaths).toEqual(["/v1/models"]);
@@ -142,6 +144,40 @@ describe("channel protocol registry", () => {
         expect(configured.apiFormat).toBe("gemini");
         expect(configured.advancedConfig?.modelConfigs?.["veo-3.1-generate-preview"]).toMatchObject({ protocol: "gemini", apiFormat: "gemini", capability: "video" });
         expect(protocolAuthHeaders("secret", configured.advancedConfig, "gemini")).toEqual({ "x-goog-api-key": "secret" });
+    });
+
+    it("registers GCP Agent Platform text and image models with ADC by default", () => {
+        const configured = applyChannelProtocol({ ...channel, baseUrl: "https://stale.example.com/v1", models: ["gemini-2.5-flash", "gemini-3.1-flash-image"] }, "gcp-agent-platform");
+
+        expect(configured.baseUrl).toBe("https://aiplatform.googleapis.com");
+        expect(configured.apiFormat).toBe("gemini");
+        expect(configured.advancedConfig).toMatchObject({ protocol: "gcp-agent-platform", authMode: "google-adc", gcpLocation: "global" });
+        expect(configured.advancedConfig?.modelConfigs?.["gemini-2.5-flash"]).toMatchObject({
+            capability: "text",
+            createPath: "/models/:model:generateContent",
+            streaming: { enabled: true, path: "/models/:model:streamGenerateContent?alt=sse", format: "sse" },
+        });
+        expect(configured.advancedConfig?.modelConfigs?.["gemini-3.1-flash-image"]).toMatchObject({ capability: "image", createPath: "/models/:model:generateContent", supportsReferenceImage: true });
+        expect(channelRequiresApiKey(configured)).toBe(false);
+        expect(channelConnectionReady(configured)).toBe(false);
+    });
+
+    it("validates GCP project and location readiness for both credential modes", () => {
+        const configured = applyChannelProtocol({ ...channel, baseUrl: "", apiKey: "", models: ["gemini-2.5-flash"] }, "gcp-agent-platform");
+        configured.advancedConfig = { ...configured.advancedConfig!, gcpProjectId: "vozeb-prod-123", gcpLocation: "asia-east1" };
+
+        expect(channelProtocolValidationErrors(configured)).toEqual([]);
+        expect(channelConnectionReady(configured)).toBe(true);
+
+        configured.advancedConfig = { ...configured.advancedConfig, authMode: "custom-header" };
+        expect(channelRequiresApiKey(configured)).toBe(true);
+        expect(channelConnectionReady(configured)).toBe(false);
+        expect(protocolAuthHeaders("gcp-key", configured.advancedConfig)).toEqual({ "x-goog-api-key": "gcp-key" });
+
+        configured.apiKey = "gcp-key";
+        expect(channelConnectionReady(configured)).toBe(true);
+        configured.advancedConfig = { ...configured.advancedConfig, gcpProjectId: "../project", gcpLocation: "asia/east1" };
+        expect(channelProtocolValidationErrors(configured)).toEqual(expect.arrayContaining([expect.stringContaining("Project ID"), expect.stringContaining("Location")]));
     });
 
     it("preserves an administrator-configured Base URL when selecting a protocol", () => {

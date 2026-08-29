@@ -1,5 +1,6 @@
 import type { ApiCallFormat, LogicalModelCapability, SystemChannelAdvancedConfig, SystemChannelAuthMode, SystemChannelModelConfig, SystemChannelProtocol, SystemModelChannel } from "@/lib/auth/store-types";
 import { inferModelCapability, normalizeModelId } from "@/lib/model-capability";
+import { gcpAgentPlatformBaseUrl, isValidGcpLocation, isValidGcpProjectId } from "@/lib/gcp-agent-platform";
 import { SEEDANCE_SPECIAL_MODELS } from "@/lib/seedance-special";
 import { normalizeYumengModelCenterBaseUrl, YUMENG_DEFAULT_IMAGE_OPERATION, YUMENG_DEFAULT_VIDEO_OPERATION, YUMENG_MODEL_CENTER_BASE_URL, YUMENG_MODEL_CENTER_MODELS } from "@/lib/yumeng-model-center";
 
@@ -61,6 +62,24 @@ const geminiVideoOperation: ProtocolOperation = {
     supportsReferenceImage: true,
     supportsReferenceVideo: false,
     supportsReferenceAudio: false,
+};
+
+const gcpAgentTextOperation: ProtocolOperation = {
+    capability: "text",
+    createPath: "/models/:model:generateContent",
+    requestTemplate: '{"contents":[{"role":"user","parts":[{"text":"{{prompt}}"}]}]}',
+    resultField: "candidates[0].content.parts[].text",
+    streaming: { enabled: true, path: "/models/:model:streamGenerateContent?alt=sse", format: "sse" },
+};
+
+const gcpAgentImageOperation: ProtocolOperation = {
+    capability: "image",
+    createPath: "/models/:model:generateContent",
+    editPath: "/models/:model:generateContent",
+    requestTemplate: '{"contents":[{"role":"user","parts":[{"text":"{{prompt}}"},{"inlineData":"{{images}}"}]}],"generationConfig":{"responseModalities":["TEXT","IMAGE"]}}',
+    resultField: "candidates[0].content.parts[].inlineData",
+    referenceRule: "参考图片与蒙版转换为 inlineData；生成配置必须包含 TEXT 与 IMAGE 输出模态。",
+    supportsReferenceImage: true,
 };
 
 const seedanceOperation: ProtocolOperation = {
@@ -154,6 +173,18 @@ export const registeredChannelProtocolDefinitions: ChannelProtocolDefinition[] =
         modelCatalogPaths: ["/v1beta/models"],
         capabilities: ["video"],
         operations: { video: geminiVideoOperation },
+        strict: true,
+    },
+    {
+        id: "gcp-agent-platform",
+        label: "GCP Agent Platform",
+        description: "Google Cloud Agent Platform 原生 Gemini 文本与图像协议，支持 ADC 或 API Key。",
+        apiFormat: "gemini",
+        authMode: "google-adc",
+        defaultBaseUrl: "https://aiplatform.googleapis.com",
+        modelCatalogPaths: [],
+        capabilities: ["text", "image"],
+        operations: { text: gcpAgentTextOperation, image: gcpAgentImageOperation },
         strict: true,
     },
     {
@@ -371,15 +402,17 @@ export function applyChannelProtocol(channel: SystemModelChannel, protocol: Syst
     }
     const primary = definition.capabilities.length === 1 ? definition.operations[definition.capabilities[0]] : undefined;
     const primaryAdvanced = primary ? Object.fromEntries(Object.entries(primary).filter(([key]) => key !== "capability")) : {};
+    const gcpLocation = isValidGcpLocation(advanced.gcpLocation || "") ? advanced.gcpLocation!.trim().toLowerCase() : "global";
     return {
         ...channel,
-        baseUrl: protocol === "yumeng" ? normalizeYumengModelCenterBaseUrl(channel.baseUrl) : channel.baseUrl.trim() || definition.defaultBaseUrl || "",
+        baseUrl: protocol === "gcp-agent-platform" ? gcpAgentPlatformBaseUrl(gcpLocation) : protocol === "yumeng" ? normalizeYumengModelCenterBaseUrl(channel.baseUrl) : channel.baseUrl.trim() || definition.defaultBaseUrl || "",
         apiFormat: definition.apiFormat,
         models,
         advancedConfig: {
             ...advanced,
             protocol,
             authMode: definition.authMode,
+            ...(protocol === "gcp-agent-platform" ? { gcpLocation } : {}),
             modelCatalogPaths: definition.modelCatalogPaths,
             ...primaryAdvanced,
             modelConfigs,
@@ -392,6 +425,7 @@ export function applyChannelProtocol(channel: SystemModelChannel, protocol: Syst
 export function protocolAuthHeaders(apiKey: string, input: Pick<SystemChannelAdvancedConfig, "protocol" | "authMode" | "authHeader" | "authPrefix"> | undefined, fallback: ApiCallFormat = "openai"): Record<string, string> {
     if (input?.protocol === "gemini") return { "x-goog-api-key": apiKey };
     const mode = resolveChannelAuthMode(input);
+    if (input?.protocol === "gcp-agent-platform") return mode === "custom-header" ? { "x-goog-api-key": apiKey } : {};
     if (mode === "none") return {};
     if (fallback === "gemini" && !input?.authMode) return { "x-goog-api-key": apiKey };
     if (mode === "x-api-key") return { "x-api-key": apiKey };
@@ -405,11 +439,12 @@ export function protocolAuthHeaders(apiKey: string, input: Pick<SystemChannelAdv
 
 export function resolveChannelAuthMode(input: Pick<SystemChannelAdvancedConfig, "protocol" | "authMode"> | undefined): SystemChannelAuthMode {
     const definition = channelProtocolDefinition(input?.protocol || "auto");
+    if (definition.id === "gcp-agent-platform") return input?.authMode === "custom-header" ? "custom-header" : "google-adc";
     return definition.strict ? definition.authMode : input?.authMode || definition.authMode;
 }
 
 export function channelRequiresApiKey(channel: Pick<SystemModelChannel, "advancedConfig">) {
-    return resolveChannelAuthMode(channel.advancedConfig) !== "none";
+    return !["none", "google-adc"].includes(resolveChannelAuthMode(channel.advancedConfig));
 }
 
 export function channelCredentialsReady(channel: Pick<SystemModelChannel, "apiKey" | "hasApiKey" | "advancedConfig">) {
@@ -417,6 +452,9 @@ export function channelCredentialsReady(channel: Pick<SystemModelChannel, "apiKe
 }
 
 export function channelConnectionReady(channel: Pick<SystemModelChannel, "baseUrl" | "apiKey" | "hasApiKey" | "advancedConfig">) {
+    if (channel.advancedConfig?.protocol === "gcp-agent-platform") {
+        if (!isValidGcpProjectId(channel.advancedConfig.gcpProjectId || "") || !isValidGcpLocation(channel.advancedConfig.gcpLocation || "global")) return false;
+    }
     return Boolean(channel.baseUrl.trim() && channelCredentialsReady(channel));
 }
 
@@ -425,8 +463,12 @@ export function channelProtocolValidationErrors(channel: SystemModelChannel) {
     if (!advanced) return [];
     const errors: string[] = [];
     const definition = channelProtocolDefinition(advanced.protocol);
-    if (definition.strict && advanced.authMode && advanced.authMode !== definition.authMode) errors.push(`${channel.name || "渠道"} 的鉴权方式必须使用 ${definition.label} 协议预设`);
-    if (advanced.authMode === "custom-header" && !isSafeAuthHeaderName(advanced.authHeader)) errors.push(`${channel.name || "渠道"} 的自定义鉴权请求头名称无效`);
+    if (advanced.protocol === "gcp-agent-platform") {
+        if (!isValidGcpProjectId(advanced.gcpProjectId || "")) errors.push(`${channel.name || "渠道"} 的 GCP Project ID 无效`);
+        if (!isValidGcpLocation(advanced.gcpLocation || "global")) errors.push(`${channel.name || "渠道"} 的 GCP Location 无效`);
+        if (advanced.authMode && advanced.authMode !== "google-adc" && advanced.authMode !== "custom-header") errors.push(`${channel.name || "渠道"} 的鉴权方式必须使用 ADC 或 API Key`);
+    } else if (definition.strict && advanced.authMode && advanced.authMode !== definition.authMode) errors.push(`${channel.name || "渠道"} 的鉴权方式必须使用 ${definition.label} 协议预设`);
+    if (advanced.authMode === "custom-header" && advanced.protocol !== "gcp-agent-platform" && !isSafeAuthHeaderName(advanced.authHeader)) errors.push(`${channel.name || "渠道"} 的自定义鉴权请求头名称无效`);
     for (const model of channel.models) {
         const key = normalizeModelId(model);
         const config = resolveChannelModelConfig(advanced, model);

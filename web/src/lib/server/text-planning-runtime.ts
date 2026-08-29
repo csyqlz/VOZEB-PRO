@@ -254,6 +254,7 @@ async function requestTextProtocol(input: StructuredTextRequest, request: Protoc
     const base = `${input.origin}/api/ai/system/${encodeURIComponent(input.candidate.channelId)}`;
     const headers = request.variant === "repair" ? repairRequestHeaders(input) : new Headers(request.variant !== "tool" && input.fallbackHeaders ? input.fallbackHeaders : input.headers);
     headers.set("content-type", "application/json");
+    if (request.stream) headers.set("accept", request.streamFormat === "sse" ? "text/event-stream" : "application/x-ndjson");
     if (input.cookie) headers.set("cookie", input.cookie);
     scopeProtocolIdempotency(headers, request.protocol, request.variant, request.stream);
     const timeoutSignal = AbortSignal.timeout(resolveModelRequestTimeoutMs(input.candidate, "text"));

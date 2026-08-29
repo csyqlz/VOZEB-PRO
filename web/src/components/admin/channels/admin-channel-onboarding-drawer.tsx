@@ -13,6 +13,7 @@ import { inferModelCapability, normalizeModelId } from "@/lib/model-capability";
 import { capabilityLabel, channelModelCapability, synchronizeLogicalModelsWithChannels } from "@/lib/model-routing-config";
 
 import { defaultModelField, removeChannelFromWorkspace, type ChannelWorkspaceSettings } from "./admin-channel-workspace-model";
+import { GcpAgentPlatformFields } from "./gcp-agent-platform-fields";
 
 type Props = {
     open: boolean;
@@ -257,6 +258,7 @@ function ProtocolSelection({ protocols, selected, onSelect }: { protocols: Retur
 
 function ConnectionStep({ channel, onChange }: { channel: SystemModelChannel; onChange: (patch: Partial<SystemModelChannel>) => void }) {
     const custom = channel.advancedConfig?.protocol === "custom";
+    const gcpAgentPlatform = channel.advancedConfig?.protocol === "gcp-agent-platform";
     const authMode = resolveChannelAuthMode(channel.advancedConfig);
     const requiresApiKey = channelRequiresApiKey(channel);
     const updateAuth = (patch: Partial<NonNullable<SystemModelChannel["advancedConfig"]>>) => onChange({ advancedConfig: { ...channel.advancedConfig!, ...patch } });
@@ -266,9 +268,13 @@ function ConnectionStep({ channel, onChange }: { channel: SystemModelChannel; on
                 <LabeledControl label="渠道名称">
                     <Input value={channel.name} placeholder="例如：生产主渠道" onChange={(event) => onChange({ name: event.target.value })} />
                 </LabeledControl>
-                <LabeledControl label="Base URL">
-                    <Input value={channel.baseUrl} placeholder="https://api.example.com" onChange={(event) => onChange({ baseUrl: event.target.value })} />
-                </LabeledControl>
+                {gcpAgentPlatform ? (
+                    <GcpAgentPlatformFields channel={channel} onChange={onChange} />
+                ) : (
+                    <LabeledControl label="Base URL">
+                        <Input value={channel.baseUrl} placeholder="https://api.example.com" onChange={(event) => onChange({ baseUrl: event.target.value })} />
+                    </LabeledControl>
+                )}
                 {custom ? (
                     <LabeledControl label="鉴权方式">
                         <Select className="w-full" value={authMode} options={authModeOptions} onChange={(value: SystemChannelAuthMode) => updateAuth({ authMode: value, ...(value !== "custom-header" ? { authHeader: "", authPrefix: "" } : {}) })} />
@@ -291,7 +297,9 @@ function ConnectionStep({ channel, onChange }: { channel: SystemModelChannel; on
                         </LabeledControl>
                     </div>
                 ) : (
-                    <div className="sm:col-span-2 border-y border-stone-200 py-3 text-sm text-stone-600 dark:border-stone-800 dark:text-stone-300">当前协议无需 API Key，服务端不会发送鉴权请求头。</div>
+                    <div className="sm:col-span-2 border-y border-stone-200 py-3 text-sm text-stone-600 dark:border-stone-800 dark:text-stone-300">
+                        {gcpAgentPlatform ? "ADC 由应用容器读取并自动刷新访问令牌。" : "当前协议无需 API Key，服务端不会发送鉴权请求头。"}
+                    </div>
                 )}
             </div>
             {custom ? <AdminChannelProtocolSetup channel={channel} protocolLocked onChange={onChange} /> : <ProtocolLockedSummary channel={channel} />}
@@ -470,6 +478,7 @@ function ReviewStep({ channel, settings }: { channel: SystemModelChannel; settin
                 <ReviewValue label="渠道" value={channel.name} />
                 <ReviewValue label="协议" value={channelProtocolDefinition(channel.advancedConfig?.protocol || "auto").label} />
                 <ReviewValue label="Base URL" value={channel.baseUrl} />
+                {channel.advancedConfig?.protocol === "gcp-agent-platform" ? <ReviewValue label="GCP 项目 / 区域" value={`${channel.advancedConfig.gcpProjectId || "未配置"} / ${channel.advancedConfig.gcpLocation || "global"}`} /> : null}
                 <ReviewValue label="上游模型" value={`${channel.models.length} 个`} />
                 <ReviewValue label="验证方式" value="用户工作台真实调用" />
                 <ReviewValue label="逻辑绑定" value={`${bindings.length} 个`} />

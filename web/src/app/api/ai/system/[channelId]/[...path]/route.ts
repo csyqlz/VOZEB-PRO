@@ -17,7 +17,9 @@ import { resolveGlobalAiOpcPathPreset, resolveGlobalAiOpcPreset } from "@/lib/gl
 import { adaptGlobalAiOpcTextRequest, adaptGlobalAiOpcTextResponse, isGlobalAiOpcChannel } from "@/lib/server/globalaiopc-proxy";
 import { readVerifiedSystemAiBusinessRequestId, SYSTEM_AI_LOGICAL_MODEL_HEADER, SYSTEM_AI_UPSTREAM_MODEL_HEADER, systemAiPointsIdempotencyKey, systemAiRequestFingerprint } from "@/lib/server/system-ai-billing";
 import { isAgnesApiBaseUrl } from "@/lib/agnes-model-catalog";
-import { channelConnectionReady, protocolAuthHeaders, resolveChannelModelConfig } from "@/lib/channel-protocol-registry";
+import { channelConnectionReady, protocolAuthHeaders, resolveChannelAuthMode, resolveChannelModelConfig } from "@/lib/channel-protocol-registry";
+import { gcpAgentPlatformTargetUrl } from "@/lib/gcp-agent-platform";
+import { gcpAgentPlatformAuthHeaders } from "@/lib/server/gcp-agent-platform-auth";
 import { normalizeYumengModelCenterBaseUrl } from "@/lib/yumeng-model-center";
 import { authorizedWorkerUserId } from "@/lib/server/maintenance-auth";
 import { authorizeGenerationMediaProxyRequest } from "@/lib/server/generation-media-access";
@@ -106,7 +108,17 @@ async function proxySystemRequest(request: Request, context: RouteContext) {
             contentType,
             requestBody.pointsPayload,
             channel.id,
-            [globalPreset?.createPath, modelConfig?.createPath, modelConfig?.editPath, modelConfig?.imageToVideoPath, channel.advancedConfig?.createPath, channel.advancedConfig?.editPath, channel.advancedConfig?.imageToVideoPath],
+            [
+                globalPreset?.createPath,
+                modelConfig?.streaming?.path,
+                modelConfig?.createPath,
+                modelConfig?.editPath,
+                modelConfig?.imageToVideoPath,
+                channel.advancedConfig?.streaming?.path,
+                channel.advancedConfig?.createPath,
+                channel.advancedConfig?.editPath,
+                channel.advancedConfig?.imageToVideoPath,
+            ],
             upstreamModel,
             settings.logicalModels,
             settings.generationPointMultipliers,
@@ -124,7 +136,17 @@ async function proxySystemRequest(request: Request, context: RouteContext) {
         pointsUsageKind: pointsRequest?.usageKind,
         upstreamTaskIdHint: readRequestTaskId(readRequestBody(contentType, requestBody.pointsPayload)),
         paths: {
-            create: [globalPreset?.createPath, modelConfig?.createPath, modelConfig?.editPath, modelConfig?.imageToVideoPath, channel.advancedConfig?.createPath, channel.advancedConfig?.editPath, channel.advancedConfig?.imageToVideoPath],
+            create: [
+                globalPreset?.createPath,
+                modelConfig?.streaming?.path,
+                modelConfig?.createPath,
+                modelConfig?.editPath,
+                modelConfig?.imageToVideoPath,
+                channel.advancedConfig?.streaming?.path,
+                channel.advancedConfig?.createPath,
+                channel.advancedConfig?.editPath,
+                channel.advancedConfig?.imageToVideoPath,
+            ],
             query: [globalPreset?.queryPath, modelConfig?.queryPath, channel.advancedConfig?.queryPath],
             cancel: [
                 { path: modelConfig?.cancelPath, method: modelConfig?.cancelMethod },
@@ -138,7 +160,19 @@ async function proxySystemRequest(request: Request, context: RouteContext) {
         if (!owned) return NextResponse.json({ error: "任务不存在或无权访问" }, { status: 404 });
     }
 
-    const target = targetUrl(globalPreset?.baseUrl || channel.baseUrl, globalPreset?.apiFormat || apiFormat, globalAdaptation?.path || path, new URL(request.url).search, globalChannel, modelConfig?.protocol || channel.advancedConfig?.protocol);
+    const authConfig = modelConfig?.protocol ? { ...channel.advancedConfig, protocol: modelConfig.protocol } : channel.advancedConfig;
+    const protocol = authConfig?.protocol;
+    const requestPath = globalAdaptation?.path || path;
+    const search = new URL(request.url).search;
+    let target: string;
+    try {
+        target =
+            protocol === "gcp-agent-platform"
+                ? gcpAgentPlatformTargetUrl({ projectId: authConfig?.gcpProjectId || "", location: authConfig?.gcpLocation || "global" }, requestPath, search)
+                : targetUrl(globalPreset?.baseUrl || channel.baseUrl, globalPreset?.apiFormat || apiFormat, requestPath, search, globalChannel, protocol);
+    } catch (error) {
+        return NextResponse.json({ error: error instanceof Error ? error.message : "上游接口地址无效" }, { status: 400 });
+    }
     if (!(await isSafeOutboundUrl(target, { allowCredentials: false }))) return NextResponse.json({ error: "接口地址不允许访问内网或保留地址" }, { status: 400 });
     const headers = new Headers();
     if (contentType && !isMultipart) headers.set("content-type", contentType);
@@ -147,8 +181,13 @@ async function proxySystemRequest(request: Request, context: RouteContext) {
     const clientRequestId = request.headers.get("x-client-request-id")?.trim().slice(0, 200);
     if (idempotencyKey) headers.set("idempotency-key", idempotencyKey);
     if (clientRequestId) headers.set("x-client-request-id", clientRequestId);
-    const authConfig = modelConfig?.protocol ? { ...channel.advancedConfig, protocol: modelConfig.protocol } : channel.advancedConfig;
-    Object.entries(protocolAuthHeaders(channel.apiKey, authConfig, globalChannel ? "openai" : apiFormat)).forEach(([key, value]) => headers.set(key, value));
+    try {
+        const authHeaders = protocol === "gcp-agent-platform" ? await gcpAgentPlatformAuthHeaders(channel.apiKey, resolveChannelAuthMode(authConfig)) : protocolAuthHeaders(channel.apiKey, authConfig, globalChannel ? "openai" : apiFormat);
+        Object.entries(authHeaders).forEach(([key, value]) => headers.set(key, value));
+    } catch (error) {
+        console.error("System API proxy authentication failed", error instanceof Error ? error.message : error);
+        return NextResponse.json({ error: "GCP Agent Platform 服务端凭据不可用" }, { status: 502 });
+    }
     const callType = `${access.capability}:${access.operation}:/${(globalAdaptation?.path || path).join("/")}`;
     const businessRequestId = readVerifiedSystemAiBusinessRequestId(request.headers, access.logicalModelId, upstreamModel) || `direct:${randomUUID()}`;
     const pointsIdempotencyKey = pointsRequest ? systemAiPointsIdempotencyKey({ userId, businessRequestId, logicalModel: access.logicalModelId, channelId: channel.id, upstreamModel, callType }) : undefined;

@@ -12,13 +12,15 @@ import { materializeLogicalModelPointCosts } from "@/lib/model-point-cost";
 import type { LogicalModelCapabilityProfile } from "@/lib/auth/store-types";
 
 type ApiCallFormat = "openai" | "gemini";
-type SystemChannelProtocol = "auto" | "openai" | "yumeng" | "gemini" | "sub2api" | "newapi" | "vozeb-recommended" | "globalaiopc" | "seedance" | "stable-diffusion" | "volcengine-video" | "seedance-special" | "custom" | "compatible";
+type SystemChannelProtocol = "auto" | "openai" | "yumeng" | "gemini" | "gcp-agent-platform" | "sub2api" | "newapi" | "vozeb-recommended" | "globalaiopc" | "seedance" | "stable-diffusion" | "volcengine-video" | "seedance-special" | "custom" | "compatible";
 
 type SystemChannelAdvancedConfig = {
     protocol: SystemChannelProtocol;
-    authMode?: "none" | "bearer" | "x-api-key" | "custom-header";
+    authMode?: "none" | "bearer" | "x-api-key" | "custom-header" | "google-adc";
     authHeader?: string;
     authPrefix?: string;
+    gcpProjectId?: string;
+    gcpLocation?: string;
     documentationUrl?: string;
     globalAiOpcPreset?: GlobalAiOpcPresetId;
     globalAiOpcPresets?: GlobalAiOpcPresetId[];

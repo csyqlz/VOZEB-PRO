@@ -46,7 +46,7 @@ export function createProtocolFixtureServer(options = {}) {
         try {
             const url = new URL(request.url || "/", `http://${request.headers.host || "127.0.0.1"}`);
             const body = await readRequestBody(request);
-            requests.push({ method: request.method || "GET", path: url.pathname, headers: request.headers, contentType: request.headers["content-type"] || "", body });
+            requests.push({ method: request.method || "GET", path: url.pathname, search: url.search, headers: request.headers, contentType: request.headers["content-type"] || "", body });
             await handleFixtureRequest({ request, response, url, body, tasks, requests, nextTaskId, options });
         } catch (error) {
             sendJson(response, 500, { error: { message: error instanceof Error ? error.message : "fixture failed" } });
@@ -135,7 +135,7 @@ async function handleFixtureRequest({ request, response, url, body, tasks, reque
         }
         const toolName = selectedToolName(payload);
         const text = toolName ? JSON.stringify(toolArguments(toolName, payload)) : "协议测试文本返回成功";
-        if (path.endsWith(":streamGenerateContent")) return sendStructuredTextStream(response, path, toolName, text, "ndjson");
+        if (path.endsWith(":streamGenerateContent")) return sendStructuredTextStream(response, path, toolName, text, url.searchParams.get("alt") === "sse" ? "gemini-sse" : "ndjson");
         return sendJson(response, 200, { candidates: [{ content: { parts: [{ text }] } }], usageMetadata: { promptTokenCount: 8, candidatesTokenCount: 8, totalTokenCount: 16 } });
     }
     if (request.method === "POST" && ["/planner/run", "/planner/stream"].includes(path)) {
@@ -673,7 +673,14 @@ async function sendStructuredTextStream(response, path, toolName, argumentsText,
         response.end();
         return;
     }
-    const payload = isResponses ? { type: "response.output_text.delta", delta: argumentsText } : isChat ? { choices: [{ delta: { content: argumentsText } }] } : { data: { plan: argumentsText } };
+    const payload =
+        format === "gemini-sse"
+            ? { candidates: [{ content: { parts: [{ text: argumentsText }] } }] }
+            : isResponses
+              ? { type: "response.output_text.delta", delta: argumentsText }
+              : isChat
+                ? { choices: [{ delta: { content: argumentsText } }] }
+                : { data: { plan: argumentsText } };
     const event = `data: ${JSON.stringify(payload)}\n\n`;
     response.write(event.slice(0, Math.max(1, Math.floor(event.length / 2))));
     await new Promise((resolve) => setImmediate(resolve));

@@ -36,6 +36,7 @@ description: VOZEB PRO 环境变量、模型渠道、服务器媒体与支付配
 | `VOZEB_PRO_GENERATION_WORKER_LANES`          | 否               | 单个 Worker 并行恢复通道数，默认 2                                                    |
 | `VOZEB_PRO_GENERATION_WORKER_HEARTBEAT_MS`   | 否               | Worker 心跳间隔，默认 15000ms                                                         |
 | `VOZEB_PRO_GENERATION_WORKER_STALE_MS`       | 否               | 就绪检查判定 Worker 失联的窗口，默认 90000ms                                          |
+| `GOOGLE_APPLICATION_CREDENTIALS`             | GCP ADC 可选     | GCP 服务账号或 WIF 配置在 `app` 容器内的绝对路径；不要填写 JSON 内容                  |
 | `VOZEB_PRO_APP_URL`                          | 文档站可选       | 独立文档站使用的主应用地址，使文档 favicon 跟随后台站点图标                           |
 | `FFMPEG_PATH`                                | 否               | 本机 FFmpeg 不在 PATH 时填写；Docker 已内置 FFmpeg                                    |
 | `FFPROBE_PATH`                               | 否               | 可选的 FFprobe 路径；默认使用 `FFMPEG_PATH` 同目录二进制或系统 PATH                   |
@@ -133,6 +134,67 @@ ALL_PROXY=http://proxy-host:7890
 未知上游选择“自定义协议”，粘贴官方文档 URL、完整 cURL、请求 JSON 和成功响应 JSON。系统先做确定性解析，在默认文本模型可用时生成受固定 Schema 约束的补充草稿；草稿应用到具体模型后仍需管理员复核。渠道启用后，管理员在用户端文本、图片、视频或音频工作台发起真实业务请求验证返回与扣费。当前草稿保存在具体渠道中，不提供跨渠道的全局版本发布或回滚。
 
 默认文本模型同时用于工作台 Agent、Canvas 规划和创作复盘。渠道 API Key 通过服务端保存，普通用户只看到逻辑模型名称。
+
+### GCP Agent Platform
+
+选择 `GCP Agent Platform` 协议后填写 Google Cloud Project ID、Location 和模型 ID。`global` 使用全局入口，区域值使用 Google Cloud 公布的 Agent Platform 区域，例如 `asia-east1`。该协议没有可靠的通用模型目录接口，后台只保留管理员手工填写的模型 ID，不会猜测 `/v1/models`。
+
+鉴权可选择 ADC 或 Google Cloud API Key。API Key 由服务端加密保存并通过 `x-goog-api-key` 发送；ADC 由应用进程使用 `google-auth-library` 读取并自动刷新访问令牌，不会把令牌写入后台配置。部署身份必须已启用对应 Google Cloud API，并具备调用所选 Agent Platform 模型的权限。
+
+ADC 不需要新增容器。模型请求由 `app` 发出，`generation-worker` 只调用 App 的内部维护接口，因此凭据只提供给 `app`。在 Google Cloud 运行时优先给计算资源绑定服务账号或使用 Workload Identity；在普通 Docker 主机上可新建一个不提交到 Git 的 Compose override：
+
+```yaml title="docker-compose.gcp-adc.yml"
+services:
+  app:
+    environment:
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/gcp/adc.json
+    volumes:
+      - ${GCP_ADC_CREDENTIALS_FILE:?请设置 GCP_ADC_CREDENTIALS_FILE}:/run/secrets/gcp/adc.json:ro
+```
+
+服务账号必须对后台填写的 Project 具备所需 Vertex AI 权限，并已启用对应 Google Cloud API。先把 JSON 放在仓库外或被 `.gitignore` 排除的专用目录。官方生产镜像以 `node` 用户（UID/GID `1000:1000`）运行，因此只读凭据应由该用户持有；`root:root 600` 会在容器内产生 `EACCES`：
+
+```bash
+mkdir -p /home/VOZEB-PRO/secrets
+chmod 0700 /home/VOZEB-PRO/secrets
+
+chown 1000:1000 /home/VOZEB-PRO/secrets/gcp-service-account.json
+chmod 0400 /home/VOZEB-PRO/secrets/gcp-service-account.json
+```
+
+自定义镜像如果使用其他运行用户，先执行 `docker run --rm --entrypoint id <image>` 查看实际 UID/GID，再设置文件所有者；不要为了绕过权限错误把服务账号 JSON 改成 `644` 或其他全局可读权限。
+
+把主机绝对路径写入部署目录的 `.env`，再配合外部数据库 Compose 启动：
+
+```dotenv title=".env"
+GCP_ADC_CREDENTIALS_FILE=/home/VOZEB-PRO/secrets/gcp-service-account.json
+```
+
+```bash
+docker compose \
+  -f docker-compose.external-db.yml \
+  -f docker-compose.gcp-adc.yml \
+  up -d --force-recreate --no-build app generation-worker
+```
+
+启动后只检查文件可读性和健康状态，不要打印 JSON、私钥或 access token：
+
+```bash
+docker exec vozeb-pro sh -lc \
+  'test -r "$GOOGLE_APPLICATION_CREDENTIALS" && echo ADC_FILE_READABLE'
+
+curl -fsS http://127.0.0.1:3000/api/health/live
+```
+
+预期分别看到 `ADC_FILE_READABLE` 和 `status: live`。如果日志出现 `Unable to read the credential file ... EACCES`，先核对容器身份、文件所有者和权限：
+
+```bash
+docker exec vozeb-pro id
+stat -c 'mode=%a uid=%u gid=%g path=%n' \
+  /home/VOZEB-PRO/secrets/gcp-service-account.json
+```
+
+Workload Identity Federation 配置如果还引用其他文件，应把包含这些文件的专用目录整体只读挂载，并让 `GOOGLE_APPLICATION_CREDENTIALS` 指向容器内的 WIF 配置文件。不要把服务账号 JSON、WIF 文件或 `gcloud auth application-default login` 生成的本机用户凭据提交到仓库；生产环境优先使用绑定服务账号或 WIF。
 
 ## 生成任务 Worker 与回调
 

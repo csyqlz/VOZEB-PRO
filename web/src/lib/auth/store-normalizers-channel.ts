@@ -3,7 +3,23 @@ import { isGlobalAiOpcPreset } from "@/lib/globalaiopc-catalog";
 
 import type { LogicalModelCapability, SystemChannelAdvancedConfig, SystemChannelProtocol } from "./store-types";
 
-const CHANNEL_PROTOCOLS: SystemChannelProtocol[] = ["auto", "openai", "yumeng", "gemini", "sub2api", "newapi", "vozeb-recommended", "globalaiopc", "seedance", "stable-diffusion", "volcengine-video", "seedance-special", "custom", "compatible"];
+const CHANNEL_PROTOCOLS: SystemChannelProtocol[] = [
+    "auto",
+    "openai",
+    "yumeng",
+    "gemini",
+    "gcp-agent-platform",
+    "sub2api",
+    "newapi",
+    "vozeb-recommended",
+    "globalaiopc",
+    "seedance",
+    "stable-diffusion",
+    "volcengine-video",
+    "seedance-special",
+    "custom",
+    "compatible",
+];
 
 export function normalizeSystemChannelAdvancedConfig(config: Partial<SystemChannelAdvancedConfig> | undefined): SystemChannelAdvancedConfig | undefined {
     if (!config || typeof config !== "object") return undefined;
@@ -16,9 +32,11 @@ export function normalizeSystemChannelAdvancedConfig(config: Partial<SystemChann
     const modelCatalogPaths = Array.from(new Set((Array.isArray(config.modelCatalogPaths) ? config.modelCatalogPaths : []).map(normalizeApiPath).filter(Boolean))).slice(0, 12);
     return {
         protocol,
-        ...(config.authMode === "none" || config.authMode === "bearer" || config.authMode === "x-api-key" || config.authMode === "custom-header" ? { authMode: config.authMode } : {}),
+        ...(config.authMode === "none" || config.authMode === "bearer" || config.authMode === "x-api-key" || config.authMode === "custom-header" || config.authMode === "google-adc" ? { authMode: config.authMode } : {}),
         ...(textOrEmpty(config.authHeader, 120) ? { authHeader: textOrEmpty(config.authHeader, 120) } : {}),
         ...(textOrEmpty(config.authPrefix, 120) ? { authPrefix: textOrEmpty(config.authPrefix, 120) } : {}),
+        ...(textOrEmpty(config.gcpProjectId, 30) ? { gcpProjectId: textOrEmpty(config.gcpProjectId, 30).toLowerCase() } : {}),
+        ...(textOrEmpty(config.gcpLocation, 80) ? { gcpLocation: textOrEmpty(config.gcpLocation, 80).toLowerCase() } : {}),
         ...(normalizeDocumentationUrl(config.documentationUrl) ? { documentationUrl: normalizeDocumentationUrl(config.documentationUrl) } : {}),
         ...(globalAiOpcPresets.length
             ? { globalAiOpcPresets, ...(globalAiOpcPresets.length === 1 ? { globalAiOpcPreset: globalAiOpcPresets[0] } : {}) }

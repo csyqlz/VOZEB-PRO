@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { runCustomImageTask, pollCustomImageTask } from "@/app/api/image-tasks/image-task-custom";
+import { runGeminiImageTask } from "@/app/api/image-tasks/image-task-gemini";
 import { runOpenAiImageTask } from "@/app/api/image-tasks/image-task-openai";
 import { createUpstream } from "@/app/api/video-generation-tasks/video-generation-route";
 import type { SystemChannelProtocol } from "@/lib/auth/store-types";
@@ -39,21 +40,25 @@ describe("active media protocols over TCP fixtures", () => {
     it.each(STRICT_IMAGE_PROTOCOLS)("completes $id image creation with its registered request shape", async (definition) => {
         const model = definition.builtInModels?.find((item) => item.capability === "image")?.id || "mock-image";
         const operation = definition.operations.image!;
-        const baseUrl = operation.createPath === "/images/generations" ? `${origin}/v1` : origin;
+        const createPath = operation.createPath;
+        if (!createPath) throw new Error(`${definition.id} image operation is missing createPath`);
+        const baseUrl = definition.apiFormat === "gemini" ? `${origin}/v1beta` : createPath === "/images/generations" ? `${origin}/v1` : origin;
         const task = imageTask(baseUrl, model, definition.id, imageConfig(definition.id));
         const result = await runImageTask(task, definition.id);
         await expectImageResult(result);
-        expectCreateRequest(new URL(`${baseUrl}${operation.createPath}`).pathname, false);
+        expectCreateRequest(new URL(`${baseUrl}${createPath.replace(":model", model)}`).pathname, false);
     });
 
     it.each(STRICT_IMAGE_PROTOCOLS.filter((definition) => definition.operations.image?.supportsReferenceImage))("completes $id image editing with a transmitted reference", async (definition) => {
         const model = definition.builtInModels?.find((item) => item.capability === "image")?.id || "mock-image";
         const operation = definition.operations.image!;
-        const baseUrl = operation.createPath === "/images/generations" ? `${origin}/v1` : origin;
+        const createPath = operation.createPath;
+        if (!createPath) throw new Error(`${definition.id} image operation is missing createPath`);
+        const baseUrl = definition.apiFormat === "gemini" ? `${origin}/v1beta` : createPath === "/images/generations" ? `${origin}/v1` : origin;
         const task = imageTask(baseUrl, model, definition.id, imageConfig(definition.id), true);
         const result = await runImageTask(task, definition.id);
         await expectImageResult(result);
-        expectCreateRequest(new URL(`${baseUrl}${operation.editPath || operation.createPath}`).pathname, true);
+        expectCreateRequest(new URL(`${baseUrl}${(operation.editPath || createPath).replace(":model", model)}`).pathname, true);
     });
 
     it.each(STRICT_VIDEO_PROTOCOLS)("completes $id video creation and polling without path fallback", async (definition) => {
@@ -131,7 +136,7 @@ function imageTask(baseUrl: string, model: string, protocol: string, advancedCon
         status: "running",
         createdAt: 1,
         updatedAt: 1,
-        config: { baseUrl, apiKey: "fixture-key", apiFormat: "openai", model, channelId: `fixture-${protocol}`, ...(advancedConfig ? { advancedConfig } : {}) },
+        config: { baseUrl, apiKey: "fixture-key", apiFormat: protocol === "gcp-agent-platform" ? "gemini" : "openai", model, channelId: `fixture-${protocol}`, ...(advancedConfig ? { advancedConfig } : {}) },
         candidateConfigs: [],
         prompt: "create a blue protocol test image",
         references: edit
@@ -199,7 +204,7 @@ function videoConfig(protocol: SystemChannelProtocol, baseUrl: string, model: st
 
 async function runImageTask(task: ImageTask, protocol: SystemChannelProtocol) {
     const declarative = protocol === "stable-diffusion" || protocol === "yumeng";
-    const submitted = declarative ? await runCustomImageTask(task, origin, origin, "", protocol === "yumeng") : await runOpenAiImageTask(task, origin, origin, "", true);
+    const submitted = declarative ? await runCustomImageTask(task, origin, origin, "", protocol === "yumeng") : task.config.apiFormat === "gemini" ? await runGeminiImageTask(task, origin, "") : await runOpenAiImageTask(task, origin, origin, "", true);
     return submitted.pending ? pollCustomImageTask(task, submitted.pending.id, submitted.pending.mediaBaseUrl, submitted.pending.pollBaseUrl, "") : submitted;
 }
 

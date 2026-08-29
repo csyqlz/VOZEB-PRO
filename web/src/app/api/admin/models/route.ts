@@ -27,7 +27,7 @@ import { isProviderBusinessError, readProviderError } from "@/lib/server/provide
 import { configureServerProxyDispatcher } from "@/lib/server/proxy-dispatcher";
 import { fetchSafeOutbound } from "@/lib/server/safe-outbound-fetch";
 import { isSafeOutboundUrl } from "@/lib/server/security";
-import { channelProtocolDefinition, protocolAuthHeaders, protocolModelConfig, resolveChannelAuthMode } from "@/lib/channel-protocol-registry";
+import { channelProtocolDefinition, channelRequiresApiKey, protocolAuthHeaders, protocolModelConfig, resolveChannelAuthMode } from "@/lib/channel-protocol-registry";
 import type { SystemChannelAdvancedConfig, SystemChannelProtocol } from "@/lib/auth/store";
 
 export const runtime = "nodejs";
@@ -93,9 +93,28 @@ export async function POST(request: Request) {
     const protocolDefinition = channelProtocolDefinition(protocol);
     advancedConfig.protocol = protocolDefinition.id;
     advancedConfig.authMode = resolveChannelAuthMode(advancedConfig);
-    if (!apiKey && advancedConfig.authMode !== "none") return NextResponse.json({ error: "请先填写 Base URL 和 API Key" }, { status: 400 });
+    if (!apiKey && channelRequiresApiKey({ advancedConfig })) return NextResponse.json({ error: "请先填写 Base URL 和 API Key" }, { status: 400 });
     const modelCatalogPaths = body.modelCatalogPaths ?? savedChannel?.advancedConfig?.modelCatalogPaths ?? protocolDefinition.modelCatalogPaths;
     const hasConfiguredCatalog = Array.isArray(modelCatalogPaths) && modelCatalogPaths.some((path) => typeof path === "string" && path.trim());
+
+    if (protocol === "gcp-agent-platform" && !hasConfiguredCatalog) {
+        const strictConfigs = Object.fromEntries(
+            configuredCatalog.flatMap((entry) => {
+                const config = protocolModelConfig(protocol, entry.capability, entry.id);
+                return config ? [[normalizeModelId(entry.id), config] as const] : [];
+            }),
+        );
+        const modelConfigs = mergeModelConfigs(configuredCatalog, configuredConfigs, modelConfigsFromOperations(configuredCatalog, operationConfigs), strictConfigs);
+        return NextResponse.json({
+            models: configuredCatalog.map((entry) => entry.id),
+            modelCapabilities: modelCapabilitiesRecord(configuredCatalog, modelConfigs),
+            modelConfigs,
+            discoveredCount: 0,
+            totalCount: configuredCatalog.length,
+            catalogSupported: false,
+            provider: protocol,
+        });
+    }
 
     if (protocolDefinition.builtInModels?.length && !hasConfiguredCatalog) {
         const builtInCatalog = protocolDefinition.builtInModels.map(({ id, capability }) => ({ id, capability, source: "official" as const }));

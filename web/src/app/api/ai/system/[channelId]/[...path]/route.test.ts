@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
     release: vi.fn(),
     mediaAccess: vi.fn(),
     taskAccess: vi.fn(),
+    gcpAuthHeaders: vi.fn(),
 }));
 
 vi.mock("@/lib/auth/session", () => ({ getCurrentUser: vi.fn(async () => ({ id: "user-one", role: "user", pointsBalance: 5 })) }));
@@ -26,6 +27,7 @@ vi.mock("@/lib/server/media-concurrency", () => ({ acquireMediaConcurrency: mock
 vi.mock("@/lib/server/safe-outbound-fetch", () => ({ fetchSafeOutbound: (url: string | URL, init?: RequestInit) => fetch(url, init) }));
 vi.mock("@/lib/server/generation-media-access", () => ({ authorizeGenerationMediaProxyRequest: mocks.mediaAccess }));
 vi.mock("@/lib/server/generation-task-authorization", () => ({ userOwnsGenerationUpstreamTask: mocks.taskAccess }));
+vi.mock("@/lib/server/gcp-agent-platform-auth", () => ({ gcpAgentPlatformAuthHeaders: mocks.gcpAuthHeaders }));
 vi.mock("@/lib/server/security", () => ({
     checkMediaProxyRateLimit: mocks.checkMediaProxyRateLimit,
     isSafeOutboundUrl: mocks.safeUrl,
@@ -710,6 +712,64 @@ describe("Gemini Veo native video proxy", () => {
     });
 });
 
+describe("GCP Agent Platform proxy", () => {
+    beforeEach(() => {
+        vi.restoreAllMocks();
+        mocks.consumeUserPoints.mockReset().mockResolvedValue(undefined);
+        mocks.refundUserPoints.mockReset();
+        mocks.safeUrl.mockResolvedValue(true);
+        mocks.taskAccess.mockReset().mockResolvedValue(true);
+        mocks.gcpAuthHeaders.mockReset().mockImplementation(async (apiKey: string, authMode: string) => (authMode === "google-adc" ? { authorization: "Bearer adc-access-token" } : { "x-goog-api-key": apiKey }));
+    });
+
+    it("rewrites an ADC text request to the global Vertex project resource", async () => {
+        const model = "gemini-2.5-flash";
+        mocks.getAuthSettings.mockResolvedValue({
+            logicalModels: [logicalModel("gcp-text", "text", model)],
+            systemChannels: [gcpChannel(model, "text", "google-adc")],
+        });
+        const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ candidates: [{ content: { parts: [{ text: "ok" }] } }] }));
+
+        const response = await POST(
+            new Request(`http://localhost/api/ai/system/channel-one/models/${model}:generateContent`, {
+                method: "POST",
+                headers: { "content-type": "application/json", ...systemModelHeaders("gcp-text", model) },
+                body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: "hello" }] }] }),
+            }),
+            { params: Promise.resolve({ channelId: "channel-one", path: ["models", `${model}:generateContent`] }) },
+        );
+
+        expect(response.status).toBe(200);
+        expect(fetchMock.mock.calls[0]?.[0]).toBe(`https://aiplatform.googleapis.com/v1/projects/vozeb-prod-123/locations/global/publishers/google/models/${model}:generateContent`);
+        expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get("authorization")).toBe("Bearer adc-access-token");
+        expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get("x-goog-api-key")).toBeNull();
+        expect(mocks.gcpAuthHeaders).toHaveBeenCalledWith("", "google-adc");
+    });
+
+    it("rewrites an API key image request to the regional Vertex project resource", async () => {
+        const model = "gemini-3.1-flash-image";
+        mocks.getAuthSettings.mockResolvedValue({
+            logicalModels: [logicalModel("gcp-image", "image", model)],
+            systemChannels: [gcpChannel(model, "image", "custom-header")],
+        });
+        const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ candidates: [{ content: { parts: [{ inlineData: { mimeType: "image/png", data: "cG5n" } }] } }] }));
+
+        const response = await POST(
+            new Request(`http://localhost/api/ai/system/channel-one/models/${model}:generateContent`, {
+                method: "POST",
+                headers: { "content-type": "application/json", ...systemModelHeaders("gcp-image", model) },
+                body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: "draw" }] }], generationConfig: { responseModalities: ["TEXT", "IMAGE"] } }),
+            }),
+            { params: Promise.resolve({ channelId: "channel-one", path: ["models", `${model}:generateContent`] }) },
+        );
+
+        expect(response.status).toBe(200);
+        expect(fetchMock.mock.calls[0]?.[0]).toBe(`https://asia-east1-aiplatform.googleapis.com/v1/projects/vozeb-prod-123/locations/asia-east1/publishers/google/models/${model}:generateContent`);
+        expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get("x-goog-api-key")).toBe("gcp-api-key");
+        expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get("authorization")).toBeNull();
+    });
+});
+
 describe("Yumeng v2 model-center proxy", () => {
     beforeEach(() => {
         vi.restoreAllMocks();
@@ -945,6 +1005,32 @@ function logicalModel(id: string, capability: "text" | "image" | "video" | "audi
 
 function systemModelHeaders(logicalModelId: string, upstreamModel: string) {
     return { "x-vozeb-pro-logical-model": logicalModelId, "x-vozeb-pro-upstream-model": upstreamModel };
+}
+
+function gcpChannel(model: string, capability: "text" | "image", authMode: "google-adc" | "custom-header") {
+    return {
+        id: "channel-one",
+        enabled: true,
+        baseUrl: authMode === "google-adc" ? "https://aiplatform.googleapis.com" : "https://asia-east1-aiplatform.googleapis.com",
+        apiKey: authMode === "google-adc" ? "" : "gcp-api-key",
+        apiFormat: "gemini" as const,
+        models: [model],
+        advancedConfig: {
+            protocol: "gcp-agent-platform" as const,
+            authMode,
+            gcpProjectId: "vozeb-prod-123",
+            gcpLocation: authMode === "google-adc" ? "global" : "asia-east1",
+            modelConfigs: {
+                [model]: {
+                    capability,
+                    protocol: "gcp-agent-platform" as const,
+                    apiFormat: "gemini" as const,
+                    createPath: "/models/:model:generateContent",
+                    ...(capability === "image" ? { editPath: "/models/:model:generateContent", supportsReferenceImage: true } : {}),
+                },
+            },
+        },
+    };
 }
 
 function pngBytes() {
