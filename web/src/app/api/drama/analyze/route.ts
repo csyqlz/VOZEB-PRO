@@ -52,14 +52,13 @@ export async function POST(request: Request) {
     try {
         const tool = phase === "visual" ? dramaVisualTool : dramaContentTool;
         const input = phase === "visual" ? visualInput!.payload : { script, summary: dramaAnalysisText(body.summary) };
-        const schemaInstruction = `即使渠道没有传递工具定义，也必须只返回符合以下 JSON Schema 的对象，不能返回输入对象，不能把 script 或 summary 作为顶层字段：${JSON.stringify(tool.parameters)}`;
         const messagesFor = (batchInput: unknown) => [
             {
                 role: "system",
                 content:
                     phase === "visual"
-                        ? `你是影视视觉导演。输入内容已经由用户审核，必须严格保留每个 shotId、镜头数量、顺序、人物、场景、对白、旁白、原文和时长。为每个镜头补充图片提示词、视频提示词、起始/结束帧提示词、镜头运动和连续性数据；连续性必须明确景别、机位、构图、人物站位、视线、动作起止、屏幕运动方向和轴线规则。镜头之间要保持人物服装、道具、空间和视线关系连续。必须调用 design_drama_visuals。不要使用 Markdown。${schemaInstruction}`
-                        : `你是影视剧本编辑。只提取剧本明确存在的内容事实和镜头边界，不生成 imagePrompt、videoPrompt、镜头运动或画面风格，不添加无依据的主要情节。必须逐句保留所有角色直接说出的原话和原文明示的旁白，utterances 按原文顺序列出每一句；每条 dialogue 必须根据前后文填写明确说话人姓名或身份，禁止留空、填写“说话人/未知”或只写无法定位的代词；带引号的地名、招式名、物品名和章节名不是对白。禁止把多句台词压缩成“某人说明/表示/询问”的剧情摘要；说话人转换、明确动作反应或场景变化都应成为可审核的镜头边界，sourceText 必须保留对应连续原文。${durationInstruction}必须调用 analyze_drama_content。不要使用 Markdown。${schemaInstruction}`,
+                        ? "你是影视视觉导演。输入内容已经由用户审核，必须严格保留每个 shotId、镜头数量、顺序、人物、场景、对白、旁白、原文和时长。为每个镜头补充图片提示词、视频提示词、起始/结束帧提示词、镜头运动和连续性数据；连续性必须明确景别、机位、构图、人物站位、视线、动作起止、屏幕运动方向和轴线规则。镜头之间要保持人物服装、道具、空间和视线关系连续。必须调用 design_drama_visuals。不要使用 Markdown。"
+                        : `你是影视剧本编辑。只提取剧本明确存在的内容事实和镜头边界，不生成 imagePrompt、videoPrompt、镜头运动或画面风格，不添加无依据的主要情节。必须逐句保留所有角色直接说出的原话和原文明示的旁白，utterances 按原文顺序列出每一句；每条 dialogue 必须根据前后文填写明确说话人姓名或身份，禁止留空、填写“说话人/未知”或只写无法定位的代词；带引号的地名、招式名、物品名和章节名不是对白。禁止把多句台词压缩成“某人说明/表示/询问”的剧情摘要；说话人转换、明确动作反应或场景变化都应成为可审核的镜头边界，sourceText 必须保留对应连续原文。${durationInstruction}必须调用 analyze_drama_content。不要使用 Markdown。`,
             },
             { role: "user", content: JSON.stringify(batchInput) },
         ];
