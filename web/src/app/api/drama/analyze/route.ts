@@ -238,12 +238,11 @@ async function analyzeDramaScriptSegment(input: Parameters<typeof analyzeDramaCo
             input.tool,
             systemAiIdempotencyKey("drama-analyze", input.userId, "content", input.requestId, segmentKey, script, input.candidate.channel.id, input.candidate.upstreamModel),
             (argumentsText) => hasUsableDramaToolArguments(argumentsText, input.tool.name),
-            false,
+            true,
             input.signal,
         );
         try {
             const parsed = JSON.parse(call.args);
-            if (!hasCompleteDramaSourceCoverage(parsed, script)) throw new Error("模型返回的剧本原文不完整");
             const data = normalizeDramaContentAnalysis(parsed, input.durationPolicy, script);
             if (!hasCompleteDramaContentAnalysis(data, script)) throw new Error("模型返回的剧本对白或原文不完整");
             calls.push(call);
