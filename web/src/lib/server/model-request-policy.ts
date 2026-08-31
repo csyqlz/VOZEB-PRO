@@ -14,7 +14,6 @@ export const DEFAULT_MODEL_REQUEST_TIMEOUT_MS: Record<LogicalModelCapability, nu
 type ModelRequestPolicyConfig = { capabilityProfile?: Pick<LogicalModelCapabilityProfile, "timeoutMs"> };
 
 export function resolveModelRequestTimeoutMs(config: ModelRequestPolicyConfig | undefined, capability: LogicalModelCapability) {
-    if (capability === "text") return TEXT_MODEL_REQUEST_TIMEOUT_MS;
     const configured = Math.floor(Number(config?.capabilityProfile?.timeoutMs));
     if (!Number.isFinite(configured) || configured <= 0) return DEFAULT_MODEL_REQUEST_TIMEOUT_MS[capability];
     return Math.max(MIN_REQUEST_TIMEOUT_MS, Math.min(MAX_REQUEST_TIMEOUT_MS, configured));
