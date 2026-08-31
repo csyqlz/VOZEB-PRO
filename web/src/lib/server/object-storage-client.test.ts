@@ -1,9 +1,10 @@
+import { createHash } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { ObjectStorageRuntimeConfig } from "@/lib/server/object-storage-config";
-import { objectStorageErrorMessage, testObjectStorageConnection } from "./object-storage-client";
+import { objectStorageErrorMessage, signObjectRead, testObjectStorageConnection } from "./object-storage-client";
 
 const config: ObjectStorageRuntimeConfig = {
     id: "default",
@@ -47,12 +48,19 @@ describe("object storage client", () => {
         expect(requests[1]?.headers["x-amz-sdk-checksum-algorithm"]).toBeUndefined();
         expect(requests[2]?.url).toBe("/media/?delete=");
         expect(requests[2]?.body).toContain("<Key>vozeb-pro/media/.vozeb-healthcheck/");
+        expect(requests[2]?.headers["content-md5"]).toBe(createHash("md5").update(requests[2]!.body).digest("base64"));
     });
 
     it("turns provider failures into actionable messages without exposing signed query values", () => {
         expect(objectStorageErrorMessage({ name: "AccessDenied", message: "Access denied", $metadata: { httpStatusCode: 403 } })).toContain("列表、读取、写入和删除权限");
         expect(objectStorageErrorMessage({ code: "SignatureDoesNotMatch", message: "request failed at https://example.com/file?X-Amz-Signature=secret" })).toContain("Access Key、Secret Key、Region、Endpoint");
         expect(objectStorageErrorMessage({ code: "InvalidRequest", message: "request failed at https://example.com/file?X-Amz-Signature=secret" })).toBe("InvalidRequest：request failed at https://example.com/file");
+    });
+
+    it("uses stored object content type without signing a response override", async () => {
+        const url = new URL(await signObjectRead({ ...config, endpoint: "http://127.0.0.1:9000" }, { key: "vozeb-pro/media/image.png", contentType: "image/png", contentDisposition: 'inline; filename="image.png"' }));
+        expect(url.searchParams.has("response-content-type")).toBe(false);
+        expect(url.searchParams.get("response-content-disposition")).toBe('inline; filename="image.png"');
     });
 });
 
