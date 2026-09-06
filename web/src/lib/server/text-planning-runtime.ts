@@ -38,6 +38,8 @@ export type StructuredTextRequest = {
     messages: Array<{ role: string; content: string }>;
     tool: TextPlanningTool;
     headers?: HeadersInit;
+    /** Extra whole-sequence retries after every protocol variant fails with a transient error. 0 disables. */
+    retryRounds?: number;
     fallbackHeaders?: HeadersInit;
     signal?: AbortSignal;
     allowNaturalLanguage?: boolean;
@@ -62,6 +64,10 @@ type ProtocolRequest = {
 
 const FAILURE_COOLDOWN_MS = 30_000;
 const TEXT_RESULT_KEYS = ["output_text", "text", "content", "response", "result"];
+// Subscription-style text relays occasionally answer with empty or malformed payloads;
+// replay the whole protocol-variant sequence with backoff before surfacing the failure.
+const DEFAULT_STRUCTURED_RETRY_ROUNDS = 2;
+const STRUCTURED_RETRY_DELAYS_MS = [900, 1800];
 const states = new Map<string, RuntimeState>();
 
 export class TextPlanningRequestError extends Error {
@@ -93,18 +99,38 @@ export function preferredTextPlanningProtocol(candidate: TextPlanningCandidate):
 }
 
 export async function requestStructuredText(input: StructuredTextRequest): Promise<TextPlanningCall> {
-    const startedAt = Date.now();
     const messages = planningMessages(input);
+    const maxRound = Math.max(0, input.retryRounds ?? DEFAULT_STRUCTURED_RETRY_ROUNDS);
+    let lastError: unknown;
+    for (let round = 0; round <= maxRound; round += 1) {
+        if (round > 0) {
+            if (input.signal?.aborted) break;
+            await delay(STRUCTURED_RETRY_DELAYS_MS[Math.min(round - 1, STRUCTURED_RETRY_DELAYS_MS.length - 1)]);
+            if (input.signal?.aborted) break;
+        }
+        try {
+            return await requestStructuredTextOnce(input, messages, round);
+        } catch (error) {
+            lastError = error;
+            if (!shouldRetryStructuredRound(error)) break;
+        }
+    }
+    recordTextFailure(input.candidate, lastError);
+    throw lastError;
+}
+
+async function requestStructuredTextOnce(input: StructuredTextRequest, messages: Array<{ role: string; content: string }>, round: number): Promise<TextPlanningCall> {
+    const startedAt = Date.now();
     const requests = planningProtocolRequests(input, messages);
     try {
         for (const [index, request] of requests.entries()) {
             try {
-                const response = await requestTextProtocol(input, request);
+                const response = await requestTextProtocol(input, request, round);
                 if (request.stream) await input.onStreamStart?.();
                 return await readStructuredResponse(input, request, response, startedAt);
             } catch (error) {
                 if (input.stream && input.streamFallback !== false && index === 0 && shouldFallbackFromStream(error)) {
-                    const fallback = await requestStructuredText({ ...input, stream: false, streamFallback: false });
+                    const fallback = await requestStructuredText({ ...input, stream: false, streamFallback: false, retryRounds: 0 });
                     return { ...fallback, fallbackReason: error instanceof Error ? error.message : "上游不支持流式规划" };
                 }
                 if (index === requests.length - 1 || (!shouldFallbackFromNativeTool(error, request) && !shouldRepairStructuredResponse(error, request))) throw error;
@@ -115,6 +141,17 @@ export async function requestStructuredText(input: StructuredTextRequest): Promi
         recordTextFailure(input.candidate, error);
         throw error;
     }
+}
+
+function shouldRetryStructuredRound(error: unknown) {
+    if (!(error instanceof TextPlanningRequestError)) return false;
+    // Transport failures already fail over to the next candidate upstream; only
+    // replay bad payloads and retryable HTTP statuses within the same candidate.
+    return error.reason === "invalid-structure" || (error.reason === "http" && error.retryable);
+}
+
+function delay(ms: number) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export function getTextPlanningRuntime(candidate: TextPlanningCandidate) {
@@ -250,12 +287,12 @@ function parsePromptJsonValue(value: string) {
     }
 }
 
-async function requestTextProtocol(input: StructuredTextRequest, request: ProtocolRequest) {
+async function requestTextProtocol(input: StructuredTextRequest, request: ProtocolRequest, round = 0) {
     const base = `${input.origin}/api/ai/system/${encodeURIComponent(input.candidate.channelId)}`;
     const headers = request.variant === "repair" ? repairRequestHeaders(input) : new Headers(request.variant !== "tool" && input.fallbackHeaders ? input.fallbackHeaders : input.headers);
     headers.set("content-type", "application/json");
     if (input.cookie) headers.set("cookie", input.cookie);
-    scopeProtocolIdempotency(headers, request.protocol, request.variant, request.stream);
+    scopeProtocolIdempotency(headers, request.protocol, request.variant, request.stream, round);
     const timeoutSignal = AbortSignal.timeout(resolveModelRequestTimeoutMs(input.candidate, "text"));
     const signal = input.signal ? AbortSignal.any([input.signal, timeoutSignal]) : timeoutSignal;
     try {
@@ -276,10 +313,11 @@ function repairRequestHeaders(input: StructuredTextRequest) {
     return headers;
 }
 
-function scopeProtocolIdempotency(headers: Headers, protocol: TextPlanningProtocol, variant: ProtocolRequest["variant"], stream = false) {
+function scopeProtocolIdempotency(headers: Headers, protocol: TextPlanningProtocol, variant: ProtocolRequest["variant"], stream = false, round = 0) {
+    const roundSuffix = round > 0 ? `:r${round}` : "";
     for (const name of ["idempotency-key", "x-client-request-id"]) {
         const value = headers.get(name)?.trim();
-        if (value) headers.set(name, `${value}:${protocol}-${variant}${stream ? "-stream" : ""}`);
+        if (value) headers.set(name, `${value}:${protocol}-${variant}${stream ? "-stream" : ""}${roundSuffix}`);
     }
 }
 

@@ -122,7 +122,7 @@ describe("text planning runtime protocol matrix", () => {
     it("可以关闭同一输入的结构修复请求", async () => {
         mockedFetch.mockResolvedValue(Response.json({ choices: [{ message: { content: "不是 JSON" } }] }));
 
-        const error = await requestStructuredText({ ...requestInput(candidate("newapi")), allowRepair: false }).catch((value) => value);
+        const error = await requestStructuredText({ ...requestInput(candidate("newapi")), allowRepair: false, retryRounds: 0 }).catch((value) => value);
         expect(error).toMatchObject({ failureCode: "missing-structured-result", reason: "invalid-structure" });
         expect(isStructuredTextFailure(error)).toBe(true);
         expect(mockedFetch).toHaveBeenCalledOnce();
@@ -158,7 +158,7 @@ describe("text planning runtime protocol matrix", () => {
         const onInvalidResponse = vi.fn();
         mockedFetch.mockResolvedValue(new Response("not-json", { status: 200, headers: { "content-type": "text/plain" } }));
 
-        const error = await requestStructuredText({ ...requestInput(candidate("newapi")), allowRepair: false, onInvalidResponse }).catch((value) => value);
+        const error = await requestStructuredText({ ...requestInput(candidate("newapi")), allowRepair: false, retryRounds: 0, onInvalidResponse }).catch((value) => value);
 
         expect(error).toMatchObject({ failureCode: "invalid-response-json", reason: "invalid-structure" });
         expect(error.message).toContain("协议：chat");
@@ -365,9 +365,10 @@ describe("text planning runtime protocol matrix", () => {
     });
 
     it("不会把 HTML 网关错误原文返回给用户", async () => {
-        mockedFetch.mockResolvedValue(new Response("<!doctype html><title>Bad gateway</title><body>nginx secret trace</body>", { status: 502 }));
+        mockedFetch.mockImplementation(async () => new Response("<!doctype html><title>Bad gateway</title><body>nginx secret trace</body>", { status: 502 }));
 
         await expect(requestStructuredText(requestInput(candidate("newapi")))).rejects.toThrow("文本模型渠道暂不可用（HTTP 502）");
+        expect(mockedFetch).toHaveBeenCalledTimes(3);
     });
 
     it("把超时转换为可读且可切换渠道的错误", async () => {
@@ -481,6 +482,49 @@ describe("text planning runtime protocol matrix", () => {
         expect(JSON.parse(String(mockedFetch.mock.calls[1]?.[1]?.body))).not.toHaveProperty("stream");
         expect(new Headers(mockedFetch.mock.calls[0]?.[1]?.headers).get("idempotency-key")).toContain(":chat-json-stream");
         expect(new Headers(mockedFetch.mock.calls[1]?.[1]?.headers).get("idempotency-key")).toContain(":chat-json");
+    });
+});
+
+describe("text planning structured retry", () => {
+    beforeEach(() => {
+        resetTextPlanningRuntime();
+        mockedFetch.mockReset();
+        vi.useRealTimers();
+    });
+
+    it("上游返回空结构化响应时自动重试并成功", async () => {
+        mockedFetch
+            .mockResolvedValueOnce(Response.json({})) // json 变体：空负载，字段校验失败
+            .mockResolvedValueOnce(Response.json({})) // repair 变体：仍为空
+            .mockResolvedValueOnce(Response.json({ choices: [{ message: { content: '{"result":"recovered"}' } }] }));
+
+        await expect(
+            requestStructuredText({
+                ...requestInput(candidate("newapi")),
+                fallbackHeaders: { "x-client-request-id": "biz-e2e" },
+                validateArguments: (text) => {
+                    const parsed = JSON.parse(text) as { result?: unknown };
+                    return typeof parsed?.result === "string" && parsed.result.length > 0;
+                },
+            }),
+        ).resolves.toMatchObject({ arguments: '{"result":"recovered"}' });
+        expect(mockedFetch).toHaveBeenCalledTimes(3);
+        expect(new Headers(mockedFetch.mock.calls[0]?.[1]?.headers).get("x-client-request-id")).toBe("biz-e2e:chat-json");
+        expect(new Headers(mockedFetch.mock.calls[2]?.[1]?.headers).get("x-client-request-id")).toBe("biz-e2e:chat-json:r1");
+    });
+
+    it("不可重试的 HTTP 错误不触发整轮重试", async () => {
+        mockedFetch.mockResolvedValue(new Response("bad request", { status: 400 }));
+
+        await expect(requestStructuredText(requestInput(candidate("newapi")))).rejects.toMatchObject({ status: 400 });
+        expect(mockedFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("transport 失败交给候选切换而不在本渠道内重试", async () => {
+        mockedFetch.mockRejectedValue(new Error("connection refused"));
+
+        await expect(requestStructuredText(requestInput(candidate("newapi")))).rejects.toThrow("暂时无法连接");
+        expect(mockedFetch).toHaveBeenCalledTimes(1);
     });
 });
 
