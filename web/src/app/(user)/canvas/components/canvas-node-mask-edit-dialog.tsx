@@ -2,17 +2,20 @@
 
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { Button, Input, Modal, Slider } from "antd";
-import { Brush, Eraser, RotateCcw, WandSparkles, X } from "lucide-react";
+import { Brush, Eraser, Lasso, RectangleHorizontal, RotateCcw, Sparkles, WandSparkles, X } from "lucide-react";
 
 import { readImageMeta } from "@/lib/image-utils";
 import { imagePreviewUrl } from "@/lib/media-image-url";
+import { segmentCanvasSubject, type CanvasSubjectMask } from "../utils/canvas-subject-segmentation";
 
 export type CanvasImageMaskEditPayload = {
     prompt: string;
     maskDataUrl: string;
 };
 
-type DrawMode = "paint" | "erase";
+type DrawMode = "paint" | "erase" | "rect" | "lasso";
+type MaskPoint = { x: number; y: number };
+type PendingMaskShape = { kind: "rect"; start: MaskPoint; current: MaskPoint } | { kind: "lasso"; points: MaskPoint[] };
 
 const defaultBrushSize = 100;
 const maskFillColor = "rgba(37, 99, 235, .38)";
@@ -21,11 +24,14 @@ const maskBorderColor = "rgba(255, 255, 255, .72)";
 export function CanvasNodeMaskEditDialog({ dataUrl, open, onClose, onConfirm }: { dataUrl: string; open: boolean; onClose: () => void; onConfirm: (payload: CanvasImageMaskEditPayload) => void }) {
     const maskCanvasRef = useRef<HTMLCanvasElement>(null);
     const previewCanvasRef = useRef<HTMLCanvasElement>(null);
-    const drawingRef = useRef<{ active: boolean; last: { x: number; y: number } | null }>({ active: false, last: null });
+    const scratchCanvasRef = useRef<HTMLCanvasElement | null>(null);
+    const drawingRef = useRef<{ active: boolean; last: MaskPoint | null; shape: PendingMaskShape | null }>({ active: false, last: null, shape: null });
+    const subjectAbortRef = useRef<AbortController | null>(null);
     const [image, setImage] = useState<{ width: number; height: number } | null>(null);
     const [prompt, setPrompt] = useState("");
     const [brushSize, setBrushSize] = useState(defaultBrushSize);
     const [mode, setMode] = useState<DrawMode>("paint");
+    const [subjectBusy, setSubjectBusy] = useState(false);
     const [error, setError] = useState("");
 
     useEffect(() => {
@@ -35,14 +41,30 @@ export function CanvasNodeMaskEditDialog({ dataUrl, open, onClose, onConfirm }: 
         setMode("paint");
         setError("");
         void readImageMeta(dataUrl).then(setImage);
+        return () => {
+            subjectAbortRef.current?.abort();
+            subjectAbortRef.current = null;
+        };
     }, [dataUrl, open]);
 
     useEffect(() => {
         clearCanvas(maskCanvasRef.current);
         clearCanvas(previewCanvasRef.current);
+        scratchCanvasRef.current = null;
+        drawingRef.current = { active: false, last: null, shape: null };
     }, [image]);
 
-    const draw = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    const ensureScratchCanvas = (width: number, height: number) => {
+        if (!scratchCanvasRef.current) scratchCanvasRef.current = document.createElement("canvas");
+        const scratch = scratchCanvasRef.current;
+        if (scratch.width !== width || scratch.height !== height) {
+            scratch.width = width;
+            scratch.height = height;
+        }
+        return scratch;
+    };
+
+    const drawBrush = (event: ReactPointerEvent<HTMLCanvasElement>) => {
         const point = readCanvasPoint(event.currentTarget, event.clientX, event.clientY);
         const maskCanvas = maskCanvasRef.current;
         const context = maskCanvas?.getContext("2d");
@@ -50,7 +72,7 @@ export function CanvasNodeMaskEditDialog({ dataUrl, open, onClose, onConfirm }: 
         context.lineCap = "round";
         context.lineJoin = "round";
         context.lineWidth = brushSize;
-        context.globalCompositeOperation = mode === "paint" ? "source-over" : "destination-out";
+        context.globalCompositeOperation = mode === "erase" ? "destination-out" : "source-over";
         context.strokeStyle = "#000";
         context.fillStyle = "#000";
         if (!drawingRef.current.last) {
@@ -60,30 +82,82 @@ export function CanvasNodeMaskEditDialog({ dataUrl, open, onClose, onConfirm }: 
         }
         renderMaskPreview(maskCanvas, previewCanvasRef.current);
         drawingRef.current.last = point;
-        if (mode === "paint") {
+        if (mode !== "erase") {
             setError("");
         }
+    };
+
+    const updateShape = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+        const shape = drawingRef.current.shape;
+        if (!shape) return;
+        const point = readCanvasPoint(event.currentTarget, event.clientX, event.clientY);
+        if (shape.kind === "rect") {
+            shape.current = point;
+        } else {
+            shape.points.push(point);
+        }
+        renderShapePreview();
+    };
+
+    const renderShapePreview = () => {
+        const maskCanvas = maskCanvasRef.current;
+        const shape = drawingRef.current.shape;
+        if (!maskCanvas || !shape) return;
+        const scratch = ensureScratchCanvas(maskCanvas.width, maskCanvas.height);
+        const context = scratch.getContext("2d");
+        if (!context) return;
+        context.globalCompositeOperation = "source-over";
+        context.clearRect(0, 0, scratch.width, scratch.height);
+        context.drawImage(maskCanvas, 0, 0);
+        context.fillStyle = "#000";
+        context.strokeStyle = "#000";
+        fillMaskShape(context, shape);
+        renderMaskPreview(scratch, previewCanvasRef.current);
     };
 
     const startDraw = (event: ReactPointerEvent<HTMLCanvasElement>) => {
         event.preventDefault();
         event.stopPropagation();
         event.currentTarget.setPointerCapture(event.pointerId);
-        drawingRef.current = { active: true, last: null };
+        drawingRef.current = { active: true, last: null, shape: null };
+        if (mode === "rect" || mode === "lasso") {
+            const point = readCanvasPoint(event.currentTarget, event.clientX, event.clientY);
+            drawingRef.current.shape = mode === "rect" ? { kind: "rect", start: point, current: point } : { kind: "lasso", points: [point] };
+            renderShapePreview();
+            return;
+        }
         if (maskCanvasRef.current) renderMaskPreview(maskCanvasRef.current, previewCanvasRef.current);
-        draw(event);
+        drawBrush(event);
     };
 
     const moveDraw = (event: ReactPointerEvent<HTMLCanvasElement>) => {
         if (!drawingRef.current.active) return;
         event.preventDefault();
-        draw(event);
+        if (drawingRef.current.shape) {
+            updateShape(event);
+            return;
+        }
+        drawBrush(event);
     };
 
     const stopDraw = () => {
-        drawingRef.current = { active: false, last: null };
         const maskCanvas = maskCanvasRef.current;
+        const shape = drawingRef.current.shape;
+        if (maskCanvas && shape) {
+            const context = maskCanvas.getContext("2d");
+            if (context) {
+                context.globalCompositeOperation = "source-over";
+                context.fillStyle = "#000";
+                context.strokeStyle = "#000";
+                fillMaskShape(context, shape);
+            }
+        }
+        drawingRef.current = { active: false, last: null, shape: null };
+        scratchCanvasRef.current = null;
         if (maskCanvas) renderMaskPreview(maskCanvas, previewCanvasRef.current, canvasHasPaint(maskCanvas));
+        if (mode !== "erase") {
+            setError("");
+        }
     };
 
     const resetMask = () => {
@@ -92,12 +166,33 @@ export function CanvasNodeMaskEditDialog({ dataUrl, open, onClose, onConfirm }: 
         setError("");
     };
 
+    const pickSubject = async () => {
+        const maskCanvas = maskCanvasRef.current;
+        if (!maskCanvas || subjectBusy) return;
+        setSubjectBusy(true);
+        setError("");
+        const controller = new AbortController();
+        subjectAbortRef.current = controller;
+        try {
+            const subject = await segmentCanvasSubject(dataUrl, controller.signal);
+            paintSubjectMask(maskCanvas, subject);
+            renderMaskPreview(maskCanvas, previewCanvasRef.current, canvasHasPaint(maskCanvas));
+        } catch (caught) {
+            if (!(caught instanceof DOMException && caught.name === "AbortError")) {
+                setError(caught instanceof Error ? caught.message : "主体识别失败，请重试");
+            }
+        } finally {
+            setSubjectBusy(false);
+            subjectAbortRef.current = null;
+        }
+    };
+
     const submit = () => {
         const nextPrompt = prompt.trim();
         const canvas = maskCanvasRef.current;
         if (!nextPrompt) return setError("请输入修改要求");
         if (!canvas) return;
-        if (!canvasHasPaint(canvas)) return setError("请先涂抹局部区域");
+        if (!canvasHasPaint(canvas)) return setError("请先涂抹或圈选局部区域");
         onConfirm({ prompt: nextPrompt, maskDataUrl: buildEditMask(canvas) });
     };
 
@@ -138,14 +233,24 @@ export function CanvasNodeMaskEditDialog({ dataUrl, open, onClose, onConfirm }: 
                         <Button type={mode === "erase" ? "primary" : "default"} icon={<Eraser className="size-4" />} onClick={() => setMode("erase")}>
                             擦除
                         </Button>
+                        <Button type={mode === "rect" ? "primary" : "default"} icon={<RectangleHorizontal className="size-4" />} onClick={() => setMode("rect")}>
+                            框选
+                        </Button>
+                        <Button type={mode === "lasso" ? "primary" : "default"} icon={<Lasso className="size-4" />} onClick={() => setMode("lasso")}>
+                            套索
+                        </Button>
                     </div>
+
+                    <Button icon={<Sparkles className="size-4" />} loading={subjectBusy} onClick={() => void pickSubject()}>
+                        一键选中主体
+                    </Button>
 
                     <div className="space-y-2">
                         <div className="flex items-center justify-between text-sm">
                             <span className="font-medium opacity-75">笔刷大小</span>
                             <span className="font-semibold">{brushSize}px</span>
                         </div>
-                        <Slider min={8} max={160} step={2} value={brushSize} onChange={setBrushSize} />
+                        <Slider min={8} max={160} step={2} value={brushSize} disabled={mode === "rect" || mode === "lasso"} onChange={setBrushSize} />
                     </div>
 
                     <div className="space-y-2">
@@ -194,6 +299,53 @@ function clearCanvas(canvas: HTMLCanvasElement | null) {
     const context = canvas?.getContext("2d");
     if (!canvas || !context) return;
     context.clearRect(0, 0, canvas.width, canvas.height);
+}
+
+function fillMaskShape(context: CanvasRenderingContext2D, shape: PendingMaskShape) {
+    context.beginPath();
+    if (shape.kind === "rect") {
+        const left = Math.min(shape.start.x, shape.current.x);
+        const top = Math.min(shape.start.y, shape.current.y);
+        context.rect(left, top, Math.abs(shape.current.x - shape.start.x), Math.abs(shape.current.y - shape.start.y));
+    } else {
+        const points = shape.points;
+        if (points.length < 2) {
+            context.arc(points[0].x, points[0].y, Math.max(2, 4), 0, Math.PI * 2);
+        } else {
+            context.moveTo(points[0].x, points[0].y);
+            for (const point of points.slice(1)) context.lineTo(point.x, point.y);
+            context.closePath();
+        }
+    }
+    context.fill();
+}
+
+function paintSubjectMask(target: HTMLCanvasElement, subject: CanvasSubjectMask) {
+    clearCanvas(target);
+    if (subject.width === target.width && subject.height === target.height) {
+        const context = target.getContext("2d");
+        if (!context) return;
+        context.putImageData(subjectMaskImageData(subject), 0, 0);
+        return;
+    }
+    const source = document.createElement("canvas");
+    source.width = subject.width;
+    source.height = subject.height;
+    source.getContext("2d")?.putImageData(subjectMaskImageData(subject), 0, 0);
+    const context = target.getContext("2d");
+    if (!context) return;
+    context.imageSmoothingEnabled = false;
+    context.drawImage(source, 0, 0, target.width, target.height);
+}
+
+function subjectMaskImageData(subject: CanvasSubjectMask) {
+    const image = new ImageData(subject.width, subject.height);
+    for (let index = 0; index < subject.data.length; index += 1) {
+        if (subject.data[index] >= 0.5) {
+            image.data[index * 4 + 3] = 255;
+        }
+    }
+    return image;
 }
 
 function drawMaskStroke(context: CanvasRenderingContext2D, from: { x: number; y: number }, to: { x: number; y: number }, size: number) {
