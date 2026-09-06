@@ -131,6 +131,20 @@ export async function POST(request: Request) {
         }
         throw latestError instanceof Error ? latestError : new Error("没有可用的文本模型渠道");
     } catch (error) {
+        console.error(
+            "[drama-analyze] request failed",
+            JSON.stringify({
+                phase,
+                requestId,
+                userId: user.id,
+                videoModel: requestedVideoModel || "",
+                scriptLength: script.length,
+                errorName: error instanceof Error ? error.name : typeof error,
+                message: error instanceof Error ? error.message : String(error),
+                status: error && typeof error === "object" && "status" in error ? Number((error as { status?: unknown }).status) || 0 : 0,
+                failureCode: error && typeof error === "object" && "failureCode" in error ? String((error as { failureCode?: unknown }).failureCode) : "",
+            }),
+        );
         const response = NextResponse.json({ code: 502, data: null, msg: toSafeGenerationErrorMessage(error, "剧本分析失败") }, { status: 502 });
         if (typeof refundedPointsRemaining === "number") response.headers.set("x-vozeb-pro-points-remaining", String(refundedPointsRemaining));
         return response;
