@@ -41,6 +41,10 @@ describe("generationPreferenceSummary", () => {
         expect(generationRatioOptions("image", { aspectRatios: ["16:9"] }).map((option) => option.value)).toEqual(["auto", "16:9", "2048x1152", "3840x2160"]);
     });
 
+    it("shows only exact pixel presets when a provider declares them", () => {
+        expect(generationRatioOptions("image", { sizes: ["1024x1024", "1536x1024"] }).map((option) => option.value)).toEqual(["auto", "1024x1024", "1536x1024"]);
+    });
+
     it("exposes the same positive custom pixel editor for images and videos", async () => {
         const source = await readFile(resolve(process.cwd(), "src/components/creative-generation-preferences.tsx"), "utf8");
 

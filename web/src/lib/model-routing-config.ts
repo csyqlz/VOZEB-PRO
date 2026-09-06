@@ -172,7 +172,7 @@ export function resolveLogicalModelCapabilityProfile(binding: Pick<LogicalModelB
         supportsReferenceAudio: booleanValue(stored.supportsReferenceAudio, globalPreset?.supportsReferenceAudio ?? modelConfig?.supportsReferenceAudio ?? advanced?.supportsReferenceAudio),
         maxReferenceImages: positiveInteger(stored.maxReferenceImages),
         aspectRatios: normalizeAspectRatios(stored.aspectRatios),
-        sizes: normalizeTextOptions(stored.sizes, 20),
+        sizes: normalizePixelSizes(stored.sizes),
         resolutions: normalizeTextOptions(stored.resolutions, 20),
         durationSeconds: normalizePositiveIntegers(stored.durationSeconds, 64),
         minDurationSeconds: positiveNumber(stored.minDurationSeconds),
@@ -221,7 +221,7 @@ function normalizeStoredCapabilityProfile(value: unknown, capability: LogicalMod
         supportsReferenceAudio: optionalBoolean(input.supportsReferenceAudio),
         maxReferenceImages: positiveInteger(input.maxReferenceImages),
         aspectRatios: normalizeAspectRatios(input.aspectRatios),
-        sizes: normalizeTextOptions(input.sizes, 20),
+        sizes: normalizePixelSizes(input.sizes),
         resolutions: normalizeTextOptions(input.resolutions, 20),
         durationSeconds: normalizePositiveIntegers(input.durationSeconds, 64),
         minDurationSeconds: positiveNumber(input.minDurationSeconds),
@@ -339,6 +339,17 @@ function normalizeTextOptions(value: unknown, maxLength: number) {
         if (normalized) options.set(normalized.toLowerCase(), normalized);
     }
     const result = Array.from(options.values()).slice(0, 24);
+    return result.length ? result : undefined;
+}
+
+function normalizePixelSizes(value: unknown) {
+    if (!Array.isArray(value)) return undefined;
+    const sizes = value
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => item.trim().toLowerCase())
+        .filter((item) => /^\d{2,5}x\d{2,5}$/.test(item))
+        .filter((item) => item.split("x").every((part) => Number(part) > 0));
+    const result = Array.from(new Set(sizes)).slice(0, 24);
     return result.length ? result : undefined;
 }
 
