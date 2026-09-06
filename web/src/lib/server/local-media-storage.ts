@@ -245,6 +245,7 @@ function registrationMetadata(registration: Awaited<ReturnType<typeof getLocalMe
     if (!registration) return {};
     return {
         ownerUserId: registration.ownerUserId,
+        storageClass: registration.storageClass,
         originalName: registration.originalName,
         source: registration.source,
         conversationId: registration.conversationId,

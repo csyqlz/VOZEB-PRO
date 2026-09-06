@@ -2,6 +2,7 @@ import { nanoid } from "nanoid";
 
 import type { Asset, CreateLibraryAssetInput } from "@/lib/library-asset-contract";
 import { createLibraryAsset, deleteLibraryAsset, getLibraryAsset, listLibraryAssetPage, updateLibraryAsset } from "@/lib/server/library-asset-store";
+import { promoteLocalMediaRegistration } from "@/lib/server/local-media-registry";
 import { deleteUserMediaAssetsCascade } from "@/lib/server/user-media-deletion-service";
 
 export class LibraryAssetServiceError extends Error {
@@ -23,9 +24,12 @@ export function listLibraryAssetPageForUser(userId: string, input: { page?: unkn
     });
 }
 
-export function createLibraryAssetForUser(userId: string, value: unknown) {
+export async function createLibraryAssetForUser(userId: string, value: unknown) {
     const now = new Date().toISOString();
-    return createLibraryAsset(userId, normalizeAsset(value, { id: `asset-${nanoid()}`, createdAt: now, updatedAt: now }));
+    const asset = normalizeAsset(value, { id: `asset-${nanoid()}`, createdAt: now, updatedAt: now });
+    const saved = await createLibraryAsset(userId, asset);
+    await promoteSavedMedia(userId, saved);
+    return saved;
 }
 
 export async function updateLibraryAssetForUser(userId: string, id: string, value: unknown) {
@@ -34,7 +38,13 @@ export async function updateLibraryAssetForUser(userId: string, id: string, valu
     const asset = normalizeAsset(value, { id: current.id, createdAt: current.createdAt, updatedAt: new Date().toISOString() });
     const updated = await updateLibraryAsset(userId, asset);
     if (!updated) throw new LibraryAssetServiceError("素材不存在", 404);
+    await promoteSavedMedia(userId, updated);
     return updated;
+}
+
+async function promoteSavedMedia(userId: string, asset: Asset) {
+    if (asset.kind === "text" || !asset.data.storageKey) return;
+    await promoteLocalMediaRegistration(asset.data.storageKey, userId);
 }
 
 export async function deleteLibraryAssetForUser(userId: string, id: string) {

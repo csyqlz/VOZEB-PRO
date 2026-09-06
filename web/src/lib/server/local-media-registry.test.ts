@@ -24,6 +24,7 @@ import {
     listLocalMediaRegistrationsForDeletion,
     listLocalMediaRegistrationsForUser,
     listLocalMediaRegistrationsForUserPage,
+    promoteLocalMediaRegistration,
 } from "./local-media-registry";
 
 describe("listLocalMediaRegistrationsForUser", () => {
@@ -156,5 +157,36 @@ describe("listLocalMediaRegistrationsForUser", () => {
 
         await expect(listFileLocalMediaRegistrations()).rejects.toThrow("PostgreSQL media reads must use a scoped repository query");
         expect(mocks.postgresQuery).not.toHaveBeenCalled();
+    });
+});
+
+describe("promoteLocalMediaRegistration", () => {
+    beforeEach(() => vi.clearAllMocks());
+
+    it("promotes only the owning temporary file in the file provider", async () => {
+        mocks.getDatabaseProvider.mockReturnValue("file");
+        mocks.readJsonDataFile.mockResolvedValue({
+            version: 1,
+            assets: [
+                { storageKey: "temporary/one.png", ownerUserId: "user-one", storageClass: "temporary", expiresAt: "2026-01-01T00:00:00.000Z" },
+                { storageKey: "temporary/two.png", ownerUserId: "user-two", storageClass: "temporary" },
+            ],
+        });
+        mocks.writeJsonDataFile.mockResolvedValue(undefined);
+
+        await expect(promoteLocalMediaRegistration("temporary/one.png", "user-one")).resolves.toBe(true);
+        const written = mocks.writeJsonDataFile.mock.calls[0]?.[1] as { assets: Array<Record<string, unknown>> };
+        expect(written.assets[0]).toMatchObject({ storageKey: "temporary/one.png", storageClass: "permanent" });
+        expect(written.assets[0]?.expiresAt).toBeUndefined();
+        expect(written.assets[1]).toMatchObject({ storageClass: "temporary" });
+    });
+
+    it("updates PostgreSQL ownership and clears expiry", async () => {
+        mocks.getDatabaseProvider.mockReturnValue("postgres");
+        mocks.postgresQuery.mockResolvedValue({ rows: [{ storage_key: "temporary/one.png" }] });
+
+        await expect(promoteLocalMediaRegistration("temporary/one.png", "user-one")).resolves.toBe(true);
+        expect(mocks.postgresQuery).toHaveBeenCalledWith(expect.stringContaining("storage_class = 'permanent'"), ["temporary/one.png", "user-one"]);
+        expect(String(mocks.postgresQuery.mock.calls[0]?.[0])).toContain("expires_at = NULL");
     });
 });

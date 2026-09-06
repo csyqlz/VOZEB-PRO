@@ -109,6 +109,34 @@ export async function getLocalMediaRegistration(storageKey: string) {
     return (await readRegistry()).assets.find((item) => item.storageKey === key) || null;
 }
 
+/** Mark a user's saved media as permanent so the 24-hour cleanup cannot remove it. */
+export async function promoteLocalMediaRegistration(storageKey: string, ownerUserId: string) {
+    const key = normalizeKey(storageKey);
+    const owner = text(ownerUserId, 160);
+    if (!key || !owner) return false;
+    if (getDatabaseProvider() === "postgres") {
+        await ensurePostgresSchema();
+        const result = await postgresQuery(
+            `UPDATE local_media_assets
+             SET storage_class = 'permanent', expires_at = NULL
+             WHERE storage_key = $1 AND owner_user_id = $2 AND storage_class = 'temporary'
+             RETURNING storage_key`,
+            [key, owner],
+        );
+        return result.rows.length > 0;
+    }
+    let promoted = false;
+    await mutateRegistry((db) => ({
+        ...db,
+        assets: db.assets.map((asset) => {
+            if (asset.storageKey !== key || asset.ownerUserId !== owner || asset.storageClass !== "temporary") return asset;
+            promoted = true;
+            return { ...asset, storageClass: "permanent", expiresAt: undefined };
+        }),
+    }));
+    return promoted;
+}
+
 export async function getLocalMediaRegistrations(storageKeys: string[], options: { ownerUserId?: string; executor?: QueryExecutor; forUpdate?: boolean } = {}) {
     const keys = Array.from(new Set(storageKeys.map(normalizeKey).filter(Boolean)));
     if (!keys.length) return [];
