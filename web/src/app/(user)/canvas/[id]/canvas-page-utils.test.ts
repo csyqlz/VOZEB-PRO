@@ -22,6 +22,7 @@ import {
     hydrateAssistantImages,
     hydrateCanvasImages,
     isHiddenBatchChild,
+    mergeReferenceImages,
     normalizeCanvasConfigNodeLayout,
     prepareAssistantImages,
     prepareCanvasImages,
@@ -140,6 +141,19 @@ describe("Canvas project hydration", () => {
         await uploadGeneratedCanvasImage({ dataUrl: "/api/generation-log-assets/permanent/result.png", serverUrl: "/api/generation-log-assets/permanent/result.png" });
 
         expect(mocks.uploadImage).toHaveBeenCalledWith("/api/generation-log-assets/permanent/result.png");
+    });
+});
+
+describe("Canvas multi-reference composition", () => {
+    it("keeps the edited image first and appends connected references without duplicates", () => {
+        const image = (id: string, storageKey = id) => ({ id, name: id, type: "image/png", dataUrl: `/api/reference-assets/${storageKey}`, storageKey });
+
+        expect(mergeReferenceImages([image("target")], [image("background"), image("target"), image("character")])).toEqual([image("target"), image("background"), image("character")]);
+    });
+
+    it("deduplicates references when only their stable URL is shared", () => {
+        const reference = { id: "", name: "one", type: "image/png", dataUrl: "/api/reference-assets/one", storageKey: "permanent/one" };
+        expect(mergeReferenceImages([reference], [{ ...reference, id: "different-id" }])).toHaveLength(1);
     });
 });
 

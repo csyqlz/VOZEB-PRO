@@ -35,6 +35,7 @@ import {
     getGenerationCount,
     imageMetadata,
     isGenerationCanceled,
+    mergeReferenceImages,
     resolveMetadataImageEditMask,
     resolveMetadataReferences,
     sourceNodeReferenceImages,
@@ -151,7 +152,7 @@ export function useCanvasGenerationActions({ state, tasks, interactions }: { sta
                     const isImageNode = isCanvasImageNodeType(sourceNode?.type);
                     const isEmptyImageNode = isImageNode && !sourceNode?.metadata?.content;
                     const sourceReference = isImageNode && sourceNode?.metadata?.content ? [canvasNodeReferenceImage(sourceNode)] : [];
-                    const referenceImages = sourceReference.length ? sourceReference : generationContext.referenceImages;
+                    const referenceImages = mergeReferenceImages(sourceReference, generationContext.referenceImages);
                     const imageGenerationConfig = {
                         ...generationConfig,
                         size: resolveImageRequestSize({
@@ -652,8 +653,12 @@ export function useCanvasGenerationActions({ state, tasks, interactions }: { sta
             const generationType = savedImageMetadata?.generationType;
             const useReferenceImages = generationType ? generationType === "edit" : Boolean(context?.referenceImages.length);
             const retryReferenceImages =
-                hasSavedImageMetadata && savedImageMetadata ? await resolveMetadataReferences(savedImageMetadata) : useReferenceImages ? (context?.referenceImages.length ? context.referenceImages : sourceNodeReferenceImages(batchRoot || sourceNode)) : [];
-            if (useReferenceImages && !retryReferenceImages) {
+                hasSavedImageMetadata && savedImageMetadata
+                    ? await resolveMetadataReferences(savedImageMetadata)
+                    : useReferenceImages
+                      ? mergeReferenceImages(sourceNodeReferenceImages(batchRoot || sourceNode), context?.referenceImages || [])
+                      : [];
+            if (useReferenceImages && !retryReferenceImages?.length) {
                 message.error("参考图片已丢失，无法继续重试");
                 setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_ERROR, errorDetails: "参考图片已丢失，无法继续重试" } } : item)));
                 return;

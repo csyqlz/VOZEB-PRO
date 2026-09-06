@@ -455,6 +455,21 @@ export function sourceNodeReferenceImages(node: CanvasNodeData | null) {
     return [canvasNodeReferenceImage(node)];
 }
 
+/**
+ * Keep the edited node as the primary reference, then append every connected
+ * input. Providers receive the complete ordered list and can map 图片1/2/3
+ * to the user's requested roles (background, typography, character, etc.).
+ */
+export function mergeReferenceImages(primary: ReferenceImage[], additions: ReferenceImage[]) {
+    const seen = new Set<string>();
+    return [...primary, ...additions].filter((reference) => {
+        const identities = [reference.id, reference.storageKey, reference.serverUrl, reference.remoteUrl, reference.url, reference.dataUrl].map((value) => value?.trim()).filter((value): value is string => Boolean(value));
+        if (!identities.length || identities.some((identity) => seen.has(identity))) return false;
+        identities.forEach((identity) => seen.add(identity));
+        return true;
+    });
+}
+
 export function isAudioFile(file: File) {
     return file.type.startsWith("audio/") || /\.(mp3|wav)$/i.test(file.name);
 }
