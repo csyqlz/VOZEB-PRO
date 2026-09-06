@@ -2,7 +2,7 @@ import type { LogicalModelCapabilityProfile } from "@/lib/auth/store-types";
 import { isCreativeAutoValue, type CreativeGenerationPreferences } from "@/lib/creative-runtime-contract";
 
 export type CreativeMediaCapability = "image" | "video" | "audio";
-export type CreativeModelCapabilityProfile = Pick<LogicalModelCapabilityProfile, "aspectRatios" | "resolutions" | "durationSeconds" | "minDurationSeconds" | "maxDurationSeconds" | "maxBatchSize">;
+export type CreativeModelCapabilityProfile = Pick<LogicalModelCapabilityProfile, "aspectRatios" | "resolutions" | "durationSeconds" | "minDurationSeconds" | "maxDurationSeconds" | "maxBatchSize" | "supportsReferenceImage" | "maxReferenceImages">;
 export type CreativeModelCapabilityOption = {
     id: string;
     name: string;
@@ -19,6 +19,8 @@ export function creativeModelProfileForLogicalModel(model: LogicalModelLike | un
     const profiles = (model?.bindings || []).filter((binding) => binding.enabled && binding.capabilityProfile).map((binding) => binding.capabilityProfile!);
     if (!profiles.length) return undefined;
     return compactProfile({
+        supportsReferenceImage: profiles.some((profile) => profile.supportsReferenceImage === true) ? true : undefined,
+        maxReferenceImages: maximum(profiles.map((profile) => profile.maxReferenceImages)),
         aspectRatios: unionTextLists(profiles.map((profile) => profile.aspectRatios)),
         resolutions: unionTextLists(profiles.map((profile) => profile.resolutions)),
         durationSeconds: unionNumberLists(profiles.map((profile) => profile.durationSeconds)),
@@ -33,6 +35,8 @@ export function creativeSelectedModelProfile(models: readonly CreativeModelCapab
     const profiles = selected.filter((model) => model.capabilityProfile).map((model) => model.capabilityProfile!);
     if (!profiles.length) return undefined;
     return compactProfile({
+        supportsReferenceImage: profiles.some((profile) => profile.supportsReferenceImage === false) ? false : profiles.every((profile) => profile.supportsReferenceImage === true) ? true : undefined,
+        maxReferenceImages: minimum(profiles.map((profile) => profile.maxReferenceImages)),
         aspectRatios: intersectTextLists(profiles.map((profile) => profile.aspectRatios)),
         resolutions: intersectTextLists(profiles.map((profile) => profile.resolutions)),
         durationSeconds: intersectNumberLists(profiles.map((profile) => profile.durationSeconds)),

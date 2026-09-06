@@ -7,11 +7,11 @@ describe("creative model capabilities", () => {
         const first = creativeModelProfileForLogicalModel({
             id: "first",
             bindings: [
-                { enabled: true, capabilityProfile: { aspectRatios: ["16:9", "9:16"], resolutions: ["720", "1080"], durationSeconds: [5, 10], maxBatchSize: 4 } },
+                { enabled: true, capabilityProfile: { supportsReferenceImage: true, maxReferenceImages: 2, aspectRatios: ["16:9", "9:16"], resolutions: ["720", "1080"], durationSeconds: [5, 10], maxBatchSize: 4 } },
                 { enabled: true, capabilityProfile: { aspectRatios: ["1:1"], resolutions: ["4K"], durationSeconds: [8], maxBatchSize: 6 } },
             ],
         });
-        expect(first).toEqual({ aspectRatios: ["16:9", "9:16", "1:1"], resolutions: ["720", "1080", "4K"], durationSeconds: [5, 8, 10], maxBatchSize: 6 });
+        expect(first).toMatchObject({ supportsReferenceImage: true, maxReferenceImages: 2, aspectRatios: ["16:9", "9:16", "1:1"], resolutions: ["720", "1080", "4K"], durationSeconds: [5, 8, 10], maxBatchSize: 6 });
 
         const selected = creativeSelectedModelProfile(
             [
@@ -20,7 +20,7 @@ describe("creative model capabilities", () => {
             ],
             "video",
         );
-        expect(selected).toEqual({ aspectRatios: ["16:9", "1:1"], resolutions: ["1080"], durationSeconds: [8, 10], maxBatchSize: 8 });
+        expect(selected).toMatchObject({ aspectRatios: ["16:9", "1:1"], resolutions: ["1080"], durationSeconds: [8, 10], maxBatchSize: 8, maxReferenceImages: 2 });
     });
 
     it("converges stale parameters when models change and leaves unconfigured models unchanged", () => {
@@ -56,5 +56,16 @@ describe("creative model capabilities", () => {
         expect(creativeSelectedModelProfile(models, "image")).toEqual({ maxBatchSize: 3 });
         expect(reconcileCreativeGenerationPreferences({ image: { count: 1 } }, models)).toEqual({ image: { count: 2 } });
         expect(reconcileCreativeGenerationPreferences({ image: { count: 9 } }, models)).toEqual({ image: { count: 3 } });
+    });
+
+    it("surfaces the safest reference-image limit across selected models", () => {
+        const profile = creativeSelectedModelProfile(
+            [
+                { id: "one", name: "一", capability: "image", capabilityProfile: { supportsReferenceImage: true, maxReferenceImages: 4 } },
+                { id: "two", name: "二", capability: "image", capabilityProfile: { supportsReferenceImage: true, maxReferenceImages: 2 } },
+            ],
+            "image",
+        );
+        expect(profile).toMatchObject({ supportsReferenceImage: true, maxReferenceImages: 2 });
     });
 });

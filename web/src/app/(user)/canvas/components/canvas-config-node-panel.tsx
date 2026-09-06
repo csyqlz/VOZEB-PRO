@@ -16,7 +16,7 @@ import { CanvasCameraControl } from "./canvas-camera-control";
 import type { CanvasGenerationMode, CanvasNodeData, CanvasNodeMetadata } from "../types";
 import type { CanvasResourceReference } from "../utils/canvas-resource-references";
 import { buildCanvasNodeConfig, canvasAudioConfigPatch, canvasVideoConfigPatch, resolveCanvasGenerationModel } from "../utils/canvas-node-config";
-import { canvasModelConfigPatch } from "../utils/canvas-model-capabilities";
+import { canvasModelCapabilityProfile, canvasModelConfigPatch } from "../utils/canvas-model-capabilities";
 
 type CanvasConfigNodePanelProps = {
     node: CanvasNodeData;
@@ -52,7 +52,10 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, reference
     const inputTotal = inputSummary.textCount + inputSummary.imageCount + inputSummary.videoCount + inputSummary.audioCount;
     const hasAnyInput = Boolean(inputSummary.textCount || inputSummary.imageCount || inputSummary.videoCount || inputSummary.audioCount);
     const hasComposerContent = Boolean((node.metadata?.composerContent ?? node.metadata?.prompt ?? "").trim());
-    const canGenerate = hasComposerContent || (mode === "audio" ? inputSummary.textCount > 0 : hasAnyInput);
+    const capabilityProfile = mode === "image" || mode === "video" ? canvasModelCapabilityProfile(config) : undefined;
+    const referenceLimitExceeded = mode !== "audio" && capabilityProfile?.maxReferenceImages !== undefined && inputSummary.imageCount > capabilityProfile.maxReferenceImages;
+    const referencesUnsupported = mode !== "audio" && inputSummary.imageCount > 0 && capabilityProfile?.supportsReferenceImage === false;
+    const canGenerate = (hasComposerContent || (mode === "audio" ? inputSummary.textCount > 0 : hasAnyInput)) && !referenceLimitExceeded && !referencesUnsupported;
     const modeLabel = generationModeLabel(mode);
     const setDetails = (nextOpen: boolean) => {
         setDetailsOpen(nextOpen);
@@ -79,7 +82,7 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, reference
                     <div className="min-w-0">
                         <div className="truncate text-[13px] font-semibold tracking-[0.01em]">生成配置</div>
                         <div className="mt-0.5 truncate text-[10px]" style={{ color: theme.node.faint }}>
-                            {isRunning ? "正在处理当前输入" : canGenerate ? `${inputTotal ? `${inputTotal} 项` : "提示词"} · 就绪` : "连接素材或输入提示词"}
+                            {isRunning ? "正在处理当前输入" : referenceLimitExceeded ? `参考图超过模型上限（${capabilityProfile?.maxReferenceImages} 张）` : referencesUnsupported ? "当前模型不支持参考图" : canGenerate ? `${inputTotal ? `${inputTotal} 项` : "提示词"} · 就绪` : "连接素材或输入提示词"}
                         </div>
                     </div>
                 </div>
@@ -160,6 +163,7 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, reference
                         config={config}
                         placement="topRight"
                         buttonClassName="canvas-compact-control !h-9 !w-full !justify-start !rounded-none !border-0 !bg-transparent !px-2.5 !shadow-none"
+                        referenceCount={inputSummary.imageCount}
                         onConfigChange={(key, value) => onConfigChange(node.id, key === "count" ? { count: Number(value) || 1 } : { [key]: value })}
                     />
                 ) : mode === "audio" ? (

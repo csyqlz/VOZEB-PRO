@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { assertCapabilityConstraints } from "./capability-constraints";
+import { assertCapabilityConstraints, reconcileCapabilityConstraints } from "./capability-constraints";
 
 describe("capability constraints", () => {
     it("rejects unsupported reference count, duration, batch and ratio", () => {
@@ -13,5 +13,12 @@ describe("capability constraints", () => {
         expect(() => assertCapabilityConstraints(profile, { capability: "video", resolution: "720p" })).toThrow("不支持 720p 分辨率");
         expect(() => assertCapabilityConstraints(profile, { capability: "image", aspectRatio: "1920x1080", resolution: "2k" })).not.toThrow();
         expect(() => assertCapabilityConstraints(profile, { capability: "image", aspectRatio: "auto", resolution: "AUTO" })).not.toThrow();
+    });
+
+    it("falls back to declared provider presets", () => {
+        const profile = { aspectRatios: ["1024x1024", "9:16"], resolutions: ["1K", "2K"] };
+        expect(reconcileCapabilityConstraints(profile, { capability: "image", aspectRatio: "2048x2048", resolution: "4K" })).toMatchObject({ aspectRatio: "1024x1024", resolution: "1K" });
+        expect(reconcileCapabilityConstraints(profile, { capability: "image", aspectRatio: "16:9", resolution: "2k" })).toMatchObject({ aspectRatio: "1024x1024", resolution: "2k" });
+        expect(reconcileCapabilityConstraints(profile, { capability: "image", aspectRatio: "9:16", resolution: "2k" })).toMatchObject({ aspectRatio: "9:16", resolution: "2k" });
     });
 });

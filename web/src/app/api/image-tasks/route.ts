@@ -21,7 +21,7 @@ import { generationCapacityRetryAfterSeconds, getStoredGenerationTaskByRequest, 
 import { verifyCanvasImageLayerGrant } from "@/lib/server/canvas-image-layer-grant";
 import { registerGenerationTaskAssetsForUser } from "@/lib/server/creative-runtime-service";
 import { createSignedReferenceAssetUrl, signReferenceAssetInputUrl } from "@/lib/server/reference-asset-access";
-import { assertCapabilityConstraints } from "@/lib/server/capability-constraints";
+import { assertCapabilityConstraints, reconcileCapabilityConstraints } from "@/lib/server/capability-constraints";
 import { checkGenerationRateLimit, rateLimitHeaders } from "@/lib/server/security";
 
 export const runtime = "nodejs";
@@ -167,7 +167,22 @@ export async function POST(request: Request) {
         const kind = resolvedBody.kind === "edit" ? "edit" : "generation";
         if (!configs.length || !prompt) return NextResponse.json({ error: "任务参数不完整" }, { status: 400 });
         const references = Array.isArray(resolvedBody.references) ? resolvedBody.references.filter((item) => Boolean(item?.dataUrl || item?.url || item?.remoteUrl || item?.serverUrl)) : [];
-        const constrainedConfigs = configs.filter((config) => {
+        // Reconcile stale/manual preferences against each model before routing. The UI
+        // normally does this already, but retries and old drafts can bypass it.
+        const reconciledConfigs = configs.map((config) => {
+            const reconciled = reconcileCapabilityConstraints(config.capabilityProfile, {
+                capability: "image",
+                referenceCount: references.length,
+                aspectRatio: config.size,
+                resolution: config.quality,
+            });
+            return {
+                ...config,
+                ...(reconciled.aspectRatio && reconciled.aspectRatio !== config.size ? { size: reconciled.aspectRatio } : {}),
+                ...(reconciled.resolution && reconciled.resolution !== config.quality ? { quality: reconciled.resolution } : {}),
+            };
+        });
+        const constrainedConfigs = reconciledConfigs.filter((config) => {
             try {
                 assertCapabilityConstraints(config.capabilityProfile, {
                     capability: "image",

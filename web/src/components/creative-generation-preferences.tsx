@@ -1,7 +1,7 @@
 "use client";
 
 import { Button, Popover, Select } from "antd";
-import { AudioLines, ChevronDown, ImageIcon, Lightbulb, Maximize2, Sparkles, Video } from "lucide-react";
+import { AlertTriangle, AudioLines, ChevronDown, ImageIcon, Lightbulb, Maximize2, Sparkles, Video } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { audioFormatLabel, audioFormatOptions, audioVoiceLabel, audioVoiceOptions } from "@/lib/audio-generation";
@@ -180,6 +180,7 @@ export function CreativeGenerationPreferences({
     compact = false,
     showCount = true,
     videoReferenceContent,
+    referenceCount,
     onOpenChange,
     onCapabilityChange,
     onChange,
@@ -200,6 +201,8 @@ export function CreativeGenerationPreferences({
     compact?: boolean;
     showCount?: boolean;
     videoReferenceContent?: ReactNode;
+    /** Number of connected/uploaded references for early capability feedback. */
+    referenceCount?: number;
     onOpenChange?: (open: boolean) => void;
     onCapabilityChange?: (capability: MediaCapability) => void;
     onChange: (patch: CreativeGenerationPreferencePatch) => void;
@@ -292,6 +295,7 @@ export function CreativeGenerationPreferences({
                         compact={compact}
                         showCount={showCount}
                         videoReferenceContent={videoReferenceContent}
+                        referenceCount={referenceCount}
                         onChange={onChange}
                     />
                 </div>
@@ -321,6 +325,7 @@ function PreferencePanel({
     compact,
     showCount,
     videoReferenceContent,
+    referenceCount,
     onChange,
 }: {
     capability: MediaCapability;
@@ -330,6 +335,7 @@ function PreferencePanel({
     compact: boolean;
     showCount: boolean;
     videoReferenceContent?: ReactNode;
+    referenceCount?: number;
     onChange: (patch: CreativeGenerationPreferencePatch) => void;
 }) {
     const ratios = generationRatioOptions(capability, capabilityProfile);
@@ -342,6 +348,9 @@ function PreferencePanel({
     const highResolutionRatios = ratios.filter((ratio) => parseCustomDimensions(ratio.value));
     const [customEditorOpen, setCustomEditorOpen] = useState(Boolean(parseCustomDimensions(selectedSize)) && !isPresetMediaSize(capability, selectedSize));
     const [section, setSection] = useState<"canvas" | "output">("canvas");
+    const referenceLimit = capabilityProfile?.maxReferenceImages;
+    const referencesUnsupported = capability === "image" && referenceCount !== undefined && referenceCount > 0 && capabilityProfile?.supportsReferenceImage === false;
+    const referencesExceeded = referenceCount !== undefined && referenceLimit !== undefined && referenceCount > referenceLimit;
 
     useEffect(() => {
         setCustomEditorOpen(Boolean(parseCustomDimensions(selectedSize)) && !isPresetMediaSize(capability, selectedSize));
@@ -392,6 +401,15 @@ function PreferencePanel({
 
             {section === "canvas" ? (
                 <div className={cn("grid min-w-0", compact ? "gap-2" : "gap-2.5")}>
+                    {referencesUnsupported || referencesExceeded ? (
+                        <div className="flex items-start gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[10px] leading-4 text-amber-800 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-200" role="alert">
+                            <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+                            <span>{referencesUnsupported ? "当前模型不支持参考图，请移除已连接的参考图或更换模型。" : `当前模型最多支持 ${referenceLimit} 张参考图，已连接 ${referenceCount} 张，请减少参考图后再生成。`}</span>
+                        </div>
+                    ) : null}
+                    {!referencesUnsupported && !referencesExceeded && referenceCount !== undefined && referenceCount > 0 && referenceLimit !== undefined ? (
+                        <p className="text-[10px] leading-4 text-[#8c96a1] dark:text-[#8f9aa6]">参考图 {referenceCount}/{referenceLimit} 张</p>
+                    ) : null}
                     {capability === "video" && videoReferenceContent ? (
                         videoReferenceContent
                     ) : capability === "video" ? (

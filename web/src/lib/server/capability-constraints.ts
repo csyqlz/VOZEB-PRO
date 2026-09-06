@@ -9,6 +9,27 @@ export type CapabilityConstraintInput = {
     resolution?: string;
 };
 
+/** Normalize user-facing media options before they reach a provider. */
+export function reconcileCapabilityConstraints(profile: LogicalModelCapabilityProfile | undefined, input: CapabilityConstraintInput): CapabilityConstraintInput {
+    if (!profile) return input;
+    const next = { ...input };
+    if (input.aspectRatio && input.aspectRatio !== "auto" && profile.aspectRatios?.length) {
+        const configured = profile.aspectRatios.filter((item) => normalizedAspectRatio(item) !== "auto");
+        if (configured.length) {
+            const requested = normalizedAspectRatio(input.aspectRatio);
+            const match = configured.find((item) => normalizedAspectRatio(item) === requested);
+            // Explicit pixel sizes are reduced to the provider's declared preset.
+            // This avoids sending a valid ratio with an unsupported pixel pair.
+            next.aspectRatio = match || configured[0];
+        }
+    }
+    if (input.resolution && input.resolution !== "auto" && profile.resolutions?.length) {
+        const configured = profile.resolutions.filter((item) => normalizedResolution(item) !== "auto");
+        if (configured.length && !configured.some((item) => normalizedResolution(item) === normalizedResolution(input.resolution))) next.resolution = configured[0];
+    }
+    return next;
+}
+
 export function assertCapabilityConstraints(profile: LogicalModelCapabilityProfile | undefined, input: CapabilityConstraintInput) {
     if (!profile) return;
     if (input.referenceCount && profile.maxReferenceImages && input.referenceCount > profile.maxReferenceImages) throw new Error(`当前模型最多支持 ${profile.maxReferenceImages} 张参考图`);

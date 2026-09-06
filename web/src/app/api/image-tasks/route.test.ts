@@ -174,7 +174,7 @@ describe("image task route", () => {
         expect(mocks.createImageTask).not.toHaveBeenCalled();
     });
 
-    it("rejects unsupported ratio and resolution before creating an image task", async () => {
+    it("reconciles unsupported ratio and resolution before creating an image task", async () => {
         mocks.withGenerationConcurrencyLimit.mockImplementation(async (_userId, _type, _staleMs, _limit, handler) => handler());
         mocks.getAuthSettings.mockResolvedValue({
             generationConcurrency: { image: 1 },
@@ -200,8 +200,8 @@ describe("image task route", () => {
             }),
         );
 
-        expect(response.status).toBe(400);
-        expect(mocks.createImageTask).not.toHaveBeenCalled();
+        expect(response.status).toBe(200);
+        expect(mocks.createImageTask).toHaveBeenCalledWith(expect.objectContaining({ config: expect.objectContaining({ size: "9:16", quality: "2K" }) }));
     });
 
     it("accepts intelligent ratio and quality without replacing them with fixed model options", async () => {

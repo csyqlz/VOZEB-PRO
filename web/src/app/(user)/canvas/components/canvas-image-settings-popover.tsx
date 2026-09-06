@@ -15,9 +15,10 @@ type CanvasImageSettingsPopoverProps = {
     buttonClassName?: string;
     placement?: CreativeComposerPopoverPlacement;
     fixedSizeLabel?: string;
+    referenceCount?: number;
 };
 
-export function CanvasImageSettingsPopover({ config, onConfigChange, onOpenChange, buttonClassName, placement = "topLeft", fixedSizeLabel }: CanvasImageSettingsPopoverProps) {
+export function CanvasImageSettingsPopover({ config, onConfigChange, onOpenChange, buttonClassName, placement = "topLeft", fixedSizeLabel, referenceCount }: CanvasImageSettingsPopoverProps) {
     const responsivePlacement = useCreativeComposerPopoverPlacement(placement);
     const preferences: GenerationPreferences = {
         mode: "image",
@@ -43,6 +44,7 @@ export function CanvasImageSettingsPopover({ config, onConfigChange, onOpenChang
             placement={responsivePlacement}
             autoAdjustOverflow
             fixedSizeLabel={fixedSizeLabel}
+            referenceCount={referenceCount}
             onOpenChange={onOpenChange}
             onChange={(patch) => applyImagePreferencePatch(patch, onConfigChange)}
         />
