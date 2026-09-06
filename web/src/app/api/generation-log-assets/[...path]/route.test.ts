@@ -19,7 +19,10 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/auth/session", () => ({ getCurrentUser: mocks.getCurrentUser }));
 vi.mock("@/lib/server/data-dir", () => ({ getServerDataDir: mocks.getDataDir }));
 vi.mock("@/lib/server/generation-log-store", () => ({ canAccessGenerationAsset: mocks.canAccess }));
-vi.mock("@/lib/server/local-media-registry", () => ({ getLocalMediaRegistration: mocks.registration }));
+vi.mock("@/lib/server/local-media-registry", () => ({
+    getLocalMediaRegistration: mocks.registration,
+    isLocalMediaRegistrationExpired: (registration: { storageClass?: string; expiresAt?: string }) => registration.storageClass === "temporary" && Boolean(registration.expiresAt) && Date.parse(registration.expiresAt || "") <= Date.now(),
+}));
 vi.mock("@/lib/server/local-media-response", () => ({
     createLocalMediaResponse: mocks.stream,
     createMediaHeadResponse: mocks.head,
@@ -111,6 +114,16 @@ describe("generation log asset access", () => {
         expect(mocks.getCurrentUser).not.toHaveBeenCalled();
         expect(mocks.canAccess).not.toHaveBeenCalled();
         expect(mocks.rate).toHaveBeenCalledWith("signature:test", expect.any(Request));
+    });
+
+    it("rejects expired generated assets before reading local or object storage", async () => {
+        mocks.registration.mockResolvedValue({ storageClass: "temporary", expiresAt: new Date(Date.now() - 1).toISOString(), mimeType: "image/png" });
+
+        const response = await GET(new Request("http://localhost/api/generation-log-assets/temporary/2026/07/20/images/file.png"), context);
+
+        expect(response.status).toBe(404);
+        expect(mocks.stream).not.toHaveBeenCalled();
+        expect(mocks.externalRead).not.toHaveBeenCalled();
     });
 
     it("does not let a provider signature download the original", async () => {

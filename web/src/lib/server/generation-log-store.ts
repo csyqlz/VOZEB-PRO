@@ -6,7 +6,7 @@ import { createPostgresRepositories, ensurePostgresSchema, isPostgresDatabaseEna
 import { collectLocalMediaStorageKeys, countLocalMediaReferences, localMediaStorageKeyFromValue } from "@/lib/server/local-media-references";
 import { deleteLocalMediaAssetsByStorageKeys, deleteUserLocalMediaAssets, GENERATION_MEDIA_ROOT } from "@/lib/server/local-media-storage";
 import { deleteUserMediaAssetsCascade } from "@/lib/server/user-media-deletion-service";
-import { getLocalMediaRegistration } from "@/lib/server/local-media-registry";
+import { getLocalMediaRegistration, isLocalMediaRegistrationExpired } from "@/lib/server/local-media-registry";
 import {
     defaultSummary,
     isGenerationKind,
@@ -245,7 +245,7 @@ export async function canAccessGenerationAsset(userId: string, role: UserRole, u
     const storageKey = localMediaStorageKeyFromValue(url);
     if (storageKey) {
         const registration = await getLocalMediaRegistration(storageKey);
-        if (registration) return registration.ownerUserId === userId;
+        if (registration) return !isLocalMediaRegistrationExpired(registration) && registration.ownerUserId === userId;
     }
     if (isPostgresDatabaseEnabled()) return false;
     const db = await readGenerationLogDb();

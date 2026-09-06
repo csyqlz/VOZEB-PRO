@@ -5,7 +5,7 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { getServerDataDir } from "@/lib/server/data-dir";
 import { canAccessGenerationAsset } from "@/lib/server/generation-log-store";
 import { createLocalMediaResponse, createMediaHeadResponse, mediaContentDisposition } from "@/lib/server/local-media-response";
-import { getLocalMediaRegistration } from "@/lib/server/local-media-registry";
+import { getLocalMediaRegistration, isLocalMediaRegistrationExpired } from "@/lib/server/local-media-registry";
 import { acquireMediaConcurrency, withMediaConcurrency } from "@/lib/server/media-concurrency";
 import { createExternalMediaReadUrl } from "@/lib/server/object-storage-service";
 import { verifyGenerationAssetSignature } from "@/lib/server/reference-asset-access";
@@ -34,6 +34,7 @@ async function serveGenerationAsset(request: Request, context: RouteContext) {
     let registration: Awaited<ReturnType<typeof getLocalMediaRegistration>> = null;
     if (signature) registration = await getLocalMediaRegistration(storagePath);
     if (signature && !registration) return NextResponse.json({ error: "资源不存在" }, { status: 404 });
+    if (registration && isLocalMediaRegistrationExpired(registration)) return NextResponse.json({ error: "资源不存在" }, { status: 404 });
     const signed = Boolean(registration && verifyGenerationAssetSignature(storagePath, url.searchParams.get("purpose"), url.searchParams.get("expires"), signature, registration.ownerUserId));
     if (signed && url.searchParams.get("download") === "original") return NextResponse.json({ code: 403, data: null, msg: "上游读取签名不提供原件下载" }, { status: 403 });
     let rateIdentity = `signature:${signature}`;
@@ -53,6 +54,7 @@ async function serveGenerationAsset(request: Request, context: RouteContext) {
     if (currentUser && !(await canAccessGenerationAsset(currentUser.id, currentUser.role, assetUrl))) return NextResponse.json({ error: "资源不存在" }, { status: 404 });
 
     registration ||= await getLocalMediaRegistration((path || []).join("/"));
+    if (registration && isLocalMediaRegistrationExpired(registration)) return NextResponse.json({ error: "资源不存在" }, { status: 404 });
     if (request.method === "HEAD" && registration?.storageProvider === "object") {
         return createMediaHeadResponse(registration.mimeType, registration.bytes, {
             "Cache-Control": "private, max-age=3600",
