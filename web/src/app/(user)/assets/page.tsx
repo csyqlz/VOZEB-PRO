@@ -503,7 +503,10 @@ export default function AssetsPage() {
             <input ref={assetInputRef} type="file" accept="application/zip,.zip" className="hidden" onChange={(event) => void importAssetZip(event.target.files?.[0])} />
 
             <Modal title="删除素材" open={Boolean(deletingAsset)} onCancel={() => setDeletingAsset(null)} onOk={() => void confirmDelete()} confirmLoading={deleting} okText="删除" okButtonProps={{ danger: true }} cancelText="取消">
-                确定删除「{deletingAsset?.title}」吗？删除后会从我的素材中移除。
+                <div className="space-y-2 text-sm leading-6">
+                    <p>确定删除「{deletingAsset?.title}」吗？</p>
+                    {deletingAsset?.kind === "text" ? <p className="text-muted-foreground">删除后仅会从我的素材中移除，文本内容无法恢复。</p> : <p className="text-rose-700 dark:text-rose-300">删除后会同时移除画布、短剧和已发布作品中的相关引用，并删除服务器文件，无法恢复。</p>}
+                </div>
             </Modal>
         </div>
     );
