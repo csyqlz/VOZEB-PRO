@@ -5,6 +5,7 @@ import { decryptSecretValue, encryptSecretValue, isEncryptedSecretValue } from "
 import { ECOMMERCE_IMAGE_SKILL } from "@/lib/server/agent-skills/ecommerce-image";
 import { YANAI_BEAUTY_SKILL } from "@/lib/server/agent-skills/yanai-beauty";
 import { DEFAULT_CREATIVE_SHORTCUT_SKILLS } from "@/lib/server/agent-skills/creative-shortcuts";
+import { CREATIVE_SUITE_SKILLS } from "@/lib/server/agent-skills/creative-suite";
 import { deriveLogicalModelsConfig, normalizeDefaultModelsConfig, normalizeLogicalModelsConfig } from "@/lib/model-routing-config";
 import { applyChannelProtocol } from "@/lib/channel-protocol-registry";
 import { resolveConfiguredModelPointCost } from "@/lib/model-point-cost";
@@ -338,7 +339,27 @@ export function normalizeAgentSkills(skills: AgentSkill[] | undefined) {
         if (index < 0) normalized.push({ ...skill, keywords: [...skill.keywords], workspaces: [...skill.workspaces] });
         else normalized[index] = { ...normalized[index], workspaces: [...new Set([...skill.workspaces, ...(normalized[index].workspaces || [])])] };
     }
-    return normalized;
+    for (const skill of CREATIVE_SUITE_SKILLS) {
+        const index = normalized.findIndex((item) => item.id === skill.id);
+        if (index < 0) normalized.push({ ...skill, keywords: [...skill.keywords], workspaces: [...skill.workspaces] });
+        else normalized[index] = { ...normalized[index], workspaces: [...new Set([...skill.workspaces, ...(normalized[index].workspaces || [])])] };
+    }
+    // Keep one effective definition per id while preserving custom metadata and
+    // combining workspace coverage when an older settings export had duplicates.
+    const unique = new Map<string, AgentSkill>();
+    for (const skill of normalized) {
+        const existing = unique.get(skill.id);
+        if (!existing) {
+            unique.set(skill.id, skill);
+            continue;
+        }
+        unique.set(skill.id, {
+            ...existing,
+            workspaces: [...new Set([...(existing.workspaces || []), ...(skill.workspaces || [])])],
+            keywords: [...new Set([...(existing.keywords || []), ...(skill.keywords || [])])],
+        });
+    }
+    return [...unique.values()];
 }
 
 export function normalizeGenerationDefaults(settings: Partial<GenerationDefaultSettings> | undefined): GenerationDefaultSettings {

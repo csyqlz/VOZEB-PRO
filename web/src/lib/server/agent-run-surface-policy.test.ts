@@ -28,6 +28,14 @@ describe("selectAgentSkills", () => {
         expect(selectAgentSkills(DEFAULT_SETTINGS, "drama", ["drama-planning"]).map((skill) => skill.id)).toEqual(["drama-planning"]);
         expect(selectAgentSkills(DEFAULT_SETTINGS, "drama", ["image-motion"])).toEqual([]);
     });
+
+    it("ships cross-media skills for composite consumer workflows", () => {
+        const ids = DEFAULT_SETTINGS.agentSkills.map((skill) => skill.id);
+        expect(new Set(ids).size).toBe(ids.length);
+        expect(ids).toEqual(expect.arrayContaining(["brand-content-system", "product-campaign", "brand-visual-system", "product-photo-edit", "style-consistency"]));
+        expect(selectAgentSkills(DEFAULT_SETTINGS, "chat", ["brand-content-system"])[0]?.workspaces).toEqual(["image", "video", "canvas", "drama"]);
+        expect(selectAgentSkills(DEFAULT_SETTINGS, "canvas", ["brand-visual-system"]).map((skill) => skill.id)).toEqual(["brand-visual-system"]);
+    });
 });
 
 describe("agentPlannerInput", () => {
@@ -46,6 +54,14 @@ describe("agentPlannerInput", () => {
 
         expect(prompt).toContain("你是 星河创作 统一创作 Agent");
         expect(prompt).not.toContain("VOZEB PRO");
+    });
+
+    it("allows bounded automatic skill composition when the user did not choose one", () => {
+        const prompt = agentPlannerSystemPrompt("chat", "{}", DEFAULT_SETTINGS.site.title);
+
+        expect(prompt).toContain("自动选择最多 3 个最匹配的技能");
+        expect(prompt).toContain("禁止选择不在 availableSkills 中的技能");
+        expect(prompt).toContain("requestedSkillIds 非空时必须使用且只使用这些技能");
     });
 
     it("keeps selected Canvas nodes, one-hop relations and exact size while dropping unrelated nodes", () => {

@@ -1,14 +1,38 @@
 import { describe, expect, it } from "vitest";
 
-import { normalizeAgentSkill } from "./store-normalizers";
+import { normalizeAgentSkill, normalizeAgentSkills } from "./store-normalizers";
+import { DEFAULT_SETTINGS } from "./store-foundation";
 
 describe("normalizeAgentSkill", () => {
+    it("ships a deduplicated cross-media creative skill catalog", () => {
+        const skills = DEFAULT_SETTINGS.agentSkills;
+        const ids = skills.map((skill) => skill.id);
+        expect(new Set(ids).size).toBe(ids.length);
+        expect(ids).toEqual(expect.arrayContaining(["brand-content-system", "social-content", "storyboard-shot", "product-campaign", "brand-visual-system", "product-photo-edit", "style-consistency"]));
+        for (const skill of skills) {
+            expect(skill.description.length).toBeGreaterThan(0);
+            expect(skill.instructions.length).toBeGreaterThan(0);
+            expect(skill.workspaces?.length).toBeGreaterThan(0);
+        }
+    });
+
     it("derives a zero-configuration planner summary and preserves full execution instructions", () => {
         const instructions = "完整执行规则".repeat(100);
         const skill = normalizeAgentSkill({ id: "skill", name: "技能", description: "用于规划的简要用途", instructions, enabled: true, keywords: [] });
 
         expect(skill.plannerSummary).toBe("用于规划的简要用途");
         expect(skill.instructions).toBe(instructions);
+    });
+
+    it("collapses duplicate ids from imported settings while merging coverage", () => {
+        const skills = normalizeAgentSkills([
+            { id: "duplicate", name: "重复能力", description: "图片能力", instructions: "图片规则", enabled: true, keywords: ["图片"], workspaces: ["image"] },
+            { id: "duplicate", name: "重复能力", description: "视频能力", instructions: "视频规则", enabled: true, keywords: ["视频"], workspaces: ["video"] },
+        ]);
+        const duplicate = skills.filter((skill) => skill.id === "duplicate");
+        expect(duplicate).toHaveLength(1);
+        expect(duplicate[0]?.workspaces).toEqual(["image", "video"]);
+        expect(duplicate[0]?.keywords).toEqual(["图片", "视频"]);
     });
 
     it("limits an explicit planner summary to 240 characters", () => {

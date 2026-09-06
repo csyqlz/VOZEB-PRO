@@ -48,7 +48,7 @@ export function CreativeComposer({
     selectedAssetIds,
     skills,
     skillsLoading,
-    selectedSkill,
+    selectedSkills,
     models,
     selectedModels,
     smartPlanning,
@@ -57,8 +57,8 @@ export function CreativeComposer({
     uploading,
     onRemoveAttachment,
     onReferenceAsset,
-    onSelectSkill,
     onRemoveSkill,
+    onToggleSkill,
     onToggleModel,
     onClearModels,
     onToggleSmartPlanning,
@@ -89,7 +89,7 @@ export function CreativeComposer({
     selectedAssetIds: string[];
     skills: SkillOption[];
     skillsLoading: boolean;
-    selectedSkill?: SkillOption;
+    selectedSkills: SkillOption[];
     models: CreativeModelOption[];
     selectedModels: CreativeModelOption[];
     smartPlanning: boolean;
@@ -98,8 +98,8 @@ export function CreativeComposer({
     uploading: boolean;
     onRemoveAttachment: (id: string) => void;
     onReferenceAsset: (id: string) => void;
-    onSelectSkill: (skill: SkillOption) => void;
-    onRemoveSkill: () => void;
+    onRemoveSkill: (skillId: string) => void;
+    onToggleSkill: (skill: SkillOption) => void;
     onToggleModel: (model: CreativeModelOption) => void;
     onClearModels: () => void;
     onToggleSmartPlanning: () => void;
@@ -356,25 +356,25 @@ export function CreativeComposer({
                 )}
                 onClick={compact ? onExpand : undefined}
             >
-                {selectedSkill || otherAttachments.length ? (
-                    <div className={cn("gap-2 overflow-hidden px-2 pb-1 pt-1", compact ? "hidden" : "flex")}>
-                        {selectedSkill ? (
-                            <span className="flex h-9 max-w-60 shrink-0 items-center gap-2 rounded-lg border border-[#d6dee8] bg-[#f1f4f8] px-2.5 text-xs font-medium text-[#344152] shadow-[0_2px_8px_rgba(38,49,65,0.07)] dark:border-[#3b4653] dark:bg-[#252b33] dark:text-[#edf1f5] dark:shadow-black/20">
+                {selectedSkills.length || otherAttachments.length ? (
+                    <div className={cn("hide-scrollbar gap-2 overflow-x-auto overflow-y-hidden px-2 pb-1 pt-1", compact ? "hidden" : "flex")}>
+                        {selectedSkills.map((skill) => (
+                            <span key={skill.id} className="flex h-9 max-w-60 shrink-0 items-center gap-2 rounded-lg border border-[#d6dee8] bg-[#f1f4f8] px-2.5 text-xs font-medium text-[#344152] shadow-[0_2px_8px_rgba(38,49,65,0.07)] dark:border-[#3b4653] dark:bg-[#252b33] dark:text-[#edf1f5] dark:shadow-black/20">
                                 <span className="grid size-5 shrink-0 place-items-center rounded-md bg-[#d3a44f]/16 text-[#95681d] dark:bg-[#e4bb70]/14 dark:text-[#e4bb70]">
                                     <Sparkles className="size-3.5" />
                                 </span>
-                                <span className="truncate">创作能力 · {selectedSkill.name}</span>
+                                <span className="truncate">创作能力 · {skill.name}</span>
                                 <button
                                     type="button"
                                     className="grid size-5 shrink-0 place-items-center rounded-md text-[#7c8795] transition hover:bg-[#dfe5ec] hover:text-[#263141] dark:text-[#aab3bf] dark:hover:bg-[#343c46] dark:hover:text-white"
-                                    onClick={onRemoveSkill}
-                                    aria-label={`移除创作能力 ${selectedSkill.name}`}
+                                    onClick={() => onRemoveSkill(skill.id)}
+                                    aria-label={`移除创作能力 ${skill.name}`}
                                     title="移除创作能力"
                                 >
                                     <X className="size-3" />
                                 </button>
                             </span>
-                        ) : null}
+                        ))}
                         {otherAttachments.map((asset) => {
                             const Icon = asset.type === "image" ? ImageIcon : asset.type === "video" ? FileVideo : FileAudio;
                             return (
@@ -626,7 +626,7 @@ export function CreativeComposer({
                                         <div className="hide-scrollbar max-h-[142px] space-y-1 overflow-y-auto overscroll-contain [scrollbar-width:none] sm:max-h-[154px] [&::-webkit-scrollbar]:hidden">
                                             {!skillsLoading && skills.length && !visibleSkills.length ? <p className="px-2 py-5 text-center text-xs text-[#8b949f] dark:text-[#7f8996]">当前分类暂无可用创作能力</p> : null}
                                             {visibleSkills.map((skill) => {
-                                                const selected = selectedSkill?.id === skill.id;
+                                                const selected = selectedSkills.some((item) => item.id === skill.id);
                                                 const visual = skillOptionVisual(skill);
                                                 const Icon = visual.icon;
                                                 return (
@@ -638,8 +638,7 @@ export function CreativeComposer({
                                                             selected ? "bg-[#eef1f4] text-[#20242a] dark:bg-[#292f37] dark:text-white" : "text-[#4d5662] hover:bg-[#f4f6f8] dark:text-[#c2c9d1] dark:hover:bg-[#242930]",
                                                         )}
                                                         onClick={() => {
-                                                            onSelectSkill(skill);
-                                                            setSkillPickerOpen(false);
+                                                            onToggleSkill(skill);
                                                         }}
                                                     >
                                                         <span className={cn("mt-0.5 grid size-7 shrink-0 place-items-center rounded-lg", visual.surfaceClass)}>

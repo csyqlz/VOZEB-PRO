@@ -3,7 +3,17 @@ import { nanoid } from "nanoid";
 import { resolveLogicalModelCandidates } from "@/lib/server/logical-model-router";
 import { systemAiIdempotencyKey } from "@/lib/server/system-ai-billing";
 import { getAgentRun, updateAgentRunById, type AgentRun } from "@/lib/server/agent-run-store";
-import { agentPlannerSystemPrompt, agentPlanReply, buildAgentPlannerInput, conversationFallbackReply, plannerAgentSkills, prioritizeAgentPlannerModels, selectAgentSkills, taskPlanSummary } from "@/lib/server/agent-run-surface-policy";
+import {
+    agentPlannerSystemPrompt,
+    agentPlanReply,
+    availableAgentSkills,
+    buildAgentPlannerInput,
+    conversationFallbackReply,
+    plannerAgentSkills,
+    prioritizeAgentPlannerModels,
+    selectAgentSkills,
+    taskPlanSummary,
+} from "@/lib/server/agent-run-surface-policy";
 import { getCreativeAssetsByIds, getCreativeConversationContext, listRecentCreativeMediaAssets } from "@/lib/server/creative-runtime-store";
 import { toSafeGenerationErrorMessage } from "@/lib/server/generation-errors";
 import { parseAgentPlanCall, type AgentFunctionCallResult } from "./agent-function-call";
@@ -64,7 +74,7 @@ export async function executeAgentRun(run: AgentRun, origin: string, cookie: str
         const explicitAssets = orderCreativeAssetsByIds(loadedExplicitAssets, claimed.referencedAssetIds);
         const allModels = agentModelOptions(settings);
         const availableModels = prioritizeAgentPlannerModels(filterAgentPlannerModels(allModels, claimed), claimed, settings);
-        const skillOptions = plannerAgentSkills(settings, claimed);
+        const skillOptions = claimed.selectedSkillIds?.length ? plannerAgentSkills(settings, claimed) : availableAgentSkills(settings, claimed.surface);
         const skills = selectAgentSkills(settings, claimed.surface, claimed.selectedSkillIds);
         if (!(await canContinue(run.id, executionId))) return;
         const selectedRequestedModels = (claimed.requestedModelIds || []).map((id) => allModels.find((item) => item.id === id)).filter((item): item is ReturnType<typeof agentModelOptions>[number] => Boolean(item));
@@ -178,6 +188,7 @@ export async function executeAgentRun(run: AgentRun, origin: string, cookie: str
         }
         if (!plan) throw latestPlanningError instanceof Error ? latestPlanningError : new Error("没有可用的文本模型渠道");
         if (claimed.surface === "canvas") plan = normalizeCanvasPlanForSelection(plan, claimed.snapshot, claimed.prompt);
+        const effectiveSkills = claimed.selectedSkillIds?.length ? skills : selectAgentSkills(settings, claimed.surface, (plan.skillIds || []).slice(0, 3));
         const plannerAudit = buildAgentRunPlannerAudit({
             mode: "model",
             logicalModelId: model,
@@ -187,7 +198,7 @@ export async function executeAgentRun(run: AgentRun, origin: string, cookie: str
             elapsedMs: acceptedPlan?.call.elapsedMs,
             pointsCost: acceptedPlan?.call.pointsCost,
             pointsRecordId: acceptedPlan?.call.pointsRecordId,
-            skills,
+            skills: effectiveSkills,
         });
         if (!(await canContinue(run.id, executionId))) {
             await refundAcceptedPlan();
@@ -215,7 +226,7 @@ export async function executeAgentRun(run: AgentRun, origin: string, cookie: str
             planningPersisted = true;
             return;
         }
-        const tasks = normalizeTasks(plan, skills, settings, claimed.snapshot, claimed.prompt, claimed.surface, referencedAssets, claimed.requestedImageSize, claimed.generationPreferences);
+        const tasks = normalizeTasks(plan, effectiveSkills, settings, claimed.snapshot, claimed.prompt, claimed.surface, referencedAssets, claimed.requestedImageSize, claimed.generationPreferences);
         const projectHandoff = normalizeAgentProjectHandoff(plan, claimed.surface, referencedAssets, claimed.prompt);
         const reply = agentPlanReply({ ...plan, projectHandoff }, tasks, claimed.surface);
         const event = claimed.surface === "canvas" ? { type: "canvas.ops", data: { ops: planToOps(plan, tasks, run.id, claimed.snapshot), reply } } : { type: "run.planned", data: { reply, tasks: tasks.map(taskPlanSummary), projectHandoff } };

@@ -65,7 +65,7 @@ export default function CreatePage() {
     const [optimizingPrompt, setOptimizingPrompt] = useState(false);
     const [skills, setSkills] = useState<AgentSkillSummary[]>([]);
     const [skillsLoading, setSkillsLoading] = useState(true);
-    const [selectedSkillId, setSelectedSkillId] = useState<string>();
+    const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
     const [selectedModelIds, setSelectedModelIds] = useState<string[]>([]);
     const [smartPlanning, setSmartPlanning] = useState(true);
     const [creationMode, setCreationMode] = useState<"agent" | CreativeGenerationMode>("agent");
@@ -82,7 +82,7 @@ export default function CreatePage() {
     const newAgentConversation = agent.newConversation;
     const hasConversation = agent.messages.length > 0;
     const showConversation = hasConversation || agent.conversationLoading;
-    const selectedSkill = skills.find((skill) => skill.id === selectedSkillId);
+    const selectedSkills = skills.filter((skill) => selectedSkillIds.includes(skill.id));
     const modelOptions = useCreativeAgentModels(["text", "image", "video", "audio"]);
     const selectedModels = modelOptions.filter((model) => selectedModelIds.includes(model.id));
     const textModelAvailable = modelOptions.some((model) => model.capability === "text");
@@ -225,13 +225,13 @@ export default function CreatePage() {
             if (
                 await agent.submit(prompt, {
                     publicPrompt: publicCreativeAssetPrompt(prompt),
-                    skillIds: selectedSkillId ? [selectedSkillId] : [],
+                    skillIds: selectedSkillIds,
                     ...(!smartPlanning && selectedModelIds.length ? { modelIds: selectedModelIds } : {}),
                     ...(Object.keys(preferences).length ? { preferences } : {}),
                 })
             ) {
                 updatePrompt("");
-                setSelectedSkillId(undefined);
+                setSelectedSkillIds([]);
                 setGenerationPreferences((current) => (current.video ? { ...current, video: { ...current.video, firstFrameAssetId: undefined, lastFrameAssetId: undefined } } : current));
             }
         } catch (error) {
@@ -334,7 +334,14 @@ export default function CreatePage() {
     };
 
     const selectSkill = (skill: AgentSkillSummary) => {
-        setSelectedSkillId(skill.id);
+        setSelectedSkillIds((current) => {
+            if (current.includes(skill.id)) return current.filter((id) => id !== skill.id);
+            if (current.length >= 3) {
+                message.warning("最多组合 3 个创作能力");
+                return current;
+            }
+            return [...current, skill.id];
+        });
         window.requestAnimationFrame(() => inputRef.current?.focus());
     };
 
@@ -533,7 +540,7 @@ export default function CreatePage() {
             attachments={agent.selectedAssets}
             skills={skills}
             skillsLoading={skillsLoading}
-            selectedSkill={selectedSkill}
+            selectedSkills={selectedSkills}
             models={modelOptions}
             selectedModels={selectedModels}
             smartPlanning={smartPlanning}
@@ -546,8 +553,8 @@ export default function CreatePage() {
                 window.requestAnimationFrame(() => inputRef.current?.focus());
             }}
             onRemoveAttachment={removeAttachment}
-            onSelectSkill={selectSkill}
-            onRemoveSkill={() => setSelectedSkillId(undefined)}
+            onRemoveSkill={(skillId) => setSelectedSkillIds((current) => current.filter((id) => id !== skillId))}
+            onToggleSkill={selectSkill}
             onToggleModel={toggleModel}
             onClearModels={() => {
                 setSelectedModelIds([]);
