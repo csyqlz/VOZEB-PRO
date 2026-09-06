@@ -78,6 +78,7 @@ export function useCanvasPageState() {
     const [infoNodeId, setInfoNodeId] = useState<string | null>(null);
     const [cropNodeId, setCropNodeId] = useState<string | null>(null);
     const [maskEditNodeId, setMaskEditNodeId] = useState<string | null>(null);
+    const [annotateEditNodeId, setAnnotateEditNodeId] = useState<string | null>(null);
     const [splitNodeId, setSplitNodeId] = useState<string | null>(null);
     const [upscaleNodeId, setUpscaleNodeId] = useState<string | null>(null);
     const [angleNodeId, setAngleNodeId] = useState<string | null>(null);
@@ -194,6 +195,8 @@ export function useCanvasPageState() {
         setCropNodeId,
         maskEditNodeId,
         setMaskEditNodeId,
+        annotateEditNodeId,
+        setAnnotateEditNodeId,
         splitNodeId,
         setSplitNodeId,
         upscaleNodeId,

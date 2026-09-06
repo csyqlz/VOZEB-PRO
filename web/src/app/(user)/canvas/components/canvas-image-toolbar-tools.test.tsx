@@ -9,7 +9,7 @@ describe("Canvas 图片快捷工具", () => {
     it("默认展示分层、消除背景和表情参考入口", () => {
         expect(defaultImageQuickToolIds).toEqual(expect.arrayContaining(["splitLayers", "removeBackground", "emotion"]));
         const handlers = Object.fromEntries(
-            ["onUpload", "onToggleFreeResize", "onMaskEdit", "onCrop", "onSplit", "onSplitLayers", "onRemoveBackground", "onEmotion", "onUpscale", "onSuperResolve", "onAngle", "onViewImage", "onCopyPrompt", "onReversePrompt"].map((key) => [key, vi.fn()]),
+            ["onUpload", "onToggleFreeResize", "onMaskEdit", "onAnnotateEdit", "onCrop", "onSplit", "onSplitLayers", "onRemoveBackground", "onEmotion", "onUpscale", "onSuperResolve", "onAngle", "onViewImage", "onCopyPrompt", "onReversePrompt"].map((key) => [key, vi.fn()]),
         ) as unknown as Parameters<typeof buildImageToolbarTools>[1];
         const tools = buildImageToolbarTools(node, handlers);
         expect(tools.map((tool) => tool.id)).toEqual(expect.arrayContaining(["splitLayers", "removeBackground", "emotion"]));
@@ -21,6 +21,18 @@ describe("Canvas 图片快捷工具", () => {
         expect(handlers.onSplitLayers).toHaveBeenCalledWith(node);
         expect(handlers.onRemoveBackground).toHaveBeenCalledWith(node);
         expect(handlers.onEmotion).toHaveBeenCalledWith(node);
+    });
+
+    it("局部编辑与标注改图入口同时存在且职责不同", () => {
+        const handlers = Object.fromEntries(
+            ["onUpload", "onToggleFreeResize", "onMaskEdit", "onAnnotateEdit", "onCrop", "onSplit", "onSplitLayers", "onRemoveBackground", "onEmotion", "onUpscale", "onSuperResolve", "onAngle", "onViewImage", "onCopyPrompt", "onReversePrompt"].map((key) => [key, vi.fn()]),
+        ) as unknown as Parameters<typeof buildImageToolbarTools>[1];
+        const tools = buildImageToolbarTools(node, handlers);
+        expect(defaultImageQuickToolIds).toEqual(expect.arrayContaining(["maskEdit", "annotateEdit"]));
+        expect(tools.find((tool) => tool.id === "maskEdit")?.title).toBe("添加蒙版遮罩后局部修改");
+        expect(tools.find((tool) => tool.id === "annotateEdit")?.title).toBe("添加箭头/文字标注后整图重生成");
+        tools.find((tool) => tool.id === "annotateEdit")?.onClick();
+        expect(handlers.onAnnotateEdit).toHaveBeenCalledWith(node);
     });
 
     it("旧配置仍只接受已知工具 ID", () => {

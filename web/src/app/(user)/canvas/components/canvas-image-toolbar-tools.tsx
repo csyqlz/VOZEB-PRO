@@ -1,17 +1,18 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Brush, Camera, Copy, Eraser, FileText, Grid2x2, Layers3, Lock, LockOpen, Maximize2, ScanFace, Scissors, Sparkles, Upload, ZoomIn } from "lucide-react";
+import { ArrowUpRight, Brush, Camera, Copy, Eraser, FileText, Grid2x2, Layers3, Lock, LockOpen, Maximize2, ScanFace, Scissors, Sparkles, Upload, ZoomIn } from "lucide-react";
 
 import type { CanvasNodeData } from "../types";
 
-type ImageNodeActionToolId = "copyPrompt" | "reversePrompt" | "replace" | "resize" | "maskEdit" | "crop" | "split" | "splitLayers" | "removeBackground" | "emotion" | "upscale" | "superResolve" | "angle" | "view";
+type ImageNodeActionToolId = "copyPrompt" | "reversePrompt" | "replace" | "resize" | "maskEdit" | "annotateEdit" | "crop" | "split" | "splitLayers" | "removeBackground" | "emotion" | "upscale" | "superResolve" | "angle" | "view";
 export type ImageQuickToolId = "info" | "delete" | "saveAsset" | "download" | "edit" | ImageNodeActionToolId;
 
 type ImageToolHandlers = {
     onUpload: (node: CanvasNodeData) => void;
     onToggleFreeResize: (node: CanvasNodeData) => void;
     onMaskEdit: (node: CanvasNodeData) => void;
+    onAnnotateEdit: (node: CanvasNodeData) => void;
     onCrop: (node: CanvasNodeData) => void;
     onSplit: (node: CanvasNodeData) => void;
     onSplitLayers: (node: CanvasNodeData) => void;
@@ -40,7 +41,7 @@ type ImageQuickToolsConfig = {
     ids: ImageQuickToolId[];
 };
 
-export const IMAGE_QUICK_TOOLS_STORAGE_KEY = "canvas-image-quick-tools-v7";
+export const IMAGE_QUICK_TOOLS_STORAGE_KEY = "canvas-image-quick-tools-v8";
 
 const defaultBaseToolIds: ImageQuickToolId[] = ["info", "delete", "saveAsset", "download", "edit"];
 
@@ -90,6 +91,15 @@ const imageToolDefinitions: ImageToolDefinition[] = [
         title: "添加蒙版遮罩后局部修改",
         icon: () => <Brush className="size-4" />,
         run: (node, handlers) => handlers.onMaskEdit(node),
+    },
+    {
+        id: "annotateEdit",
+        defaultVisible: true,
+        panelLabel: "标注改图",
+        label: "标注改图",
+        title: "添加箭头/文字标注后整图重生成",
+        icon: () => <ArrowUpRight className="size-4" />,
+        run: (node, handlers) => handlers.onAnnotateEdit(node),
     },
     {
         id: "crop",

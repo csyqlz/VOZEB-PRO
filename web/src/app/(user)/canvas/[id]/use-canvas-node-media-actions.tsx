@@ -13,6 +13,7 @@ import { nanoid } from "nanoid";
 import { type CanvasImageAngleParams } from "../components/canvas-node-angle-dialog";
 import { type CanvasImageCropRect } from "../components/canvas-node-crop-dialog";
 import { type CanvasImageMaskEditPayload } from "../components/canvas-node-mask-edit-dialog";
+import { type CanvasImageAnnotateEditPayload } from "../components/canvas-node-annotate-edit-dialog";
 import type { CanvasEmotionPayload } from "../components/canvas-node-emotion-dialog";
 import { type CanvasImageSplitParams } from "../components/canvas-node-split-dialog";
 import { type CanvasImageUpscaleParams } from "../components/canvas-node-upscale-dialog";
@@ -424,6 +425,73 @@ export function useCanvasNodeMediaActions({ state, tasks, interactions }: { stat
         [effectiveConfig, finishGenerationRequest, isAiConfigReady, message, openConfigDialog, startAndCompleteImageTask, startGenerationRequest],
     );
 
+    const annotateEditImageNode = useCallback(
+        async (node: CanvasNodeData, payload: CanvasImageAnnotateEditPayload) => {
+            if (!node.metadata?.content) return;
+            const generationConfig = { ...buildGenerationConfig(effectiveConfig, node, "image"), count: "1", size: node.metadata?.size || "auto" };
+            if (!isAiConfigReady(generationConfig, generationConfig.model)) {
+                openConfigDialog(true);
+                return;
+            }
+            const userPrompt = payload.prompt.trim();
+            const prompt = `参考图带有彩色箭头与文字标注，请按标注要求修改图片：${userPrompt}。生成去掉标注痕迹的干净新图，未标注区域保持原图不变。`;
+            const childId = nanoid();
+            const annotatedSource = {
+                id: `${node.id}-annotated`,
+                name: `${node.title || node.id}-annotated.png`,
+                type: "image/png",
+                dataUrl: payload.imageDataUrl,
+                width: node.metadata?.naturalWidth || node.width,
+                height: node.metadata?.naturalHeight || node.height,
+            };
+            const generationMetadata = buildImageGenerationMetadata("edit", generationConfig, 1, [annotatedSource]);
+            setRunningNodeId(childId);
+            setNodes((prev) => [
+                ...prev,
+                {
+                    id: childId,
+                    type: CanvasNodeType.Image,
+                    title: userPrompt.slice(0, 32) || "标注改图结果",
+                    position: { x: node.position.x + node.width + 96, y: node.position.y },
+                    width: node.width,
+                    height: node.height,
+                    metadata: { prompt, status: NODE_STATUS_LOADING, ...generationMetadata },
+                },
+            ]);
+            setConnections((prev) => [...prev, { id: nanoid(), fromNodeId: node.id, toNodeId: childId }]);
+            setSelectedNodeIds(new Set([childId]));
+            setSelectedConnectionId(null);
+            setDialogNodeId(childId);
+            const controller = startGenerationRequest(childId, node.id, childId);
+            try {
+                await startAndCompleteImageTask(childId, generationConfig, prompt, [annotatedSource], undefined, controller);
+            } catch (error) {
+                if (isGenerationCanceled(error)) return;
+                const errorDetails = error instanceof Error ? error.message : "标注改图失败";
+                const needsReview = isGenerationTaskNeedsReviewError(error);
+                if (needsReview) {
+                    setNodes((prev) => pauseCanvasGenerationReview(prev, [childId], errorDetails));
+                    return;
+                }
+                message.error(errorDetails);
+                setNodes((prev) =>
+                    prev.map((item) =>
+                        item.id === childId
+                            ? {
+                                  ...item,
+                                  metadata: { ...item.metadata, status: NODE_STATUS_ERROR, errorDetails, imageTask: undefined },
+                              }
+                            : item,
+                    ),
+                );
+            } finally {
+                finishGenerationRequest(childId, controller);
+                setRunningNodeId(null);
+            }
+        },
+        [effectiveConfig, finishGenerationRequest, isAiConfigReady, message, openConfigDialog, startAndCompleteImageTask, startGenerationRequest],
+    );
+
     const emotionEditImageNode = useCallback(
         async (node: CanvasNodeData, payload: CanvasEmotionPayload) => {
             if (!node.metadata?.content) return;
@@ -569,6 +637,7 @@ export function useCanvasNodeMediaActions({ state, tasks, interactions }: { stat
         splitImageLayers,
         removeBackgroundImageNode,
         maskEditImageNode,
+        annotateEditImageNode,
         emotionEditImageNode,
         upscaleImageNode,
         generateAngleNode,

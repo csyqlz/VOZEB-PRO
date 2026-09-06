@@ -26,6 +26,7 @@ type CanvasNodeHoverToolbarProps = {
     onDownload: (node: CanvasNodeData) => void;
     onSaveAsset: (node: CanvasNodeData) => void;
     onMaskEdit: (node: CanvasNodeData) => void;
+    onAnnotateEdit: (node: CanvasNodeData) => void;
     onCrop: (node: CanvasNodeData) => void;
     onSplit: (node: CanvasNodeData) => void;
     onSplitLayers: (node: CanvasNodeData) => void;
@@ -65,6 +66,7 @@ export function CanvasNodeHoverToolbar({
     onDownload,
     onSaveAsset,
     onMaskEdit,
+    onAnnotateEdit,
     onCrop,
     onSplit,
     onSplitLayers,
@@ -149,6 +151,7 @@ export function CanvasNodeHoverToolbar({
         onUpload,
         onToggleFreeResize,
         onMaskEdit,
+        onAnnotateEdit,
         onCrop,
         onSplit,
         onSplitLayers,
