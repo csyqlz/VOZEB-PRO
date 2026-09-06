@@ -216,10 +216,10 @@ function PriceEditor({ model, capability, settings, onChange }: { model: string;
     const binding = logical?.bindings.find((item) => item.enabled !== false) || logical?.bindings[0];
     const existing = binding?.capabilityProfile?.pricing;
     const legacyCost = binding?.capabilityProfile?.unitCost ?? 0;
-    const fallbackSale = settings.modelPointCosts[model] !== undefined ? Number(settings.modelPointCosts[model]) : legacyCost * 2;
+    const fallbackSale = settings.modelPointCosts[model] !== undefined ? Number(settings.modelPointCosts[model]) : legacyCost * 1.2;
     const isText = capability === "text";
     const cost = isText ? (existing?.inputCostPrice ?? binding?.capabilityProfile?.tokenPricing?.input ?? 0) : (existing?.costPrice ?? legacyCost);
-    const sale = isText ? (existing?.inputSalePrice ?? cost * 2) : (existing?.salePrice ?? fallbackSale);
+    const sale = isText ? (existing?.inputSalePrice ?? cost * 1.2) : (existing?.salePrice ?? fallbackSale);
     const billingUnit = effectiveBillingUnit(capability, existing?.billingUnit);
     const unit = isText ? "元 / 1M 输入 token" : billingUnit === "per_second" ? "元 / 秒" : "元 / 次";
     return (

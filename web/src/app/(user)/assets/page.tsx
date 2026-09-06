@@ -505,7 +505,7 @@ export default function AssetsPage() {
             <Modal title="删除素材" open={Boolean(deletingAsset)} onCancel={() => setDeletingAsset(null)} onOk={() => void confirmDelete()} confirmLoading={deleting} okText="删除" okButtonProps={{ danger: true }} cancelText="取消">
                 <div className="space-y-2 text-sm leading-6">
                     <p>确定删除「{deletingAsset?.title}」吗？</p>
-                    {deletingAsset?.kind === "text" ? <p className="text-muted-foreground">删除后仅会从我的素材中移除，文本内容无法恢复。</p> : <p className="text-rose-700 dark:text-rose-300">删除后会同时移除画布、短剧和已发布作品中的相关引用，并删除服务器文件，无法恢复。</p>}
+                    {deletingAsset?.kind === "text" ? <p className="text-muted-foreground">删除后仅会从我的素材中移除，文本内容无法恢复。</p> : <p className="text-muted-foreground">删除后仅从素材库移除；如果服务器文件没有其他引用，系统会一并清理，否则会保留给画布、短剧或作品继续使用。</p>}
                 </div>
             </Modal>
         </div>
