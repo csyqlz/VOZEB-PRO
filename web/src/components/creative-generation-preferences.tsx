@@ -87,6 +87,15 @@ type ResolutionOption = { value: string; label: string; shortLabel?: string };
 
 export function generationRatioOptions(capability: MediaCapability, profile?: CreativeModelCapabilityProfile): RatioOption[] {
     const defaults = capability === "image" ? imageRatios : videoRatios;
+    if (profile?.sizes?.length) {
+        const smart = defaults.find((option) => option.value === "auto")!;
+        const configured = profile.sizes.map((value) => {
+            const preset = defaults.find((option) => option.value.toLowerCase() === value.toLowerCase());
+            const dimensions = parseCustomDimensions(value);
+            return preset || { value, label: dimensions ? `${dimensions[0]}×${dimensions[1]}` : value, width: dimensions ? Math.min(26, Math.max(10, (Number(dimensions[0]) / Number(dimensions[1])) * 16)) : 18, height: dimensions ? Math.min(26, Math.max(10, (Number(dimensions[1]) / Number(dimensions[0])) * 16)) : 18 };
+        });
+        return [smart, ...configured.filter((option, index, options) => options.findIndex((item) => item.value.toLowerCase() === option.value.toLowerCase()) === index)];
+    }
     if (!profile?.aspectRatios?.length) return [...defaults];
     const configuredValues = profile.aspectRatios.filter((value) => value.trim().toLowerCase() !== "auto");
     const configured = configuredValues.map((value) => {
@@ -349,7 +358,7 @@ function PreferencePanel({
     const [customEditorOpen, setCustomEditorOpen] = useState(Boolean(parseCustomDimensions(selectedSize)) && !isPresetMediaSize(capability, selectedSize));
     const [section, setSection] = useState<"canvas" | "output">("canvas");
     const referenceLimit = capabilityProfile?.maxReferenceImages;
-    const referencesUnsupported = capability === "image" && referenceCount !== undefined && referenceCount > 0 && capabilityProfile?.supportsReferenceImage === false;
+    const referencesUnsupported = capability !== "audio" && referenceCount !== undefined && referenceCount > 0 && capabilityProfile?.supportsReferenceImage === false;
     const referencesExceeded = referenceCount !== undefined && referenceLimit !== undefined && referenceCount > referenceLimit;
 
     useEffect(() => {

@@ -13,7 +13,15 @@ export type CapabilityConstraintInput = {
 export function reconcileCapabilityConstraints(profile: LogicalModelCapabilityProfile | undefined, input: CapabilityConstraintInput): CapabilityConstraintInput {
     if (!profile) return input;
     const next = { ...input };
-    if (input.aspectRatio && input.aspectRatio !== "auto" && profile.aspectRatios?.length) {
+    if (input.aspectRatio && input.aspectRatio !== "auto" && profile.sizes?.length) {
+        const exact = profile.sizes.find((item) => normalizedText(item) === normalizedText(input.aspectRatio!));
+        if (exact) next.aspectRatio = exact;
+        else {
+            const requested = normalizedAspectRatio(input.aspectRatio);
+            next.aspectRatio = profile.sizes.find((item) => normalizedAspectRatio(item) === requested) || profile.sizes[0];
+        }
+    }
+    if (input.aspectRatio && input.aspectRatio !== "auto" && !profile.sizes?.length && profile.aspectRatios?.length) {
         const configured = profile.aspectRatios.filter((item) => normalizedAspectRatio(item) !== "auto");
         if (configured.length) {
             const requested = normalizedAspectRatio(input.aspectRatio);
@@ -30,6 +38,10 @@ export function reconcileCapabilityConstraints(profile: LogicalModelCapabilityPr
     return next;
 }
 
+function normalizedText(value: string) {
+    return value.trim().toLowerCase();
+}
+
 export function assertCapabilityConstraints(profile: LogicalModelCapabilityProfile | undefined, input: CapabilityConstraintInput) {
     if (!profile) return;
     if (input.referenceCount && profile.maxReferenceImages && input.referenceCount > profile.maxReferenceImages) throw new Error(`当前模型最多支持 ${profile.maxReferenceImages} 张参考图`);
@@ -38,7 +50,8 @@ export function assertCapabilityConstraints(profile: LogicalModelCapabilityProfi
     if (input.durationSeconds && profile.maxDurationSeconds && input.durationSeconds > profile.maxDurationSeconds) throw new Error(`当前模型最长视频时长为 ${profile.maxDurationSeconds} 秒`);
     if (input.durationSeconds && profile.durationSeconds?.length && !profile.durationSeconds.includes(input.durationSeconds)) throw new Error(`当前模型不支持 ${input.durationSeconds} 秒时长`);
     const aspectRatio = normalizedAspectRatio(input.aspectRatio);
-    if (aspectRatio && aspectRatio !== "auto" && profile.aspectRatios?.length && !profile.aspectRatios.some((item) => normalizedAspectRatio(item) === aspectRatio)) throw new Error(`当前模型不支持 ${input.aspectRatio} 比例`);
+    if (aspectRatio && aspectRatio !== "auto" && profile.sizes?.length && !profile.sizes.some((item) => normalizedText(item) === normalizedText(input.aspectRatio || ""))) throw new Error(`当前模型不支持 ${input.aspectRatio} 尺寸`);
+    if (aspectRatio && aspectRatio !== "auto" && !profile.sizes?.length && profile.aspectRatios?.length && !profile.aspectRatios.some((item) => normalizedAspectRatio(item) === aspectRatio)) throw new Error(`当前模型不支持 ${input.aspectRatio} 比例`);
     const resolution = normalizedResolution(input.resolution);
     if (resolution && resolution !== "auto" && profile.resolutions?.length && !profile.resolutions.some((item) => normalizedResolution(item) === resolution)) throw new Error(`当前模型不支持 ${input.resolution} 分辨率`);
 }

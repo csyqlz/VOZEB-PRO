@@ -298,6 +298,13 @@ function BindingEditor({ binding, capability, channels, onChange }: { binding: L
                 .map((item) => item.trim())
                 .filter(Boolean),
         });
+    const updateSizes = (value: string) =>
+        updateProfile({
+            sizes: value
+                .split(",")
+                .map((item) => item.trim())
+                .filter((item) => /^\d+x\d+$/i.test(item)),
+        });
     const updateDurations = (value: string) =>
         updateProfile({
             durationSeconds: value
@@ -370,6 +377,9 @@ function BindingEditor({ binding, capability, channels, onChange }: { binding: L
                     </LabeledControl>
                     <LabeledControl label="支持比例（逗号分隔）">
                         <Input value={profile.aspectRatios?.join(", ") || ""} placeholder="1:1, 16:9, 9:16" onChange={(event) => updateList(event.target.value)} />
+                    </LabeledControl>
+                    <LabeledControl label="精确像素尺寸（可选）">
+                        <Input value={profile.sizes?.join(", ") || ""} placeholder="1024x1024, 1536x1024" onChange={(event) => updateSizes(event.target.value)} />
                     </LabeledControl>
                     <LabeledControl label="支持画质/清晰度">
                         <Input value={profile.resolutions?.join(", ") || ""} placeholder={capability === "image" ? "high, 1K, 2K, 4K" : "480, 720, 1080"} onChange={(event) => updateResolutions(event.target.value)} />

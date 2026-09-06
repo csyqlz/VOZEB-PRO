@@ -159,6 +159,8 @@ export type LogicalModelCapabilityProfile = {
     supportsReferenceAudio?: boolean;
     maxReferenceImages?: number;
     aspectRatios?: string[];
+    /** Exact provider pixel presets, e.g. 1024x1024,1536x1024. */
+    sizes?: string[];
     resolutions?: string[];
     durationSeconds?: number[];
     minDurationSeconds?: number;

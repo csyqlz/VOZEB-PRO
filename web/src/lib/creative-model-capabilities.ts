@@ -2,7 +2,7 @@ import type { LogicalModelCapabilityProfile } from "@/lib/auth/store-types";
 import { isCreativeAutoValue, type CreativeGenerationPreferences } from "@/lib/creative-runtime-contract";
 
 export type CreativeMediaCapability = "image" | "video" | "audio";
-export type CreativeModelCapabilityProfile = Pick<LogicalModelCapabilityProfile, "aspectRatios" | "resolutions" | "durationSeconds" | "minDurationSeconds" | "maxDurationSeconds" | "maxBatchSize" | "supportsReferenceImage" | "maxReferenceImages">;
+export type CreativeModelCapabilityProfile = Pick<LogicalModelCapabilityProfile, "aspectRatios" | "sizes" | "resolutions" | "durationSeconds" | "minDurationSeconds" | "maxDurationSeconds" | "maxBatchSize" | "supportsReferenceImage" | "maxReferenceImages">;
 export type CreativeModelCapabilityOption = {
     id: string;
     name: string;
@@ -19,9 +19,10 @@ export function creativeModelProfileForLogicalModel(model: LogicalModelLike | un
     const profiles = (model?.bindings || []).filter((binding) => binding.enabled && binding.capabilityProfile).map((binding) => binding.capabilityProfile!);
     if (!profiles.length) return undefined;
     return compactProfile({
-        supportsReferenceImage: profiles.some((profile) => profile.supportsReferenceImage === true) ? true : undefined,
+        supportsReferenceImage: profiles.some((profile) => profile.supportsReferenceImage === true) ? true : profiles.every((profile) => profile.supportsReferenceImage === false) ? false : undefined,
         maxReferenceImages: maximum(profiles.map((profile) => profile.maxReferenceImages)),
         aspectRatios: unionTextLists(profiles.map((profile) => profile.aspectRatios)),
+        sizes: unionTextLists(profiles.map((profile) => profile.sizes)),
         resolutions: unionTextLists(profiles.map((profile) => profile.resolutions)),
         durationSeconds: unionNumberLists(profiles.map((profile) => profile.durationSeconds)),
         minDurationSeconds: minimum(profiles.map((profile) => profile.minDurationSeconds)),
@@ -38,6 +39,7 @@ export function creativeSelectedModelProfile(models: readonly CreativeModelCapab
         supportsReferenceImage: profiles.some((profile) => profile.supportsReferenceImage === false) ? false : profiles.every((profile) => profile.supportsReferenceImage === true) ? true : undefined,
         maxReferenceImages: minimum(profiles.map((profile) => profile.maxReferenceImages)),
         aspectRatios: intersectTextLists(profiles.map((profile) => profile.aspectRatios)),
+        sizes: intersectTextLists(profiles.map((profile) => profile.sizes)),
         resolutions: intersectTextLists(profiles.map((profile) => profile.resolutions)),
         durationSeconds: intersectNumberLists(profiles.map((profile) => profile.durationSeconds)),
         minDurationSeconds: maximum(profiles.map((profile) => profile.minDurationSeconds)),
@@ -65,14 +67,21 @@ export function reconcileCreativeGenerationPreferences(preferences: CreativeGene
 
 function reconcileMediaPreferences<T extends { size?: string; quality?: string; count?: number }>(value: T, profile: CreativeModelCapabilityProfile, minimumCount: number): T {
     let next = value;
-    const size = reconcileSizeValue(value.size, profile.aspectRatios);
+    const size = reconcileSizeValue(value.size, profile.aspectRatios, profile.sizes);
     const quality = reconcileTextValue(value.quality, profile.resolutions);
     const count = Math.max(minimumCount, Math.min(value.count || 1, profile.maxBatchSize || Number.POSITIVE_INFINITY));
     if (size !== value.size || quality !== value.quality || count !== value.count) next = { ...value, size, quality, count };
     return next;
 }
 
-function reconcileSizeValue(value: string | undefined, supported: string[] | undefined) {
+function reconcileSizeValue(value: string | undefined, supported: string[] | undefined, exactSizes: string[] | undefined) {
+    if (exactSizes?.length) {
+        if (!value || isCreativeAutoValue(value)) return value;
+        const exact = exactSizes.find((item) => normalizedText(item) === normalizedText(value));
+        if (exact) return exact;
+        const requestedRatio = normalizedAspectRatio(value);
+        return exactSizes.find((item) => normalizedAspectRatio(item) === requestedRatio) || exactSizes[0];
+    }
     if (!supported) return value;
     const dimensions = value?.match(/^(\d+)x(\d+)$/i);
     if (dimensions) {
@@ -81,6 +90,15 @@ function reconcileSizeValue(value: string | undefined, supported: string[] | und
         if (supported.some((item) => normalizedText(item) === normalizedText(ratio))) return value;
     }
     return reconcileTextValue(value, supported);
+}
+
+function normalizedAspectRatio(value: string) {
+    const dimensions = value.trim().match(/^(\d+)x(\d+)$/i);
+    const ratio = dimensions ? `${dimensions[1]}:${dimensions[2]}` : value.trim();
+    const parts = ratio.split(":").map(Number);
+    if (parts.length !== 2 || !parts.every((part) => Number.isFinite(part) && part > 0)) return ratio.toLowerCase();
+    const divisor = greatestCommonDivisor(parts[0], parts[1]);
+    return `${parts[0] / divisor}:${parts[1] / divisor}`;
 }
 
 function reconcileVideoPreferences<T extends { size?: string; quality?: string; count?: number; seconds?: number }>(value: T, profile: CreativeModelCapabilityProfile, minimumCount: number): T {

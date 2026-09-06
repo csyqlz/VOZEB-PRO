@@ -21,4 +21,11 @@ describe("capability constraints", () => {
         expect(reconcileCapabilityConstraints(profile, { capability: "image", aspectRatio: "16:9", resolution: "2k" })).toMatchObject({ aspectRatio: "1024x1024", resolution: "2k" });
         expect(reconcileCapabilityConstraints(profile, { capability: "image", aspectRatio: "9:16", resolution: "2k" })).toMatchObject({ aspectRatio: "9:16", resolution: "2k" });
     });
+
+    it("prefers exact pixel presets when a provider declares them", () => {
+        const profile = { sizes: ["1024x1024", "1536x1024"] };
+        expect(reconcileCapabilityConstraints(profile, { capability: "image", aspectRatio: "3072x2048" }).aspectRatio).toBe("1536x1024");
+        expect(() => assertCapabilityConstraints(profile, { capability: "image", aspectRatio: "1536x1024" })).not.toThrow();
+        expect(() => assertCapabilityConstraints(profile, { capability: "image", aspectRatio: "2048x2048" })).toThrow("不支持");
+    });
 });

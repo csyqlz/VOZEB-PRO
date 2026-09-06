@@ -195,6 +195,7 @@ function publicCapabilityProfile(profile: AuthSettings["logicalModels"][number][
     if (!profile) return undefined;
     const result = {
         aspectRatios: profile.aspectRatios?.slice(),
+        sizes: profile.sizes?.slice(),
         resolutions: profile.resolutions?.slice(),
         durationSeconds: profile.durationSeconds?.slice(),
         minDurationSeconds: profile.minDurationSeconds,
