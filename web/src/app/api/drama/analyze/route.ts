@@ -208,7 +208,7 @@ async function requestFunctionCall(
         streamFallback: true,
         signal,
         // 每个候选用独立预算：挂起的上游在预算内被切断，尽快切换到下一候选模型。
-        overallDeadlineMs: 90_000,
+        overallDeadlineMs: 120_000,
         validateArguments: (argumentsText) => validateArguments(normalizeArguments(argumentsText)),
         onInvalidResponse: (responseHeaders) => refund(userId, billingModel, responseHeaders),
     });
