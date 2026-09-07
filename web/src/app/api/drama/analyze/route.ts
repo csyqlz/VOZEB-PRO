@@ -168,7 +168,10 @@ function isAdaptiveVisualBatchError(error: unknown) {
 const DRAMA_MODEL_QUALITY_ERRORS = new Set(["模型返回的剧本对白或原文不完整", "模型分段合并后的剧本结构不完整", "模型没有返回结构化剧本结果"]);
 
 function shouldTryAnotherTextCandidate(error: unknown) {
-    if (isStructuredTextFailure(error)) return false;
+    if (isStructuredTextFailure(error)) {
+        // 200 + 非 JSON 响应体通常是过载网关的包裹错误，而不是模型不会写 schema；换候选模型仍然可能成功。
+        return error.failureCode === "invalid-response-json";
+    }
     // 语义完整性失败是模型质量问题，换一个候选模型往往可以直接产出完整结构。
     if (error instanceof Error && DRAMA_MODEL_QUALITY_ERRORS.has(error.message)) return true;
     const status = error && typeof error === "object" && "status" in error ? Number(error.status) : 0;
@@ -204,6 +207,8 @@ async function requestFunctionCall(
         stream: true,
         streamFallback: true,
         signal,
+        // 每个候选用独立预算：挂起的上游在预算内被切断，尽快切换到下一候选模型。
+        overallDeadlineMs: 90_000,
         validateArguments: (argumentsText) => validateArguments(normalizeArguments(argumentsText)),
         onInvalidResponse: (responseHeaders) => refund(userId, billingModel, responseHeaders),
     });

@@ -40,6 +40,8 @@ export type StructuredTextRequest = {
     headers?: HeadersInit;
     /** Extra whole-sequence retries after every protocol variant fails with a transient error. 0 disables. */
     retryRounds?: number;
+    /** Hard wall-clock budget for the whole structured call, including in-flight fetches. */
+    overallDeadlineMs?: number;
     fallbackHeaders?: HeadersInit;
     signal?: AbortSignal;
     allowNaturalLanguage?: boolean;
@@ -104,18 +106,21 @@ export function preferredTextPlanningProtocol(candidate: TextPlanningCandidate):
 export async function requestStructuredText(input: StructuredTextRequest): Promise<TextPlanningCall> {
     const messages = planningMessages(input);
     const maxRound = Math.max(0, input.retryRounds ?? DEFAULT_STRUCTURED_RETRY_ROUNDS);
-    const deadline = Date.now() + STRUCTURED_RETRY_TIME_BUDGET_MS;
+    // 显式 overallDeadlineMs 才有硬截止（含在途请求）；默认只做轮次间的时间预算门控，
+    // 不限制首轮耗时，避免误伤健康的慢生成。
+    const hardDeadlineAt = input.overallDeadlineMs ? Date.now() + Math.max(1_000, input.overallDeadlineMs) : 0;
+    const gateAt = hardDeadlineAt || Date.now() + STRUCTURED_RETRY_TIME_BUDGET_MS;
     let lastError: unknown;
     for (let round = 0; round <= maxRound; round += 1) {
         if (round > 0) {
             if (input.signal?.aborted) break;
-            if (Date.now() >= deadline) break;
+            if (Date.now() >= gateAt) break;
             await delay(STRUCTURED_RETRY_DELAYS_MS[Math.min(round - 1, STRUCTURED_RETRY_DELAYS_MS.length - 1)]);
             if (input.signal?.aborted) break;
-            if (Date.now() >= deadline) break;
+            if (Date.now() >= gateAt) break;
         }
         try {
-            return await requestStructuredTextOnce(input, messages, round);
+            return await requestStructuredTextOnce(input, messages, round, hardDeadlineAt);
         } catch (error) {
             lastError = error;
             if (!shouldRetryStructuredRound(error)) break;
@@ -125,18 +130,18 @@ export async function requestStructuredText(input: StructuredTextRequest): Promi
     throw lastError;
 }
 
-async function requestStructuredTextOnce(input: StructuredTextRequest, messages: Array<{ role: string; content: string }>, round: number): Promise<TextPlanningCall> {
+async function requestStructuredTextOnce(input: StructuredTextRequest, messages: Array<{ role: string; content: string }>, round: number, hardDeadlineAt = 0): Promise<TextPlanningCall> {
     const startedAt = Date.now();
     const requests = planningProtocolRequests(input, messages);
     try {
         for (const [index, request] of requests.entries()) {
             try {
-                const response = await requestTextProtocol(input, request, round);
+                const response = await requestTextProtocol(input, request, round, hardDeadlineAt);
                 if (request.stream) await input.onStreamStart?.();
                 return await readStructuredResponse(input, request, response, startedAt);
             } catch (error) {
                 if (input.stream && input.streamFallback !== false && index === 0 && shouldFallbackFromStream(error)) {
-                    const fallback = await requestStructuredText({ ...input, stream: false, streamFallback: false, retryRounds: 0 });
+                    const fallback = await requestStructuredText({ ...input, stream: false, streamFallback: false, retryRounds: 0, overallDeadlineMs: hardDeadlineAt ? Math.max(1_000, hardDeadlineAt - Date.now()) : undefined });
                     return { ...fallback, fallbackReason: error instanceof Error ? error.message : "上游不支持流式规划" };
                 }
                 if (index === requests.length - 1 || (!shouldFallbackFromNativeTool(error, request) && !shouldRepairStructuredResponse(error, request))) throw error;
@@ -293,13 +298,15 @@ function parsePromptJsonValue(value: string) {
     }
 }
 
-async function requestTextProtocol(input: StructuredTextRequest, request: ProtocolRequest, round = 0) {
+async function requestTextProtocol(input: StructuredTextRequest, request: ProtocolRequest, round = 0, hardDeadlineAt = 0) {
     const base = `${input.origin}/api/ai/system/${encodeURIComponent(input.candidate.channelId)}`;
     const headers = request.variant === "repair" ? repairRequestHeaders(input) : new Headers(request.variant !== "tool" && input.fallbackHeaders ? input.fallbackHeaders : input.headers);
     headers.set("content-type", "application/json");
     if (input.cookie) headers.set("cookie", input.cookie);
     scopeProtocolIdempotency(headers, request.protocol, request.variant, request.stream, round);
-    const timeoutSignal = AbortSignal.timeout(resolveModelRequestTimeoutMs(input.candidate, "text"));
+    // 显式截止时间同样约束在途请求：挂起的上游不能把整个结构化调用拖过预算。
+    const timeoutMs = hardDeadlineAt ? Math.max(1, Math.min(resolveModelRequestTimeoutMs(input.candidate, "text"), hardDeadlineAt - Date.now())) : resolveModelRequestTimeoutMs(input.candidate, "text");
+    const timeoutSignal = AbortSignal.timeout(timeoutMs);
     const signal = input.signal ? AbortSignal.any([input.signal, timeoutSignal]) : timeoutSignal;
     try {
         return await fetchInternalApi(`${base}${normalizePath(request.path)}`, { method: "POST", headers, body: JSON.stringify(request.body), cache: "no-store", signal });
