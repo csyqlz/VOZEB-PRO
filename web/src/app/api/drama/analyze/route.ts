@@ -165,7 +165,7 @@ function isAdaptiveVisualBatchError(error: unknown) {
     return status === 413 || isStructuredTextFailure(error) || message === "模型没有返回所需的结构化结果" || message === "模型没有返回结构化剧本结果";
 }
 
-const DRAMA_MODEL_QUALITY_ERRORS = new Set(["模型返回的剧本对白或原文不完整", "模型分段合并后的剧本结构不完整", "模型没有返回结构化剧本结果"]);
+const DRAMA_MODEL_QUALITY_ERRORS = new Set(["模型返回的剧本对白或原文不完整", "模型返回的剧本原文不完整", "模型分段合并后的剧本结构不完整", "模型没有返回结构化剧本结果", "模型没有返回所需的结构化结果"]);
 
 function shouldTryAnotherTextCandidate(error: unknown) {
     if (isStructuredTextFailure(error)) {
