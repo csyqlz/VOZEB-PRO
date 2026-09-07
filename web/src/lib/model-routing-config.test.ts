@@ -74,6 +74,46 @@ describe("model routing config", () => {
         expect(models.find((model) => model.id === "stable-video-diffusion")?.capability).toBe("video");
     });
 
+    it("keeps cross-model failover bindings while the channel still lists the upstream", () => {
+        const channels = [channel("openai-relay", ["gpt-terra"]), channel("domestic-relay", ["glm-flagship"])];
+        const models: LogicalModel[] = [
+            {
+                id: "gpt-terra",
+                name: "gpt-terra",
+                capability: "text",
+                enabled: true,
+                bindings: [
+                    { id: "primary", channelId: "openai-relay", upstreamModel: "gpt-terra", enabled: true, priority: 1 },
+                    { id: "failover", channelId: "domestic-relay", upstreamModel: "glm-flagship", enabled: true, priority: 2 },
+                ],
+            },
+        ];
+
+        const normalized = normalizeLogicalModelsConfig(models, channels);
+        const terra = normalized.find((model) => model.id === "gpt-terra");
+
+        expect(terra?.bindings.map((binding) => `${binding.channelId}/${binding.upstreamModel}:${binding.priority}`)).toEqual(["openai-relay/gpt-terra:1", "domestic-relay/glm-flagship:2"]);
+        expect(normalized.find((model) => model.id === "glm-flagship")).toBeTruthy();
+    });
+
+    it("drops cross-model bindings whose channel no longer lists the upstream", () => {
+        const channels = [channel("openai-relay", ["gpt-terra"]), channel("domestic-relay", ["glm-other"])];
+        const models: LogicalModel[] = [
+            {
+                id: "gpt-terra",
+                name: "gpt-terra",
+                capability: "text",
+                enabled: true,
+                bindings: [
+                    { id: "primary", channelId: "openai-relay", upstreamModel: "gpt-terra", enabled: true, priority: 1 },
+                    { id: "stale", channelId: "domestic-relay", upstreamModel: "glm-gone", enabled: true, priority: 2 },
+                ],
+            },
+        ];
+
+        expect(normalizeLogicalModelsConfig(models, channels).find((model) => model.id === "gpt-terra")?.bindings).toHaveLength(1);
+    });
+
     it("repairs stale health detection for Nano Banana image models", () => {
         const source = channel("sub2api", ["gemini-3.1-flash-image-preview", "nano-banana-2"]);
         source.advancedConfig = {

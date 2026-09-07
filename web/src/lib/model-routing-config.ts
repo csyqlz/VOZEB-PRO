@@ -53,22 +53,42 @@ export function synchronizeLogicalModelsWithChannels(existingModels: LogicalMode
         if (existing) usedExistingIds.add(existing.id.toLowerCase());
         const id = uniqueLogicalModelId(existing?.id || catalogModel.upstreamModel, usedModelIds);
         const capability = catalogModel.authoritative || !existing ? catalogModel.capability : normalizeCapability(existing.capability);
-        const bindings = catalogModel.bindings
-            .map(({ channel, channelIndex, upstreamModel }) => {
-                const stored = findStoredBinding(existingModels, channel.id, upstreamModel);
-                const capabilityProfile = normalizeStoredCapabilityProfile(stored?.capabilityProfile, capability);
-                const weight = clampWeight(stored?.weight);
+        const catalogBindings = catalogModel.bindings.map(({ channel, channelIndex, upstreamModel }) => {
+            const stored = findStoredBinding(existingModels, channel.id, upstreamModel);
+            const capabilityProfile = normalizeStoredCapabilityProfile(stored?.capabilityProfile, capability);
+            const weight = clampWeight(stored?.weight);
+            return {
+                id: text(stored?.id, 120) || `${channel.id}:${rawModelName(upstreamModel)}`,
+                channelId: channel.id,
+                upstreamModel,
+                enabled: stored?.enabled !== false,
+                priority: clampPriority(stored?.priority, channelIndex + 1),
+                ...(weight !== undefined ? { weight } : {}),
+                ...(capabilityProfile ? { capabilityProfile } : {}),
+            };
+        });
+        // 目录按上游模型名重建绑定，会丢掉"同一逻辑模型换一个上游模型"的跨模型故障切换绑定
+        // （例如 gpt-5.6-terra 在国产渠道切到 glm-5.3）。只要渠道仍启用并声明了该上游模型，
+        // 就保留存量绑定，让候选切换可以跨模型降级。
+        const storedBindings = Array.isArray(existing?.bindings) ? existing.bindings : [];
+        const failoverBindings = storedBindings
+            .filter((stored) => !catalogBindings.some((binding) => binding.channelId === stored.channelId && normalizeModelId(binding.upstreamModel) === normalizeModelId(stored.upstreamModel)))
+            .filter((stored) => channels.some((item) => item.id === stored.channelId && item.enabled && channelConnectionReady(item) && channelSupportsModel(item, stored.upstreamModel)))
+            .map((stored) => {
+                const channelIndex = channels.findIndex((item) => item.id === stored.channelId);
+                const capabilityProfile = normalizeStoredCapabilityProfile(stored.capabilityProfile, capability);
+                const weight = clampWeight(stored.weight);
                 return {
-                    id: text(stored?.id, 120) || `${channel.id}:${rawModelName(upstreamModel)}`,
-                    channelId: channel.id,
-                    upstreamModel,
-                    enabled: stored?.enabled !== false,
-                    priority: clampPriority(stored?.priority, channelIndex + 1),
+                    id: text(stored.id, 120) || `${stored.channelId}:${rawModelName(stored.upstreamModel)}`,
+                    channelId: stored.channelId,
+                    upstreamModel: stored.upstreamModel,
+                    enabled: stored.enabled !== false,
+                    priority: clampPriority(stored.priority, channelIndex + 1),
                     ...(weight !== undefined ? { weight } : {}),
                     ...(capabilityProfile ? { capabilityProfile } : {}),
                 };
-            })
-            .sort((left, right) => left.priority - right.priority || left.id.localeCompare(right.id));
+            });
+        const bindings = [...catalogBindings, ...failoverBindings].sort((left, right) => left.priority - right.priority || left.id.localeCompare(right.id));
         return {
             id,
             name: text(existing?.name, 120) || catalogModel.upstreamModel,
