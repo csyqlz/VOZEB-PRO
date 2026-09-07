@@ -127,6 +127,10 @@ export async function POST(request: Request) {
             } catch (error) {
                 latestError = error;
                 if (!shouldTryAnotherTextCandidate(error)) break;
+                console.warn(
+                    "[drama-analyze] switching text candidate",
+                    JSON.stringify({ requestId, failedChannel: candidate.channelId, failedModel: candidate.upstreamModel, reason: error instanceof Error ? error.message : String(error) }),
+                );
             }
         }
         throw latestError instanceof Error ? latestError : new Error("没有可用的文本模型渠道");
@@ -161,8 +165,12 @@ function isAdaptiveVisualBatchError(error: unknown) {
     return status === 413 || isStructuredTextFailure(error) || message === "模型没有返回所需的结构化结果" || message === "模型没有返回结构化剧本结果";
 }
 
+const DRAMA_MODEL_QUALITY_ERRORS = new Set(["模型返回的剧本对白或原文不完整", "模型分段合并后的剧本结构不完整", "模型没有返回结构化剧本结果"]);
+
 function shouldTryAnotherTextCandidate(error: unknown) {
     if (isStructuredTextFailure(error)) return false;
+    // 语义完整性失败是模型质量问题，换一个候选模型往往可以直接产出完整结构。
+    if (error instanceof Error && DRAMA_MODEL_QUALITY_ERRORS.has(error.message)) return true;
     const status = error && typeof error === "object" && "status" in error ? Number(error.status) : 0;
     return status >= 500 || status === 408 || status === 429;
 }
