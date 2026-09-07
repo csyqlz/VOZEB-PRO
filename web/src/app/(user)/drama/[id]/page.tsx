@@ -120,7 +120,7 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
             setStage("review");
             message.success(`已提取 ${payload.data.characters.length} 个角色、${payload.data.scenes.length} 个场景和 ${payload.data.shots.length} 个待审核镜头`);
         } catch (error) {
-            message.error(error instanceof Error ? error.message : "AI 剧本解析失败");
+            message.error({ content: `剧本分析失败：${error instanceof Error ? error.message : "AI 剧本解析失败"}。上游模型可能繁忙，请稍后重试。`, duration: 8 });
         } finally {
             setAnalyzing(false);
         }
@@ -161,7 +161,7 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
             setStage("storyboard");
             message.success("已按审核内容生成视觉方案");
         } catch (error) {
-            message.error(error instanceof Error ? error.message : "AI 视觉方案生成失败");
+            message.error({ content: `视觉方案生成失败：${error instanceof Error ? error.message : "AI 视觉方案生成失败"}。上游模型可能繁忙，请稍后重试。`, duration: 8 });
         } finally {
             setDesigning(false);
         }

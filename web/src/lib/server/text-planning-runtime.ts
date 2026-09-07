@@ -68,6 +68,9 @@ const TEXT_RESULT_KEYS = ["output_text", "text", "content", "response", "result"
 // replay the whole protocol-variant sequence with backoff before surfacing the failure.
 const DEFAULT_STRUCTURED_RETRY_ROUNDS = 2;
 const STRUCTURED_RETRY_DELAYS_MS = [900, 1800];
+// Cap the extra waiting added by retry rounds so an overloaded upstream fails fast
+// instead of keeping the user's request spinning for minutes.
+const STRUCTURED_RETRY_TIME_BUDGET_MS = 60_000;
 const states = new Map<string, RuntimeState>();
 
 export class TextPlanningRequestError extends Error {
@@ -101,12 +104,15 @@ export function preferredTextPlanningProtocol(candidate: TextPlanningCandidate):
 export async function requestStructuredText(input: StructuredTextRequest): Promise<TextPlanningCall> {
     const messages = planningMessages(input);
     const maxRound = Math.max(0, input.retryRounds ?? DEFAULT_STRUCTURED_RETRY_ROUNDS);
+    const deadline = Date.now() + STRUCTURED_RETRY_TIME_BUDGET_MS;
     let lastError: unknown;
     for (let round = 0; round <= maxRound; round += 1) {
         if (round > 0) {
             if (input.signal?.aborted) break;
+            if (Date.now() >= deadline) break;
             await delay(STRUCTURED_RETRY_DELAYS_MS[Math.min(round - 1, STRUCTURED_RETRY_DELAYS_MS.length - 1)]);
             if (input.signal?.aborted) break;
+            if (Date.now() >= deadline) break;
         }
         try {
             return await requestStructuredTextOnce(input, messages, round);

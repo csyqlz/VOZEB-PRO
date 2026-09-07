@@ -526,6 +526,20 @@ describe("text planning structured retry", () => {
         await expect(requestStructuredText(requestInput(candidate("newapi")))).rejects.toThrow("暂时无法连接");
         expect(mockedFetch).toHaveBeenCalledTimes(1);
     });
+
+    it("慢失败超过时间预算后停止整轮重试", async () => {
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+        mockedFetch.mockImplementation(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 35_000));
+            return new Response("not-json", { status: 200, headers: { "content-type": "text/plain" } });
+        });
+
+        const pending = requestStructuredText(requestInput(candidate("newapi")));
+        const assertion = expect(pending).rejects.toMatchObject({ failureCode: "invalid-response-json" });
+        await vi.advanceTimersByTimeAsync(200_000);
+        await assertion;
+        expect(mockedFetch).toHaveBeenCalledTimes(2);
+    });
 });
 
 function requestInput(configured: TextPlanningCandidate) {
