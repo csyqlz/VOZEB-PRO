@@ -84,7 +84,7 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
     const [versions, setVersions] = useState<DramaProjectVersion[]>([]);
     const [versionsLoading, setVersionsLoading] = useState(false);
     const [expandedStoryboardShotId, setExpandedStoryboardShotId] = useState("");
-    const [organizeModel, setOrganizeModel] = useState("");
+    const [organizeModel, setOrganizeModel] = useState(() => (typeof window === "undefined" ? "" : window.localStorage.getItem("vozeb-pro:drama-organize-model") || ""));
     const [analyzeError, setAnalyzeError] = useState("");
     const [designError, setDesignError] = useState("");
     const analyzeElapsedMs = useElapsedTimer(analyzing);
@@ -94,6 +94,12 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
     const { isWaiting: isCapacityWaiting, schedule: scheduleCapacityRetry } = useGenerationCapacityRetry();
     const audioReady = Boolean(config.audioModel.trim());
     const organizeModels = creativeAgentModelsFromConfig(config, ["text"]);
+    const persistOrganizeModel = (model: string) => {
+        setOrganizeModel(model);
+        try {
+            window.localStorage.setItem("vozeb-pro:drama-organize-model", model);
+        } catch {}
+    };
     const changeStage = (nextStage: DramaProjectStage) => {
         setStage(nextStage);
         setAssetsOpen(false);
@@ -442,13 +448,13 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
                                     onSelectedShotChange={setSelectedShotId}
                                     organizeModels={organizeModels}
                                     organizeModel={organizeModel}
-                                    onOrganizeModelChange={setOrganizeModel}
+                                    onOrganizeModelChange={persistOrganizeModel}
                                     analyzeElapsedMs={analyzeElapsedMs}
                                     analyzeError={analyzeError}
                                 />
                             ) : null}
 
-                            {!assetsOpen && stage === "review" ? <DramaReviewPanel project={project} episode={episode} designing={designing} onDesignVisuals={() => void designVisuals()} onStageChange={changeStage} onAnalyze={() => void analyzeScript()} analyzing={analyzing} analyzeElapsedMs={analyzeElapsedMs} analyzeError={analyzeError} organizeModels={organizeModels} organizeModel={organizeModel} onOrganizeModelChange={setOrganizeModel} designElapsedMs={designElapsedMs} designError={designError} /> : null}
+                            {!assetsOpen && stage === "review" ? <DramaReviewPanel project={project} episode={episode} designing={designing} onDesignVisuals={() => void designVisuals()} onStageChange={changeStage} onAnalyze={() => void analyzeScript()} analyzing={analyzing} analyzeElapsedMs={analyzeElapsedMs} analyzeError={analyzeError} organizeModels={organizeModels} organizeModel={organizeModel} onOrganizeModelChange={persistOrganizeModel} designElapsedMs={designElapsedMs} designError={designError} /> : null}
 
                             {!assetsOpen && stage === "storyboard" ? (
                                 <div>

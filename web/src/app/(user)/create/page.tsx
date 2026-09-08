@@ -746,6 +746,7 @@ export default function CreatePage() {
                                         。
                                     </div>
                                 ) : null}
+                                <CreateOnboardingGuide />
                                 <div ref={composerHostRef} data-testid="creative-composer-dock" data-compact="false" className="mt-5 w-full sm:mt-8">
                                     {composer}
                                 </div>
@@ -852,6 +853,45 @@ function skillVisual(skill: AgentSkillSummary, index: number) {
     if (skill.id === "image-motion") return SKILL_VISUALS[2];
     if (skill.id === "drama-planning") return SKILL_VISUALS[3];
     return { ...SKILL_VISUALS[index % SKILL_VISUALS.length], icon: Sparkles };
+}
+
+function CreateOnboardingGuide() {
+    const [dismissed, setDismissed] = useState(true);
+    useEffect(() => {
+        try {
+            setDismissed(window.localStorage.getItem("vozeb-pro:create-guide-dismissed") === "1");
+        } catch {}
+    }, []);
+    if (dismissed) return null;
+    const close = () => {
+        setDismissed(true);
+        try {
+            window.localStorage.setItem("vozeb-pro:create-guide-dismissed", "1");
+        } catch {}
+    };
+    const steps = [
+        { title: "1 · 选创作能力", body: "在下方选择图片、视频或文字创作，也可以让 Skill 帮你自动规划。" },
+        { title: "2 · 描述你的想法", body: "用一句话描述画面或剧情，可上传参考图、圈选局部重绘或引用多张图。" },
+        { title: "3 · 选模型生成", body: "自选文本/图片/视频模型提交生成；短剧创作在“短剧”页从导入小说开始。" },
+    ];
+    return (
+        <div className="mt-4 w-full rounded-xl border border-violet-200/70 bg-violet-50/50 p-4 dark:border-violet-500/25 dark:bg-violet-950/20" data-create-onboarding>
+            <div className="flex items-center justify-between gap-3">
+                <h2 className="text-sm font-semibold">三步开始创作</h2>
+                <button type="button" className="text-xs text-muted-foreground hover:text-foreground" onClick={close}>
+                    不再显示
+                </button>
+            </div>
+            <div className="mt-2.5 grid gap-2 sm:grid-cols-3">
+                {steps.map((step) => (
+                    <div key={step.title} className="rounded-lg border border-border/70 bg-background/70 p-2.5">
+                        <div className="text-xs font-semibold text-violet-700 dark:text-violet-300">{step.title}</div>
+                        <p className="mt-1 text-xs leading-5 text-muted-foreground">{step.body}</p>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
 }
 
 type FrameRole = Extract<VideoReferenceRole, "first_frame" | "last_frame">;

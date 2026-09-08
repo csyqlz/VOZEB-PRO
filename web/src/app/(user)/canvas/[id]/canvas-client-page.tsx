@@ -259,6 +259,7 @@ function VozebProCanvasPage() {
         maskEditImageNode,
         annotateEditImageNode,
         directorStudioImageNode,
+        gridStoryboardImageNode,
         emotionEditImageNode,
         upscaleImageNode,
         generateAngleNode,
@@ -521,6 +522,7 @@ function VozebProCanvasPage() {
                     onMaskEdit={(node) => setMaskEditNodeId(node.id)}
                     onAnnotateEdit={(node) => setAnnotateEditNodeId(node.id)}
                     onDirectorStudio={(node) => setDirectorNodeId(node.id)}
+                    onGridStoryboard={(node) => void gridStoryboardImageNode(node)}
                     onCrop={(node) => setCropNodeId(node.id)}
                     onSplit={(node) => setSplitNodeId(node.id)}
                     onSplitLayers={(node) => void splitImageLayers(node).catch((error) => message.error(error instanceof Error ? error.message : "智能分层失败"))}

@@ -322,6 +322,79 @@ export function useCanvasNodeMediaActions({ state, tasks, interactions }: { stat
         [appendDerivedImageNode],
     );
 
+    const gridStoryboardImageNode = useCallback(
+        async (node: CanvasNodeData) => {
+            if (!node.metadata?.content) return;
+            const generationConfig = { ...buildGenerationConfig(effectiveConfig, node, "image"), count: "1", size: "1:1" };
+            if (!isAiConfigReady(generationConfig, generationConfig.model)) {
+                openConfigDialog(true);
+                return;
+            }
+            const prompt = "基于参考图主体，生成一张 2×2 四格分镜网格图：四个格子分别呈现同一主体的远景全景、中景动作、近景表情与特写细节，保持人物或产品的外观、服装、色彩与风格与参考图完全一致；格与格之间用细白线分隔，每格都是独立完整的画面，不要出现文字。";
+            const childId = nanoid();
+            const source = canvasNodeReferenceImage(node);
+            const generationMetadata = buildImageGenerationMetadata("edit", generationConfig, 1, [source]);
+            setRunningNodeId(childId);
+            setNodes((prev) => [
+                ...prev,
+                {
+                    id: childId,
+                    type: CanvasNodeType.Image,
+                    title: "四格分镜网格",
+                    position: { x: node.position.x + node.width + 96, y: node.position.y },
+                    width: node.width,
+                    height: node.width,
+                    metadata: { prompt, status: NODE_STATUS_LOADING, ...generationMetadata },
+                },
+            ]);
+            setConnections((prev) => [...prev, { id: nanoid(), fromNodeId: node.id, toNodeId: childId }]);
+            setSelectedNodeIds(new Set([childId]));
+            setSelectedConnectionId(null);
+            setDialogNodeId(childId);
+            const controller = startGenerationRequest(childId, node.id, childId);
+            try {
+                const uploaded = await startAndCompleteImageTask(childId, generationConfig, prompt, [source], undefined, controller);
+                const gridImage = uploaded[0];
+                if (!gridImage) throw new Error("四格分镜生成失败");
+                const pieces = await splitDataUrl(gridImage.serverUrl || gridImage.url, { rows: 2, columns: 2 });
+                const cellWidth = Math.max(220, node.width / 2);
+                const cellHeight = cellWidth;
+                const uploads = await Promise.allSettled(pieces.map((piece) => uploadCanvasImage(piece.dataUrl)));
+                const splitNodes = uploads
+                  .map((result, index) => (result.status === "fulfilled" ? { result: result.value, index } : null))
+                  .filter((item): item is { result: Awaited<ReturnType<typeof uploadCanvasImage>>; index: number } => Boolean(item))
+                  .map(({ result, index }) => ({
+                    id: nanoid(),
+                    type: CanvasNodeType.Image,
+                    title: `分镜 ${pieces[index].row + 1}-${pieces[index].column + 1}`,
+                    position: { x: node.position.x + node.width + 96 + node.width + 64, y: node.position.y + pieces[index].row * (cellHeight + 16) },
+                    width: cellWidth,
+                    height: cellHeight,
+                    metadata: { content: result.serverUrl || result.url, storageKey: result.storageKey, status: NODE_STATUS_SUCCESS, naturalWidth: result.width, naturalHeight: result.height },
+                  }));
+                if (splitNodes.length) {
+                    setNodes((prev) => [...prev, ...splitNodes]);
+                    setConnections((prev) => [...prev, ...splitNodes.map((split) => ({ id: nanoid(), fromNodeId: childId, toNodeId: split.id }))]);
+                }
+                message.success(`已生成四格分镜并切分为 ${splitNodes.length} 张`);
+            } catch (error) {
+                if (isGenerationCanceled(error)) return;
+                const errorDetails = error instanceof Error ? error.message : "四格分镜失败";
+                const needsReview = isGenerationTaskNeedsReviewError(error);
+                if (needsReview) {
+                    setNodes((prev) => pauseCanvasGenerationReview(prev, [childId], errorDetails));
+                    return;
+                }
+                message.error(errorDetails);
+                setNodes((prev) => prev.map((item) => (item.id === childId ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_ERROR, errorDetails, imageTask: undefined } } : item)));
+            } finally {
+                finishGenerationRequest(childId, controller);
+                setRunningNodeId(null);
+            }
+        },
+        [effectiveConfig, finishGenerationRequest, isAiConfigReady, message, openConfigDialog, setSelectedConnectionId, setSelectedNodeIds, setConnections, setDialogNodeId, setNodes, setRunningNodeId, startAndCompleteImageTask, startGenerationRequest],
+    );
+
     const splitImageNode = useCallback(
         async (node: CanvasNodeData, params: CanvasImageSplitParams) => {
             if (!node.metadata?.content) return;
@@ -643,6 +716,7 @@ export function useCanvasNodeMediaActions({ state, tasks, interactions }: { stat
         createImageReversePromptNodes,
         appendDerivedImageNode,
         cropImageNode,
+        gridStoryboardImageNode,
         splitImageNode,
         splitImageLayers,
         removeBackgroundImageNode,

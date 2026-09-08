@@ -28,6 +28,7 @@ type CanvasNodeHoverToolbarProps = {
     onMaskEdit: (node: CanvasNodeData) => void;
     onAnnotateEdit: (node: CanvasNodeData) => void;
     onDirectorStudio: (node: CanvasNodeData) => void;
+    onGridStoryboard: (node: CanvasNodeData) => void;
     onCrop: (node: CanvasNodeData) => void;
     onSplit: (node: CanvasNodeData) => void;
     onSplitLayers: (node: CanvasNodeData) => void;
@@ -69,6 +70,7 @@ export function CanvasNodeHoverToolbar({
     onMaskEdit,
     onAnnotateEdit,
     onDirectorStudio,
+    onGridStoryboard,
     onCrop,
     onSplit,
     onSplitLayers,
@@ -155,6 +157,7 @@ export function CanvasNodeHoverToolbar({
         onMaskEdit,
         onAnnotateEdit,
         onDirectorStudio,
+        onGridStoryboard,
         onCrop,
         onSplit,
         onSplitLayers,
