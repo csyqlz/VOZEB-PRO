@@ -5,6 +5,7 @@ import { getAuthSettings } from "@/lib/auth/store";
 import { getPublicSiteSettings } from "@/lib/server/site-metadata";
 import { HomeActionsProvider } from "./home/home-actions";
 import { HomeAgentHero } from "./home/home-agent-hero";
+import { HomeWorkspaceSection } from "./home/home-workspace-section";
 import { resolveHomeAgentAvailability, resolveHomeCreationModes } from "./home/home-data";
 import { HomeCta, HomeFooter } from "./home/home-footer";
 import { HomeGallery } from "./home/home-gallery";
@@ -33,6 +34,7 @@ export default async function HomePage() {
             <main className={`app-scroll-page ${styles.root}`}>
                 <HomeHeader />
                 <HomeAgentHero availableCreationModes={availableCreationModes} agentAvailable={agentAvailable} />
+                <HomeWorkspaceSection />
                 <HomeTrustStrip />
                 <div className={styles.contentBand}>
                     <HomeStepsSection />
