@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { App, Button, Pagination, Segmented, Spin } from "antd";
-import { Download, Image as ImageIcon, Film, Save } from "lucide-react";
+import { Clock3, Download, Image as ImageIcon, Film, Save } from "lucide-react";
 import { saveAs } from "file-saver";
 
 import { mediaDownloadFileName } from "@/lib/media-file";
@@ -134,6 +134,11 @@ export function GeneratedAssetsSection({ onSaved }: { onSaved?: () => void }) {
                         { value: "video", label: "视频", icon: <Film className="size-3" /> },
                     ]}
                 />
+            </div>
+
+            <div className="mt-3 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-900 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-100" role="status">
+                <Clock3 className="mt-0.5 size-3.5 shrink-0" />
+                <p className="min-w-0">生成记录按平台规则默认保留 24 小时，过期后仅清理未保存且无引用的临时文件。重要内容请及时<span className="font-medium">下载到本地</span>或点击<span className="font-medium">「转存为素材」</span>长期保留，已下载或已转存的内容不受影响。</p>
             </div>
 
             {loading ? (
