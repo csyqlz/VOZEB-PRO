@@ -24,6 +24,7 @@ import { DramaStoryboardShotCard } from "./drama-storyboard-shot-card";
 import { DramaVersionModal } from "./drama-project-modals";
 import { dramaGenerationSize, estimateTaskPoints, referenceImage, shotReferenceImages, storyboardReferenceImages } from "./drama-shot-generation-utils";
 import { useGenerationCapacityRetry } from "./use-generation-capacity-retry";
+import { formatElapsed, useElapsedTimer } from "./use-elapsed-timer";
 import { DramaEpisodeSidebar, DramaScriptPanel, DramaWorkspaceHeader, type DramaProjectStage } from "./drama-project-sections";
 import { creativeAgentModelsFromConfig } from "@/hooks/use-creative-agent-options";
 
@@ -84,6 +85,10 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
     const [versionsLoading, setVersionsLoading] = useState(false);
     const [expandedStoryboardShotId, setExpandedStoryboardShotId] = useState("");
     const [organizeModel, setOrganizeModel] = useState("");
+    const [analyzeError, setAnalyzeError] = useState("");
+    const [designError, setDesignError] = useState("");
+    const analyzeElapsedMs = useElapsedTimer(analyzing);
+    const designElapsedMs = useElapsedTimer(designing);
     const { isWaiting: isCapacityWaiting, schedule: scheduleCapacityRetry } = useGenerationCapacityRetry();
     const audioReady = Boolean(config.audioModel.trim());
     const organizeModels = creativeAgentModelsFromConfig(config, ["text"]);
@@ -109,6 +114,7 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
     const analyzeScript = async () => {
         if (!episode.script.trim()) return message.warning("请先填写剧本内容");
         if (!organizeModel.trim()) return message.warning("请先选择 AI 整理使用的文本模型");
+        setAnalyzeError("");
         setAnalyzing(true);
         try {
             const response = await fetch("/api/drama/analyze", {
@@ -122,9 +128,11 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
             await createVersion(project, "AI 内容解析前");
             applyContentAnalysis(project.id, episode.id, payload.data);
             setStage("review");
-            message.success(`已提取 ${payload.data.characters.length} 个角色、${payload.data.scenes.length} 个场景和 ${payload.data.shots.length} 个待审核镜头`);
+            message.success(`已提取 ${payload.data.characters.length} 个角色、${payload.data.scenes.length} 个场景和 ${payload.data.shots.length} 个待审核镜头（耗时 ${formatElapsed(analyzeElapsedMs)}）`);
         } catch (error) {
-            message.error({ content: `剧本分析失败：${error instanceof Error ? error.message : "AI 剧本解析失败"}。上游模型可能繁忙，请稍后重试。`, duration: 8 });
+            const reason = error instanceof Error ? error.message : "AI 剧本解析失败";
+            setAnalyzeError(`${reason}（已用时 ${formatElapsed(analyzeElapsedMs)}）。上游模型可能繁忙，可稍后重试或换一个整理模型。`);
+            message.error({ content: `剧本分析失败（已用时 ${formatElapsed(analyzeElapsedMs)}）：${reason}`, duration: 8 });
         } finally {
             setAnalyzing(false);
         }
@@ -132,6 +140,7 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
     const designVisuals = async () => {
         if (!episode.shots.length) return message.warning("请先完成内容解析");
         updateEpisode(project.id, episode.id, { reviewStatus: "approved" });
+        setDesignError("");
         setDesigning(true);
         try {
             const response = await fetch("/api/drama/analyze", {
@@ -163,9 +172,11 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
             await createVersion(project, "视觉方案生成前");
             applyVisualAnalysis(project.id, episode.id, payload.data);
             setStage("storyboard");
-            message.success("已按审核内容生成视觉方案");
+            message.success(`已按审核内容生成视觉方案（耗时 ${formatElapsed(designElapsedMs)}）`);
         } catch (error) {
-            message.error({ content: `视觉方案生成失败：${error instanceof Error ? error.message : "AI 视觉方案生成失败"}。上游模型可能繁忙，请稍后重试。`, duration: 8 });
+            const reason = error instanceof Error ? error.message : "AI 视觉方案生成失败";
+            setDesignError(`${reason}（已用时 ${formatElapsed(designElapsedMs)}）。可稍后重试或换一个整理模型。`);
+            message.error({ content: `视觉方案生成失败（已用时 ${formatElapsed(designElapsedMs)}）：${reason}`, duration: 8 });
         } finally {
             setDesigning(false);
         }
@@ -422,10 +433,12 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
                                     organizeModels={organizeModels}
                                     organizeModel={organizeModel}
                                     onOrganizeModelChange={setOrganizeModel}
+                                    analyzeElapsedMs={analyzeElapsedMs}
+                                    analyzeError={analyzeError}
                                 />
                             ) : null}
 
-                            {!assetsOpen && stage === "review" ? <DramaReviewPanel project={project} episode={episode} designing={designing} onDesignVisuals={() => void designVisuals()} onStageChange={changeStage} onAnalyze={() => void analyzeScript()} analyzing={analyzing} organizeModels={organizeModels} organizeModel={organizeModel} onOrganizeModelChange={setOrganizeModel} /> : null}
+                            {!assetsOpen && stage === "review" ? <DramaReviewPanel project={project} episode={episode} designing={designing} onDesignVisuals={() => void designVisuals()} onStageChange={changeStage} onAnalyze={() => void analyzeScript()} analyzing={analyzing} analyzeElapsedMs={analyzeElapsedMs} analyzeError={analyzeError} organizeModels={organizeModels} organizeModel={organizeModel} onOrganizeModelChange={setOrganizeModel} designElapsedMs={designElapsedMs} designError={designError} /> : null}
 
                             {!assetsOpen && stage === "storyboard" ? (
                                 <div>

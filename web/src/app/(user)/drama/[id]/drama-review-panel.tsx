@@ -9,9 +9,10 @@ import type { DramaEpisode, DramaProject } from "@/lib/drama-project-contract";
 import { useDramaStore } from "../stores/use-drama-store";
 import { DramaStageHeader } from "./drama-editor-elements";
 import { DramaOrganizeControls, type DramaOrganizeModelOption, type DramaProjectStage } from "./drama-project-sections";
+import { DramaAiProgress } from "./drama-ai-progress";
 import { DramaShotDialogueEditor } from "./drama-shot-dialogue-editor";
 
-export function DramaReviewPanel({ project, episode, onDesignVisuals, designing, onStageChange, onAnalyze, analyzing = false, organizeModels = [], organizeModel = "", onOrganizeModelChange }: { project: DramaProject; episode: DramaEpisode; onDesignVisuals: () => void; designing: boolean; onStageChange: (stage: DramaProjectStage) => void; onAnalyze?: () => void; analyzing?: boolean; organizeModels?: DramaOrganizeModelOption[]; organizeModel?: string; onOrganizeModelChange?: (model: string) => void }) {
+export function DramaReviewPanel({ project, episode, onDesignVisuals, designing, onStageChange, onAnalyze, analyzing = false, analyzeElapsedMs = 0, analyzeError = "", organizeModels = [], organizeModel = "", onOrganizeModelChange, designElapsedMs = 0, designError = "" }: { project: DramaProject; episode: DramaEpisode; onDesignVisuals: () => void; designing: boolean; onStageChange: (stage: DramaProjectStage) => void; onAnalyze?: () => void; analyzing?: boolean; analyzeElapsedMs?: number; analyzeError?: string; organizeModels?: DramaOrganizeModelOption[]; organizeModel?: string; onOrganizeModelChange?: (model: string) => void; designElapsedMs?: number; designError?: string }) {
     const updateEpisode = useDramaStore((state) => state.updateEpisode);
     const updateShot = useDramaStore((state) => state.updateShot);
     const appendShot = useDramaStore((state) => state.appendShot);
@@ -102,6 +103,16 @@ export function DramaReviewPanel({ project, episode, onDesignVisuals, designing,
                     </Button>
                 }
             />
+            {designing || designError ? (
+                <div className="mt-2.5">
+                    <DramaAiProgress label="AI 视觉方案生成" elapsedMs={designElapsedMs} hint="正在为每个镜头补充图片/视频提示词、首尾帧与连续性数据" error={designing ? undefined : designError} />
+                </div>
+            ) : null}
+            {analyzing || analyzeError ? (
+                <div className="mt-2.5">
+                    <DramaAiProgress label="AI 整理" elapsedMs={analyzeElapsedMs} hint="正在提取镜头事实、对白与场景结构" error={analyzing ? undefined : analyzeError} />
+                </div>
+            ) : null}
             {episode.shots.length ? (
                 <div className="mt-2.5 space-y-2.5">
                     {episode.shots.map((shot) => {

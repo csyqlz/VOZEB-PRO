@@ -10,6 +10,8 @@ import { readDramaSourceFile } from "@/lib/drama-source-reader";
 import type { DramaProject } from "../types";
 import { useDramaStore } from "../stores/use-drama-store";
 import type { DramaOrganizeModelOption } from "./drama-project-sections";
+import { DramaAiProgress } from "./drama-ai-progress";
+import { formatElapsed, useElapsedTimer } from "./use-elapsed-timer";
 
 const IMPORT_PAGE_SIZE = 20;
 
@@ -33,8 +35,11 @@ export function DramaSourceImport({ project, onImported, organizeModels = [], or
     const adaptedRef = useRef<DramaSourceEpisodeDraft[]>([]);
     const cursorRef = useRef(0);
     const summaryRef = useRef("");
+    const chapterStartRef = useRef(0);
+    const totalStartRef = useRef(0);
     const open = drafts.length > 0;
     const adapting = statuses.some((status) => status === "running");
+    const adaptElapsedMs = useElapsedTimer(adapting);
     const totalCharacters = useMemo(() => drafts.reduce((total, draft) => total + draft.script.length, 0), [drafts]);
     const filtered = useMemo(() => {
         const keyword = query.trim().toLocaleLowerCase();
@@ -105,7 +110,7 @@ export function DramaSourceImport({ project, onImported, organizeModels = [], or
             importEpisodes(project.id, adaptedRef.current);
             close();
             onImported();
-            message.success(`已导入 ${adaptedRef.current.length} 集 AI 改编剧本，请逐集检查`);
+            message.success(`已导入 ${adaptedRef.current.length} 集 AI 改编剧本（总耗时 ${formatElapsed(totalStartRef.current ? Date.now() - totalStartRef.current : 0)}），请逐集检查`);
         } catch (error) {
             message.error(error instanceof Error ? error.message : "导入改编剧本失败");
         } finally {
@@ -115,6 +120,7 @@ export function DramaSourceImport({ project, onImported, organizeModels = [], or
 
     const adaptChapter = async (index: number, controller: AbortController) => {
         const draft = drafts[index];
+        chapterStartRef.current = Date.now();
         setStatuses((prev) => prev.map((status, position) => (position === index ? "running" : status)));
         const response = await fetch("/api/drama/novel", {
             method: "POST",
@@ -146,6 +152,7 @@ export function DramaSourceImport({ project, onImported, organizeModels = [], or
             cursorRef.current = 0;
             summaryRef.current = "";
         }
+        if (!resume) totalStartRef.current = Date.now();
         const controller = new AbortController();
         abortRef.current = controller;
         for (let index = cursorRef.current; index < drafts.length; index += 1) {
@@ -255,13 +262,20 @@ export function DramaSourceImport({ project, onImported, organizeModels = [], or
                                     notFoundContent={!organizeModels.length ? "暂无可用文本模型" : undefined}
                                 />
                             ) : null}
-                            {mode === "adapt" && statuses.length ? (
-                                <span className="text-xs text-muted-foreground">
-                                    已改编 {successCount} / {drafts.length} 集
-                                </span>
-                            ) : null}
                         </div>
-                        {adaptError ? <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-[#ef4444]">{adaptError}{adaptPaused ? <Button size="small" className="!h-6 !px-2 !text-xs" onClick={() => void skipFailed()}>跳过本章继续</Button> : null}</div> : null}
+                        {mode === "adapt" && statuses.length && (adapting || adaptPaused || successCount > 0) ? (
+                            <div className="mt-2.5">
+                                <DramaAiProgress
+                                    label={adaptPaused ? "AI 改编" : "AI 改编剧本中"}
+                                    elapsedMs={adaptElapsedMs}
+                                    done={statuses.filter((status) => status === "success" || status === "failed").length}
+                                    total={drafts.length}
+                                    hint={statuses.some((status) => status === "running") ? `正在改编第 ${cursorRef.current + 1} 集（本章已用时 ${formatElapsed(chapterStartRef.current ? Date.now() - chapterStartRef.current : 0)}），全书完成进度如上` : undefined}
+                                    error={adaptPaused ? adaptError : undefined}
+                                />
+                                {adaptPaused ? <Button size="small" className="!mt-1.5 !h-6 !px-2 !text-xs" onClick={() => void skipFailed()}>跳过本章继续</Button> : null}
+                            </div>
+                        ) : null}
                         <Input
                             className="!mt-3 !h-8"
                             allowClear

@@ -11,6 +11,7 @@ import { useDramaStore } from "../stores/use-drama-store";
 import { DramaScriptWorkspace } from "./drama-script-workspace";
 import { DramaEpisodeSettings } from "./drama-episode-settings";
 import { DramaStageHeader } from "./drama-editor-elements";
+import { DramaAiProgress } from "./drama-ai-progress";
 import { DramaSourceImport } from "./drama-source-import";
 
 export type DramaProjectStage = "script" | "review" | "storyboard" | "generate";
@@ -375,6 +376,8 @@ export function DramaScriptPanel({
     organizeModels,
     organizeModel,
     onOrganizeModelChange,
+    analyzeElapsedMs,
+    analyzeError,
 }: {
     project: DramaProject;
     episode: DramaEpisode;
@@ -386,6 +389,8 @@ export function DramaScriptPanel({
     organizeModels: DramaOrganizeModelOption[];
     organizeModel: string;
     onOrganizeModelChange: (model: string) => void;
+    analyzeElapsedMs?: number;
+    analyzeError?: string;
 }) {
     const scriptText = episode.script.trim();
 
@@ -415,6 +420,11 @@ export function DramaScriptPanel({
                     }
                 />
             </div>
+            {analyzing || analyzeError ? (
+                <div className="mt-2.5" data-drama-analyze-progress>
+                    <DramaAiProgress label="AI 整理" elapsedMs={analyzeElapsedMs || 0} hint="正在用所选模型提取镜头事实、对白与场景结构，通常需要 20 秒到 2 分钟" error={analyzing ? undefined : analyzeError} />
+                </div>
+            ) : null}
             <div className="mt-3 flex min-h-0 flex-1 overflow-hidden bg-transparent">
                 <DramaScriptWorkspace project={project} episode={episode} selectedShotId={selectedShotId} onSelectedShotChange={onSelectedShotChange} analyzing={analyzing} onAnalyze={onAnalyze} />
             </div>
