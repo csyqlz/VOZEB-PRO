@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 import { useAssetStore, type Asset, type AssetKind, type AudioAsset, type ImageAsset, type VideoAsset } from "@/stores/use-asset-store";
 import { useUserStore } from "@/stores/use-user-store";
 import { exportAssets, readAssetPackage } from "./asset-transfer";
+import { GeneratedAssetsSection } from "./generated-assets-section";
 
 type AssetFormValues = {
     kind: AssetKind;
@@ -57,6 +58,7 @@ export default function AssetsPage() {
     const updateAsset = useAssetStore((state) => state.updateAsset);
     const removeAsset = useAssetStore((state) => state.removeAsset);
     const [keyword, setKeyword] = useState("");
+    const [view, setView] = useState<"library" | "generated">("library");
     const [kindFilter, setKindFilter] = useState<AssetKind | "all">("all");
     const [page, setPage] = useState(1);
     const [pageSize, setPageSize] = useState(10);
@@ -264,10 +266,10 @@ export default function AssetsPage() {
                     <header className="border-b border-border pb-3 sm:pb-4">
                         <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
-                                <h1 className="text-lg font-semibold sm:text-xl">我的素材</h1>
+                                <h1 className="text-lg font-semibold sm:text-xl">{view === "library" ? "我的素材" : "生成记录"}</h1>
                                 <p className="mt-0.5 text-xs text-muted-foreground">{total ? `${total} 项素材` : "集中管理创作中复用的内容"}</p>
                             </div>
-                            <div className="flex shrink-0 items-center gap-1">
+                            <div className={cn("flex shrink-0 items-center gap-1", view === "generated" && "hidden")}>
                                 <Tooltip title="导出素材">
                                     <Button type="text" shape="circle" icon={<FileDown className="size-4" />} aria-label="导出素材" onClick={() => void exportAllAssets()} />
                                 </Tooltip>
@@ -280,7 +282,18 @@ export default function AssetsPage() {
                             </div>
                         </div>
 
-                        <div className="mt-3 grid gap-2 lg:grid-cols-[minmax(260px,520px)_auto] lg:items-center lg:justify-between">
+                        <div className="mt-3">
+                            <Segmented
+                                value={view}
+                                onChange={(value) => setView(value as "library" | "generated")}
+                                options={[
+                                    { value: "library", label: "我的素材" },
+                                    { value: "generated", label: "生成记录" },
+                                ]}
+                            />
+                        </div>
+
+                        <div className={cn("mt-3 grid gap-2 lg:grid-cols-[minmax(260px,520px)_auto] lg:items-center lg:justify-between", view === "generated" && "hidden")}>
                             <Input.Search
                                 className="w-full"
                                 size="middle"
@@ -312,6 +325,10 @@ export default function AssetsPage() {
                     </header>
 
                     <div className="flex flex-col gap-3 pt-3 sm:gap-5 sm:pt-5">
+                        {view === "generated" ? (
+                            <GeneratedAssetsSection onSaved={reload} />
+                        ) : (
+                        <>
                         <div className={cn("grid grid-cols-1 gap-3 transition-opacity sm:grid-cols-[repeat(auto-fill,minmax(240px,280px))] sm:justify-start", loading && assets.length && "opacity-60")} aria-busy={loading}>
                             {assets.map((asset) => (
                                 <AssetCard
@@ -355,6 +372,8 @@ export default function AssetsPage() {
                                 }}
                             />
                         </div>
+                        </>
+                        )}
                     </div>
                 </div>
             </main>

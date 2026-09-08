@@ -302,6 +302,27 @@ export async function listRecentCreativeMediaAssets(conversationId: string, user
         .slice(0, boundedLimit);
 }
 
+export async function listUserCreativeAssetPage(userId: string, input: { page: number; pageSize: number; type?: "image" | "video" | "audio" }) {
+    const page = Math.max(1, Math.floor(input.page) || 1);
+    const pageSize = Math.max(1, Math.min(60, Math.floor(input.pageSize) || 24));
+    if (getDatabaseProvider() === "postgres") {
+        await ensurePostgresSchema();
+        const args = input.type ? [input.type, userId, pageSize, (page - 1) * pageSize] : [userId, pageSize, (page - 1) * pageSize];
+        const result = await postgresQuery(
+            `SELECT * FROM creative_assets WHERE user_id = $2 AND status = 'ready' AND type IN ('image', 'video', 'audio')${input.type ? " AND type = $1" : ""} ORDER BY created_at DESC, ordinal DESC LIMIT $3 OFFSET $4`,
+            args,
+        );
+        const countArgs = input.type ? [input.type, userId] : [userId];
+        const count = await postgresQuery(`SELECT count(*)::int AS total FROM creative_assets WHERE user_id = $2 AND status = 'ready' AND type IN ('image', 'video', 'audio')${input.type ? " AND type = $1" : ""}`, countArgs);
+        return { items: result.rows.map(mapAsset), total: Number(count.rows[0]?.total) || 0, page, pageSize };
+    }
+    const runtime = await readRuntimeFile();
+    const filtered = runtime.assets
+        .filter((item) => item.userId === userId && item.status === "ready" && (input.type ? item.type === input.type : ["image", "video", "audio"].includes(item.type)))
+        .sort((a, b) => b.createdAt - a.createdAt || b.ordinal - a.ordinal);
+    return { items: filtered.slice((page - 1) * pageSize, page * pageSize), total: filtered.length, page, pageSize };
+}
+
 export async function getCreativeAsset(id: string, userId: string) {
     if (getDatabaseProvider() === "postgres") {
         await ensurePostgresSchema();

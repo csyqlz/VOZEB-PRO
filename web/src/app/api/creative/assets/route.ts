@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth/session";
 import { CREATIVE_UPLOAD_MAX_BYTES } from "@/lib/creative-upload";
 import { CreativeRuntimeServiceError, uploadAssetForUser } from "@/lib/server/creative-runtime-service";
+import { listUserCreativeAssetPage } from "@/lib/server/creative-runtime-store";
 import { readRequestBodyBytes, RequestBodyTooLargeError } from "@/lib/server/request-body-limit";
 
 export const runtime = "nodejs";
@@ -35,4 +36,14 @@ export async function POST(request: Request) {
         if (error instanceof CreativeRuntimeServiceError) return NextResponse.json({ code: error.status, data: null, msg: error.message }, { status: error.status });
         throw error;
     }
+}
+
+export async function GET(request: Request) {
+    const user = await getCurrentUser();
+    if (!user) return NextResponse.json({ code: 401, data: null, msg: "请先登录" }, { status: 401 });
+    const params = new URL(request.url).searchParams;
+    const typeParam = params.get("type");
+    const type = typeParam === "image" || typeParam === "video" || typeParam === "audio" ? typeParam : undefined;
+    const page = await listUserCreativeAssetPage(user.id, { page: Number(params.get("page")) || 1, pageSize: Number(params.get("pageSize")) || 24, type });
+    return NextResponse.json({ code: 0, data: page, msg: "OK" });
 }
