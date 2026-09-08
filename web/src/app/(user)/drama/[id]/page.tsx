@@ -144,6 +144,7 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
     };
     const designVisuals = async () => {
         if (!episode.shots.length) return message.warning("请先完成内容解析");
+        if (!organizeModel.trim()) return message.warning("请先选择 AI 整理使用的文本模型");
         updateEpisode(project.id, episode.id, { reviewStatus: "approved" });
         setDesignError("");
         designStartedAtRef.current = Date.now();
@@ -170,6 +171,7 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
                     props: project.props,
                     clues: project.clues,
                     shots: episode.shots,
+                    textModel: organizeModel.trim(),
                 }),
             });
             syncUserPointsFromHeaders(response.headers, "system");
