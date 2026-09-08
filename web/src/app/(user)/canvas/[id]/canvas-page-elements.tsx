@@ -50,12 +50,22 @@ export const NODE_STATUS_LOADING = "loading" as const;
 export const NODE_STATUS_SUCCESS = "success" as const;
 export const NODE_STATUS_ERROR = "error" as const;
 export const NODE_STATUS_NEEDS_REVIEW = "needs_review" as const;
-export const IMAGE_PROMPT_REVERSE_PRESET = `请根据参考图片反推一段适合用于 AI 生图的提示词。
+export const IMAGE_PROMPT_REVERSE_PRESET = `请根据参考图片反推一段可直接用于 AI 生图的完整提示词。先在心里按九个维度依次分析图片，再把分析结果浓缩成一段连贯的提示词正文：
 
-要求：
-1. 只输出提示词正文，不要解释。
-2. 覆盖主体、构图、风格、光线、色彩、材质、镜头和氛围。
-3. 尽量写成可直接用于生图模型的完整提示词。`;
+一、画幅与景别：横竖画幅、比例、景别（远景/全景/中景/近景/特写）、主体占画面比例与位置。
+二、主体与姿态：主体是什么（人物/动物/物品/建筑/场景），人物写清性别年龄感、身高比例、全身姿态与肢体角度、重心与动态方向。
+三、面部与妆造（人物图必写）：脸型、眉形、眼型与眼神方向、鼻唇形态、表情情绪；发型结构与发饰、妆容质感、珠宝首饰（材质、层数、位置）。
+四、服装与道具：服装层次、颜色、材质、纹样、褶皱与垂坠状态；手持或身旁道具的形态、尺寸、握持方式。
+五、材质与色彩：主要材质质感（丝绸/金属/木材/玻璃/皮肤质感等）、整体色板（主色/辅色/点缀色）、饱和度与明度倾向。
+六、光线与氛围：光的方向与类型（顺光/侧光/逆光/顶光）、软硬程度、色温；画面情绪（宁静/紧张/梦幻/史诗感）。
+七、构图与镜头：构图法则（三分/对称/引导线/框架）、视角（平视/俯拍/仰拍）、透视关系、景深与背景虚化、模拟焦段感。
+八、风格与后期：艺术风格（摄影纪实/插画/国漫/赛博朋克/极简等）、渲染质感、调色倾向（胶片感/高对比/低饱和）。
+九、关键细节：画面里最独特、最不可省略的细节（文字内容、特殊符号、飘带轨迹、空间遮挡关系等）。
+
+输出要求：
+1. 只输出一段连贯的提示词正文，不要输出分析过程和维度标签。
+2. 形容词精确、可执行：不写“很美”“大气”，要写“柔光从左上方 45 度切入，皮肤呈暖调奶油质感”这类描述。
+3. 保留图片中最有辨识度的独有细节，确保据此生成的图与原图高度相似。`;
 
 export function createCanvasNode(type: CanvasNodeType, position: Position, metadata?: CanvasNodeMetadata): CanvasNodeData {
     const spec = getNodeSpec(type);

@@ -289,6 +289,7 @@ export function useCanvasNodeMediaActions({ state, tasks, interactions }: { stat
             setSelectedConnectionId(null);
             setDialogNodeId(configNode.id);
             setContextMenu(null);
+            message.info("已创建反推任务：运行配置节点得到提示词后，把文本节点连线到生图配置即可创作类似图", 6);
         },
         [effectiveConfig.model, effectiveConfig.textModel, message],
     );
