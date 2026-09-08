@@ -7,6 +7,7 @@ export type DramaAnalyzeBody = {
     summary?: string;
     style?: string;
     videoModel?: string;
+    textModel?: string;
     episode?: unknown;
     characters?: unknown;
     scenes?: unknown;

@@ -1,18 +1,20 @@
 "use client";
 
 import { Button, Input, InputNumber, Modal } from "antd";
-import { ArrowLeft, Check, ChevronDown, SlidersHorizontal } from "lucide-react";
+import { ArrowLeft, Check, ChevronDown, Plus, SlidersHorizontal } from "lucide-react";
+import { nanoid } from "nanoid";
 import { useEffect, useState } from "react";
 
 import type { DramaEpisode, DramaProject } from "@/lib/drama-project-contract";
 import { useDramaStore } from "../stores/use-drama-store";
 import { DramaStageHeader } from "./drama-editor-elements";
-import type { DramaProjectStage } from "./drama-project-sections";
+import { DramaOrganizeControls, type DramaOrganizeModelOption, type DramaProjectStage } from "./drama-project-sections";
 import { DramaShotDialogueEditor } from "./drama-shot-dialogue-editor";
 
-export function DramaReviewPanel({ project, episode, onDesignVisuals, designing, onStageChange }: { project: DramaProject; episode: DramaEpisode; onDesignVisuals: () => void; designing: boolean; onStageChange: (stage: DramaProjectStage) => void }) {
+export function DramaReviewPanel({ project, episode, onDesignVisuals, designing, onStageChange, onAnalyze, analyzing = false, organizeModels = [], organizeModel = "", onOrganizeModelChange }: { project: DramaProject; episode: DramaEpisode; onDesignVisuals: () => void; designing: boolean; onStageChange: (stage: DramaProjectStage) => void; onAnalyze?: () => void; analyzing?: boolean; organizeModels?: DramaOrganizeModelOption[]; organizeModel?: string; onOrganizeModelChange?: (model: string) => void }) {
     const updateEpisode = useDramaStore((state) => state.updateEpisode);
     const updateShot = useDramaStore((state) => state.updateShot);
+    const appendShot = useDramaStore((state) => state.appendShot);
     const [episodeInfoOpen, setEpisodeInfoOpen] = useState(false);
     const [expandedShotIds, setExpandedShotIds] = useState<Set<string>>(() => new Set(episode.shots.slice(0, 1).map((shot) => shot.id)));
     useEffect(() => {
@@ -21,6 +23,40 @@ export function DramaReviewPanel({ project, episode, onDesignVisuals, designing,
     const updateContentShot = (shotId: string, patch: Parameters<typeof updateShot>[3]) => {
         updateShot(project.id, episode.id, shotId, patch);
         if (episode.reviewStatus !== "content_review") updateEpisode(project.id, episode.id, { reviewStatus: "content_review" });
+    };
+    const addManualShot = () => {
+        const order = episode.shots.length + 1;
+        const shot = {
+            id: `shot-${nanoid()}`,
+            order,
+            title: `镜头 ${order}`,
+            description: "",
+            sourceText: "",
+            shotBoundary: "",
+            dialogue: "",
+            narration: "",
+            utterances: [],
+            subtitle: "",
+            imagePrompt: "",
+            videoPrompt: "",
+            cameraMotion: "",
+            startFramePrompt: "",
+            endFramePrompt: "",
+            negativePrompt: "",
+            continuity: { shotSize: "", cameraAngle: "", composition: "", characterBlocking: "", gazeDirection: "", actionStart: "", actionEnd: "", screenDirection: "", axisRule: "", continuityNotes: "" },
+            duration: 5,
+            characterIds: [],
+            propIds: [],
+            clueIds: [],
+            videoMode: project.defaultVideoMode,
+            storyboardFrameMode: "single" as const,
+            storyboardStatus: "idle" as const,
+            generationStatus: "idle" as const,
+            audioMode: "source" as const,
+            audioStatus: "idle" as const,
+        };
+        appendShot(project.id, episode.id, shot);
+        setExpandedShotIds((current) => new Set([...current, shot.id]));
     };
     const toggleShot = (shotId: string) => {
         setExpandedShotIds((current) => {
@@ -62,7 +98,7 @@ export function DramaReviewPanel({ project, episode, onDesignVisuals, designing,
                         loading={designing}
                         onClick={episode.shots.length ? onDesignVisuals : () => onStageChange("script")}
                     >
-                        {!episode.shots.length ? "返回剧本并提取结构" : episode.reviewStatus === "visual_ready" ? "更新视觉方案" : "确认内容并生成视觉方案"}
+                        {!episode.shots.length ? "返回剧本" : episode.reviewStatus === "visual_ready" ? "更新视觉方案" : "确认内容并生成视觉方案"}
                     </Button>
                 }
             />
@@ -152,12 +188,19 @@ export function DramaReviewPanel({ project, episode, onDesignVisuals, designing,
                             </article>
                         );
                     })}
+                    <Button className="!mt-1 w-full !border-dashed" size="large" icon={<Plus className="size-4" />} onClick={addManualShot}>
+                        手动添加镜头
+                    </Button>
                 </div>
             ) : (
-                <div className="mt-2.5 flex min-h-14 items-center rounded-lg border border-dashed border-border bg-card/25 px-3 py-2.5">
-                    <div className="min-w-0">
-                        <h3 className="text-sm font-medium">还没有待审核的内容结构</h3>
-                        <p className="mt-0.5 truncate text-xs text-muted-foreground">先填写或导入本集剧本，再由 AI 提取可编辑的镜头事实、对白和原文依据。</p>
+                <div className="mt-2.5 rounded-lg border border-dashed border-border bg-card/25 px-3 py-3">
+                    <h3 className="text-sm font-medium">还没有待审核的内容结构</h3>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">可以自选文本模型运行 AI 整理，自动提取镜头事实、对白和原文依据；也可以直接在下方镜头列表手动补充。</p>
+                    <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                        {onAnalyze && onOrganizeModelChange ? <DramaOrganizeControls models={organizeModels} value={organizeModel} onChange={onOrganizeModelChange} analyzing={analyzing} disabled={!episode.script.trim()} onRun={onAnalyze} compact /> : null}
+                        <Button size="small" className="!h-8 !px-2.5" icon={<Plus className="size-3.5" />} onClick={addManualShot}>
+                            手动添加镜头
+                        </Button>
                     </div>
                 </div>
             )}

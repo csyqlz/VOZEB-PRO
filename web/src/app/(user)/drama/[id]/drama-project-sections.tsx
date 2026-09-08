@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { App, Button, Drawer, Input, Popover, Tooltip } from "antd";
+import { App, Button, Drawer, Input, Popover, Select, Tooltip } from "antd";
 import { ArrowLeft, Bot, Boxes, ChevronDown, ChevronRight, History, PanelLeft, Plus, Settings2, Sparkles, Trash2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -14,6 +14,47 @@ import { DramaStageHeader } from "./drama-editor-elements";
 import { DramaSourceImport } from "./drama-source-import";
 
 export type DramaProjectStage = "script" | "review" | "storyboard" | "generate";
+
+export type DramaOrganizeModelOption = { id: string; name: string };
+
+/** AI 整理的模型选择 + 触发按钮；模型由用户显式选择，不提供默认值。 */
+export function DramaOrganizeControls({ models, value, onChange, analyzing, disabled, onRun, compact = false }: { models: DramaOrganizeModelOption[]; value: string; onChange: (model: string) => void; analyzing: boolean; disabled?: boolean; onRun: () => void; compact?: boolean }) {
+    const { message } = App.useApp();
+    return (
+        <div className="flex min-w-0 items-center gap-1.5">
+            <Select
+                size="small"
+                className={`min-w-0 ${compact ? "!w-[128px]" : "!w-[168px]"}`}
+                placeholder="选择整理模型"
+                value={value || undefined}
+                onChange={onChange}
+                disabled={analyzing || disabled}
+                showSearch
+                optionFilterProp="label"
+                options={models.map((model) => ({ value: model.id, label: model.name }))}
+                notFoundContent={!models.length ? "暂无可用文本模型" : undefined}
+            />
+            <Button
+                type="primary"
+                className="!h-8 !px-2.5 enabled:!border-violet-600 enabled:!bg-violet-600 enabled:!text-white enabled:hover:!border-violet-500 enabled:hover:!bg-violet-500 dark:enabled:!border-violet-400 dark:enabled:!bg-violet-400 dark:enabled:!text-violet-950"
+                size="small"
+                icon={<Sparkles className="size-3.5" />}
+                loading={analyzing}
+                disabled={disabled}
+                title={disabled ? "请先填写或导入本集剧本" : value ? undefined : "请先选择整理模型"}
+                onClick={() => {
+                    if (!value) {
+                        message.warning("请先选择 AI 整理使用的文本模型");
+                        return;
+                    }
+                    onRun();
+                }}
+            >
+                AI 整理
+            </Button>
+        </div>
+    );
+}
 
 const stages = [
     { value: "script", label: "剧本", shortLabel: "剧本" },
@@ -331,6 +372,9 @@ export function DramaScriptPanel({
     onStageChange,
     selectedShotId,
     onSelectedShotChange,
+    organizeModels,
+    organizeModel,
+    onOrganizeModelChange,
 }: {
     project: DramaProject;
     episode: DramaEpisode;
@@ -339,6 +383,9 @@ export function DramaScriptPanel({
     onStageChange: (stage: DramaProjectStage) => void;
     selectedShotId?: string;
     onSelectedShotChange: (shotId?: string) => void;
+    organizeModels: DramaOrganizeModelOption[];
+    organizeModel: string;
+    onOrganizeModelChange: (model: string) => void;
 }) {
     const scriptText = episode.script.trim();
 
@@ -348,7 +395,7 @@ export function DramaScriptPanel({
                 <DramaStageHeader
                     step="01"
                     title="剧本编辑"
-                    description="编辑或导入本集剧本，整理后进入内容审核。"
+                    description="编辑或导入本集剧本；可随时用 AI 整理提取结构，也可以直接进入内容审核手动编辑。"
                     status={scriptText ? (episode.shots.length ? "已整理" : "待整理") : "待编辑"}
                     tone={scriptText ? (episode.shots.length ? "ready" : "neutral") : "attention"}
                     metrics={[
@@ -358,18 +405,7 @@ export function DramaScriptPanel({
                     action={
                         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                             <DramaSourceImport project={project} onImported={() => onStageChange("script")} />
-                            <Button
-                                type="primary"
-                                className="!h-8 !px-2.5 enabled:!border-violet-600 enabled:!bg-violet-600 enabled:!text-white enabled:hover:!border-violet-500 enabled:hover:!bg-violet-500 dark:enabled:!border-violet-400 dark:enabled:!bg-violet-400 dark:enabled:!text-violet-950"
-                                size="small"
-                                icon={<Sparkles className="size-3.5" />}
-                                loading={analyzing}
-                                disabled={!scriptText}
-                                title={scriptText ? undefined : "请先填写或导入本集剧本"}
-                                onClick={onAnalyze}
-                            >
-                                AI 整理
-                            </Button>
+                            <DramaOrganizeControls models={organizeModels} value={organizeModel} onChange={onOrganizeModelChange} analyzing={analyzing} disabled={!scriptText} onRun={onAnalyze} />
                             <Popover trigger="click" placement="bottomRight" styles={{ container: { padding: 12, width: 320 } }} content={<DramaEpisodeSettings project={project} episode={episode} embedded />}>
                                 <Button className="!h-8 !px-2.5" size="small" icon={<Settings2 className="size-3.5" />} aria-label="打开本集设置">
                                     本集设置

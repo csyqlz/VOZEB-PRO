@@ -39,9 +39,14 @@ export async function POST(request: Request) {
     if (phase === "visual" && !visualInput?.shotIds.length) return NextResponse.json({ code: 400, data: null, msg: "请先完成内容审核" }, { status: 400 });
 
     const settings = await getAuthSettings();
-    const model = settings.defaultModels.textModel;
+    // 内容整理阶段允许用户自选文本模型；未选择时使用后台默认文本模型。
+    const requestedTextModel = phase === "content" ? dramaAnalysisText(body.textModel) : "";
+    if (phase === "content" && requestedTextModel && requestedTextModel !== settings.defaultModels.textModel && !resolveLogicalModelCandidates(settings, "text", requestedTextModel).length) {
+        return NextResponse.json({ code: 400, data: null, msg: `文本模型 ${requestedTextModel} 不可用，请在模型选择中重新选择` }, { status: 400 });
+    }
+    const model = requestedTextModel || settings.defaultModels.textModel;
     const candidates = resolveLogicalModelCandidates(settings, "text", model);
-    if (!model || !candidates.length) return NextResponse.json({ code: 400, data: null, msg: "后台尚未配置可用的默认文本模型" }, { status: 400 });
+    if (!model || !candidates.length) return NextResponse.json({ code: 400, data: null, msg: "请选择可用的文本模型" }, { status: 400 });
     const requestedVideoModel = dramaAnalysisText(body.videoModel);
     const defaultVideoModel = settings.defaultModels.videoModel;
     const requestedVideoCandidates = phase === "content" && (requestedVideoModel || defaultVideoModel) ? resolveLogicalModelCandidates(settings, "video", requestedVideoModel || defaultVideoModel) : [];

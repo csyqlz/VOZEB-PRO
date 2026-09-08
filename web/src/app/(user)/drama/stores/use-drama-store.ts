@@ -43,6 +43,7 @@ type DramaStore = {
     ) => void;
     buildStoryboard: (projectId: string, episodeId: string) => void;
     updateShot: (projectId: string, episodeId: string, shotId: string, patch: Partial<DramaShot>) => void;
+    appendShot: (projectId: string, episodeId: string, shot: DramaShot) => void;
     queueShots: (projectId: string, episodeId: string, shotIds: string[]) => void;
     applyContentAnalysis: (projectId: string, episodeId: string, analysis: DramaContentAnalysis) => void;
     applyVisualAnalysis: (projectId: string, episodeId: string, analysis: DramaVisualAnalysis) => void;
@@ -265,6 +266,11 @@ export const useDramaStore = create<DramaStore>((set, get) => ({
         mutateProject(projectId, (project) => ({
             ...project,
             episodes: project.episodes.map((episode) => (episode.id === episodeId ? { ...episode, shots: episode.shots.map((shot) => (shot.id === shotId ? { ...shot, ...patch } : shot)) } : episode)),
+        })),
+    appendShot: (projectId, episodeId, shot) =>
+        mutateProject(projectId, (project) => ({
+            ...project,
+            episodes: project.episodes.map((episode) => (episode.id === episodeId ? { ...episode, shots: [...episode.shots, shot], reviewStatus: episode.reviewStatus === "draft" ? ("content_review" as const) : episode.reviewStatus } : episode)),
         })),
     queueShots: (projectId, episodeId, shotIds) =>
         mutateProject(projectId, (project) => {

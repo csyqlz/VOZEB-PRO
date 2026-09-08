@@ -25,6 +25,7 @@ import { DramaVersionModal } from "./drama-project-modals";
 import { dramaGenerationSize, estimateTaskPoints, referenceImage, shotReferenceImages, storyboardReferenceImages } from "./drama-shot-generation-utils";
 import { useGenerationCapacityRetry } from "./use-generation-capacity-retry";
 import { DramaEpisodeSidebar, DramaScriptPanel, DramaWorkspaceHeader, type DramaProjectStage } from "./drama-project-sections";
+import { creativeAgentModelsFromConfig } from "@/hooks/use-creative-agent-options";
 
 export default function DramaProjectPage() {
     const router = useRouter();
@@ -82,8 +83,10 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
     const [versions, setVersions] = useState<DramaProjectVersion[]>([]);
     const [versionsLoading, setVersionsLoading] = useState(false);
     const [expandedStoryboardShotId, setExpandedStoryboardShotId] = useState("");
+    const [organizeModel, setOrganizeModel] = useState("");
     const { isWaiting: isCapacityWaiting, schedule: scheduleCapacityRetry } = useGenerationCapacityRetry();
     const audioReady = Boolean(config.audioModel.trim());
+    const organizeModels = creativeAgentModelsFromConfig(config, ["text"]);
     const changeStage = (nextStage: DramaProjectStage) => {
         setStage(nextStage);
         setAssetsOpen(false);
@@ -105,12 +108,13 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
     useDramaAudioQueue(project, episode, config, updateShot);
     const analyzeScript = async () => {
         if (!episode.script.trim()) return message.warning("请先填写剧本内容");
+        if (!organizeModel.trim()) return message.warning("请先选择 AI 整理使用的文本模型");
         setAnalyzing(true);
         try {
             const response = await fetch("/api/drama/analyze", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ requestId: `drama-content:${project.id}:${episode.id}:${nanoid()}`, phase: "content", script: episode.script, summary: project.summary, style: project.style, videoModel: config.videoModel || config.model }),
+                body: JSON.stringify({ requestId: `drama-content:${project.id}:${episode.id}:${nanoid()}`, phase: "content", script: episode.script, summary: project.summary, style: project.style, videoModel: config.videoModel || config.model, textModel: organizeModel.trim() }),
             });
             syncUserPointsFromHeaders(response.headers, "system");
             const payload = (await response.json().catch(() => ({}))) as { data?: DramaContentAnalysis; msg?: string };
@@ -407,10 +411,21 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
                             {assetsOpen ? <DramaAssetsPanel project={project} episode={episode} /> : null}
 
                             {!assetsOpen && stage === "script" ? (
-                                <DramaScriptPanel project={project} episode={episode} analyzing={analyzing} onAnalyze={() => void analyzeScript()} onStageChange={changeStage} selectedShotId={selectedShotId} onSelectedShotChange={setSelectedShotId} />
+                                <DramaScriptPanel
+                                    project={project}
+                                    episode={episode}
+                                    analyzing={analyzing}
+                                    onAnalyze={() => void analyzeScript()}
+                                    onStageChange={changeStage}
+                                    selectedShotId={selectedShotId}
+                                    onSelectedShotChange={setSelectedShotId}
+                                    organizeModels={organizeModels}
+                                    organizeModel={organizeModel}
+                                    onOrganizeModelChange={setOrganizeModel}
+                                />
                             ) : null}
 
-                            {!assetsOpen && stage === "review" ? <DramaReviewPanel project={project} episode={episode} designing={designing} onDesignVisuals={() => void designVisuals()} onStageChange={changeStage} /> : null}
+                            {!assetsOpen && stage === "review" ? <DramaReviewPanel project={project} episode={episode} designing={designing} onDesignVisuals={() => void designVisuals()} onStageChange={changeStage} onAnalyze={() => void analyzeScript()} analyzing={analyzing} organizeModels={organizeModels} organizeModel={organizeModel} onOrganizeModelChange={setOrganizeModel} /> : null}
 
                             {!assetsOpen && stage === "storyboard" ? (
                                 <div>
@@ -489,7 +504,6 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
                     episode={episode}
                     onSave={() => createVersion(project, "手动保存版本")}
                     onContinue={() => {
-                        if (!episode.shots.length) return void analyzeScript();
                         if (episode.reviewStatus === "draft") updateEpisode(project.id, episode.id, { reviewStatus: "content_review" });
                         setStage("review");
                     }}
