@@ -47,6 +47,17 @@ describe("provider task config", () => {
         });
     });
 
+    it("prunes empty first_frame and last_frame strings from video templates", () => {
+        const template = '{"model":"{{model}}","prompt":"{{prompt}}","seconds":"{{seconds}}","first_frame":"{{first_frame}}","last_frame":"{{last_frame}}"}';
+
+        expect(buildVideoProviderRequest(template, {}, { model: "video-v1", prompt: "animate", seconds: 5, first_frame: "https://cdn.example.com/start.png", last_frame: "" })).toEqual({
+            model: "video-v1",
+            prompt: "animate",
+            seconds: "5",
+            first_frame: "https://cdn.example.com/start.png",
+        });
+    });
+
     it("renders the documented Yumeng stable media and frame fields without empty placeholders", () => {
         const template = '{"reference_images":"{{images}}","reference_videos":"{{videos}}","reference_audios":"{{audios}}","first_image":"{{first_frame}}","last_image":"{{last_frame}}"}';
 

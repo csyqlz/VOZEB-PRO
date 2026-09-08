@@ -295,6 +295,8 @@ const REFERENCE_FIELD_KEYS = new Set([
     "references",
     "referenceimage",
     "referenceimages",
+    "firstframe",
+    "lastframe",
     "firstframeurl",
     "firstframeimage",
     "firstimage",
