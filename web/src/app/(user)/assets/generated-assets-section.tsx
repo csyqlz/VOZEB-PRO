@@ -189,8 +189,8 @@ export function GeneratedAssetsSection({ onSaved }: { onSaved?: () => void }) {
                 </>
             ) : (
                 <div className="flex min-h-40 flex-col items-center justify-center gap-2 py-10 text-center">
-                    <p className="text-sm text-muted-foreground">还没有生成记录</p>
-                    <p className="text-xs text-muted-foreground">在创作页、画布或短剧完成生成后，结果会自动出现在这里</p>
+                    <p className="text-sm text-muted-foreground">当前账号还没有生成记录</p>
+                    <p className="text-xs leading-5 text-muted-foreground">生成记录只显示当前登录账号在创作页、画布或短剧完成的结果。完成任意生成后回到这里即可看到；也可以先切换到「我的素材」查看手动收藏的内容。</p>
                 </div>
             )}
         </section>
