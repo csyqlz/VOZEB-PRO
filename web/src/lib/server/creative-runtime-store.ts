@@ -307,13 +307,15 @@ export async function listUserCreativeAssetPage(userId: string, input: { page: n
     const pageSize = Math.max(1, Math.min(60, Math.floor(input.pageSize) || 24));
     if (getDatabaseProvider() === "postgres") {
         await ensurePostgresSchema();
-        const args = input.type ? [input.type, userId, pageSize, (page - 1) * pageSize] : [userId, pageSize, (page - 1) * pageSize];
-        const result = await postgresQuery(
-            `SELECT * FROM creative_assets WHERE user_id = $2 AND status = 'ready' AND type IN ('image', 'video', 'audio')${input.type ? " AND type = $1" : ""} ORDER BY created_at DESC, ordinal DESC LIMIT $3 OFFSET $4`,
-            args,
-        );
-        const countArgs = input.type ? [input.type, userId] : [userId];
-        const count = await postgresQuery(`SELECT count(*)::int AS total FROM creative_assets WHERE user_id = $2 AND status = 'ready' AND type IN ('image', 'video', 'audio')${input.type ? " AND type = $1" : ""}`, countArgs);
+        const rowsQuery = input.type
+            ? "SELECT * FROM creative_assets WHERE user_id = $1 AND type = $2 AND status = 'ready' ORDER BY created_at DESC, ordinal DESC LIMIT $3 OFFSET $4"
+            : "SELECT * FROM creative_assets WHERE user_id = $1 AND status = 'ready' AND type IN ('image', 'video', 'audio') ORDER BY created_at DESC, ordinal DESC LIMIT $2 OFFSET $3";
+        const rowsArgs = input.type ? [userId, input.type, pageSize, (page - 1) * pageSize] : [userId, pageSize, (page - 1) * pageSize];
+        const result = await postgresQuery(rowsQuery, rowsArgs);
+        const countQuery = input.type
+            ? "SELECT count(*)::int AS total FROM creative_assets WHERE user_id = $1 AND type = $2 AND status = 'ready'"
+            : "SELECT count(*)::int AS total FROM creative_assets WHERE user_id = $1 AND status = 'ready' AND type IN ('image', 'video', 'audio')";
+        const count = await postgresQuery(countQuery, input.type ? [userId, input.type] : [userId]);
         return { items: result.rows.map(mapAsset), total: Number(count.rows[0]?.total) || 0, page, pageSize };
     }
     const runtime = await readRuntimeFile();
