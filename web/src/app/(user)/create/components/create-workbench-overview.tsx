@@ -144,7 +144,7 @@ function LatestProjectCard({ project, loading, error, onRetry }: { project?: Ret
                         {project.nodeCount} 个节点 · {project.connectionCount} 条连线
                     </p>
                 </div>
-                <span className="inline-flex w-fit items-center gap-1.5 rounded-md bg-[#20242a] px-2.5 py-1.5 text-xs font-semibold text-white transition group-hover:bg-[#343b44] dark:bg-[#f3f5f7] dark:text-[#20242a] dark:group-hover:bg-white">
+                <span className="inline-flex w-fit items-center gap-1.5 rounded-md border border-[#e4e7ec] bg-white px-2.5 py-1.5 text-xs font-semibold !text-[#344054] transition group-hover:border-[#d0d5dd] group-hover:bg-[#f8f9fb] group-hover:!text-[#20242a] dark:border-[#343a43] dark:bg-[#22262c] dark:!text-[#aab2bc] dark:group-hover:border-[#4a525c] dark:group-hover:bg-[#2b3037] dark:group-hover:!text-white">
                     继续编辑 <ArrowUpRight className="size-3.5" />
                 </span>
             </div>
@@ -192,7 +192,7 @@ function RecentAssetCard({ asset, importing, now, onUse }: { asset: CreateOvervi
                 <div className="mt-2 grid grid-cols-[minmax(0,1fr)_30px] gap-1.5">
                     <button
                         type="button"
-                        className="inline-flex h-8 min-w-0 items-center justify-center gap-1.5 rounded-md bg-[#20242a] px-2 text-xs font-medium text-white transition hover:bg-[#343b44] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 dark:bg-[#f3f5f7] dark:text-[#20242a] dark:hover:bg-white"
+                        className="inline-flex h-8 min-w-0 items-center justify-center gap-1.5 rounded-md border border-[#e4e7ec] bg-white px-2 text-xs font-medium !text-[#344054] transition hover:border-[#d0d5dd] hover:bg-[#f8f9fb] hover:!text-[#20242a] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 dark:border-[#343a43] dark:bg-[#22262c] dark:!text-[#aab2bc] dark:hover:border-[#4a525c] dark:hover:bg-[#2b3037] dark:hover:!text-white"
                         onClick={() => downloadAgentMedia([{ type: asset.kind, url: asset.url, title: asset.title }])}
                         aria-label={`下载：${asset.title}`}
                     >
