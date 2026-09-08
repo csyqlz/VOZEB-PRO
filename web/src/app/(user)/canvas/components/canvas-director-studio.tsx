@@ -254,10 +254,10 @@ export function CanvasDirectorStudio({ open, onClose, sceneSrc, sceneIsPanorama,
                                     <div className="relative -translate-y-1/2 cursor-move">
                                         <img src={sticker.src} alt={sticker.label} draggable={false} className="pointer-events-none w-full" style={{ transform: sticker.flipped ? "scaleX(-1)" : undefined }} />
                                         <div className="absolute -top-6 left-0 flex items-center gap-1 opacity-0 transition group-hover:opacity-100" style={{ opacity: 1 }}>
-                                            <button type="button" className="grid size-5 place-items-center rounded bg-black/60 text-white hover:bg-black/80" title="水平翻转" onClick={() => setStickers((prev) => prev.map((item) => (item.id === sticker.id ? { ...item, flipped: !item.flipped } : item)))}>
+                                            <button type="button" className="grid size-5 place-items-center rounded bg-black/60 !text-white hover:bg-black/80" title="水平翻转" onClick={() => setStickers((prev) => prev.map((item) => (item.id === sticker.id ? { ...item, flipped: !item.flipped } : item)))}>
                                                 <FlipHorizontal2 className="size-3" />
                                             </button>
-                                            <button type="button" className="grid size-5 place-items-center rounded bg-black/60 text-white hover:bg-black/80" title="移除" onClick={() => setStickers((prev) => prev.filter((item) => item.id !== sticker.id))}>
+                                            <button type="button" className="grid size-5 place-items-center rounded bg-black/60 !text-white hover:bg-black/80" title="移除" onClick={() => setStickers((prev) => prev.filter((item) => item.id !== sticker.id))}>
                                                 <Trash2 className="size-3" />
                                             </button>
                                         </div>

@@ -416,7 +416,7 @@ export function AgentChatComposer({
                                     {item.status === "failed" && onRetryAttachment ? (
                                         <button
                                             type="button"
-                                            className="absolute inset-0 grid place-items-center rounded-[5px] bg-black/55 text-white transition hover:bg-black/65"
+                                            className="absolute inset-0 grid place-items-center rounded-[5px] bg-black/55 !text-white transition hover:bg-black/65"
                                             onClick={() => onRetryAttachment(item.id)}
                                             aria-label={`重试上传图片：${item.name}`}
                                         >
