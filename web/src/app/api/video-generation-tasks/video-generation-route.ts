@@ -218,6 +218,7 @@ export async function POST(request: Request) {
             }
             if (!lastError && capabilityError) return NextResponse.json({ error: capabilityError instanceof Error ? capabilityError.message : "当前渠道不支持参考素材" }, { status: 400 });
             if (localTask && lastError) {
+                console.error("[video-create] failed", JSON.stringify({ rawName: lastError instanceof Error ? lastError.name : typeof lastError, rawMessage: lastError instanceof Error ? lastError.message : String(lastError) }));
                 const message = toSafeGenerationErrorMessage(lastError, "视频任务创建失败");
                 await writeVideoGenerationLog({ ...localTask, attempts }, "failed", message, lastError instanceof SafeCandidateFailure);
                 await transitionVideoTask(localTask, { status: "error", error: message, retryable: lastError instanceof SafeCandidateFailure });
@@ -397,6 +398,7 @@ export async function createUpstream(
         const text = await response.text();
         if (!response.ok) {
             lastError = readVideoProviderHttpError(text, response.status);
+            console.error("[video-create] upstream rejected", JSON.stringify({ channelId: channel.channelId, model: channel.model, status: response.status, path, body: JSON.stringify(requestBody).slice(0, 600), upstream: text.slice(0, 400) }));
             if (!SAFE_CREATE_FAILURE_STATUSES.has(response.status)) throw new Error(lastError);
             continue;
         }
