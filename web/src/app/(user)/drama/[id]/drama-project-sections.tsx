@@ -404,7 +404,7 @@ export function DramaScriptPanel({
                     ]}
                     action={
                         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                            <DramaSourceImport project={project} onImported={() => onStageChange("script")} />
+                            <DramaSourceImport project={project} onImported={() => onStageChange("script")} organizeModels={organizeModels} organizeModel={organizeModel} onOrganizeModelChange={onOrganizeModelChange} />
                             <DramaOrganizeControls models={organizeModels} value={organizeModel} onChange={onOrganizeModelChange} analyzing={analyzing} disabled={!scriptText} onRun={onAnalyze} />
                             <Popover trigger="click" placement="bottomRight" styles={{ container: { padding: 12, width: 320 } }} content={<DramaEpisodeSettings project={project} episode={episode} embedded />}>
                                 <Button className="!h-8 !px-2.5" size="small" icon={<Settings2 className="size-3.5" />} aria-label="打开本集设置">

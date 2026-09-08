@@ -8,7 +8,8 @@ describe("drama source import workspace", () => {
 
         expect(source).toContain("splitDramaSource(await readDramaSourceFile(file))");
         expect(source).toContain(".docx");
-        expect(source).toContain("按章节生成分集");
+        expect(source).toContain("AI 改编为剧本");
+        expect(source).toContain("选择改编模型");
         expect(source).toContain('createVersion(project, "整本导入前")');
         expect(source).toContain("importEpisodes(project.id, drafts)");
         expect(source).toContain("IMPORT_PAGE_SIZE = 20");
