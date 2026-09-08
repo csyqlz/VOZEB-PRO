@@ -425,6 +425,16 @@ export function useCanvasNodeMediaActions({ state, tasks, interactions }: { stat
         [effectiveConfig, finishGenerationRequest, isAiConfigReady, message, openConfigDialog, startAndCompleteImageTask, startGenerationRequest],
     );
 
+    const directorStudioImageNode = useCallback(
+        async (node: CanvasNodeData, dataUrl: string) => {
+            if (!node.metadata?.content) return;
+            const image = await uploadCanvasImage(dataUrl);
+            const width = Math.min(720, Math.max(280, image.width));
+            appendDerivedImageNode(node, image, "导演台构图", { width, height: width * (image.height / Math.max(1, image.width)) });
+        },
+        [appendDerivedImageNode],
+    );
+
     const annotateEditImageNode = useCallback(
         async (node: CanvasNodeData, payload: CanvasImageAnnotateEditPayload) => {
             if (!node.metadata?.content) return;
@@ -638,6 +648,7 @@ export function useCanvasNodeMediaActions({ state, tasks, interactions }: { stat
         removeBackgroundImageNode,
         maskEditImageNode,
         annotateEditImageNode,
+        directorStudioImageNode,
         emotionEditImageNode,
         upscaleImageNode,
         generateAngleNode,

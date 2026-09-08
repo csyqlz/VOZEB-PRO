@@ -1,11 +1,11 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { ArrowUpRight, Brush, Camera, Copy, Eraser, FileText, Grid2x2, Layers3, Lock, LockOpen, Maximize2, ScanFace, Scissors, Sparkles, Upload, ZoomIn } from "lucide-react";
+import { ArrowUpRight, Brush, Camera, Clapperboard, Copy, Eraser, FileText, Grid2x2, Layers3, Lock, LockOpen, Maximize2, ScanFace, Scissors, Sparkles, Upload, ZoomIn } from "lucide-react";
 
 import type { CanvasNodeData } from "../types";
 
-type ImageNodeActionToolId = "copyPrompt" | "reversePrompt" | "replace" | "resize" | "maskEdit" | "annotateEdit" | "crop" | "split" | "splitLayers" | "removeBackground" | "emotion" | "upscale" | "superResolve" | "angle" | "view";
+type ImageNodeActionToolId = "copyPrompt" | "reversePrompt" | "replace" | "resize" | "maskEdit" | "annotateEdit" | "directorStudio" | "crop" | "split" | "splitLayers" | "removeBackground" | "emotion" | "upscale" | "superResolve" | "angle" | "view";
 export type ImageQuickToolId = "info" | "delete" | "saveAsset" | "download" | "edit" | ImageNodeActionToolId;
 
 type ImageToolHandlers = {
@@ -13,6 +13,7 @@ type ImageToolHandlers = {
     onToggleFreeResize: (node: CanvasNodeData) => void;
     onMaskEdit: (node: CanvasNodeData) => void;
     onAnnotateEdit: (node: CanvasNodeData) => void;
+    onDirectorStudio: (node: CanvasNodeData) => void;
     onCrop: (node: CanvasNodeData) => void;
     onSplit: (node: CanvasNodeData) => void;
     onSplitLayers: (node: CanvasNodeData) => void;
@@ -91,6 +92,15 @@ const imageToolDefinitions: ImageToolDefinition[] = [
         title: "添加蒙版遮罩后局部修改",
         icon: () => <Brush className="size-4" />,
         run: (node, handlers) => handlers.onMaskEdit(node),
+    },
+    {
+        id: "directorStudio",
+        defaultVisible: true,
+        panelLabel: "导演台",
+        label: "导演台",
+        title: "全景取景、摆放角色站位并生成构图参考图",
+        icon: () => <Clapperboard className="size-4" />,
+        run: (node, handlers) => handlers.onDirectorStudio(node),
     },
     {
         id: "annotateEdit",

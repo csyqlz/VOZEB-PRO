@@ -16,6 +16,7 @@ import { CanvasNodeCropDialog } from "../components/canvas-node-crop-dialog";
 import { CanvasNodeHoverToolbar, CanvasNodeInfoModal } from "../components/canvas-node-hover-toolbar";
 import { CanvasNodeMaskEditDialog } from "../components/canvas-node-mask-edit-dialog";
 import { CanvasNodeAnnotateEditDialog } from "../components/canvas-node-annotate-edit-dialog";
+import { CanvasDirectorStudio, type DirectorCanvasImage } from "../components/canvas-director-studio";
 import { CanvasNodePromptPanel } from "../components/canvas-node-prompt-panel";
 import { CanvasNodeSplitDialog } from "../components/canvas-node-split-dialog";
 import { CanvasNodeUpscaleDialog } from "../components/canvas-node-upscale-dialog";
@@ -134,6 +135,8 @@ function VozebProCanvasPage() {
         setMaskEditNodeId,
         annotateEditNodeId,
         setAnnotateEditNodeId,
+        directorNodeId,
+        setDirectorNodeId,
         splitNodeId,
         setSplitNodeId,
         upscaleNodeId,
@@ -195,6 +198,7 @@ function VozebProCanvasPage() {
         cropNode,
         maskEditNode,
         annotateEditNode,
+        directorNode,
         splitNode,
         upscaleNode,
         angleNode,
@@ -254,6 +258,7 @@ function VozebProCanvasPage() {
         removeBackgroundImageNode,
         maskEditImageNode,
         annotateEditImageNode,
+        directorStudioImageNode,
         emotionEditImageNode,
         upscaleImageNode,
         generateAngleNode,
@@ -515,6 +520,7 @@ function VozebProCanvasPage() {
                     onSaveAsset={(node) => void saveNodeAsset(node).catch((error) => message.error(error instanceof Error ? error.message : "素材保存失败"))}
                     onMaskEdit={(node) => setMaskEditNodeId(node.id)}
                     onAnnotateEdit={(node) => setAnnotateEditNodeId(node.id)}
+                    onDirectorStudio={(node) => setDirectorNodeId(node.id)}
                     onCrop={(node) => setCropNodeId(node.id)}
                     onSplit={(node) => setSplitNodeId(node.id)}
                     onSplitLayers={(node) => void splitImageLayers(node).catch((error) => message.error(error instanceof Error ? error.message : "智能分层失败"))}
@@ -599,6 +605,22 @@ function VozebProCanvasPage() {
 
                 {maskEditNode?.metadata?.content ? (
                     <CanvasNodeMaskEditDialog dataUrl={maskEditNode.metadata.content} open={Boolean(maskEditNode)} onClose={() => setMaskEditNodeId(null)} onConfirm={(payload) => void maskEditImageNode(maskEditNode!, payload)} />
+                ) : null}
+
+                {directorNode?.metadata?.content ? (
+                    <CanvasDirectorStudio
+                        sceneSrc={directorNode.metadata.content}
+                        open={Boolean(directorNode)}
+                        sceneIsPanorama={directorNode.type === CanvasNodeType.Panorama}
+                        canvasImages={nodes
+                            .filter((node) => node.type === CanvasNodeType.Image && node.id !== directorNode.id && node.metadata?.content)
+                            .slice(0, 24)
+                            .map((node) => ({ id: node.id, title: node.title || "未命名图片", src: node.metadata?.content || "" }))}
+                        onClose={() => setDirectorNodeId(null)}
+                        onCapture={async (dataUrl) => {
+                            await directorStudioImageNode(directorNode, dataUrl);
+                        }}
+                    />
                 ) : null}
 
                 {annotateEditNode?.metadata?.content ? (

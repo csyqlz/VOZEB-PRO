@@ -45,6 +45,7 @@ export function useCanvasInteractionCore({ state }: { state: CanvasPageState }) 
         cropNodeId,
         maskEditNodeId,
         annotateEditNodeId,
+        directorNodeId,
         splitNodeId,
         upscaleNodeId,
         angleNodeId,
@@ -146,6 +147,7 @@ export function useCanvasInteractionCore({ state }: { state: CanvasPageState }) 
     const cropNode = cropNodeId ? nodeById.get(cropNodeId) || null : null;
     const maskEditNode = maskEditNodeId ? nodeById.get(maskEditNodeId) || null : null;
     const annotateEditNode = annotateEditNodeId ? nodeById.get(annotateEditNodeId) || null : null;
+    const directorNode = directorNodeId ? nodeById.get(directorNodeId) || null : null;
     const splitNode = splitNodeId ? nodeById.get(splitNodeId) || null : null;
     const upscaleNode = upscaleNodeId ? nodeById.get(upscaleNodeId) || null : null;
     const angleNode = angleNodeId ? nodeById.get(angleNodeId) || null : null;
@@ -270,6 +272,7 @@ export function useCanvasInteractionCore({ state }: { state: CanvasPageState }) 
         cropNode,
         maskEditNode,
         annotateEditNode,
+        directorNode,
         splitNode,
         upscaleNode,
         angleNode,
