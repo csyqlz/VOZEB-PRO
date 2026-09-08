@@ -89,6 +89,8 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
     const [designError, setDesignError] = useState("");
     const analyzeElapsedMs = useElapsedTimer(analyzing);
     const designElapsedMs = useElapsedTimer(designing);
+    const analyzeStartedAtRef = useRef(0);
+    const designStartedAtRef = useRef(0);
     const { isWaiting: isCapacityWaiting, schedule: scheduleCapacityRetry } = useGenerationCapacityRetry();
     const audioReady = Boolean(config.audioModel.trim());
     const organizeModels = creativeAgentModelsFromConfig(config, ["text"]);
@@ -115,6 +117,7 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
         if (!episode.script.trim()) return message.warning("请先填写剧本内容");
         if (!organizeModel.trim()) return message.warning("请先选择 AI 整理使用的文本模型");
         setAnalyzeError("");
+        analyzeStartedAtRef.current = Date.now();
         setAnalyzing(true);
         try {
             const response = await fetch("/api/drama/analyze", {
@@ -128,11 +131,13 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
             await createVersion(project, "AI 内容解析前");
             applyContentAnalysis(project.id, episode.id, payload.data);
             setStage("review");
-            message.success(`已提取 ${payload.data.characters.length} 个角色、${payload.data.scenes.length} 个场景和 ${payload.data.shots.length} 个待审核镜头（耗时 ${formatElapsed(analyzeElapsedMs)}）`);
+            const durationMs = analyzeStartedAtRef.current ? Date.now() - analyzeStartedAtRef.current : 0;
+            message.success(`已提取 ${payload.data.characters.length} 个角色、${payload.data.scenes.length} 个场景和 ${payload.data.shots.length} 个待审核镜头（耗时 ${formatElapsed(durationMs)}）`);
         } catch (error) {
             const reason = error instanceof Error ? error.message : "AI 剧本解析失败";
-            setAnalyzeError(`${reason}（已用时 ${formatElapsed(analyzeElapsedMs)}）。上游模型可能繁忙，可稍后重试或换一个整理模型。`);
-            message.error({ content: `剧本分析失败（已用时 ${formatElapsed(analyzeElapsedMs)}）：${reason}`, duration: 8 });
+            const durationMs = analyzeStartedAtRef.current ? Date.now() - analyzeStartedAtRef.current : 0;
+            setAnalyzeError(`${reason}（已用时 ${formatElapsed(durationMs)}）。上游模型可能繁忙，可稍后重试或换一个整理模型。`);
+            message.error({ content: `剧本分析失败（已用时 ${formatElapsed(durationMs)}）：${reason}`, duration: 8 });
         } finally {
             setAnalyzing(false);
         }
@@ -141,6 +146,7 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
         if (!episode.shots.length) return message.warning("请先完成内容解析");
         updateEpisode(project.id, episode.id, { reviewStatus: "approved" });
         setDesignError("");
+        designStartedAtRef.current = Date.now();
         setDesigning(true);
         try {
             const response = await fetch("/api/drama/analyze", {
@@ -172,11 +178,13 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
             await createVersion(project, "视觉方案生成前");
             applyVisualAnalysis(project.id, episode.id, payload.data);
             setStage("storyboard");
-            message.success(`已按审核内容生成视觉方案（耗时 ${formatElapsed(designElapsedMs)}）`);
+            const durationMs = designStartedAtRef.current ? Date.now() - designStartedAtRef.current : 0;
+            message.success(`已按审核内容生成视觉方案（耗时 ${formatElapsed(durationMs)}）`);
         } catch (error) {
             const reason = error instanceof Error ? error.message : "AI 视觉方案生成失败";
-            setDesignError(`${reason}（已用时 ${formatElapsed(designElapsedMs)}）。可稍后重试或换一个整理模型。`);
-            message.error({ content: `视觉方案生成失败（已用时 ${formatElapsed(designElapsedMs)}）：${reason}`, duration: 8 });
+            const durationMs = designStartedAtRef.current ? Date.now() - designStartedAtRef.current : 0;
+            setDesignError(`${reason}（已用时 ${formatElapsed(durationMs)}）。可稍后重试或换一个整理模型。`);
+            message.error({ content: `视觉方案生成失败（已用时 ${formatElapsed(durationMs)}）：${reason}`, duration: 8 });
         } finally {
             setDesigning(false);
         }
