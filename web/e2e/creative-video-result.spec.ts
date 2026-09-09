@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
 
+import { stubPublicPromptImages } from "./support";
+
 type MediaType = "image" | "video";
 type MediaSize = { width: number; height: number; label: string };
 
@@ -245,7 +247,7 @@ test("a long-running media task uses warm elapsed-time feedback", async ({ page 
         await page.goto(`/create?conversationId=${fixture.id}`, { waitUntil: "domcontentloaded" });
         const waiting = page.getByTestId("creative-generation-waiting");
         await expect(waiting).toBeVisible({ timeout: 45_000 });
-        await expect(waiting).toContainText("主人，久等了");
+        await expect(waiting).toContainText("久等了");
         await expect(waiting.getByTestId("creative-generation-elapsed")).toContainText("已等待 2分");
         await expect(waiting).not.toContainText("正在处理");
         await expect(page.getByRole("heading", { name: "已为你生成视频" })).toHaveCount(0);
@@ -556,6 +558,7 @@ test("result layouts remain contained at 390px and 430px", async ({ page }, test
 });
 
 async function preparePage(page: Page, testInfo: TestInfo) {
+    await stubPublicPromptImages(page);
     if (testInfo.project.name === "chromium") await page.setViewportSize({ width: 1672, height: 941 });
     await page.route(/\/api\/public\/gallery(?:\?.*)?$/, (route) => route.fulfill({ json: { code: 0, data: { items: [] }, msg: "OK" } }));
     await page.route(/\/api\/notifications\/interactions(?:\?.*)?$/, (route) => route.fulfill({ json: { code: 0, data: { items: [], unreadCount: 0 }, msg: "OK" } }));

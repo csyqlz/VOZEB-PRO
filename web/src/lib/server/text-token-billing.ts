@@ -8,11 +8,20 @@ export type TokenUsage = {
     cacheWriteTokens: number;
 };
 
-export function resolveTextPricing(logicalModels: Array<{ id: string; bindings: Array<{ channelId?: string; upstreamModel: string; enabled?: boolean; priority?: number; capabilityProfile?: { pricing?: LogicalModelPricing } }> }> | undefined, model: string, channelId = "") {
+export function resolveTextPricing(
+    logicalModels: Array<{ id: string; bindings: Array<{ channelId?: string; upstreamModel: string; enabled?: boolean; priority?: number; capabilityProfile?: { pricing?: LogicalModelPricing } }> }> | undefined,
+    model: string,
+    channelId = "",
+) {
     return textTokenSalePrice(resolveLogicalModelPricing(logicalModels, model, channelId));
 }
 
-export function estimateTextCharge(input: { logicalModels?: Array<{ id: string; bindings: Array<{ channelId?: string; upstreamModel: string; enabled?: boolean; priority?: number; capabilityProfile?: { pricing?: LogicalModelPricing } }> }>; model: string; channelId?: string; body: unknown }) {
+export function estimateTextCharge(input: {
+    logicalModels?: Array<{ id: string; bindings: Array<{ channelId?: string; upstreamModel: string; enabled?: boolean; priority?: number; capabilityProfile?: { pricing?: LogicalModelPricing } }> }>;
+    model: string;
+    channelId?: string;
+    body: unknown;
+}) {
     const pricing = resolveTextPricing(input.logicalModels, input.model, input.channelId);
     if (!pricing) return undefined;
     const payload = input.body && typeof input.body === "object" ? (input.body as Record<string, unknown>) : {};
@@ -76,11 +85,7 @@ function normalizeUsage(value: unknown): TokenUsage | undefined {
 
 function priceTokens(pricing: { input: number; output: number; cacheRead: number; cacheWrite: number }, usage: TokenUsage) {
     const regularInputTokens = Math.max(0, usage.inputTokens - usage.cacheReadTokens - usage.cacheWriteTokens);
-    const amount =
-        (regularInputTokens / 1_000_000) * pricing.input +
-        (usage.outputTokens / 1_000_000) * pricing.output +
-        (usage.cacheReadTokens / 1_000_000) * pricing.cacheRead +
-        (usage.cacheWriteTokens / 1_000_000) * pricing.cacheWrite;
+    const amount = (regularInputTokens / 1_000_000) * pricing.input + (usage.outputTokens / 1_000_000) * pricing.output + (usage.cacheReadTokens / 1_000_000) * pricing.cacheRead + (usage.cacheWriteTokens / 1_000_000) * pricing.cacheWrite;
     return Number(Math.max(0, amount).toFixed(8));
 }
 

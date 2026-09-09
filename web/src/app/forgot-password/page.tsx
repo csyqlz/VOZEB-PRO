@@ -111,7 +111,18 @@ export default function ForgotPasswordPage() {
                     </label>
                     <label className="block space-y-2">
                         <span className="text-sm font-medium text-stone-700 dark:text-stone-200">验证码</span>
-                        <Input.Search size="large" value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="输入 6 位验证码" enterButton={sendingCode ? "发送中" : codeCooldown > 0 ? `${codeCooldown} 秒后重试` : "获取验证码"} loading={sendingCode} disabled={codeCooldown > 0 || submitting} onSearch={() => void sendCode()} inputMode="numeric" maxLength={6} />
+                        <Input.Search
+                            size="large"
+                            value={code}
+                            onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                            placeholder="输入 6 位验证码"
+                            enterButton={sendingCode ? "发送中" : codeCooldown > 0 ? `${codeCooldown} 秒后重试` : "获取验证码"}
+                            loading={sendingCode}
+                            disabled={codeCooldown > 0 || submitting}
+                            onSearch={() => void sendCode()}
+                            inputMode="numeric"
+                            maxLength={6}
+                        />
                     </label>
                     <label className="block space-y-2">
                         <span className="text-sm font-medium text-stone-700 dark:text-stone-200">新密码</span>
@@ -119,7 +130,15 @@ export default function ForgotPasswordPage() {
                     </label>
                     <label className="block space-y-2">
                         <span className="text-sm font-medium text-stone-700 dark:text-stone-200">确认新密码</span>
-                        <Input.Password size="large" prefix={<ShieldCheck className="size-4 text-stone-500" />} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="再次输入新密码" autoComplete="new-password" status={passwordMismatch ? "error" : undefined} />
+                        <Input.Password
+                            size="large"
+                            prefix={<ShieldCheck className="size-4 text-stone-500" />}
+                            value={confirmPassword}
+                            onChange={(event) => setConfirmPassword(event.target.value)}
+                            placeholder="再次输入新密码"
+                            autoComplete="new-password"
+                            status={passwordMismatch ? "error" : undefined}
+                        />
                     </label>
                     <Button type="primary" size="large" block loading={submitting} disabled={!validEmail || !/^\d{6}$/.test(code) || newPassword.length < 8 || passwordMismatch} onClick={() => void resetPassword()}>
                         保存新密码并返回登录

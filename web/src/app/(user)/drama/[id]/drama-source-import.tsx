@@ -17,7 +17,19 @@ const IMPORT_PAGE_SIZE = 20;
 
 type ChapterStatus = "pending" | "running" | "success" | "failed";
 
-export function DramaSourceImport({ project, onImported, organizeModels = [], organizeModel = "", onOrganizeModelChange }: { project: DramaProject; onImported: () => void; organizeModels?: DramaOrganizeModelOption[]; organizeModel?: string; onOrganizeModelChange?: (model: string) => void }) {
+export function DramaSourceImport({
+    project,
+    onImported,
+    organizeModels = [],
+    organizeModel = "",
+    onOrganizeModelChange,
+}: {
+    project: DramaProject;
+    onImported: () => void;
+    organizeModels?: DramaOrganizeModelOption[];
+    organizeModel?: string;
+    onOrganizeModelChange?: (model: string) => void;
+}) {
     const { message } = App.useApp();
     const importEpisodes = useDramaStore((state) => state.importEpisodes);
     const createVersion = useDramaStore((state) => state.createVersion);
@@ -270,10 +282,18 @@ export function DramaSourceImport({ project, onImported, organizeModels = [], or
                                     elapsedMs={adaptElapsedMs}
                                     done={statuses.filter((status) => status === "success" || status === "failed").length}
                                     total={drafts.length}
-                                    hint={statuses.some((status) => status === "running") ? `正在改编第 ${cursorRef.current + 1} 集（本章已用时 ${formatElapsed(chapterStartRef.current ? Date.now() - chapterStartRef.current : 0)}），全书完成进度如上` : undefined}
+                                    hint={
+                                        statuses.some((status) => status === "running")
+                                            ? `正在改编第 ${cursorRef.current + 1} 集（本章已用时 ${formatElapsed(chapterStartRef.current ? Date.now() - chapterStartRef.current : 0)}），全书完成进度如上`
+                                            : undefined
+                                    }
                                     error={adaptPaused ? adaptError : undefined}
                                 />
-                                {adaptPaused ? <Button size="small" className="!mt-1.5 !h-6 !px-2 !text-xs" onClick={() => void skipFailed()}>跳过本章继续</Button> : null}
+                                {adaptPaused ? (
+                                    <Button size="small" className="!mt-1.5 !h-6 !px-2 !text-xs" onClick={() => void skipFailed()}>
+                                        跳过本章继续
+                                    </Button>
+                                ) : null}
                             </div>
                         ) : null}
                         <Input
@@ -304,9 +324,17 @@ export function DramaSourceImport({ project, onImported, organizeModels = [], or
                                         </span>
                                         {mode === "adapt" && statuses[index] ? (
                                             <span className="flex items-center" aria-label={statuses[index] === "success" ? "改编完成" : statuses[index] === "running" ? "改编中" : statuses[index] === "failed" ? "改编失败" : "待改编"}>
-                                                {statuses[index] === "success" ? <CheckCircle2 className="size-4 text-emerald-500" /> : statuses[index] === "running" ? <Loader2 className="size-4 animate-spin text-violet-500" /> : statuses[index] === "failed" ? <XCircle className="size-4 text-[#ef4444]" /> : <CircleDashed className="size-4 text-muted-foreground/50" />}
+                                                {statuses[index] === "success" ? (
+                                                    <CheckCircle2 className="size-4 text-emerald-500" />
+                                                ) : statuses[index] === "running" ? (
+                                                    <Loader2 className="size-4 animate-spin text-violet-500" />
+                                                ) : statuses[index] === "failed" ? (
+                                                    <XCircle className="size-4 text-[#ef4444]" />
+                                                ) : (
+                                                    <CircleDashed className="size-4 text-muted-foreground/50" />
+                                                )}
                                             </span>
-                        ) : null}
+                                        ) : null}
                                     </div>
                                 ))}
                             </div>

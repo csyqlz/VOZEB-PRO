@@ -17,11 +17,18 @@ export default function GlobalErrorPage({ reset }: { error: Error & { digest?: s
                 <h1 className="mt-4 text-xl font-semibold">页面暂时无法打开</h1>
                 <p className="mt-2 text-sm leading-6 text-[#697381] dark:text-[#a7afb9]">{DEFAULT_SITE_TITLE}遇到了一点临时问题。你可以重新加载当前页面，或返回首页继续创作。</p>
                 <div className="mt-6 grid gap-2 sm:grid-cols-2">
-                    <button type="button" className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[#20242a] px-4 text-sm font-medium text-white transition hover:bg-[#343b44] dark:bg-white dark:text-[#20242a] dark:hover:bg-[#e8ebef]" onClick={() => reset()}>
+                    <button
+                        type="button"
+                        className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[#20242a] px-4 text-sm font-medium text-white transition hover:bg-[#343b44] dark:bg-white dark:text-[#20242a] dark:hover:bg-[#e8ebef]"
+                        onClick={() => reset()}
+                    >
                         <RefreshCw className="size-4" aria-hidden="true" />
                         重新加载
                     </button>
-                    <Link href="/" className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-[#dfe4e8] px-4 text-sm font-medium text-[#4d5662] transition hover:bg-[#f5f7f8] dark:border-[#3b424c] dark:text-[#dce1e7] dark:hover:bg-[#242930]">
+                    <Link
+                        href="/"
+                        className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-[#dfe4e8] px-4 text-sm font-medium text-[#4d5662] transition hover:bg-[#f5f7f8] dark:border-[#3b424c] dark:text-[#dce1e7] dark:hover:bg-[#242930]"
+                    >
                         <ArrowLeft className="size-4" aria-hidden="true" />
                         返回首页
                     </Link>

@@ -20,7 +20,7 @@ describe("generation error messages", () => {
         expect(classifyGenerationError(new Error("Invalid token"))).toBe("auth");
         expect(classifyGenerationError(new Error("AI 模型渠道鉴权失败，请管理员检查 API Key 和模型权限。"))).toBe("auth");
         expect(classifyGenerationError(new Error("model gpt-image-2-4k not found"))).toBe("model_not_found");
-        expect(classifyGenerationError(new Error('invalid image size: edges must be multiples of 16'))).toBe("parameter");
+        expect(classifyGenerationError(new Error("invalid image size: edges must be multiples of 16"))).toBe("parameter");
         expect(classifyGenerationError(new Error("请上传你提到的参考图片"))).toBe("reference");
         expect(classifyGenerationError(new Error("任务已取消"))).toBe("cancelled");
         expect(classifyGenerationError(new Error("内容政策拒绝"))).toBe("moderation");

@@ -22,7 +22,17 @@ describe("home creation capability visibility", () => {
 
     it("only exposes intelligent mode when a text model is configured", () => {
         expect(resolveHomeAgentAvailability({ logicalModels: [], defaultModels: { imageModel: "image", videoModel: "video", textModel: "", audioModel: "" } })).toBe(false);
-        expect(resolveHomeAgentAvailability({ logicalModels: [{ id: "writer", name: "Writer", capability: "text", enabled: true, bindings: [{ id: "binding", channelId: "channel", upstreamModel: "writer", enabled: true, priority: 1 }] }], defaultModels: { imageModel: "", videoModel: "", textModel: "", audioModel: "" } })).toBe(true);
-        expect(resolveHomeAgentAvailability({ logicalModels: [{ id: "image", name: "Image", capability: "image", enabled: true, bindings: [{ id: "binding", channelId: "channel", upstreamModel: "image", enabled: true, priority: 1 }] }], defaultModels: { imageModel: "image", videoModel: "", textModel: "stale-text", audioModel: "" } })).toBe(false);
+        expect(
+            resolveHomeAgentAvailability({
+                logicalModels: [{ id: "writer", name: "Writer", capability: "text", enabled: true, bindings: [{ id: "binding", channelId: "channel", upstreamModel: "writer", enabled: true, priority: 1 }] }],
+                defaultModels: { imageModel: "", videoModel: "", textModel: "", audioModel: "" },
+            }),
+        ).toBe(true);
+        expect(
+            resolveHomeAgentAvailability({
+                logicalModels: [{ id: "image", name: "Image", capability: "image", enabled: true, bindings: [{ id: "binding", channelId: "channel", upstreamModel: "image", enabled: true, priority: 1 }] }],
+                defaultModels: { imageModel: "image", videoModel: "", textModel: "stale-text", audioModel: "" },
+            }),
+        ).toBe(false);
     });
 });

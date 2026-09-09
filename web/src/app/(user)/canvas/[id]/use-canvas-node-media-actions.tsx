@@ -331,7 +331,8 @@ export function useCanvasNodeMediaActions({ state, tasks, interactions }: { stat
                 openConfigDialog(true);
                 return;
             }
-            const prompt = "基于参考图主体，生成一张 2×2 四格分镜网格图：四个格子分别呈现同一主体的远景全景、中景动作、近景表情与特写细节，保持人物或产品的外观、服装、色彩与风格与参考图完全一致；格与格之间用细白线分隔，每格都是独立完整的画面，不要出现文字。";
+            const prompt =
+                "基于参考图主体，生成一张 2×2 四格分镜网格图：四个格子分别呈现同一主体的远景全景、中景动作、近景表情与特写细节，保持人物或产品的外观、服装、色彩与风格与参考图完全一致；格与格之间用细白线分隔，每格都是独立完整的画面，不要出现文字。";
             const childId = nanoid();
             const source = canvasNodeReferenceImage(node);
             const generationMetadata = buildImageGenerationMetadata("edit", generationConfig, 1, [source]);
@@ -362,17 +363,17 @@ export function useCanvasNodeMediaActions({ state, tasks, interactions }: { stat
                 const cellHeight = cellWidth;
                 const uploads = await Promise.allSettled(pieces.map((piece) => uploadCanvasImage(piece.dataUrl)));
                 const splitNodes = uploads
-                  .map((result, index) => (result.status === "fulfilled" ? { result: result.value, index } : null))
-                  .filter((item): item is { result: Awaited<ReturnType<typeof uploadCanvasImage>>; index: number } => Boolean(item))
-                  .map(({ result, index }) => ({
-                    id: nanoid(),
-                    type: CanvasNodeType.Image,
-                    title: `分镜 ${pieces[index].row + 1}-${pieces[index].column + 1}`,
-                    position: { x: node.position.x + node.width + 96 + node.width + 64, y: node.position.y + pieces[index].row * (cellHeight + 16) },
-                    width: cellWidth,
-                    height: cellHeight,
-                    metadata: { content: result.serverUrl || result.url, storageKey: result.storageKey, status: NODE_STATUS_SUCCESS, naturalWidth: result.width, naturalHeight: result.height },
-                  }));
+                    .map((result, index) => (result.status === "fulfilled" ? { result: result.value, index } : null))
+                    .filter((item): item is { result: Awaited<ReturnType<typeof uploadCanvasImage>>; index: number } => Boolean(item))
+                    .map(({ result, index }) => ({
+                        id: nanoid(),
+                        type: CanvasNodeType.Image,
+                        title: `分镜 ${pieces[index].row + 1}-${pieces[index].column + 1}`,
+                        position: { x: node.position.x + node.width + 96 + node.width + 64, y: node.position.y + pieces[index].row * (cellHeight + 16) },
+                        width: cellWidth,
+                        height: cellHeight,
+                        metadata: { content: result.serverUrl || result.url, storageKey: result.storageKey, status: NODE_STATUS_SUCCESS, naturalWidth: result.width, naturalHeight: result.height },
+                    }));
                 if (splitNodes.length) {
                     setNodes((prev) => [...prev, ...splitNodes]);
                     setConnections((prev) => [...prev, ...splitNodes.map((split) => ({ id: nanoid(), fromNodeId: childId, toNodeId: split.id }))]);

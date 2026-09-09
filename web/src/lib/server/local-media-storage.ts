@@ -93,7 +93,10 @@ async function listRegisteredLocalMediaAssets(input: { page?: number; pageSize?:
 
 export async function cleanupExpiredLocalMediaAssets(limit?: number) {
     const registered = await listExpiredLocalMediaRegistrations(limit);
-    const generationResult = await deleteRegisteredMediaAssets(registered.filter((asset) => asset.scope === "generation"), { includeEphemeral: false });
+    const generationResult = await deleteRegisteredMediaAssets(
+        registered.filter((asset) => asset.scope === "generation"),
+        { includeEphemeral: false },
+    );
     const referenceResult = await deleteRegisteredMediaAssets(registered.filter((asset) => asset.scope === "reference"));
     const registeredResult = mergeDeleteResults(generationResult, referenceResult);
     if (getDatabaseProvider() === "postgres") return registeredResult;
@@ -110,7 +113,10 @@ export async function deleteLocalMediaAssets(ids: string[], referenceOptions?: L
     const targets = Array.from(new Set(ids.map((value) => value.trim()).filter(Boolean)))
         .map((id) => ({ id, target: decodeMediaId(id) }))
         .filter((item): item is { id: string; target: { scope: "generation" | "reference"; relativePath: string } } => Boolean(item.target));
-    const references = await countLocalMediaReferences(targets.map((item) => item.target.relativePath), referenceOptions);
+    const references = await countLocalMediaReferences(
+        targets.map((item) => item.target.relativePath),
+        referenceOptions,
+    );
     const deletedKeys: string[] = [];
     for (const { id, target } of targets) {
         const referenceCount = references.get(target.relativePath) || 0;
@@ -155,7 +161,10 @@ export async function deleteLocalMediaAssetsByStorageKeys(storageKeys: string[],
 
 async function deleteRegisteredMediaAssets(registrations: LocalMediaRegistration[], referenceOptions?: LocalMediaReferenceCountOptions) {
     const unique = Array.from(new Map(registrations.map((item) => [item.storageKey, item])).values());
-    const references = await countLocalMediaReferences(unique.map((item) => item.storageKey), referenceOptions);
+    const references = await countLocalMediaReferences(
+        unique.map((item) => item.storageKey),
+        referenceOptions,
+    );
     const blocked: Array<{ id: string; storageKey: string; referenceCount: number }> = [];
     const deletedKeys: string[] = [];
     let deletedFiles = 0;

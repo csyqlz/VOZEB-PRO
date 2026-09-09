@@ -92,7 +92,14 @@ export function generationRatioOptions(capability: MediaCapability, profile?: Cr
         const configured = profile.sizes.map((value) => {
             const preset = defaults.find((option) => option.value.toLowerCase() === value.toLowerCase());
             const dimensions = parseCustomDimensions(value);
-            return preset || { value, label: dimensions ? `${dimensions[0]}×${dimensions[1]}` : value, width: dimensions ? Math.min(26, Math.max(10, (Number(dimensions[0]) / Number(dimensions[1])) * 16)) : 18, height: dimensions ? Math.min(26, Math.max(10, (Number(dimensions[1]) / Number(dimensions[0])) * 16)) : 18 };
+            return (
+                preset || {
+                    value,
+                    label: dimensions ? `${dimensions[0]}×${dimensions[1]}` : value,
+                    width: dimensions ? Math.min(26, Math.max(10, (Number(dimensions[0]) / Number(dimensions[1])) * 16)) : 18,
+                    height: dimensions ? Math.min(26, Math.max(10, (Number(dimensions[1]) / Number(dimensions[0])) * 16)) : 18,
+                }
+            );
         });
         return [smart, ...configured.filter((option, index, options) => options.findIndex((item) => item.value.toLowerCase() === option.value.toLowerCase()) === index)];
     }
@@ -418,7 +425,9 @@ function PreferencePanel({
                         </div>
                     ) : null}
                     {!referencesUnsupported && !referencesExceeded && referenceCount !== undefined && referenceCount > 0 && referenceLimit !== undefined ? (
-                        <p className="text-[10px] leading-4 text-[#8c96a1] dark:text-[#8f9aa6]">参考图 {referenceCount}/{referenceLimit} 张</p>
+                        <p className="text-[10px] leading-4 text-[#8c96a1] dark:text-[#8f9aa6]">
+                            参考图 {referenceCount}/{referenceLimit} 张
+                        </p>
                     ) : null}
                     {capability === "video" && videoReferenceContent ? (
                         videoReferenceContent
@@ -494,8 +503,8 @@ function PreferencePanel({
                                     exactSizesOnly
                                         ? "cursor-not-allowed border-[#e3e8ec] text-[#aeb6be] dark:border-[#343b44] dark:text-[#697480]"
                                         : customEditorOpen || (parseCustomDimensions(selectedSize) && !isPresetMediaSize(capability, selectedSize))
-                                        ? "border-[#9bbdce] bg-[#f2f8fb] font-medium text-[#315d78] dark:border-[#557f96] dark:bg-[#20333d] dark:text-[#a8c8dc]"
-                                        : "border-[#d8dde2] text-[#687481] hover:border-[#b8c3cc] hover:bg-[#f7f8f9] hover:text-[#20242a] dark:border-[#414953] dark:text-[#a6afb9] dark:hover:bg-[#24282e] dark:hover:text-white",
+                                          ? "border-[#9bbdce] bg-[#f2f8fb] font-medium text-[#315d78] dark:border-[#557f96] dark:bg-[#20333d] dark:text-[#a8c8dc]"
+                                          : "border-[#d8dde2] text-[#687481] hover:border-[#b8c3cc] hover:bg-[#f7f8f9] hover:text-[#20242a] dark:border-[#414953] dark:text-[#a6afb9] dark:hover:bg-[#24282e] dark:hover:text-white",
                                 )}
                                 disabled={exactSizesOnly}
                                 title={exactSizesOnly ? "当前模型仅支持已列出的精确像素尺寸" : undefined}

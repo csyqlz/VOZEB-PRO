@@ -36,30 +36,27 @@ export function GeneratedAssetsSection({ onSaved }: { onSaved?: () => void }) {
     const [loading, setLoading] = useState(true);
     const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
 
-    const load = useCallback(
-        (nextPage: number, type: "all" | "image" | "video") => {
-            setLoading(true);
-            const params = new URLSearchParams({ page: String(nextPage), pageSize: String(PAGE_SIZE) });
-            if (type !== "all") params.set("type", type);
-            void fetch(`/api/creative/assets?${params}`, { cache: "no-store" })
-                .then((response) => (response.ok ? response.json() : null))
-                .then((payload) => {
-                    if (payload?.code === 0 && payload.data) {
-                        setAssets(payload.data.items || []);
-                        setTotal(payload.data.total || 0);
-                    } else {
-                        setAssets([]);
-                        setTotal(0);
-                    }
-                })
-                .catch(() => {
+    const load = useCallback((nextPage: number, type: "all" | "image" | "video") => {
+        setLoading(true);
+        const params = new URLSearchParams({ page: String(nextPage), pageSize: String(PAGE_SIZE) });
+        if (type !== "all") params.set("type", type);
+        void fetch(`/api/creative/assets?${params}`, { cache: "no-store" })
+            .then((response) => (response.ok ? response.json() : null))
+            .then((payload) => {
+                if (payload?.code === 0 && payload.data) {
+                    setAssets(payload.data.items || []);
+                    setTotal(payload.data.total || 0);
+                } else {
                     setAssets([]);
                     setTotal(0);
-                })
-                .finally(() => setLoading(false));
-        },
-        [],
-    );
+                }
+            })
+            .catch(() => {
+                setAssets([]);
+                setTotal(0);
+            })
+            .finally(() => setLoading(false));
+    }, []);
 
     useEffect(() => {
         load(page, typeFilter);
@@ -138,7 +135,9 @@ export function GeneratedAssetsSection({ onSaved }: { onSaved?: () => void }) {
 
             <div className="mt-3 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-900 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-100" role="status">
                 <Clock3 className="mt-0.5 size-3.5 shrink-0" />
-                <p className="min-w-0">生成记录按平台规则默认保留 24 小时，过期后仅清理未保存且无引用的临时文件。重要内容请及时<span className="font-medium">下载到本地</span>或点击<span className="font-medium">「转存为素材」</span>长期保留，已下载或已转存的内容不受影响。</p>
+                <p className="min-w-0">
+                    生成记录按平台规则默认保留 24 小时，过期后仅清理未保存且无引用的临时文件。重要内容请及时<span className="font-medium">下载到本地</span>或点击<span className="font-medium">「转存为素材」</span>长期保留，已下载或已转存的内容不受影响。
+                </p>
             </div>
 
             {loading ? (
@@ -156,7 +155,15 @@ export function GeneratedAssetsSection({ onSaved }: { onSaved?: () => void }) {
                                         {asset.type === "image" && url ? (
                                             <img src={imagePreviewUrl(url, 640)} alt={asset.title} className="size-full object-cover" loading="lazy" />
                                         ) : asset.type === "video" && url ? (
-                                            <video src={url} className="size-full object-cover" preload="metadata" muted controls={false} onMouseEnter={(event) => void event.currentTarget.play().catch(() => {})} onMouseLeave={(event) => event.currentTarget.pause()} />
+                                            <video
+                                                src={url}
+                                                className="size-full object-cover"
+                                                preload="metadata"
+                                                muted
+                                                controls={false}
+                                                onMouseEnter={(event) => void event.currentTarget.play().catch(() => {})}
+                                                onMouseLeave={(event) => event.currentTarget.pause()}
+                                            />
                                         ) : (
                                             <div className="grid size-full place-items-center text-xs text-muted-foreground">无法预览</div>
                                         )}

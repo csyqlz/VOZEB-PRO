@@ -135,11 +135,7 @@ export function serializePublicSettings(settings: AuthSettings) {
         registrationEnabled: settings.registrationEnabled,
         emailRegistrationEnabled: settings.emailRegistrationEnabled,
         modelPointCosts: { ...settings.modelPointCosts },
-        modelPricing: Object.fromEntries(
-            publicLogicalModels
-                .map((model) => [model.id, publicModelPricing(model)])
-                .filter(([, pricing]) => Boolean(pricing)),
-        ),
+        modelPricing: Object.fromEntries(publicLogicalModels.map((model) => [model.id, publicModelPricing(model)]).filter(([, pricing]) => Boolean(pricing))),
         generationPointMultipliers: {
             imageQuality: { ...settings.generationPointMultipliers.imageQuality },
             videoQuality: { ...settings.generationPointMultipliers.videoQuality },
@@ -158,37 +154,39 @@ export function serializePublicSettings(settings: AuthSettings) {
         },
         defaultModels: { ...settings.defaultModels },
         logicalModels: publicLogicalModels.map((model) => ({
-                id: model.id,
-                name: model.name,
-                capability: model.capability,
-                enabled: true,
-                bindings: model.bindings
-                    .filter((binding) => binding.enabled)
-                    .map((binding) => {
-                        const capabilityProfile = publicCapabilityProfile(binding.capabilityProfile);
-                        return {
-                            id: binding.id,
-                            channelId: binding.channelId,
-                            upstreamModel: binding.upstreamModel,
-                            enabled: true,
-                            priority: binding.priority,
-                            ...(capabilityProfile ? { capabilityProfile } : {}),
-                        };
-                    }),
-            })),
-        systemChannels: publicChannels
-            .map((channel) => ({
-                id: channel.id,
-                baseUrl: `/api/ai/system/${channel.id}`,
-                apiFormat: channel.apiFormat,
-                models: channel.models,
-                enabled: true,
-            })),
+            id: model.id,
+            name: model.name,
+            capability: model.capability,
+            enabled: true,
+            bindings: model.bindings
+                .filter((binding) => binding.enabled)
+                .map((binding) => {
+                    const capabilityProfile = publicCapabilityProfile(binding.capabilityProfile);
+                    return {
+                        id: binding.id,
+                        channelId: binding.channelId,
+                        upstreamModel: binding.upstreamModel,
+                        enabled: true,
+                        priority: binding.priority,
+                        ...(capabilityProfile ? { capabilityProfile } : {}),
+                    };
+                }),
+        })),
+        systemChannels: publicChannels.map((channel) => ({
+            id: channel.id,
+            baseUrl: `/api/ai/system/${channel.id}`,
+            apiFormat: channel.apiFormat,
+            models: channel.models,
+            enabled: true,
+        })),
     };
 }
 
 function normalizePublicModelName(model: string) {
-    return model.replace(/^models\//i, "").trim().toLowerCase();
+    return model
+        .replace(/^models\//i, "")
+        .trim()
+        .toLowerCase();
 }
 
 function publicCapabilityProfile(profile: AuthSettings["logicalModels"][number]["bindings"][number]["capabilityProfile"]) {

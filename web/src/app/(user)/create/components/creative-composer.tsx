@@ -359,7 +359,10 @@ export function CreativeComposer({
                 {selectedSkills.length || otherAttachments.length ? (
                     <div className={cn("hide-scrollbar gap-2 overflow-x-auto overflow-y-hidden px-2 pb-1 pt-1", compact ? "hidden" : "flex")}>
                         {selectedSkills.map((skill) => (
-                            <span key={skill.id} className="flex h-9 max-w-60 shrink-0 items-center gap-2 rounded-lg border border-[#d6dee8] bg-[#f1f4f8] px-2.5 text-xs font-medium text-[#344152] shadow-[0_2px_8px_rgba(38,49,65,0.07)] dark:border-[#3b4653] dark:bg-[#252b33] dark:text-[#edf1f5] dark:shadow-black/20">
+                            <span
+                                key={skill.id}
+                                className="flex h-9 max-w-60 shrink-0 items-center gap-2 rounded-lg border border-[#d6dee8] bg-[#f1f4f8] px-2.5 text-xs font-medium text-[#344152] shadow-[0_2px_8px_rgba(38,49,65,0.07)] dark:border-[#3b4653] dark:bg-[#252b33] dark:text-[#edf1f5] dark:shadow-black/20"
+                            >
                                 <span className="grid size-5 shrink-0 place-items-center rounded-md bg-[#d3a44f]/16 text-[#95681d] dark:bg-[#e4bb70]/14 dark:text-[#e4bb70]">
                                     <Sparkles className="size-3.5" />
                                 </span>

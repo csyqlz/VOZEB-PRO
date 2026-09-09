@@ -5,7 +5,8 @@ import { ArrowUpRight, Brush, Camera, Clapperboard, Copy, Eraser, FileText, Grid
 
 import type { CanvasNodeData } from "../types";
 
-type ImageNodeActionToolId = "copyPrompt" | "reversePrompt" | "replace" | "resize" | "maskEdit" | "annotateEdit" | "directorStudio" | "gridStoryboard" | "crop" | "split" | "splitLayers" | "removeBackground" | "emotion" | "upscale" | "superResolve" | "angle" | "view";
+type ImageNodeActionToolId =
+    "copyPrompt" | "reversePrompt" | "replace" | "resize" | "maskEdit" | "annotateEdit" | "directorStudio" | "gridStoryboard" | "crop" | "split" | "splitLayers" | "removeBackground" | "emotion" | "upscale" | "superResolve" | "angle" | "view";
 export type ImageQuickToolId = "info" | "delete" | "saveAsset" | "download" | "edit" | ImageNodeActionToolId;
 
 type ImageToolHandlers = {

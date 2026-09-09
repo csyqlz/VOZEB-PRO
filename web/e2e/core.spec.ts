@@ -179,7 +179,7 @@ test("image task persists a real media result and reuses the same request identi
     const completed = await pollTask(request, `/api/image-tasks/${firstTask.id}`);
     expect(completed).toMatchObject({ status: "success", result: { width: 64, height: 64, mimeType: "image/png" } });
     const mediaUrl = String((completed.result as { dataUrl?: string }).dataUrl || "");
-    expect(mediaUrl).toMatch(/^\/api\/generation-log-assets\/permanent\/.+\.png$/);
+    expect(mediaUrl).toMatch(/^\/api\/generation-log-assets\/(?:temporary|permanent)\/.+\.png$/);
     const media = await request.get(mediaUrl);
     expect(media.ok()).toBe(true);
     expect(media.headers()["content-type"]).toMatch(/^image\/png/);
@@ -192,7 +192,7 @@ test("unified creative page reaches the local planning and image protocols", asy
     await page.goto("/create", { waitUntil: "domcontentloaded" });
     await expect(page.locator(".creative-composer")).toHaveAttribute("data-ready", "true", { timeout: 45_000 });
 
-    await page.getByRole("button", { name: "当前创作类型：Agent 模式" }).click();
+    await page.getByRole("button", { name: "当前创作类型：智能模式" }).click();
     const modePicker = page.locator(".ant-popover").filter({ hasText: "创作类型" }).last();
     await expect(modePicker).toBeVisible();
     await modePicker.getByRole("button", { name: /图片生成/ }).click();
@@ -217,7 +217,7 @@ test("unified creative page reaches the local planning and image protocols", asy
         )
         .toBe("completed");
     await expect(page.getByTestId("creative-media-result")).toBeVisible();
-    await expect(page.getByTestId("creative-media-result").getByTestId("creative-primary-result").getByRole("img")).toHaveAttribute("src", /\/api\/generation-log-assets\/permanent\/.+\.png/);
+    await expect(page.getByTestId("creative-media-result").getByTestId("creative-primary-result").getByRole("img")).toHaveAttribute("src", /\/api\/generation-log-assets\/(?:temporary|permanent)\/.+\.png/);
 
     const state = await protocolFixtureState(request);
     expect(state.requests.some((item) => item.method === "POST" && item.path.endsWith("/chat/completions"))).toBe(true);
@@ -228,7 +228,7 @@ test("unified creative video mode reaches the local planning and video protocols
     await page.goto("/create", { waitUntil: "domcontentloaded" });
     await expect(page.locator(".creative-composer")).toHaveAttribute("data-ready", "true", { timeout: 45_000 });
 
-    await page.getByRole("button", { name: "当前创作类型：Agent 模式" }).click();
+    await page.getByRole("button", { name: "当前创作类型：智能模式" }).click();
     const modePicker = page.locator(".ant-popover").filter({ hasText: "创作类型" }).last();
     await expect(modePicker).toBeVisible();
     await modePicker.getByRole("button", { name: /视频生成/ }).click();
@@ -268,7 +268,7 @@ test("unified creative Agent reaches the local image and video protocols", async
     const runId = ((await runResponse.json()) as { data: { run: { id: string } } }).data.run.id;
     await waitForAgentRun(request, runId);
 
-    await expect(page.getByTestId("creative-media-result").getByTestId("creative-primary-result").getByRole("img")).toHaveAttribute("src", /\/api\/generation-log-assets\/permanent\/.+\.png/);
+    await expect(page.getByTestId("creative-media-result").getByTestId("creative-primary-result").getByRole("img")).toHaveAttribute("src", /\/api\/generation-log-assets\/(?:temporary|permanent)\/.+\.png/);
     const video = page.getByTestId("creative-video-result").locator("video");
     await expect(video).toHaveAttribute("src", /\/api\/reference-assets\/permanent\/.+\.mp4/);
     const videoResponse = await request.get((await video.getAttribute("src"))!);
@@ -287,7 +287,7 @@ test("Canvas Agent persists local image and video results while the canvas remai
     const project = await createCanvasProject(request, { title: `Canvas Agent 协议 ${randomUUID().slice(0, 8)}`, viewport: { x: 80, y: 100, k: 1 }, nodes: [], connections: [] });
     try {
         await page.goto(`/canvas/${project.id}`, { waitUntil: "domcontentloaded" });
-        const composer = page.getByPlaceholder("描述你想让 Agent 如何操作画布");
+        const composer = page.getByPlaceholder("描述你想让智能助手如何操作画布");
         await expect(composer).toBeVisible({ timeout: 20_000 });
         await composer.fill("生成一张图片和一段视频，验证画布协议与持久化");
         const runCreated = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/agent/runs");
@@ -364,10 +364,10 @@ test("Drama Agent persists and restores local image and video results", async ({
     try {
         await page.goto(`/drama/${project.id}`, { waitUntil: "domcontentloaded" });
         await expect(page.locator("[data-drama-workspace]")).toBeVisible({ timeout: 20_000 });
-        await page.getByRole("button", { name: "打开项目 Agent" }).click();
-        const panel = page.getByRole("complementary", { name: "项目 Agent 面板" });
+        await page.getByRole("button", { name: "打开项目智能助手" }).click();
+        const panel = page.getByRole("complementary", { name: "项目智能助手 面板" });
         await expect(panel).toBeVisible();
-        const composer = panel.getByPlaceholder("告诉 Agent 下一步要做什么");
+        const composer = panel.getByPlaceholder("告诉智能助手下一步要做什么");
         await composer.fill("222@");
         const mentionPicker = page.locator("[data-drama-agent-mention-picker]");
         await expect(mentionPicker).toBeVisible();
@@ -384,7 +384,7 @@ test("Drama Agent persists and restores local image and video results", async ({
         const prompt = `${await composer.inputValue()}生成一张图片和一段视频，验证短剧项目 Agent 持久化`;
         await composer.fill(prompt);
         const runCreated = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/agent/runs");
-        await panel.getByRole("button", { name: "发送给项目 Agent" }).click();
+        await panel.getByRole("button", { name: "发送给项目智能助手" }).click();
         const runResponse = await runCreated;
         expect(runResponse.ok(), await runResponse.text()).toBe(true);
         const runRequest = runResponse.request().postDataJSON() as { snapshot?: { currentTurnReferences?: Array<{ id: string; kind: string; alias: string }> } };
@@ -401,8 +401,8 @@ test("Drama Agent persists and restores local image and video results", async ({
 
         await page.goto("/drama", { waitUntil: "domcontentloaded" });
         await page.goto(`/drama/${project.id}`, { waitUntil: "domcontentloaded" });
-        await page.getByRole("button", { name: "打开项目 Agent" }).click();
-        const restored = page.getByRole("complementary", { name: "项目 Agent 面板" });
+        await page.getByRole("button", { name: "打开项目智能助手" }).click();
+        const restored = page.getByRole("complementary", { name: "项目智能助手 面板" });
         await expect(restored.getByText(prompt, { exact: true })).toBeVisible();
         await expect(restored.getByRole("img", { name: "协议测试图片" })).toBeVisible();
         await expect(restored.getByRole("button", { name: "打开视频：协议测试视频" })).toBeVisible();
@@ -439,6 +439,8 @@ test("Drama production persists storyboard and shot video results through reload
     try {
         await page.goto(`/drama/${project.id}`, { waitUntil: "domcontentloaded" });
         await expect(page.locator("[data-drama-workspace]")).toBeVisible({ timeout: 20_000 });
+        await page.locator(".ant-select").first().click();
+        await page.getByText("e2e-text", { exact: true }).last().click();
         const analyzeButton = page.locator("[data-drama-script-statusbar]").getByRole("button", { name: "AI 整理" });
         await expect(analyzeButton).toBeEnabled();
         await analyzeButton.click();
@@ -673,7 +675,7 @@ test("legacy image and video routes hand off to the unified creative Agent", asy
     for (const route of ["/image", "/video"]) {
         await page.goto(route, { waitUntil: "domcontentloaded" });
         await expect(page).toHaveURL(/\/create$/);
-        await expect(page.getByRole("heading", { name: "星启智域 创作 Agent" })).toBeVisible();
+        await expect(page.getByRole("heading", { name: "星启智域 智能创作" })).toBeVisible();
         await expect(page.getByRole("button", { name: /生成模型：/ })).toBeVisible();
     }
 });

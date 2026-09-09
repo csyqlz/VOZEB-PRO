@@ -783,8 +783,8 @@ describe("configured versioned protocol billing", () => {
         mocks.getAuthSettings.mockResolvedValue({
             generationPointMultipliers: {},
             logicalModels: [
-                    {
-                        id: "seedance-special-video",
+                {
+                    id: "seedance-special-video",
                     name: "按秒视频",
                     capability: "video",
                     enabled: true,

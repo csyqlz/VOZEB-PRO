@@ -379,7 +379,18 @@ export async function createUpstream(
                   })
                 : buildVideoProviderRequest(channel.advancedConfig?.requestTemplate, defaults, values);
     const requestBody = multipart
-        ? await buildOpenAiVideoFormData({ model: channel.model, prompt, seconds: values.seconds as number, width: dimensions.width, height: dimensions.height, aspectRatio: values.aspect_ratio as string, quality: values.resolution as string, imageUrls: firstFrameUrl ? [firstFrameUrl] : images, origin, cookie })
+        ? await buildOpenAiVideoFormData({
+              model: channel.model,
+              prompt,
+              seconds: values.seconds as number,
+              width: dimensions.width,
+              height: dimensions.height,
+              aspectRatio: values.aspect_ratio as string,
+              quality: values.resolution as string,
+              imageUrls: firstFrameUrl ? [firstFrameUrl] : images,
+              origin,
+              cookie,
+          })
         : JSON.stringify(payload);
     const imageToVideoPath = images.length || firstFrameUrl ? channel.advancedConfig?.imageToVideoPath?.trim() : "";
     const createPaths = globalPreset ? [globalPreset.createPath] : imageToVideoPath ? [imageToVideoPath] : resolvedProviderCreatePaths(channel.advancedConfig, "video", CREATE_PATHS);

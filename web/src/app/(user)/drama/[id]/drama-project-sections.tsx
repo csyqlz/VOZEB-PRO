@@ -19,7 +19,23 @@ export type DramaProjectStage = "script" | "review" | "storyboard" | "generate";
 export type DramaOrganizeModelOption = { id: string; name: string };
 
 /** AI 整理的模型选择 + 触发按钮；模型由用户显式选择，不提供默认值。 */
-export function DramaOrganizeControls({ models, value, onChange, analyzing, disabled, onRun, compact = false }: { models: DramaOrganizeModelOption[]; value: string; onChange: (model: string) => void; analyzing: boolean; disabled?: boolean; onRun: () => void; compact?: boolean }) {
+export function DramaOrganizeControls({
+    models,
+    value,
+    onChange,
+    analyzing,
+    disabled,
+    onRun,
+    compact = false,
+}: {
+    models: DramaOrganizeModelOption[];
+    value: string;
+    onChange: (model: string) => void;
+    analyzing: boolean;
+    disabled?: boolean;
+    onRun: () => void;
+    compact?: boolean;
+}) {
     const { message } = App.useApp();
     return (
         <div className="flex min-w-0 items-center gap-1.5">

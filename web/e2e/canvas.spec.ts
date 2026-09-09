@@ -299,7 +299,7 @@ test("canvas video first and last frame roles persist and retry from the output 
             })
             .toMatchObject({ videoReferenceMode: "first_last", videoFirstFrame: { nodeId: "first-frame" }, videoLastFrame: { nodeId: "last-frame" } });
 
-        const collapseAgentPanel = page.getByRole("button", { name: "收起 Agent 面板" });
+        const collapseAgentPanel = page.getByRole("button", { name: "收起智能助手面板" });
         if (await collapseAgentPanel.isVisible().catch(() => false)) {
             await collapseAgentPanel.click();
             await expect(collapseAgentPanel).toBeHidden();
@@ -419,10 +419,10 @@ test("canvas opens the Agent rail at the intended width and keeps a fresh chat a
         await page.setViewportSize({ width: 1474, height: 900 });
         await page.goto(`/canvas/${project.id}`, { waitUntil: "domcontentloaded" });
 
-        const panel = page.getByLabel("Canvas Agent 对话面板");
+        const panel = page.getByLabel("画布智能助手对话面板");
         await expect(panel).toBeVisible({ timeout: 20_000 });
         await expect.poll(async () => Math.round((await panel.boundingBox())?.width || 0)).toBe(404);
-        await expect(page.getByRole("button", { name: "打开 Agent", exact: true })).toHaveCount(0);
+        await expect(page.getByRole("button", { name: "打开智能助手", exact: true })).toHaveCount(0);
 
         await page.getByRole("tab", { name: /历史/ }).click();
         await page.getByRole("button", { name: "修改标题：待删除对话" }).click();
@@ -446,7 +446,7 @@ test("canvas opens the Agent rail at the intended width and keeps a fresh chat a
         await deleteDialog.getByRole("button", { name: /删\s*除/ }).click();
 
         await expect(page.getByRole("tab", { name: "对话", exact: true })).toHaveAttribute("aria-selected", "true");
-        const agentComposer = page.getByPlaceholder("描述你想让 Agent 如何操作画布");
+        const agentComposer = page.getByPlaceholder("描述你想让智能助手如何操作画布");
         await expect(agentComposer).toBeVisible();
         await expect(page.getByText("你好，我是你的画布助手", { exact: true })).toBeVisible();
         await expect.poll(() => page.locator("[data-canvas-agent-scroll]").evaluate((element) => element.scrollTop)).toBe(0);
@@ -471,7 +471,7 @@ test("canvas opens the Agent rail at the intended width and keeps a fresh chat a
         const generationPreferencesTrigger = panel.getByRole("button", { name: /生成参数：/ });
         await expect
             .poll(() => panel.locator("[data-canvas-agent-toolbar] button").evaluateAll((buttons) => buttons.map((button) => button.getAttribute("aria-label") || "")))
-            .toEqual([expect.stringMatching(/^(选择创作 Skill|当前 Skill：)/), expect.stringMatching(/^智能规划.*点击/), expect.stringMatching(/^(选择生成模型|已选择 \d+ 个模型)$/), expect.stringMatching(/^生成参数：/), "发送"]);
+            .toEqual([expect.stringMatching(/^(选择创作能力|当前 Skill：)/), expect.stringMatching(/^智能规划.*点击/), expect.stringMatching(/^(选择生成模型|已选择 \d+ 个模型)$/), expect.stringMatching(/^生成参数：/), "发送"]);
         await expect.poll(async () => Math.round((await generationPreferencesTrigger.boundingBox())?.width || 0)).toBeLessThanOrEqual(116);
         await generationPreferencesTrigger.click();
         const generationPreferencesPanel = page.locator("[data-creative-generation-preferences]");
@@ -485,8 +485,8 @@ test("canvas opens the Agent rail at the intended width and keeps a fresh chat a
             .toBe(true);
         await generationPreferencesTrigger.click();
 
-        await page.getByRole("button", { name: "收起 Agent 面板" }).click();
-        await expect(page.getByRole("button", { name: "打开 Agent", exact: true })).toBeVisible();
+        await page.getByRole("button", { name: "收起智能助手面板" }).click();
+        await expect(page.getByRole("button", { name: "打开智能助手", exact: true })).toBeVisible();
     } finally {
         await deleteCanvasProject(request, project.id);
     }
@@ -501,16 +501,16 @@ test("canvas Agent toolbar stays ordered and its generation settings fit narrow 
         for (const width of [390, 430]) {
             await page.setViewportSize({ width, height: width === 390 ? 844 : 932 });
             await page.goto(`/canvas/${project.id}`, { waitUntil: "domcontentloaded" });
-            await page.getByRole("button", { name: "打开 Agent", exact: true }).click();
-            const panel = page.getByLabel("Canvas Agent 对话面板");
-            const textarea = panel.getByRole("textbox", { name: "描述你想让 Agent 如何操作画布" });
+            await page.getByRole("button", { name: "打开智能助手", exact: true }).click();
+            const panel = page.getByLabel("画布智能助手对话面板");
+            const textarea = panel.getByRole("textbox", { name: "描述你想让智能助手如何操作画布" });
             const trigger = panel.getByRole("button", { name: /生成参数：/ });
             await expect(panel).toBeVisible({ timeout: 20_000 });
             await expect.poll(async () => Math.round((await textarea.boundingBox())?.height || 0)).toBeGreaterThanOrEqual(80);
             await expect.poll(async () => Math.round((await trigger.boundingBox())?.width || 0)).toBeLessThanOrEqual(116);
             await expect
                 .poll(() => panel.locator("[data-canvas-agent-toolbar] button").evaluateAll((buttons) => buttons.map((button) => button.getAttribute("aria-label") || "")))
-                .toEqual([expect.stringMatching(/^(选择创作 Skill|当前 Skill：)/), expect.stringMatching(/^智能规划.*点击/), expect.stringMatching(/^(选择生成模型|已选择 \d+ 个模型)$/), expect.stringMatching(/^生成参数：/), "发送"]);
+                .toEqual([expect.stringMatching(/^(选择创作能力|当前 Skill：)/), expect.stringMatching(/^智能规划.*点击/), expect.stringMatching(/^(选择生成模型|已选择 \d+ 个模型)$/), expect.stringMatching(/^生成参数：/), "发送"]);
             await expect
                 .poll(async () => {
                     const controls = panel.locator("[data-creative-agent-controls='compact']");
@@ -558,11 +558,11 @@ test("canvas Agent toolbar stays ordered and its generation settings fit narrow 
             await expect(page.locator("[data-creative-generation-preferences]:visible")).toHaveCount(0);
         }
 
-        await page.getByRole("button", { name: "收起 Agent 面板" }).click();
+        await page.getByRole("button", { name: "收起智能助手面板" }).click();
         await page.getByRole("button", { name: "切换到深色主题" }).click();
         await expect(page.locator("html")).toHaveClass(/dark/);
-        await page.getByRole("button", { name: "打开 Agent", exact: true }).click();
-        const darkTrigger = page.getByLabel("Canvas Agent 对话面板").getByRole("button", { name: /生成参数：/ });
+        await page.getByRole("button", { name: "打开智能助手", exact: true }).click();
+        const darkTrigger = page.getByLabel("画布智能助手对话面板").getByRole("button", { name: /生成参数：/ });
         await darkTrigger.click();
         const darkPanel = page.locator("[data-creative-generation-preferences]:visible");
         await expect(darkPanel).toBeVisible();
@@ -740,7 +740,7 @@ test("canvas Agent keeps simultaneous runs bound to separate chats", async ({ pa
 
     try {
         await page.goto(`/canvas/${project.id}`, { waitUntil: "domcontentloaded" });
-        const composer = page.getByPlaceholder("描述你想让 Agent 如何操作画布");
+        const composer = page.getByPlaceholder("描述你想让智能助手如何操作画布");
         await expect(composer).toBeVisible({ timeout: 20_000 });
         await composer.fill("第一条后台任务");
         await page.getByRole("button", { name: "发送" }).click();
@@ -962,7 +962,7 @@ test("canvas Agent attachment remove badge stays compact and theme readable", as
     try {
         await page.addInitScript(() => localStorage.setItem("vozeb-pro:theme_store", JSON.stringify({ state: { theme: "light" }, version: 0 })));
         await page.goto(`/canvas/${project.id}`, { waitUntil: "domcontentloaded" });
-        const panel = page.getByRole("complementary", { name: "Canvas Agent 对话面板" });
+        const panel = page.getByRole("complementary", { name: "画布智能助手对话面板" });
         await expect(panel).toBeVisible({ timeout: 20_000 });
         await panel.locator('input[type="file"][multiple]').setInputFiles({
             name: "reference.png",
@@ -1007,7 +1007,7 @@ test("canvas Agent attachment remove badge stays compact and theme readable", as
         await removeButton.hover();
         await expect(badge).toHaveCSS("background-color", "rgb(255, 241, 242)");
         await expect(badge).toHaveCSS("color", "rgb(220, 38, 38)");
-        await panel.getByRole("textbox", { name: "描述你想让 Agent 如何操作画布" }).click();
+        await panel.getByRole("textbox", { name: "描述你想让智能助手如何操作画布" }).click();
         await page.getByRole("button", { name: "切换到深色主题" }).click();
         await expect(page.locator("html")).toHaveClass(/dark/);
         await expect(badge).toHaveCSS("background-color", "rgba(15, 23, 42, 0.88)");

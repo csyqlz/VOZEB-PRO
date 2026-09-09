@@ -56,13 +56,25 @@ export function HomeWorkspaceSection() {
                     <p className="mt-1 text-xs text-[#697381] dark:text-[#9aa3af]">最近的创作会话、画布与短剧项目，点击直接继续。</p>
                 </div>
                 <div className="flex items-center gap-2">
-                    <button type="button" onClick={() => go("/drama")} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[#e4e7ec] bg-white px-2.5 text-xs font-medium !text-[#344054] transition hover:border-[#d0d5dd] hover:bg-[#f8f9fb] dark:border-[#343a43] dark:bg-[#181b20] dark:!text-[#aab2bc] dark:hover:bg-[#22262c]">
+                    <button
+                        type="button"
+                        onClick={() => go("/drama")}
+                        className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[#e4e7ec] bg-white px-2.5 text-xs font-medium !text-[#344054] transition hover:border-[#d0d5dd] hover:bg-[#f8f9fb] dark:border-[#343a43] dark:bg-[#181b20] dark:!text-[#aab2bc] dark:hover:bg-[#22262c]"
+                    >
                         <Film className="size-3.5" /> 新建短剧
                     </button>
-                    <button type="button" onClick={() => go("/canvas")} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[#e4e7ec] bg-white px-2.5 text-xs font-medium !text-[#344054] transition hover:border-[#d0d5dd] hover:bg-[#f8f9fb] dark:border-[#343a43] dark:bg-[#181b20] dark:!text-[#aab2bc] dark:hover:bg-[#22262c]">
+                    <button
+                        type="button"
+                        onClick={() => go("/canvas")}
+                        className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[#e4e7ec] bg-white px-2.5 text-xs font-medium !text-[#344054] transition hover:border-[#d0d5dd] hover:bg-[#f8f9fb] dark:border-[#343a43] dark:bg-[#181b20] dark:!text-[#aab2bc] dark:hover:bg-[#22262c]"
+                    >
                         <Layers className="size-3.5" /> 新建画布
                     </button>
-                    <button type="button" onClick={() => go("/create")} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[#e4e7ec] bg-white px-2.5 text-xs font-medium !text-[#344054] transition hover:border-[#d0d5dd] hover:bg-[#f8f9fb] dark:border-[#343a43] dark:bg-[#181b20] dark:!text-[#aab2bc] dark:hover:bg-[#22262c]">
+                    <button
+                        type="button"
+                        onClick={() => go("/create")}
+                        className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[#e4e7ec] bg-white px-2.5 text-xs font-medium !text-[#344054] transition hover:border-[#d0d5dd] hover:bg-[#f8f9fb] dark:border-[#343a43] dark:bg-[#181b20] dark:!text-[#aab2bc] dark:hover:bg-[#22262c]"
+                    >
                         <Sparkles className="size-3.5" /> 去创作页
                     </button>
                 </div>
@@ -71,7 +83,12 @@ export function HomeWorkspaceSection() {
             <div className="mt-4 grid gap-3 md:grid-cols-3">
                 <WorkspaceCard title="最近创作" icon={<MessageSquare className="size-3.5" />} loading={loading} emptyText="还没有创作会话，输入框写下想法即可开始" emptyAction={{ label: "开始创作", onClick: () => go("/create") }}>
                     {conversations.map((item) => (
-                        <button key={item.id} type="button" onClick={() => go(`/create?conversation=${encodeURIComponent(item.id)}`)} className="group flex w-full items-center justify-between gap-2 rounded-lg border border-transparent px-2.5 py-2 text-left transition hover:border-[#e4e7ec] hover:bg-white dark:hover:border-[#343a43] dark:hover:bg-[#181b20]">
+                        <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => go(`/create?conversation=${encodeURIComponent(item.id)}`)}
+                            className="group flex w-full items-center justify-between gap-2 rounded-lg border border-transparent px-2.5 py-2 text-left transition hover:border-[#e4e7ec] hover:bg-white dark:hover:border-[#343a43] dark:hover:bg-[#181b20]"
+                        >
                             <span className="min-w-0">
                                 <span className="block truncate text-sm font-medium text-[#20242a] dark:text-[#f3f5f7]">{item.title || "未命名创作"}</span>
                             </span>
@@ -82,7 +99,12 @@ export function HomeWorkspaceSection() {
 
                 <WorkspaceCard title="画布项目" icon={<Layers className="size-3.5" />} loading={loading} emptyText="画布适合多图排版、参考连线与局部重绘" emptyAction={{ label: "新建画布", onClick: () => go("/canvas") }}>
                     {canvases.map((item) => (
-                        <button key={item.id} type="button" onClick={() => go(`/canvas/${item.id}`)} className="group flex w-full items-center justify-between gap-2 rounded-lg border border-transparent px-2.5 py-2 text-left transition hover:border-[#e4e7ec] hover:bg-white dark:hover:border-[#343a43] dark:hover:bg-[#181b20]">
+                        <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => go(`/canvas/${item.id}`)}
+                            className="group flex w-full items-center justify-between gap-2 rounded-lg border border-transparent px-2.5 py-2 text-left transition hover:border-[#e4e7ec] hover:bg-white dark:hover:border-[#343a43] dark:hover:bg-[#181b20]"
+                        >
                             <span className="min-w-0">
                                 <span className="block truncate text-sm font-medium text-[#20242a] dark:text-[#f3f5f7]">{item.title || "未命名画布"}</span>
                                 <span className="mt-0.5 block text-[11px] text-[#9aa2ad]">{item.nodeCount ?? 0} 个节点</span>
@@ -94,7 +116,12 @@ export function HomeWorkspaceSection() {
 
                 <WorkspaceCard title="短剧项目" icon={<Film className="size-3.5" />} loading={loading} emptyText="从小说或剧本开始，AI 改编、分镜、出片一站完成" emptyAction={{ label: "新建短剧", onClick: () => go("/drama") }}>
                     {dramas.map((item) => (
-                        <button key={item.id} type="button" onClick={() => go(`/drama/${item.id}`)} className="group flex w-full items-center justify-between gap-2 rounded-lg border border-transparent px-2.5 py-2 text-left transition hover:border-[#e4e7ec] hover:bg-white dark:hover:border-[#343a43] dark:hover:bg-[#181b20]">
+                        <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => go(`/drama/${item.id}`)}
+                            className="group flex w-full items-center justify-between gap-2 rounded-lg border border-transparent px-2.5 py-2 text-left transition hover:border-[#e4e7ec] hover:bg-white dark:hover:border-[#343a43] dark:hover:bg-[#181b20]"
+                        >
                             <span className="min-w-0">
                                 <span className="block truncate text-sm font-medium text-[#20242a] dark:text-[#f3f5f7]">{item.title || "未命名短剧"}</span>
                                 <span className="mt-0.5 block text-[11px] text-[#9aa2ad]">
@@ -130,7 +157,11 @@ function WorkspaceCard({ title, icon, loading, emptyText, emptyAction, children 
                 <div className="px-2.5 py-4 text-center">
                     <p className="text-xs leading-5 text-[#9aa2ad]">{emptyText}</p>
                     {emptyAction ? (
-                        <button type="button" onClick={emptyAction.onClick} className="mt-2 inline-flex h-7 items-center gap-1 rounded-md border border-[#e4e7ec] bg-white px-2 text-[11px] font-medium !text-[#344054] transition hover:bg-[#f8f9fb] dark:border-[#343a43] dark:bg-[#22262c] dark:!text-[#aab2bc] dark:hover:bg-[#2b3037]">
+                        <button
+                            type="button"
+                            onClick={emptyAction.onClick}
+                            className="mt-2 inline-flex h-7 items-center gap-1 rounded-md border border-[#e4e7ec] bg-white px-2 text-[11px] font-medium !text-[#344054] transition hover:bg-[#f8f9fb] dark:border-[#343a43] dark:bg-[#22262c] dark:!text-[#aab2bc] dark:hover:bg-[#2b3037]"
+                        >
                             <Plus className="size-3" /> {emptyAction.label}
                         </button>
                     ) : null}

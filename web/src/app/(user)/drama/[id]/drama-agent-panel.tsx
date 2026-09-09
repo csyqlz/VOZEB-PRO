@@ -1041,7 +1041,7 @@ function DramaAgentAssets({ assets, project, episode }: { assets: CreativeAsset[
     return (
         <>
             <div className="mt-3 grid gap-2">
-            {assets
+                {assets
                     .filter((asset) => asset.type !== "text")
                     .map((asset) => {
                         const url = asset.serverUrl || asset.remoteUrl || "";

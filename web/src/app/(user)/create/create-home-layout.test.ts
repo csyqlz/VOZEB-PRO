@@ -118,7 +118,7 @@ describe("create Agent home layout", () => {
         expect(inspiration).not.toContain("href={`/share/");
         expect(overview).toContain("临时下载区");
         expect(overview).toContain("下载全部");
-        expect(overview).toContain('aria-label={`下载：${asset.title}`}');
+        expect(overview).toContain("aria-label={`下载：${asset.title}`}");
         expect(overview).toContain('aria-label="引用到智能创作"');
         expect(overview.indexOf('aria-labelledby="create-assets-heading"')).toBeLessThan(overview.indexOf('aria-labelledby="create-projects-heading"'));
         expect(overview).toContain("availableRecentAssets.slice(0, recentAssetVisibilityClasses.length)");

@@ -81,7 +81,7 @@ test("public homepage is functional for signed-out visitors", async ({ browser }
             .locator("header")
             .getByRole("button", { name: /立即体验/ })
             .click();
-        await expect(page).toHaveURL(/\/register\?next=%2Fcreate$/);
+        await expect(page).toHaveURL(/\/register\?next=%2Fcreate(?:%23|$)/);
         await expect(page.getByRole("heading", { name: /注册 星启智域/ })).toBeVisible();
         await page.goBack();
 
@@ -140,7 +140,7 @@ test("public homepage is functional for signed-out visitors", async ({ browser }
         expect(await prompt.evaluate((element) => getComputedStyle(element).boxShadow)).toBe("none");
         expect(await prompt.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe("rgba(0, 0, 0, 0)");
 
-        const send = page.getByRole("button", { name: "开始创作" });
+        const send = page.getByRole("button", { name: "开始创作", exact: true });
         await send.hover();
         const sendStyle = await send.evaluate((element) => ({
             backgroundImage: getComputedStyle(element).backgroundImage,
@@ -154,8 +154,8 @@ test("public homepage is functional for signed-out visitors", async ({ browser }
         expect(sendStyle.color).toBe("rgb(255, 255, 255)");
     }
     for (const action of ["开始创作", "进入创作页添加参考素材"]) {
-        await page.getByRole("button", { name: action }).click();
-        await expect(page).toHaveURL(/\/register\?next=%2Fcreate$/);
+        await page.getByRole("button", { name: action, exact: true }).click();
+        await expect(page).toHaveURL(/\/register\?next=%2Fcreate(?:%23|$)/);
         await expect(page.getByRole("heading", { name: /注册 星启智域/ })).toBeVisible();
         await page.goBack();
     }
@@ -175,7 +175,7 @@ test("public homepage is functional for signed-out visitors", async ({ browser }
         expect(footerLayout.navigationTops).toEqual([...footerLayout.navigationTops].sort((left, right) => left - right));
         expect(footerLayout.productFirstRowTopDelta).toBeLessThanOrEqual(1);
         expect(footerLayout.productSecondColumnOffset).toBeGreaterThan(120);
-        expect(footerLayout.socialLogoTopDelta).toBeLessThanOrEqual(4);
+        expect(footerLayout.supportEmailTopDelta).toBeGreaterThan(0);
         expect(footerLayout.firstPolicyLeft).toBeGreaterThan(footerLayout.footerCenter);
     }
 
@@ -203,7 +203,7 @@ test("public homepage is functional for signed-out visitors", async ({ browser }
     await expect(page.locator("html")).toHaveClass(/dark/);
     if (testInfo.project.name === "chromium") {
         const attach = page.getByRole("button", { name: "进入创作页添加参考素材" });
-        const send = page.getByRole("button", { name: "开始创作" });
+        const send = page.getByRole("button", { name: "开始创作", exact: true });
         const [attachStyle, sendStyle] = await Promise.all([
             attach.evaluate((element) => ({ backgroundImage: getComputedStyle(element).backgroundImage, borderColor: getComputedStyle(element).borderColor, color: getComputedStyle(element).color })),
             send.evaluate((element) => ({ backgroundImage: getComputedStyle(element).backgroundImage, color: getComputedStyle(element).color })),
@@ -229,7 +229,7 @@ test("signed-in homepage restores the selected creation mode and prompt", async 
     await expect(page.locator("header").getByRole("button", { name: /用户|账号|头像/ })).toHaveCount(0);
     await page.getByRole("button", { name: "AI 绘图" }).click();
     await page.getByLabel("描述你想创作的内容").fill("已登录首页图片提示词");
-    await page.getByTestId("home-agent-card").getByRole("button", { name: "开始创作" }).click();
+    await page.getByTestId("home-agent-card").getByRole("button", { name: "开始创作", exact: true }).click();
     await expect(page).toHaveURL(/\/create(?:#.*)?$/);
     await expect(page.getByRole("button", { name: "当前创作类型：图片生成" })).toBeVisible();
     await expect(page.locator("textarea").first()).toHaveValue("已登录首页图片提示词");
@@ -416,7 +416,7 @@ async function mobileFooterDomState(page: Page) {
         const navigations = Array.from(footer.querySelectorAll<HTMLElement>("nav"));
         const navigationRects = navigations.map((navigation) => navigation.getBoundingClientRect());
         const productItems = Array.from(navigations[0].querySelectorAll<HTMLElement>("a, button")).map((item) => item.getBoundingClientRect());
-        const social = footer.querySelector<HTMLElement>('a[aria-label="邮箱联系"]');
+        const social = footer.querySelector<HTMLElement>('a[href^="mailto:"]');
         const footerLogo = footer.querySelector<HTMLElement>('a[href="/"]');
         const firstPolicy = footer.querySelector<HTMLElement>('[data-testid="home-footer-bottom"] a');
         const footerRect = footer.getBoundingClientRect();
@@ -426,7 +426,7 @@ async function mobileFooterDomState(page: Page) {
             navigationTops: navigationRects.map((rect) => Math.round(rect.top)),
             productFirstRowTopDelta: Math.abs(productItems[0].top - productItems[1].top),
             productSecondColumnOffset: productItems[1].left - productItems[0].left,
-            socialLogoTopDelta: social && footerLogo ? Math.abs(social.getBoundingClientRect().top - footerLogo.getBoundingClientRect().top) : Number.POSITIVE_INFINITY,
+            supportEmailTopDelta: social && footerLogo ? social.getBoundingClientRect().top - footerLogo.getBoundingClientRect().top : Number.POSITIVE_INFINITY,
             firstPolicyLeft: firstPolicy?.getBoundingClientRect().left || 0,
             footerCenter: footerRect.left + footerRect.width / 2,
         };

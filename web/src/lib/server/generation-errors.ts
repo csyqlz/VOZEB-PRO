@@ -5,18 +5,7 @@ import { GenerationSubmissionUncertainError } from "@/lib/server/generation-subm
 export const DEFAULT_CHANNEL_CONNECT_ERROR = "模型服务暂时无法连接，请稍后重试。";
 export const UNKNOWN_SUBMISSION_REVIEW_ERROR = "上游提交结果不确定，未取得可查询的任务 ID；为避免重复生成和扣费，系统已停止自动重试。";
 
-export type GenerationErrorCategory =
-    | "auth"
-    | "model_not_found"
-    | "parameter"
-    | "reference"
-    | "quota"
-    | "cancelled"
-    | "moderation"
-    | "timeout"
-    | "network"
-    | "upstream"
-    | "unknown";
+export type GenerationErrorCategory = "auth" | "model_not_found" | "parameter" | "reference" | "quota" | "cancelled" | "moderation" | "timeout" | "network" | "upstream" | "unknown";
 
 const GENERATION_ERROR_CATEGORY_LABELS: Record<GenerationErrorCategory, string> = {
     auth: "渠道鉴权失败",

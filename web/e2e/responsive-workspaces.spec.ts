@@ -3,8 +3,10 @@ import { randomUUID } from "node:crypto";
 import { expect, test, type APIRequestContext, type Locator } from "@playwright/test";
 
 import { billingProductsFixture, expectDialogWithinViewport, expectNoHorizontalOverflow, masonryGalleryFixture, masonryLayoutIsReady, openCreativeHistory, readMasonryLayout } from "./responsive-helpers";
+import { stubPublicPromptImages } from "./support";
 
 test("creative workspaces remain usable without horizontal overflow in light and dark themes", async ({ page, request }) => {
+    await stubPublicPromptImages(page);
     const created = await request.post("/api/drama/projects", { data: { title: "E2E 短剧项目", ratio: "9:16" } });
     expect(created.ok(), await created.text()).toBe(true);
     const project = ((await created.json()) as { data: { project: { id: string } } }).data.project;
@@ -123,17 +125,17 @@ test("creative workspaces remain usable without horizontal overflow in light and
                 await expect(page.locator("[data-drama-episode-sidebar]")).toBeVisible();
             }
 
-            await page.getByRole("button", { name: "打开项目 Agent" }).click();
+            await page.getByRole("button", { name: "打开项目智能助手" }).click();
             let agentSurface: Locator;
             if ((page.viewportSize()?.width || 0) >= 1280) {
-                const agentPanel = page.getByRole("complementary", { name: "项目 Agent 面板" });
+                const agentPanel = page.getByRole("complementary", { name: "项目智能助手 面板" });
                 await expect(agentPanel).toBeVisible();
                 const contentBox = await productionSurface.boundingBox();
                 const agentBox = await agentPanel.boundingBox();
                 expect((contentBox?.x || 0) + (contentBox?.width || 0)).toBeLessThanOrEqual((agentBox?.x || 0) + 1);
                 agentSurface = agentPanel;
             } else {
-                const agentDrawer = page.getByRole("dialog", { name: "项目 Agent" });
+                const agentDrawer = page.getByRole("dialog", { name: "项目智能助手" });
                 await expect(agentDrawer).toBeVisible();
                 await expectDialogWithinViewport(agentDrawer);
                 agentSurface = agentDrawer;
@@ -158,24 +160,24 @@ test("creative workspaces remain usable without horizontal overflow in light and
             expect(quickLayout.columns).toHaveLength(1);
             expect(quickLayout.inside).toBe(true);
             expect(quickLayout.scrollWidth).toBeLessThanOrEqual(quickLayout.clientWidth + 1);
-            await agentSurface.getByRole("button", { name: "打开本阶段 Agent 建议" }).click();
+            await agentSurface.getByRole("button", { name: "打开本阶段智能助手建议" }).click();
             const stageSuggestionMenu = page.getByRole("menu");
             await expect(stageSuggestionMenu).toBeVisible();
             await expect(stageSuggestionMenu.getByRole("menuitem")).toHaveCount(4);
             await page.keyboard.press("Escape");
-            await agentSurface.getByRole("button", { name: "收起项目 Agent" }).click();
-            await expect(page.getByRole("button", { name: "打开项目 Agent", exact: true })).toBeVisible();
+            await agentSurface.getByRole("button", { name: "收起项目智能助手" }).click();
+            await expect(page.getByRole("button", { name: "打开项目智能助手", exact: true })).toBeVisible();
         }
         if (route === canvasRoute) {
             await expect(page.locator("[data-canvas-surface]")).toHaveCSS("background-color", "rgb(255, 255, 255)");
             if ((page.viewportSize()?.width || 0) <= 768) {
-                await page.getByRole("button", { name: "打开 Agent", exact: true }).click();
-                const agentPanel = page.getByLabel("Canvas Agent 对话面板");
+                await page.getByRole("button", { name: "打开智能助手", exact: true }).click();
+                const agentPanel = page.getByLabel("画布智能助手对话面板");
                 await expect(agentPanel).toBeVisible();
                 await expect.poll(async () => Math.round((await agentPanel.boundingBox())?.width || 0)).toBe(page.viewportSize()?.width || 0);
-                await expect(page.getByPlaceholder("描述你想让 Agent 如何操作画布")).toBeVisible();
+                await expect(page.getByPlaceholder("描述你想让智能助手如何操作画布")).toBeVisible();
                 await expectNoHorizontalOverflow(page, `${route} Agent`);
-                await page.getByRole("button", { name: "收起 Agent 面板" }).click();
+                await page.getByRole("button", { name: "收起智能助手面板" }).click();
             }
             await page.locator('[data-node-id="responsive-config"]').click({ position: { x: 32, y: 32 } });
             await expect.poll(() => page.locator('[contenteditable="true"]').evaluate((element) => document.activeElement === element)).toBe(true);

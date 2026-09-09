@@ -221,9 +221,7 @@ export function AdminLogicalModelManager({ channels, logicalModels, defaultModel
                                                           capability,
                                                           bindings: current.bindings.map((binding) => {
                                                               const pricing = binding.capabilityProfile?.pricing;
-                                                              return pricing
-                                                                  ? { ...binding, capabilityProfile: { ...binding.capabilityProfile, pricing: { ...pricing, billingUnit: effectiveBillingUnit(capability, pricing.billingUnit) } } }
-                                                                  : binding;
+                                                              return pricing ? { ...binding, capabilityProfile: { ...binding.capabilityProfile, pricing: { ...pricing, billingUnit: effectiveBillingUnit(capability, pricing.billingUnit) } } } : binding;
                                                           }),
                                                       }
                                                     : current,
@@ -416,7 +414,14 @@ function BindingEditor({ binding, capability, channels, onChange }: { binding: L
                             <Select
                                 className="w-full"
                                 value={unit}
-                                options={capability === "video" ? [{ label: "按次（每次调用）", value: "per_call" }, { label: "按秒（按实际视频时长）", value: "per_second" }] : [{ label: "按次（每次调用）", value: "per_call" }]}
+                                options={
+                                    capability === "video"
+                                        ? [
+                                              { label: "按次（每次调用）", value: "per_call" },
+                                              { label: "按秒（按实际视频时长）", value: "per_second" },
+                                          ]
+                                        : [{ label: "按次（每次调用）", value: "per_call" }]
+                                }
                                 onChange={(value) => updatePricing({ billingUnit: value })}
                             />
                         </LabeledControl>

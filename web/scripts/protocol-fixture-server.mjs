@@ -368,6 +368,33 @@ function toolArguments(name, payload) {
                 ],
             };
         }
+        if (plannerGenerationMode(payload) === "image") {
+            return {
+                intent: "generation",
+                objective: "验证图片工作台完整生成链路",
+                audience: "协议测试用户",
+                reply: "已收到，我会生成一张协议测试图片。",
+                decisions: [{ label: "图片模型", value: "e2e-image", reason: "使用本地协议测试模型" }],
+                foundation: {
+                    complexity: "simple",
+                    brief: { objective: "验证图片工作台完整生成链路" },
+                    direction: { summary: "清晰的蓝色横版测试画面" },
+                },
+                deliverables: [
+                    {
+                        id: "fixture-image",
+                        title: "协议测试图片",
+                        type: "image",
+                        model: "e2e-image",
+                        prompt: "内部协议图片执行提示：生成蓝色横版测试画面",
+                        count: 1,
+                        ratio: "16:9",
+                        quality: "high",
+                        dependencies: [],
+                    },
+                ],
+            };
+        }
         const imageAndVideo = /图片.*视频|视频.*图片/.test(plannerRequestText(payload));
         if (imageAndVideo) {
             return {

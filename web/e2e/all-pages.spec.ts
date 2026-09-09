@@ -4,7 +4,7 @@ import { expect, test, type APIRequestContext, type Page, type Response } from "
 
 import { ADMIN_SECTION_KEYS } from "../src/components/admin/admin-sections";
 import { expectNoHorizontalOverflow, expectVisibleControlsWithinViewport } from "./responsive-helpers";
-import { E2E_ADMIN } from "./support";
+import { E2E_ADMIN, stubPublicPromptImages } from "./support";
 
 const PROFILE_SECTIONS = ["overview", "profile", "billing", "coupons", "orders", "points", "consume", "referrals", "security"] as const;
 const BASE_URL = `http://127.0.0.1:${Number(process.env.VOZEB_PRO_E2E_PORT || 3100)}`;
@@ -20,6 +20,7 @@ type ApiFailure = { path: string; status: number; body: string };
 
 test("all authenticated pages reach their real routes and stay usable", async ({ page, request }, testInfo) => {
     test.setTimeout(360_000);
+    await stubPublicPromptImages(page);
     const fixtures = await createPageFixtures(request, testInfo.project.use.viewport?.width || 1280);
     const routes: RouteCase[] = [
         { path: "/", readyHeading: "一个入口 完成所有 AI 创作" },
@@ -59,6 +60,7 @@ test("all authenticated pages reach their real routes and stay usable", async ({
 
 test("every administrator section renders its server-backed surface", async ({ page }, testInfo) => {
     test.setTimeout(360_000);
+    await stubPublicPromptImages(page);
     const theme = testInfo.project.name === "mobile-430" ? "dark" : "light";
     await setTheme(page, theme);
     for (const section of ADMIN_SECTION_KEYS) {

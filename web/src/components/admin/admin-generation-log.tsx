@@ -36,7 +36,11 @@ export function GenerationLogMobileCard({ log, selected, onSelectedChange, onVie
                             {generationKindLabel(log.kind)}
                         </Tag>
                         <span className={generationStatusClass(log.status)}>{generationStatusLabel(log.status)}</span>
-                        {log.status === "failed" && log.error ? <Tag className="m-0" color="red">{generationErrorCategoryLabel(classifyGenerationError(log.error))}</Tag> : null}
+                        {log.status === "failed" && log.error ? (
+                            <Tag className="m-0" color="red">
+                                {generationErrorCategoryLabel(classifyGenerationError(log.error))}
+                            </Tag>
+                        ) : null}
                         <span className="text-xs text-stone-500">{generationSourceLabel(log.source)}</span>
                     </div>
                     <div className="mt-2 truncate text-sm font-semibold text-stone-950 dark:text-stone-100">{log.title}</div>

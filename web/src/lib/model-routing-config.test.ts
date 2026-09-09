@@ -312,7 +312,7 @@ describe("model routing config", () => {
     });
 
     it("repairs stale billing units when loading historical model profiles", () => {
-        const channels = [channel("one", ["writer", "image-model", "video-model"]), channel("two", ["video-model-2"])]
+        const channels = [channel("one", ["writer", "image-model", "video-model"]), channel("two", ["video-model-2"])];
         const models = normalizeLogicalModelsConfig(
             [
                 {

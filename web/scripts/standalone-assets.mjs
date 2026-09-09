@@ -16,7 +16,7 @@ export async function prepareStandaloneAssets({ webRoot, distDir = ".next" }) {
     if (!sourceStaticFiles.length) throw new Error(`Build static directory is empty: ${sourceStatic}`);
 
     const sourcePublicFiles = await listRelativeFiles(sourcePublic);
-    for (const requiredAsset of ["logo.svg", "icon.svg"]) {
+    for (const requiredAsset of ["logo.svg", "icon.svg", "sub2-logo.png"]) {
         if (!sourcePublicFiles.includes(requiredAsset)) throw new Error(`Required brand asset is missing: public/${requiredAsset}`);
     }
 

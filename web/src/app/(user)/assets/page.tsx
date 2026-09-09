@@ -328,51 +328,51 @@ export default function AssetsPage() {
                         {view === "generated" ? (
                             <GeneratedAssetsSection onSaved={reload} />
                         ) : (
-                        <>
-                        <div className={cn("grid grid-cols-1 gap-3 transition-opacity sm:grid-cols-[repeat(auto-fill,minmax(240px,280px))] sm:justify-start", loading && assets.length && "opacity-60")} aria-busy={loading}>
-                            {assets.map((asset) => (
-                                <AssetCard
-                                    key={asset.id}
-                                    asset={asset}
-                                    onOpen={() => setPreviewAsset(asset)}
-                                    onEdit={() => openEdit(asset)}
-                                    onCopy={copyAssetText}
-                                    onDownload={downloadImage}
-                                    onDelete={() => setDeletingAsset(asset)}
-                                    onPublish={asset.kind === "text" ? undefined : () => router.push(`/works?sourceType=media&sourceId=${encodeURIComponent(asset.id)}`)}
-                                />
-                            ))}
-                        </div>
+                            <>
+                                <div className={cn("grid grid-cols-1 gap-3 transition-opacity sm:grid-cols-[repeat(auto-fill,minmax(240px,280px))] sm:justify-start", loading && assets.length && "opacity-60")} aria-busy={loading}>
+                                    {assets.map((asset) => (
+                                        <AssetCard
+                                            key={asset.id}
+                                            asset={asset}
+                                            onOpen={() => setPreviewAsset(asset)}
+                                            onEdit={() => openEdit(asset)}
+                                            onCopy={copyAssetText}
+                                            onDownload={downloadImage}
+                                            onDelete={() => setDeletingAsset(asset)}
+                                            onPublish={asset.kind === "text" ? undefined : () => router.push(`/works?sourceType=media&sourceId=${encodeURIComponent(asset.id)}`)}
+                                        />
+                                    ))}
+                                </div>
 
-                        {loading && !assets.length ? (
-                            <section className="flex min-h-32 items-center justify-center sm:min-h-56">
-                                <Spin description="正在加载素材" />
-                            </section>
-                        ) : error ? (
-                            <section className="flex min-h-32 flex-col items-center justify-center gap-3 border-y border-border px-4 text-center sm:min-h-56">
-                                <p className="text-sm text-stone-500 dark:text-stone-400">{error}</p>
-                                <Button size="small" onClick={reload}>
-                                    重新加载
-                                </Button>
-                            </section>
-                        ) : !assets.length ? (
-                            <CompactEmptyState title="没有找到素材" description="调整筛选条件，或新增一条常用素材。" />
-                        ) : null}
+                                {loading && !assets.length ? (
+                                    <section className="flex min-h-32 items-center justify-center sm:min-h-56">
+                                        <Spin description="正在加载素材" />
+                                    </section>
+                                ) : error ? (
+                                    <section className="flex min-h-32 flex-col items-center justify-center gap-3 border-y border-border px-4 text-center sm:min-h-56">
+                                        <p className="text-sm text-stone-500 dark:text-stone-400">{error}</p>
+                                        <Button size="small" onClick={reload}>
+                                            重新加载
+                                        </Button>
+                                    </section>
+                                ) : !assets.length ? (
+                                    <CompactEmptyState title="没有找到素材" description="调整筛选条件，或新增一条常用素材。" />
+                                ) : null}
 
-                        <div className="flex justify-center overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                            <Pagination
-                                current={page}
-                                pageSize={pageSize}
-                                total={total}
-                                showSizeChanger
-                                pageSizeOptions={[10, 20, 50, 100]}
-                                onChange={(nextPage, nextPageSize) => {
-                                    setPage(nextPage);
-                                    setPageSize(nextPageSize);
-                                }}
-                            />
-                        </div>
-                        </>
+                                <div className="flex justify-center overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                                    <Pagination
+                                        current={page}
+                                        pageSize={pageSize}
+                                        total={total}
+                                        showSizeChanger
+                                        pageSizeOptions={[10, 20, 50, 100]}
+                                        onChange={(nextPage, nextPageSize) => {
+                                            setPage(nextPage);
+                                            setPageSize(nextPageSize);
+                                        }}
+                                    />
+                                </div>
+                            </>
                         )}
                     </div>
                 </div>
@@ -524,7 +524,11 @@ export default function AssetsPage() {
             <Modal title="删除素材" open={Boolean(deletingAsset)} onCancel={() => setDeletingAsset(null)} onOk={() => void confirmDelete()} confirmLoading={deleting} okText="删除" okButtonProps={{ danger: true }} cancelText="取消">
                 <div className="space-y-2 text-sm leading-6">
                     <p>确定删除「{deletingAsset?.title}」吗？</p>
-                    {deletingAsset?.kind === "text" ? <p className="text-muted-foreground">删除后仅会从我的素材中移除，文本内容无法恢复。</p> : <p className="text-muted-foreground">删除后仅从素材库移除；如果服务器文件没有其他引用，系统会一并清理，否则会保留给画布、短剧或作品继续使用。</p>}
+                    {deletingAsset?.kind === "text" ? (
+                        <p className="text-muted-foreground">删除后仅会从我的素材中移除，文本内容无法恢复。</p>
+                    ) : (
+                        <p className="text-muted-foreground">删除后仅从素材库移除；如果服务器文件没有其他引用，系统会一并清理，否则会保留给画布、短剧或作品继续使用。</p>
+                    )}
                 </div>
             </Modal>
         </div>

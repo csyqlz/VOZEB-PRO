@@ -191,8 +191,8 @@ test("canvas Agent can reference images beyond the first fifty without stalling"
 
     try {
         await page.goto(`/canvas/${project.id}`, { waitUntil: "domcontentloaded" });
-        const panel = page.getByLabel("Canvas Agent 对话面板");
-        const composer = panel.getByRole("textbox", { name: "描述你想让 Agent 如何操作画布" });
+        const panel = page.getByLabel("画布智能助手对话面板");
+        const composer = panel.getByRole("textbox", { name: "描述你想让智能助手如何操作画布" });
         await expect(composer).toBeVisible({ timeout: 20_000 });
 
         for (const nodeId of ["image-52", "image-59", "image-64"]) {

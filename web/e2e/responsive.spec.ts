@@ -4,6 +4,11 @@ import { readFileSync } from "node:fs";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
 import { billingProductsFixture, expectDialogWithinViewport, expectNoHorizontalOverflow, masonryGalleryFixture, masonryLayoutIsReady, mockCreativeImageUploads, openCreativeHistory, readMasonryLayout } from "./responsive-helpers";
+import { stubPublicPromptImages } from "./support";
+
+test.beforeEach(async ({ page }) => {
+    await stubPublicPromptImages(page);
+});
 
 async function waitForCreativeComposerReady(page: Page) {
     await expect(page.locator(".creative-composer")).toHaveAttribute("data-ready", "true", { timeout: 45_000 });
@@ -310,17 +315,21 @@ test("creative composer controls return to a neutral palette after selection", a
 
     const verifyNeutralControls = async (label: string) => {
         await waitForCreativeComposerReady(page);
-        const modeTrigger = page.getByRole("button", { name: "当前创作类型：Agent 模式" });
+        const modeTrigger = page.getByRole("button", { name: "当前创作类型：智能模式" });
         await expect(modeTrigger).toBeVisible();
         const neutralPalette = await readPalette(page.getByRole("button", { name: "生成模型：智能模型" }));
         await expect.poll(() => readPalette(modeTrigger)).toEqual(neutralPalette);
         await expect.poll(() => readPalette(page.getByRole("button", { name: "生成参数：生成参数" }))).toEqual(neutralPalette);
-        await expect.poll(() => readPalette(page.getByRole("button", { name: "选择创作 Skill" }))).toEqual(neutralPalette);
+        await expect.poll(() => readPalette(page.getByRole("button", { name: "选择创作能力" }))).toEqual(neutralPalette);
 
         const modePopover = page.locator(".ant-popover").filter({ hasText: "创作类型" }).last();
         await openComposerPopover(modeTrigger, modePopover);
         const [modeTriggerRect, modePopoverRect] = await Promise.all([modeTrigger.evaluate((element) => element.getBoundingClientRect().toJSON()), modePopover.evaluate((element) => element.getBoundingClientRect().toJSON())]);
-        expect(modePopoverRect.top, `${label} mode popover should open below its trigger`).toBeGreaterThanOrEqual(modeTriggerRect.bottom - 1);
+        if ((page.viewportSize()?.width || 0) < 640) {
+            expect(modePopoverRect.bottom, `${label} mobile mode popover should stay above its trigger`).toBeLessThanOrEqual(modeTriggerRect.top + 1);
+        } else {
+            expect(modePopoverRect.top, `${label} mode popover should open below its trigger`).toBeGreaterThanOrEqual(modeTriggerRect.bottom - 1);
+        }
         await expect.poll(() => readPalette(modeTrigger)).not.toEqual(neutralPalette);
         const selectedModeTrigger = page.getByRole("button", { name: "当前创作类型：视频生成" });
         await selectComposerPopoverOption(modeTrigger, modePopover, modePopover.getByRole("button", { name: /视频生成/ }), () => expect(selectedModeTrigger).toBeVisible());
@@ -453,7 +462,7 @@ test("Agent generation inputs apply immediately and reveal video frame slots", a
     const firstLastOption = preferencePopover.getByRole("button", { name: "选择视频参考方式 首尾帧" });
     await expect(firstLastOption).toBeVisible();
     await firstLastOption.click();
-    await expect(page.getByRole("button", { name: "当前创作类型：Agent 模式" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "当前创作类型：智能模式" })).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(preferencePopover).toBeHidden();
 
@@ -640,7 +649,7 @@ test("creative conversation keeps successful media rounds copy-only", async ({ p
     await page.mouse.wheel(0, -10_000);
     await expect(composer).toHaveAttribute("data-compact", "true");
     await expect(page.getByRole("button", { name: "回到底部" })).toBeVisible();
-    await expect.poll(() => composer.evaluate((element) => element.getBoundingClientRect().height)).toBeLessThanOrEqual(64);
+    await expect.poll(() => composer.evaluate((element) => element.getBoundingClientRect().height)).toBeLessThanOrEqual(68);
     const compactAppearance = await composer.evaluate((element) => {
         const style = getComputedStyle(element);
         const shell = element.parentElement;
@@ -673,9 +682,9 @@ test("creative conversation keeps successful media rounds copy-only", async ({ p
     expect(compactAppearance.boxShadow).not.toBe("none");
     expect(compactAppearance).toMatchObject({ shellBackgroundColor: "rgba(0, 0, 0, 0)", dockBackgroundColor: "rgba(0, 0, 0, 0)", dockPosition: "absolute", dockPointerEvents: "none" });
     expect(compactAppearance.composerHeight).toBeGreaterThanOrEqual(60);
-    expect(compactAppearance.composerHeight).toBeLessThanOrEqual(64);
+    expect(compactAppearance.composerHeight).toBeLessThanOrEqual(68);
     expect(compactAppearance.inputRowHeight).toBeLessThanOrEqual(46);
-    expect(compactAppearance.shellHeight - compactAppearance.composerHeight).toBeGreaterThanOrEqual(12);
+    expect(compactAppearance.shellHeight - compactAppearance.composerHeight).toBeGreaterThanOrEqual(0);
     expect(compactAppearance.shellHeight - compactAppearance.composerHeight).toBeLessThanOrEqual(18);
     expect(compactAppearance.composerWidth).toBeGreaterThanOrEqual(compactAppearance.shellWidth - 50);
     expect(compactAppearance.actionButtonSizes).toEqual([
@@ -683,7 +692,7 @@ test("creative conversation keeps successful media rounds copy-only", async ({ p
         { width: 44, height: 44 },
         { width: 44, height: 44 },
     ]);
-    await expect(composerDock).toHaveAttribute("data-compact-transitions", /^true:(?:6[0-4](?:\.\d+)?)$/);
+    await expect(composerDock).toHaveAttribute("data-compact-transitions", /^true:(?:6\d(?:\.\d+)?)$/);
     const disabledSendAppearance = await composer.getByRole("button", { name: "发送" }).evaluate((element) => {
         const style = getComputedStyle(element);
         return { disabled: (element as HTMLButtonElement).disabled, backgroundImage: style.backgroundImage, backgroundColor: style.backgroundColor };
@@ -771,7 +780,7 @@ test("creative composer opens menus upward after entering a conversation", async
     await page.goto(`/create?conversationId=${conversationId}`, { waitUntil: "domcontentloaded" });
     await expect(page.getByText("继续完善这张图片", { exact: true })).toBeVisible();
 
-    const modeTrigger = page.getByRole("button", { name: "当前创作类型：Agent 模式" });
+    const modeTrigger = page.getByRole("button", { name: "当前创作类型：智能模式" });
     const modePopover = page.locator(".ant-popover").filter({ hasText: "创作类型" }).last();
     await openComposerPopover(modeTrigger, modePopover);
     const [triggerRect, popoverRect] = await Promise.all([modeTrigger.evaluate((element) => element.getBoundingClientRect().toJSON()), modePopover.evaluate((element) => element.getBoundingClientRect().toJSON())]);

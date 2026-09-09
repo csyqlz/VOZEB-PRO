@@ -132,10 +132,7 @@ export async function POST(request: Request) {
             } catch (error) {
                 latestError = error;
                 if (!shouldTryAnotherTextCandidate(error)) break;
-                console.warn(
-                    "[drama-analyze] switching text candidate",
-                    JSON.stringify({ requestId, failedChannel: candidate.channelId, failedModel: candidate.upstreamModel, reason: error instanceof Error ? error.message : String(error) }),
-                );
+                console.warn("[drama-analyze] switching text candidate", JSON.stringify({ requestId, failedChannel: candidate.channelId, failedModel: candidate.upstreamModel, reason: error instanceof Error ? error.message : String(error) }));
             }
         }
         throw latestError instanceof Error ? latestError : new Error("没有可用的文本模型渠道");

@@ -1,4 +1,6 @@
-import type { APIRequestContext } from "@playwright/test";
+import { readFileSync } from "node:fs";
+
+import type { APIRequestContext, Page } from "@playwright/test";
 
 export const E2E_ADMIN = {
     username: "e2e_admin",
@@ -132,4 +134,9 @@ export async function protocolFixtureState(request: APIRequestContext) {
         requests: Array<{ method: string; path: string; authorization: string; contentType: string; bodyBytes: number; model: string }>;
         tasks: Array<{ id: string; status: string }>;
     };
+}
+
+export async function stubPublicPromptImages(page: Page) {
+    const image = readFileSync("public/generation-smoke.webp");
+    await page.route("**/api/public/prompt-images**", (route) => route.fulfill({ status: 200, contentType: "image/webp", body: image }));
 }

@@ -129,7 +129,15 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
             const response = await fetch("/api/drama/analyze", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ requestId: `drama-content:${project.id}:${episode.id}:${nanoid()}`, phase: "content", script: episode.script, summary: project.summary, style: project.style, videoModel: config.videoModel || config.model, textModel: organizeModel.trim() }),
+                body: JSON.stringify({
+                    requestId: `drama-content:${project.id}:${episode.id}:${nanoid()}`,
+                    phase: "content",
+                    script: episode.script,
+                    summary: project.summary,
+                    style: project.style,
+                    videoModel: config.videoModel || config.model,
+                    textModel: organizeModel.trim(),
+                }),
             });
             syncUserPointsFromHeaders(response.headers, "system");
             const payload = (await response.json().catch(() => ({}))) as { data?: DramaContentAnalysis; msg?: string };
@@ -454,7 +462,24 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
                                 />
                             ) : null}
 
-                            {!assetsOpen && stage === "review" ? <DramaReviewPanel project={project} episode={episode} designing={designing} onDesignVisuals={() => void designVisuals()} onStageChange={changeStage} onAnalyze={() => void analyzeScript()} analyzing={analyzing} analyzeElapsedMs={analyzeElapsedMs} analyzeError={analyzeError} organizeModels={organizeModels} organizeModel={organizeModel} onOrganizeModelChange={persistOrganizeModel} designElapsedMs={designElapsedMs} designError={designError} /> : null}
+                            {!assetsOpen && stage === "review" ? (
+                                <DramaReviewPanel
+                                    project={project}
+                                    episode={episode}
+                                    designing={designing}
+                                    onDesignVisuals={() => void designVisuals()}
+                                    onStageChange={changeStage}
+                                    onAnalyze={() => void analyzeScript()}
+                                    analyzing={analyzing}
+                                    analyzeElapsedMs={analyzeElapsedMs}
+                                    analyzeError={analyzeError}
+                                    organizeModels={organizeModels}
+                                    organizeModel={organizeModel}
+                                    onOrganizeModelChange={persistOrganizeModel}
+                                    designElapsedMs={designElapsedMs}
+                                    designError={designError}
+                                />
+                            ) : null}
 
                             {!assetsOpen && stage === "storyboard" ? (
                                 <div>

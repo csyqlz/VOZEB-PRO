@@ -46,7 +46,7 @@ export function aspectRatioOf(value: DirectorAspectRatio) {
 export function equirectCropRect(yaw: number, pitch: number, fov: number, aspect: number, imageWidth: number, imageHeight: number) {
     const cropHeight = Math.min(imageHeight, Math.max(64, Math.round((fov / 180) * imageHeight)));
     const cropWidth = Math.min(imageWidth, Math.max(64, Math.round(cropHeight * aspect)));
-    const centerX = wrap(((yaw / (2 * Math.PI)) + 0.5) * imageWidth, imageWidth);
+    const centerX = wrap((yaw / (2 * Math.PI) + 0.5) * imageWidth, imageWidth);
     const centerY = Math.round((0.5 - pitch / Math.PI) * imageHeight);
     const halfWidth = cropWidth / 2;
     const leftRaw = Math.round(centerX - halfWidth);
@@ -87,15 +87,7 @@ export function frameToPixelRect(frame: DirectorFrame, stageWidth: number, stage
 }
 
 /** 把舞台内容按机位框渲染为图片数据（保持自然分辨率的等比绘制）。 */
-export async function renderDirectorCapture(options: {
-    background: HTMLImageElement;
-    stickers: DirectorSticker[];
-    stickerImages: Map<string, HTMLImageElement>;
-    frame: DirectorFrame;
-    stageWidth: number;
-    stageHeight: number;
-    maxWidth?: number;
-}) {
+export async function renderDirectorCapture(options: { background: HTMLImageElement; stickers: DirectorSticker[]; stickerImages: Map<string, HTMLImageElement>; frame: DirectorFrame; stageWidth: number; stageHeight: number; maxWidth?: number }) {
     const { background, stickers, stickerImages, frame, stageWidth, stageHeight, maxWidth = 2048 } = options;
     const rect = frameToPixelRect(frame, stageWidth, stageHeight);
     const scale = Math.min(1, maxWidth / Math.max(1, rect.width));

@@ -67,8 +67,6 @@ describe("creative model capabilities", () => {
             "image",
         );
         expect(profile).toMatchObject({ supportsReferenceImage: true, maxReferenceImages: 2 });
-        expect(
-            creativeModelProfileForLogicalModel({ id: "unsupported", bindings: [{ enabled: true, capabilityProfile: { supportsReferenceImage: false } }] }),
-        ).toMatchObject({ supportsReferenceImage: false });
+        expect(creativeModelProfileForLogicalModel({ id: "unsupported", bindings: [{ enabled: true, capabilityProfile: { supportsReferenceImage: false } }] })).toMatchObject({ supportsReferenceImage: false });
     });
 });

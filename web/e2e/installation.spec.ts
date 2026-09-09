@@ -12,7 +12,7 @@ test("fresh deployments enter the installation flow", async ({ page }) => {
     await expect(page).toHaveURL(/\/install(?:\?|$)/);
     await expect(page.getByRole("link", { name: /安装向导/ })).toBeVisible();
     await expect(page.getByText("三步完成服务器初始化", { exact: true })).toBeVisible();
-    await expect(page.locator('[style*="/logo.svg"]').first()).toBeVisible();
+    await expect(page.locator('img[src="/sub2-logo.png"]').first()).toBeVisible();
 });
 
 test("public session omits internal configuration fields", async ({ request }) => {

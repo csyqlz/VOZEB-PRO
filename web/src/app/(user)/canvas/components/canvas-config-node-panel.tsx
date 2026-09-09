@@ -82,7 +82,15 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, reference
                     <div className="min-w-0">
                         <div className="truncate text-[13px] font-semibold tracking-[0.01em]">生成配置</div>
                         <div className="mt-0.5 truncate text-[10px]" style={{ color: theme.node.faint }}>
-                            {isRunning ? "正在处理当前输入" : referenceLimitExceeded ? `参考图超过模型上限（${capabilityProfile?.maxReferenceImages} 张）` : referencesUnsupported ? "当前模型不支持参考图" : canGenerate ? `${inputTotal ? `${inputTotal} 项` : "提示词"} · 就绪` : "连接素材或输入提示词"}
+                            {isRunning
+                                ? "正在处理当前输入"
+                                : referenceLimitExceeded
+                                  ? `参考图超过模型上限（${capabilityProfile?.maxReferenceImages} 张）`
+                                  : referencesUnsupported
+                                    ? "当前模型不支持参考图"
+                                    : canGenerate
+                                      ? `${inputTotal ? `${inputTotal} 项` : "提示词"} · 就绪`
+                                      : "连接素材或输入提示词"}
                         </div>
                     </div>
                 </div>

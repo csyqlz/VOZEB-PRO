@@ -2,7 +2,10 @@ import type { LogicalModelCapabilityProfile } from "@/lib/auth/store-types";
 import { isCreativeAutoValue, type CreativeGenerationPreferences } from "@/lib/creative-runtime-contract";
 
 export type CreativeMediaCapability = "image" | "video" | "audio";
-export type CreativeModelCapabilityProfile = Pick<LogicalModelCapabilityProfile, "aspectRatios" | "sizes" | "resolutions" | "durationSeconds" | "minDurationSeconds" | "maxDurationSeconds" | "maxBatchSize" | "supportsReferenceImage" | "maxReferenceImages">;
+export type CreativeModelCapabilityProfile = Pick<
+    LogicalModelCapabilityProfile,
+    "aspectRatios" | "sizes" | "resolutions" | "durationSeconds" | "minDurationSeconds" | "maxDurationSeconds" | "maxBatchSize" | "supportsReferenceImage" | "maxReferenceImages"
+>;
 export type CreativeModelCapabilityOption = {
     id: string;
     name: string;

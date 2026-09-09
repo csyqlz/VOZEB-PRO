@@ -88,14 +88,7 @@ export async function countLocalMediaReferences(storageKeys: string[], options: 
         for (const row of result.rows) counts.set(normalizeKey(row.storage_key), Number(row.total) || 0);
         return counts;
     }
-    const databaseNames = [
-        ...(includeEphemeral ? ["creative-runtime.json"] : []),
-        "library-assets.json",
-        "canvas-projects.json",
-        "drama-projects.json",
-        ...(includeEphemeral ? ["generation-logs.json", "generation-tasks.json"] : []),
-        "auth.json",
-    ];
+    const databaseNames = [...(includeEphemeral ? ["creative-runtime.json"] : []), "library-assets.json", "canvas-projects.json", "drama-projects.json", ...(includeEphemeral ? ["generation-logs.json", "generation-tasks.json"] : []), "auth.json"];
     const databases: unknown[] = await Promise.all(databaseNames.map((name) => readJsonDataFile<unknown>(name, name === "generation-tasks.json" ? [] : {})));
     for (const key of keys)
         counts.set(

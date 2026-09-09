@@ -70,6 +70,7 @@ describe("release type-check and build contract", () => {
                 writeFile(path.join(fixtureRoot, distDir, "static", "chunks", "app.js"), "chunk"),
                 writeFile(path.join(fixtureRoot, "public", "logo.svg"), "logo"),
                 writeFile(path.join(fixtureRoot, "public", "icon.svg"), "icon"),
+                writeFile(path.join(fixtureRoot, "public", "sub2-logo.png"), "logo"),
                 writeFile(path.join(fixtureRoot, "public", "icons", "icon-192.png"), "png"),
                 writeFile(path.join(fixtureRoot, "node_modules", ".pnpm", "@img+sharp-linux-x64@0.35.3", "node_modules", "@img", "sharp-linux-x64", "sharp.node"), "native"),
                 writeFile(path.join(fixtureRoot, "node_modules", ".pnpm", "@img+sharp-libvips-linux-x64@1.3.2", "node_modules", "@img", "sharp-libvips-linux-x64", "lib", "libvips.so"), "libvips"),
@@ -78,7 +79,7 @@ describe("release type-check and build contract", () => {
             const result = await prepareStandaloneAssets({ webRoot: fixtureRoot, distDir });
 
             expect(result.staticFiles).toBe(1);
-            expect(result.publicFiles).toBe(3);
+            expect(result.publicFiles).toBe(4);
             expect(result.sharpRuntimePackages).toEqual(["@img+sharp-libvips-linux-x64@1.3.2", "@img+sharp-linux-x64@0.35.3"]);
             expect(existsSync(path.join(fixtureRoot, distDir, "standalone", distDir, "static", "chunks", "app.js"))).toBe(true);
             expect(existsSync(path.join(fixtureRoot, distDir, "standalone", "public", "logo.svg"))).toBe(true);

@@ -16,7 +16,21 @@ const CanvasPanoramaSurface = dynamic(() => import("./canvas-panorama-surface").
 
 export type DirectorCanvasImage = { id: string; title: string; src: string };
 
-export function CanvasDirectorStudio({ open, onClose, sceneSrc, sceneIsPanorama, canvasImages, onCapture }: { open: boolean; onClose: () => void; sceneSrc: string; sceneIsPanorama: boolean; canvasImages: DirectorCanvasImage[]; onCapture: (dataUrl: string, title: string) => Promise<void> | void }) {
+export function CanvasDirectorStudio({
+    open,
+    onClose,
+    sceneSrc,
+    sceneIsPanorama,
+    canvasImages,
+    onCapture,
+}: {
+    open: boolean;
+    onClose: () => void;
+    sceneSrc: string;
+    sceneIsPanorama: boolean;
+    canvasImages: DirectorCanvasImage[];
+    onCapture: (dataUrl: string, title: string) => Promise<void> | void;
+}) {
     const { message } = App.useApp();
     const [phase, setPhase] = useState<"aim" | "compose">(sceneIsPanorama ? "aim" : "compose");
     const [aimFov, setAimFov] = useState(70);
@@ -95,10 +109,7 @@ export function CanvasDirectorStudio({ open, onClose, sceneSrc, sceneIsPanorama,
     };
 
     const addSticker = (item: DirectorCanvasImage) => {
-        setStickers((prev) => [
-            ...prev,
-            { id: `sticker-${item.id}-${Date.now()}`, src: item.src, label: item.title || "角色", x: 0.5, y: 0.62, width: 0.22, flipped: false, zIndex: ++zCounter.current },
-        ]);
+        setStickers((prev) => [...prev, { id: `sticker-${item.id}-${Date.now()}`, src: item.src, label: item.title || "角色", x: 0.5, y: 0.62, width: 0.22, flipped: false, zIndex: ++zCounter.current }]);
         setPickerOpen(false);
     };
 
@@ -187,7 +198,7 @@ export function CanvasDirectorStudio({ open, onClose, sceneSrc, sceneIsPanorama,
                         <div className="flex flex-wrap items-center justify-between gap-2">
                             <div className="text-sm text-muted-foreground">第一步 · 转动全景寻找机位视角，然后定格为导演台场景。</div>
                             <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">视场 {aimFov}°</span>
+                                <span className="text-xs text-muted-foreground">视场 {aimFov}°</span>
                                 <Slider className="!w-36" min={35} max={100} step={1} value={aimFov} onChange={setAimFov} tooltip={{ formatter: (value) => `${value}°` }} />
                             </div>
                         </div>
@@ -206,7 +217,13 @@ export function CanvasDirectorStudio({ open, onClose, sceneSrc, sceneIsPanorama,
                         <div className="flex flex-wrap items-center justify-between gap-2">
                             <div className="text-sm text-muted-foreground">第二步 · 摆放角色站位，移动机位框取景，生成构图参考图。</div>
                             <div className="flex flex-wrap items-center gap-2">
-                                <Select size="small" className="!w-32" value={frame.aspect} onChange={(value) => setFrame((prev) => ({ ...prev, aspect: value as DirectorAspectRatio }))} options={DIRECTOR_ASPECT_RATIOS.map((item) => ({ value: item.value, label: item.label }))} />
+                                <Select
+                                    size="small"
+                                    className="!w-32"
+                                    value={frame.aspect}
+                                    onChange={(value) => setFrame((prev) => ({ ...prev, aspect: value as DirectorAspectRatio }))}
+                                    options={DIRECTOR_ASPECT_RATIOS.map((item) => ({ value: item.value, label: item.label }))}
+                                />
                                 <Tooltip title="从画布图片选择角色">
                                     <Button size="small" icon={<Images className="size-3.5" />} onClick={() => setPickerOpen((prev) => !prev)}>
                                         角色
@@ -227,7 +244,13 @@ export function CanvasDirectorStudio({ open, onClose, sceneSrc, sceneIsPanorama,
                             <div className="grid max-h-32 grid-cols-3 gap-1.5 overflow-y-auto rounded-lg border border-border bg-muted/30 p-1.5 sm:grid-cols-5">
                                 {canvasImages.length ? (
                                     canvasImages.map((item) => (
-                                        <button key={item.id} type="button" className="truncate rounded-md border border-border bg-background px-2 py-1.5 text-left text-xs transition hover:border-violet-400" title={item.title} onClick={() => addSticker(item)}>
+                                        <button
+                                            key={item.id}
+                                            type="button"
+                                            className="truncate rounded-md border border-border bg-background px-2 py-1.5 text-left text-xs transition hover:border-violet-400"
+                                            title={item.title}
+                                            onClick={() => addSticker(item)}
+                                        >
                                             <span className="block truncate">{item.title || "未命名"}</span>
                                         </button>
                                     ))
@@ -250,14 +273,29 @@ export function CanvasDirectorStudio({ open, onClose, sceneSrc, sceneIsPanorama,
                         >
                             {sceneBg ? <img src={sceneBg} alt="导演台场景" draggable={false} className="absolute inset-0 h-full w-full object-cover" /> : <div className="absolute inset-0 grid place-items-center text-xs text-white/70">正在准备场景…</div>}
                             {stickers.map((sticker) => (
-                                <div key={sticker.id} className="absolute" style={{ left: `${sticker.x * 100}%`, top: `${sticker.y * 100}%`, width: `${sticker.width * 100}%`, zIndex: sticker.zIndex }} onPointerDown={(event) => startDrag(event, "sticker", sticker.id)}>
+                                <div
+                                    key={sticker.id}
+                                    className="absolute"
+                                    style={{ left: `${sticker.x * 100}%`, top: `${sticker.y * 100}%`, width: `${sticker.width * 100}%`, zIndex: sticker.zIndex }}
+                                    onPointerDown={(event) => startDrag(event, "sticker", sticker.id)}
+                                >
                                     <div className="relative -translate-y-1/2 cursor-move">
                                         <img src={sticker.src} alt={sticker.label} draggable={false} className="pointer-events-none w-full" style={{ transform: sticker.flipped ? "scaleX(-1)" : undefined }} />
                                         <div className="absolute -top-6 left-0 flex items-center gap-1 opacity-0 transition group-hover:opacity-100" style={{ opacity: 1 }}>
-                                            <button type="button" className="grid size-5 place-items-center rounded bg-black/60 !text-white hover:bg-black/80" title="水平翻转" onClick={() => setStickers((prev) => prev.map((item) => (item.id === sticker.id ? { ...item, flipped: !item.flipped } : item)))}>
+                                            <button
+                                                type="button"
+                                                className="grid size-5 place-items-center rounded bg-black/60 !text-white hover:bg-black/80"
+                                                title="水平翻转"
+                                                onClick={() => setStickers((prev) => prev.map((item) => (item.id === sticker.id ? { ...item, flipped: !item.flipped } : item)))}
+                                            >
                                                 <FlipHorizontal2 className="size-3" />
                                             </button>
-                                            <button type="button" className="grid size-5 place-items-center rounded bg-black/60 !text-white hover:bg-black/80" title="移除" onClick={() => setStickers((prev) => prev.filter((item) => item.id !== sticker.id))}>
+                                            <button
+                                                type="button"
+                                                className="grid size-5 place-items-center rounded bg-black/60 !text-white hover:bg-black/80"
+                                                title="移除"
+                                                onClick={() => setStickers((prev) => prev.filter((item) => item.id !== sticker.id))}
+                                            >
                                                 <Trash2 className="size-3" />
                                             </button>
                                         </div>

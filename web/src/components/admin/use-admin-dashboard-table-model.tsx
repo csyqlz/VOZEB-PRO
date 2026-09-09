@@ -322,12 +322,19 @@ export function useAdminDashboardTableModel({ state, data, settingsActions }: { 
             title: "状态",
             dataIndex: "status",
             width: 92,
-                render: (_, record) => <span className={generationStatusClass(record.status)}>{generationStatusLabel(record.status)}</span>,
+            render: (_, record) => <span className={generationStatusClass(record.status)}>{generationStatusLabel(record.status)}</span>,
         },
         {
             title: "失败原因",
             width: 150,
-            render: (_, record) => (record.status === "failed" && record.error ? <Tag className="m-0" color="red">{generationErrorCategoryLabel(classifyGenerationError(record.error))}</Tag> : <span className="text-sm text-stone-400">-</span>),
+            render: (_, record) =>
+                record.status === "failed" && record.error ? (
+                    <Tag className="m-0" color="red">
+                        {generationErrorCategoryLabel(classifyGenerationError(record.error))}
+                    </Tag>
+                ) : (
+                    <span className="text-sm text-stone-400">-</span>
+                ),
         },
         {
             title: "结果",

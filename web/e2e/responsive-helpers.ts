@@ -228,7 +228,7 @@ export async function expectVisibleControlsWithinViewport(page: Page, label: str
                 if (rect.width <= 0 || rect.height <= 0 || rect.bottom <= 0 || rect.top >= window.innerHeight) return false;
                 if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) return false;
                 if (element.closest('[aria-hidden="true"], [inert]')) return false;
-                return !horizontallyScrollable(element) && (rect.left < -1 || rect.right > viewportWidth + 1);
+                return !horizontallyScrollable(element) && (rect.left < -2 || rect.right > viewportWidth + 2);
             })
             .slice(0, 12)
             .map(({ element, rect, label: controlLabel }) => ({

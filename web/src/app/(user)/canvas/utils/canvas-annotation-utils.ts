@@ -2,9 +2,7 @@
 
 export type CanvasAnnotationPoint = { x: number; y: number };
 
-export type CanvasAnnotation =
-    | { kind: "arrow"; id: string; from: CanvasAnnotationPoint; to: CanvasAnnotationPoint; color: string }
-    | { kind: "text"; id: string; at: CanvasAnnotationPoint; text: string; color: string };
+export type CanvasAnnotation = { kind: "arrow"; id: string; from: CanvasAnnotationPoint; to: CanvasAnnotationPoint; color: string } | { kind: "text"; id: string; at: CanvasAnnotationPoint; text: string; color: string };
 
 export const ANNOTATION_COLORS = [
     { value: "#ff4d4f", label: "红色" },

@@ -28,16 +28,11 @@ describe("create workbench overview service", () => {
 
     it("omits expired generated media from the temporary download area", () => {
         const overview = buildCreateGenerationOverview(
-            [
-                generationLog("expired", "success", "2026-07-25T12:00:00.000Z", [{ type: "image", url: "/api/media/expired.webp" }]),
-                generationLog("available", "success", "2026-07-26T11:30:00.000Z", [{ type: "video", url: "/api/media/available.mp4" }]),
-            ],
+            [generationLog("expired", "success", "2026-07-25T12:00:00.000Z", [{ type: "image", url: "/api/media/expired.webp" }]), generationLog("available", "success", "2026-07-26T11:30:00.000Z", [{ type: "video", url: "/api/media/available.mp4" }])],
             Date.parse("2026-07-26T12:00:00.000Z"),
         );
 
-        expect(overview.recentAssets).toEqual([
-            expect.objectContaining({ id: "available-0", url: "/api/media/available.mp4", expiresAt: "2026-07-27T11:30:00.000Z" }),
-        ]);
+        expect(overview.recentAssets).toEqual([expect.objectContaining({ id: "available-0", url: "/api/media/available.mp4", expiresAt: "2026-07-27T11:30:00.000Z" })]);
     });
 
     it("keeps active Agent runs linked to their original conversation", () => {

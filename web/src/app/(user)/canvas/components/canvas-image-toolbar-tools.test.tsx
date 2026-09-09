@@ -9,7 +9,9 @@ describe("Canvas 图片快捷工具", () => {
     it("默认展示分层、消除背景和表情参考入口", () => {
         expect(defaultImageQuickToolIds).toEqual(expect.arrayContaining(["splitLayers", "removeBackground", "emotion"]));
         const handlers = Object.fromEntries(
-            ["onUpload", "onToggleFreeResize", "onMaskEdit", "onAnnotateEdit", "onCrop", "onSplit", "onSplitLayers", "onRemoveBackground", "onEmotion", "onUpscale", "onSuperResolve", "onAngle", "onViewImage", "onCopyPrompt", "onReversePrompt"].map((key) => [key, vi.fn()]),
+            ["onUpload", "onToggleFreeResize", "onMaskEdit", "onAnnotateEdit", "onCrop", "onSplit", "onSplitLayers", "onRemoveBackground", "onEmotion", "onUpscale", "onSuperResolve", "onAngle", "onViewImage", "onCopyPrompt", "onReversePrompt"].map(
+                (key) => [key, vi.fn()],
+            ),
         ) as unknown as Parameters<typeof buildImageToolbarTools>[1];
         const tools = buildImageToolbarTools(node, handlers);
         expect(tools.map((tool) => tool.id)).toEqual(expect.arrayContaining(["splitLayers", "removeBackground", "emotion"]));
@@ -25,7 +27,9 @@ describe("Canvas 图片快捷工具", () => {
 
     it("局部编辑与标注改图入口同时存在且职责不同", () => {
         const handlers = Object.fromEntries(
-            ["onUpload", "onToggleFreeResize", "onMaskEdit", "onAnnotateEdit", "onCrop", "onSplit", "onSplitLayers", "onRemoveBackground", "onEmotion", "onUpscale", "onSuperResolve", "onAngle", "onViewImage", "onCopyPrompt", "onReversePrompt"].map((key) => [key, vi.fn()]),
+            ["onUpload", "onToggleFreeResize", "onMaskEdit", "onAnnotateEdit", "onCrop", "onSplit", "onSplitLayers", "onRemoveBackground", "onEmotion", "onUpscale", "onSuperResolve", "onAngle", "onViewImage", "onCopyPrompt", "onReversePrompt"].map(
+                (key) => [key, vi.fn()],
+            ),
         ) as unknown as Parameters<typeof buildImageToolbarTools>[1];
         const tools = buildImageToolbarTools(node, handlers);
         expect(defaultImageQuickToolIds).toEqual(expect.arrayContaining(["maskEdit", "annotateEdit"]));

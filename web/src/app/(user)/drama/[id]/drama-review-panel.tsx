@@ -12,7 +12,37 @@ import { DramaOrganizeControls, type DramaOrganizeModelOption, type DramaProject
 import { DramaAiProgress } from "./drama-ai-progress";
 import { DramaShotDialogueEditor } from "./drama-shot-dialogue-editor";
 
-export function DramaReviewPanel({ project, episode, onDesignVisuals, designing, onStageChange, onAnalyze, analyzing = false, analyzeElapsedMs = 0, analyzeError = "", organizeModels = [], organizeModel = "", onOrganizeModelChange, designElapsedMs = 0, designError = "" }: { project: DramaProject; episode: DramaEpisode; onDesignVisuals: () => void; designing: boolean; onStageChange: (stage: DramaProjectStage) => void; onAnalyze?: () => void; analyzing?: boolean; analyzeElapsedMs?: number; analyzeError?: string; organizeModels?: DramaOrganizeModelOption[]; organizeModel?: string; onOrganizeModelChange?: (model: string) => void; designElapsedMs?: number; designError?: string }) {
+export function DramaReviewPanel({
+    project,
+    episode,
+    onDesignVisuals,
+    designing,
+    onStageChange,
+    onAnalyze,
+    analyzing = false,
+    analyzeElapsedMs = 0,
+    analyzeError = "",
+    organizeModels = [],
+    organizeModel = "",
+    onOrganizeModelChange,
+    designElapsedMs = 0,
+    designError = "",
+}: {
+    project: DramaProject;
+    episode: DramaEpisode;
+    onDesignVisuals: () => void;
+    designing: boolean;
+    onStageChange: (stage: DramaProjectStage) => void;
+    onAnalyze?: () => void;
+    analyzing?: boolean;
+    analyzeElapsedMs?: number;
+    analyzeError?: string;
+    organizeModels?: DramaOrganizeModelOption[];
+    organizeModel?: string;
+    onOrganizeModelChange?: (model: string) => void;
+    designElapsedMs?: number;
+    designError?: string;
+}) {
     const updateEpisode = useDramaStore((state) => state.updateEpisode);
     const updateShot = useDramaStore((state) => state.updateShot);
     const appendShot = useDramaStore((state) => state.appendShot);
@@ -208,7 +238,9 @@ export function DramaReviewPanel({ project, episode, onDesignVisuals, designing,
                     <h3 className="text-sm font-medium">还没有待审核的内容结构</h3>
                     <p className="mt-1 text-xs leading-5 text-muted-foreground">可以自选文本模型运行 AI 整理，自动提取镜头事实、对白和原文依据；也可以直接在下方镜头列表手动补充。</p>
                     <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-                        {onAnalyze && onOrganizeModelChange ? <DramaOrganizeControls models={organizeModels} value={organizeModel} onChange={onOrganizeModelChange} analyzing={analyzing} disabled={!episode.script.trim()} onRun={onAnalyze} compact /> : null}
+                        {onAnalyze && onOrganizeModelChange ? (
+                            <DramaOrganizeControls models={organizeModels} value={organizeModel} onChange={onOrganizeModelChange} analyzing={analyzing} disabled={!episode.script.trim()} onRun={onAnalyze} compact />
+                        ) : null}
                         <Button size="small" className="!h-8 !px-2.5" icon={<Plus className="size-3.5" />} onClick={addManualShot}>
                             手动添加镜头
                         </Button>

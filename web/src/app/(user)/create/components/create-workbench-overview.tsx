@@ -56,7 +56,12 @@ export function CreateWorkbenchOverview({ onUseAsset }: { onUseAsset: (asset: Cr
                     </div>
                     <div className="flex shrink-0 items-center gap-3">
                         {availableRecentAssets.length ? (
-                            <button type="button" onClick={downloadAll} className="inline-flex items-center gap-1 text-xs font-medium text-[#334155] transition hover:text-[#111827] dark:text-[#dce1e7] dark:hover:text-white" aria-label={`下载全部最近生成，共 ${availableRecentAssets.length} 个`}>
+                            <button
+                                type="button"
+                                onClick={downloadAll}
+                                className="inline-flex items-center gap-1 text-xs font-medium text-[#334155] transition hover:text-[#111827] dark:text-[#dce1e7] dark:hover:text-white"
+                                aria-label={`下载全部最近生成，共 ${availableRecentAssets.length} 个`}
+                            >
                                 <Download className="size-3.5" /> 下载全部
                             </button>
                         ) : null}
