@@ -12,7 +12,7 @@ import type { AiTextMessage } from "@/types/ai";
 import { hasSystemAiCharge, readSystemAiBilling, systemAiBillingHeaders } from "@/lib/server/system-ai-billing";
 import { resolveModelRequestTimeoutMs } from "@/lib/server/model-request-policy";
 import { buildProviderRequest, isProviderBusinessError, providerQueryPaths, readProviderError, readProviderString } from "@/lib/server/provider-task-config";
-import { maintenanceWorkerContextHeaders } from "@/lib/server/maintenance-auth";
+import { maintenanceWorkerContext, maintenanceWorkerContextHeaders } from "@/lib/server/maintenance-auth";
 import { GenerationSubmissionSafeFailure, GenerationSubmissionUncertainError, generationSubmissionResponseError, generationSubmissionUncertainError } from "@/lib/server/generation-submission-error";
 import { resolveTextProtocol, type ResolvedTextProtocol } from "@/lib/server/text-protocol-resolver";
 import { refundTextTask, textTaskRefundIdempotencyKey } from "@/lib/server/text-task-refund";
@@ -63,6 +63,7 @@ export async function runTextTaskStep(task: TextTask, origin: string, cookie: st
     if (current.status === "error" || current.status === "cancelled") return { state: "failed", error: current.error || "文本任务已结束" };
     const running = current.status === "pending" ? await transitionTextTask(current, ["pending"], { status: "running" }) : current;
     if (!running) return { state: "failed", error: "文本任务状态已变化" };
+    if (running.dramaAnalysis) return runDramaAnalysisTextTask(running, origin);
     if (running.upstream?.id) return queryCustomTextTaskStep(running, origin, cookie);
 
     const candidates = [running.config, ...(running.candidateConfigs || [])];
@@ -102,6 +103,36 @@ export async function runTextTaskStep(task: TextTask, origin: string, cookie: st
         }
     }
     return failTextTask((await getTextTask(task.id)) || running, latestError instanceof Error ? latestError.message : "没有可用的文本渠道", attempts);
+}
+
+async function runDramaAnalysisTextTask(task: TextTask, origin: string): Promise<TextTaskStep> {
+    const analysis = task.dramaAnalysis;
+    const label = analysis?.body.phase === "visual" ? "视觉方案" : "内容整理";
+    if (!analysis) return failTextTask(task, "短剧分析任务参数不完整", task.attempts || []);
+    await scheduleGenerationTask("text", task.id, {
+        executionPhase: "submitting",
+        channelId: task.config.channelId,
+        provider: task.config.advancedConfig?.protocol || task.config.apiFormat,
+        nextPollAt: Date.now(),
+        lastUpstreamStatus: "submitting",
+    });
+    try {
+        const workerHeaders = maintenanceWorkerContextHeaders(maintenanceWorkerContext(task.userId));
+        if (!workerHeaders) throw new Error("生成任务 Worker 鉴权不可用");
+        const response = await fetchInternalApi(`${origin}/api/drama/analyze`, {
+            method: "POST",
+            headers: { "content-type": "application/json", "x-vozeb-pro-generation-task-id": task.id, ...workerHeaders },
+            body: JSON.stringify(analysis.body),
+            cache: "no-store",
+        });
+        const payload = (await response.json().catch(() => null)) as { data?: unknown; msg?: string } | null;
+        if (!response.ok || !payload?.data) return failTextTask(task, payload?.msg || `AI ${label}失败`, task.attempts || []);
+        await scheduleGenerationTask("text", task.id, { executionPhase: "persisting", lastUpstreamStatus: "persisting" });
+        const remaining = Number(response.headers.get("x-vozeb-pro-points-remaining"));
+        return completeTextTask(task, JSON.stringify(payload.data), { pointsRemaining: Number.isFinite(remaining) ? remaining : undefined }, task.attempts || []);
+    } catch (error) {
+        return failTextTask(task, error instanceof Error ? error.message : `AI ${label}失败`, task.attempts || []);
+    }
 }
 
 function runResolvedTextTask(task: TextTask, origin: string, cookie: string, protocol: ResolvedTextProtocol) {

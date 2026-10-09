@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { App, Button, Drawer, Input, Popover, Tooltip } from "antd";
+import { Alert, App, Button, Drawer, Input, Popover, Steps, Tooltip } from "antd";
 import { ArrowLeft, Bot, Boxes, ChevronDown, ChevronRight, History, PanelLeft, Plus, Settings2, Sparkles, Trash2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -327,6 +327,7 @@ export function DramaScriptPanel({
     project,
     episode,
     analyzing,
+    lifecycle,
     onAnalyze,
     onStageChange,
     selectedShotId,
@@ -335,6 +336,7 @@ export function DramaScriptPanel({
     project: DramaProject;
     episode: DramaEpisode;
     analyzing: boolean;
+    lifecycle?: { current: number; description: string; status?: "process" | "error" };
     onAnalyze: () => void;
     onStageChange: (stage: DramaProjectStage) => void;
     selectedShotId?: string;
@@ -349,14 +351,14 @@ export function DramaScriptPanel({
                     step="01"
                     title="剧本编辑"
                     description="编辑或导入本集剧本，整理后进入内容审核。"
-                    status={scriptText ? (episode.shots.length ? "已整理" : "待整理") : "待编辑"}
-                    tone={scriptText ? (episode.shots.length ? "ready" : "neutral") : "attention"}
+                    status={lifecycle?.status === "error" ? "整理失败" : lifecycle ? "整理进行中" : scriptText ? (episode.shots.length ? "已整理" : "待整理") : "待编辑"}
+                    tone={lifecycle?.status === "error" ? "attention" : lifecycle ? "running" : scriptText ? (episode.shots.length ? "ready" : "neutral") : "attention"}
                     metrics={[
                         { label: "字数", value: scriptText.length },
                         { label: "场景", value: episode.shots.length },
                     ]}
                     action={
-                        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                        <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
                             <DramaSourceImport project={project} onImported={() => onStageChange("script")} />
                             <Button
                                 type="primary"
@@ -377,7 +379,30 @@ export function DramaScriptPanel({
                             </Popover>
                         </div>
                     }
+                    below={
+                        lifecycle ? (
+                            <div
+                                className={`w-full min-w-0 rounded-lg border px-3 py-2.5 ${lifecycle.status === "error" ? "border-rose-200 bg-rose-50/70 dark:border-rose-900/70 dark:bg-rose-950/25" : "border-sky-200 bg-sky-50/70 dark:border-sky-900/70 dark:bg-sky-950/25"}`}
+                                data-drama-content-lifecycle
+                            >
+                                <Steps
+                                    className="[&_.ant-steps-item-title]:!whitespace-nowrap"
+                                    current={lifecycle.current}
+                                    responsive
+                                    size="small"
+                                    status={lifecycle.status}
+                                    items={["创建任务", "排队接管", "读取原文", "结构提取", "合并校验", "保存项目", "完成"].map((title) => ({ title }))}
+                                />
+                                <Tooltip title={lifecycle.description}>
+                                    <p className={`mt-2 truncate text-xs ${lifecycle.status === "error" ? "text-rose-600 dark:text-rose-300" : "text-sky-700 dark:text-sky-300"}`} aria-live="polite">
+                                        {lifecycle.description}
+                                    </p>
+                                </Tooltip>
+                            </div>
+                        ) : null
+                    }
                 />
+                {episode.contentError ? <Alert className="mt-2.5" type="error" showIcon message="内容整理失败" description={episode.contentError} /> : null}
             </div>
             <div className="mt-3 flex min-h-0 flex-1 overflow-hidden bg-transparent">
                 <DramaScriptWorkspace project={project} episode={episode} selectedShotId={selectedShotId} onSelectedShotChange={onSelectedShotChange} analyzing={analyzing} onAnalyze={onAnalyze} />

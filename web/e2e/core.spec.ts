@@ -2,6 +2,7 @@ import { createHmac, randomUUID } from "node:crypto";
 
 import { expect, test, type APIRequestContext } from "@playwright/test";
 import { strToU8, zipSync } from "fflate";
+import { DRAMA_PROJECT_MAX_BYTES } from "@/lib/drama-project-contract";
 import { createCanvasProject, deleteCanvasProject, expectCanvasSaved, readCanvasProject } from "./canvas-e2e-helpers";
 import { E2E_PAYMENT_WEBHOOK_SECRET, E2E_PROTOCOL_ORIGIN, pollTask, protocolFixtureState, resetProtocolFixture } from "./support";
 
@@ -420,8 +421,12 @@ test("Drama Agent persists and restores local image and video results", async ({
 
 test("Drama production persists storyboard and shot video results through reload", async ({ page, request }) => {
     const analysisRequestIds: string[] = [];
+    const contentRequestOrder: string[] = [];
     page.on("request", (current) => {
-        if (current.method() !== "POST" || new URL(current.url()).pathname !== "/api/drama/analyze") return;
+        const pathname = new URL(current.url()).pathname;
+        if (current.method() !== "POST") return;
+        if (pathname === "/api/drama/analyze" || pathname.endsWith("/versions")) contentRequestOrder.push(pathname);
+        if (pathname !== "/api/drama/analyze") return;
         const requestId = String((current.postDataJSON() as { requestId?: string } | null)?.requestId || "");
         analysisRequestIds.push(requestId);
     });
@@ -443,6 +448,7 @@ test("Drama production persists storyboard and shot video results through reload
         await expect(analyzeButton).toBeEnabled();
         await analyzeButton.click();
         await expect(page.getByRole("heading", { name: "内容审核", exact: true })).toBeVisible({ timeout: 30_000 });
+        expect(contentRequestOrder.slice(0, 2)).toEqual([`/api/drama/projects/${project.id}/versions`, "/api/drama/analyze"]);
 
         await page.getByRole("button", { name: "确认内容并生成视觉方案" }).click();
         await expect(page.getByRole("heading", { name: "分镜编辑", exact: true })).toBeVisible({ timeout: 30_000 });
@@ -488,6 +494,73 @@ test("Drama production persists storyboard and shot video results through reload
         await expect(page.getByRole("button", { name: /查看图片：.*起始帧/ })).toBeVisible();
         await expect(page.getByRole("button", { name: /查看视频：.*生成视频/ })).toBeVisible();
         expect((await dramaProject(request, project.id)).episodes[0]?.shots[0]).toMatchObject({ storyboardStatus: "success", generationStatus: "success" });
+    } finally {
+        const deleted = await request.delete(`/api/drama/projects/${project.id}`);
+        expect(deleted.ok(), await deleted.text()).toBe(true);
+    }
+});
+
+test("Drama visual result recovers a dropped browser response idempotently", async ({ page, request }) => {
+    const created = await request.post("/api/drama/projects", {
+        data: {
+            title: `短剧视觉断线恢复 ${randomUUID().slice(0, 8)}`,
+            summary: "验证视觉结果已落库但浏览器响应丢失时恢复同一任务",
+            style: "清晰测试画面",
+            ratio: "16:9",
+            initialScript: "主角推门进入明亮的测试房间，说：测试开始。",
+        },
+    });
+    expect(created.ok(), await created.text()).toBe(true);
+    const project = ((await created.json()) as { data: { project: { id: string } } }).data.project;
+    try {
+        await page.goto(`/drama/${project.id}`, { waitUntil: "domcontentloaded" });
+        await expect(page.locator("[data-drama-workspace]")).toBeVisible({ timeout: 20_000 });
+        await page.locator("[data-drama-script-statusbar]").getByRole("button", { name: "AI 整理" }).click();
+        await expect(page.getByRole("heading", { name: "内容审核", exact: true })).toBeVisible({ timeout: 30_000 });
+
+        let dropped = false;
+        await page.route(`**/api/drama/projects/${project.id}/episodes/*/visual-analysis`, async (route) => {
+            if (dropped) return route.continue();
+            const response = await route.fetch();
+            expect(response.ok(), await response.text()).toBe(true);
+            dropped = true;
+            await route.abort("failed");
+        });
+        await page.getByRole("button", { name: "确认内容并生成视觉方案" }).click();
+        await expect(page.getByRole("button", { name: "检查任务状态" })).toBeVisible({ timeout: 30_000 });
+        const committed = await dramaProject(request, project.id);
+        expect(committed.episodes[0]).toMatchObject({ reviewStatus: "visual_ready", visualCompletedTaskId: expect.any(String) });
+        expect(committed.episodes[0]).not.toHaveProperty("visualTaskId");
+        const versionsBefore = (await (await request.get(`/api/drama/projects/${project.id}/versions`)).json()) as { data: { versions: Array<{ reason: string }> } };
+        expect(versionsBefore.data.versions.filter((version) => version.reason === "视觉方案生成前")).toHaveLength(1);
+
+        await page.getByRole("button", { name: "检查任务状态" }).click();
+        await expect(page.getByRole("heading", { name: "分镜编辑", exact: true })).toBeVisible({ timeout: 30_000 });
+        const versionsAfter = (await (await request.get(`/api/drama/projects/${project.id}/versions`)).json()) as { data: { versions: Array<{ reason: string }> } };
+        expect(versionsAfter.data.versions.filter((version) => version.reason === "视觉方案生成前")).toHaveLength(1);
+    } finally {
+        const deleted = await request.delete(`/api/drama/projects/${project.id}`);
+        expect(deleted.ok(), await deleted.text()).toBe(true);
+    }
+});
+
+test("Drama import persists supported sources and blocks files above the shared project limit", async ({ page, request }) => {
+    const created = await request.post("/api/drama/projects", { data: { title: `短剧导入限额 ${randomUUID().slice(0, 8)}` } });
+    expect(created.ok(), await created.text()).toBe(true);
+    const project = ((await created.json()) as { data: { project: { id: string } } }).data.project;
+    try {
+        await page.goto(`/drama/${project.id}`, { waitUntil: "domcontentloaded" });
+        await expect(page.locator("[data-drama-workspace]")).toBeVisible({ timeout: 20_000 });
+        await page.locator('input[type="file"][accept*=".txt"]').setInputFiles({ name: "supported.txt", mimeType: "text/plain", buffer: Buffer.from("剧".repeat(1_050_000), "utf8") });
+        await page.getByRole("button", { name: "确认导入 263 集" }).click();
+        await expect(page.getByText("已导入 263 集，请逐集检查并提取内容结构", { exact: true })).toBeVisible({ timeout: 30_000 });
+        await expect.poll(async () => (await dramaProject(request, project.id)).episodes.length).toBe(263);
+
+        await page.locator('input[type="file"][accept*=".txt"]').setInputFiles({ name: "oversized.txt", mimeType: "text/plain", buffer: Buffer.alloc(DRAMA_PROJECT_MAX_BYTES + 1, 0x61) });
+
+        await expect(page.getByText("剧本文件超过 8 MB，请拆分后重新上传", { exact: true })).toBeVisible();
+        await expect(page.getByRole("dialog", { name: "导入整本剧本" })).toHaveCount(0);
+        expect((await dramaProject(request, project.id)).episodes).toHaveLength(263);
     } finally {
         const deleted = await request.delete(`/api/drama/projects/${project.id}`);
         expect(deleted.ok(), await deleted.text()).toBe(true);

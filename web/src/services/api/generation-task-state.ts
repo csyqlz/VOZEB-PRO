@@ -1,6 +1,7 @@
 export type GenerationTaskExecutionState = {
     needsReview?: boolean;
     executionPhase?: string;
+    lastUpstreamStatus?: string;
     reviewReason?: string;
 };
 

@@ -1,4 +1,4 @@
-import type { CreateDramaProjectInput, DramaCostSummary, DramaEpisode, DramaProject, DramaProjectSummary, DramaProjectVersion, DramaVisualReview } from "@/lib/drama-project-contract";
+import type { CreateDramaProjectInput, DramaCostSummary, DramaEpisode, DramaProject, DramaProjectSummary, DramaProjectVersion, DramaVisualAnalysis, DramaVisualReview } from "@/lib/drama-project-contract";
 
 export type DramaProjectSummaryResponse = { projects: DramaProjectSummary[]; total: number; page: number; pageSize: number };
 
@@ -33,6 +33,27 @@ export function createDramaProjectVersion(project: DramaProject, reason: string)
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reason, snapshot: project }),
     }).then((data) => data.version);
+}
+
+export class DramaVisualResultError extends Error {
+    constructor(
+        message: string,
+        readonly status: number,
+    ) {
+        super(message);
+        this.name = "DramaVisualResultError";
+    }
+}
+
+export async function applyDramaVisualResult(projectId: string, episodeId: string, taskId: string, analysis: DramaVisualAnalysis) {
+    const response = await fetch(`/api/drama/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(episodeId)}/visual-analysis`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ taskId, analysis }),
+    });
+    const payload = (await response.json().catch(() => ({}))) as { data?: { episode: DramaEpisode; projectUpdatedAt: string; version: DramaProjectVersion | null }; msg?: string };
+    if (!response.ok || !payload.data) throw new DramaVisualResultError(payload.msg || "视觉方案保存失败", response.status);
+    return payload.data;
 }
 
 export function listDramaProjectVersions(projectId: string) {

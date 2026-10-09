@@ -1,3 +1,5 @@
+export const DRAMA_PROJECT_MAX_BYTES = 8 * 1024 * 1024;
+
 export type DramaTaskStatus = "idle" | "queued" | "running" | "success" | "error" | "cancelled";
 export type DramaReviewStatus = "draft" | "content_review" | "approved" | "visual_ready";
 export type DramaVideoMode = "storyboard" | "direct" | "reference";
@@ -144,6 +146,11 @@ export type DramaEpisode = {
     nextPreview: string;
     sourceRange: string;
     reviewStatus: DramaReviewStatus;
+    contentTaskId?: string;
+    contentError?: string;
+    visualTaskId?: string;
+    visualCompletedTaskId?: string;
+    visualError?: string;
     shots: DramaShot[];
     renderTask?: DramaRenderTask;
     visualReview?: DramaVisualReview;

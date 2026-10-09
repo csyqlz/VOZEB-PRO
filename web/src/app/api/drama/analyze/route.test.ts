@@ -7,14 +7,29 @@ const mocks = vi.hoisted(() => ({
     resolveLogicalModelCandidates: vi.fn(),
     checkRateLimit: vi.fn(),
     requestStructuredText: vi.fn(),
+    authorizedWorkerUserId: vi.fn(),
+    createTextTask: vi.fn(),
+    getTextTask: vi.fn(),
+    assignDramaContentTaskForUser: vi.fn(),
+    assignDramaVisualTaskForUser: vi.fn(),
+    scheduleGenerationTask: vi.fn(),
+    runGenerationTaskRecoveryBatch: vi.fn(),
+    after: vi.fn(),
 }));
 
+vi.mock("next/server", async (importOriginal) => ({ ...(await importOriginal<typeof import("next/server")>()), after: mocks.after }));
 vi.mock("@/lib/auth/session", () => ({ getCurrentUser: mocks.getCurrentUser }));
 vi.mock("@/lib/auth/store", () => ({ getAuthSettings: mocks.getAuthSettings, isAuthInputError: vi.fn(() => false), refundUserPoints: mocks.refundUserPoints }));
 vi.mock("@/lib/server/internal-origin", () => ({ resolveInternalOrigin: vi.fn((origin: string) => origin) }));
 vi.mock("@/lib/server/logical-model-router", () => ({ resolveLogicalModelCandidates: mocks.resolveLogicalModelCandidates }));
 vi.mock("@/lib/server/security", () => ({ checkRateLimit: mocks.checkRateLimit }));
 vi.mock("@/lib/server/text-planning-runtime", () => ({ isStructuredTextFailure: vi.fn(() => false), rankTextPlanningCandidates: vi.fn((items: unknown[]) => items), requestStructuredText: mocks.requestStructuredText }));
+vi.mock("@/lib/server/maintenance-auth", () => ({ authorizedWorkerUserId: mocks.authorizedWorkerUserId, maintenanceWorkerContextHeaders: vi.fn(() => null), requestRuntimeCredential: vi.fn(() => "session=test") }));
+vi.mock("@/lib/server/generation-task-store", () => ({ withGenerationConcurrencyLimit: vi.fn(async (_userId: string, _type: string, _ttl: number, _limit: number, run: () => unknown) => run()) }));
+vi.mock("@/lib/server/generation-task-scheduler", () => ({ scheduleGenerationTask: mocks.scheduleGenerationTask }));
+vi.mock("@/lib/server/generation-task-recovery-service", () => ({ runGenerationTaskRecoveryBatch: mocks.runGenerationTaskRecoveryBatch }));
+vi.mock("@/lib/server/drama-project-service", () => ({ assignDramaContentTaskForUser: mocks.assignDramaContentTaskForUser, assignDramaVisualTaskForUser: mocks.assignDramaVisualTaskForUser }));
+vi.mock("@/lib/server/text-task-store", () => ({ createTextTask: mocks.createTextTask, getTextTask: mocks.getTextTask }));
 
 import { POST } from "./route";
 
@@ -22,10 +37,14 @@ describe("POST /api/drama/analyze", () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.getCurrentUser.mockResolvedValue({ id: "user-one" });
+        mocks.authorizedWorkerUserId.mockReturnValue("user-one");
         mocks.checkRateLimit.mockResolvedValue({ allowed: true });
+        mocks.assignDramaContentTaskForUser.mockResolvedValue({ updatedAt: "2026-08-26T06:00:00.000Z" });
+        mocks.assignDramaVisualTaskForUser.mockResolvedValue({ updatedAt: "2026-08-26T06:00:00.000Z" });
         mocks.getAuthSettings.mockResolvedValue({
             defaultModels: { textModel: "planner", videoModel: "video-planner" },
             generationDefaults: { videoSeconds: 5 },
+            generationConcurrency: { text: 2 },
             generationPointMultipliers: { videoSeconds: { "5": 1, "8": 1, "10": 1, "15": 1 } },
         });
         mocks.resolveLogicalModelCandidates.mockImplementation((_settings: unknown, capability: string) =>
@@ -85,6 +104,16 @@ describe("POST /api/drama/analyze", () => {
             protocol: "chat",
             elapsedMs: 10,
         });
+        mocks.createTextTask.mockResolvedValue({
+            id: "visual-task-one",
+            userId: "user-one",
+            status: "pending",
+            config: { baseUrl: "/api/ai/system/text-channel", apiKey: "system", apiFormat: "openai", model: "vendor-planner", channelId: "text-channel", logicalModel: "planner" },
+            messages: [],
+            createdAt: 1,
+            updatedAt: 1,
+        });
+        mocks.getTextTask.mockResolvedValue(null);
     });
 
     it("uses one strict JSON request for drama analysis", async () => {
@@ -130,6 +159,22 @@ describe("POST /api/drama/analyze", () => {
         expect(fallbackBillingKey).not.toBe(toolBillingKey);
         expect(input.messages?.[0]?.content).toContain("5、8、10、15 秒");
         expect(input.messages?.[0]?.content).toContain("不能删句");
+    });
+
+    it("persists content lifecycle progress for the authenticated worker task", async () => {
+        mocks.getTextTask.mockResolvedValue({ id: "text-progress", userId: "user-one", dramaAnalysis: { body: { requestId: "drama-progress-one" } } });
+
+        const response = await POST(
+            new Request("http://localhost/api/drama/analyze", {
+                method: "POST",
+                headers: { "content-type": "application/json", "x-vozeb-pro-generation-task-id": "text-progress" },
+                body: JSON.stringify({ requestId: "drama-progress-one", phase: "content", script: "灰黑色风暴扫过废墟。" }),
+            }),
+        );
+
+        expect(response.status).toBe(200);
+        expect(mocks.scheduleGenerationTask).toHaveBeenCalledWith("text", "text-progress", { executionPhase: "submitting", lastUpstreamStatus: "analyzing" });
+        expect(mocks.scheduleGenerationTask).toHaveBeenCalledWith("text", "text-progress", { executionPhase: "submitting", lastUpstreamStatus: "validating" });
     });
 
     it("unwraps a Responses-compatible data wrapper before validating drama fields", async () => {
@@ -400,7 +445,48 @@ describe("POST /api/drama/analyze", () => {
         expect(billingKeys[2]).not.toBe(billingKeys[0]);
     });
 
+    it("queues visual analysis instead of keeping the browser request open", async () => {
+        mocks.authorizedWorkerUserId.mockReturnValue("");
+        const response = await POST(
+            new Request("http://localhost/api/drama/analyze", {
+                method: "POST",
+                headers: { "content-type": "application/json", cookie: "session=test" },
+                body: JSON.stringify({ requestId: "drama-visual-queued", projectId: "project-one", phase: "visual", episode: { id: "episode-one" }, shots: [{ id: "shot-one", sourceText: "原文一" }] }),
+            }),
+        );
+
+        expect(response.status).toBe(202);
+        await expect(response.json()).resolves.toMatchObject({ code: 0, data: { task: { id: "visual-task-one", status: "pending", model: "planner" } } });
+        expect(mocks.createTextTask).toHaveBeenCalledWith(expect.objectContaining({ surface: "drama", projectId: "project-one", episodeId: "episode-one", clientRequestId: "drama-visual-queued" }));
+        expect(mocks.assignDramaVisualTaskForUser).toHaveBeenCalledWith("user-one", "project-one", "episode-one", "visual-task-one");
+        expect(mocks.scheduleGenerationTask).toHaveBeenCalledWith("text", "visual-task-one", expect.objectContaining({ executionPhase: "created" }));
+        expect(mocks.assignDramaVisualTaskForUser.mock.invocationCallOrder[0]).toBeLessThan(mocks.scheduleGenerationTask.mock.invocationCallOrder[0]);
+        expect(mocks.after).toHaveBeenCalledOnce();
+        expect(mocks.requestStructuredText).not.toHaveBeenCalled();
+    });
+
+    it("queues content analysis instead of keeping the browser request open", async () => {
+        mocks.authorizedWorkerUserId.mockReturnValue("");
+        const response = await POST(
+            new Request("http://localhost/api/drama/analyze", {
+                method: "POST",
+                headers: { "content-type": "application/json", cookie: "session=test" },
+                body: JSON.stringify({ requestId: "drama-content-queued", projectId: "project-one", episodeId: "episode-one", phase: "content", script: "灰黑色风暴扫过废墟。" }),
+            }),
+        );
+
+        expect(response.status).toBe(202);
+        await expect(response.json()).resolves.toMatchObject({ code: 0, data: { task: { id: "visual-task-one", status: "pending", model: "planner" } }, msg: "内容整理已进入生成队列" });
+        expect(mocks.createTextTask).toHaveBeenCalledWith(expect.objectContaining({ surface: "drama", projectId: "project-one", episodeId: "episode-one", clientRequestId: "drama-content-queued" }));
+        expect(mocks.assignDramaContentTaskForUser).toHaveBeenCalledWith("user-one", "project-one", "episode-one", "visual-task-one");
+        expect(mocks.scheduleGenerationTask).toHaveBeenCalledWith("text", "visual-task-one", expect.objectContaining({ executionPhase: "created" }));
+        expect(mocks.assignDramaContentTaskForUser.mock.invocationCallOrder[0]).toBeLessThan(mocks.scheduleGenerationTask.mock.invocationCallOrder[0]);
+        expect(mocks.after).toHaveBeenCalledOnce();
+        expect(mocks.requestStructuredText).not.toHaveBeenCalled();
+    });
+
     it("adaptively splits a structurally invalid visual request and preserves shot order", async () => {
+        mocks.authorizedWorkerUserId.mockReturnValue("user-one");
         const shots = Array.from({ length: 4 }, (_, index) => ({ id: `shot-${index + 1}`, title: `镜头 ${index + 1}`, description: `描述 ${index + 1}`, sourceText: `原文 ${index + 1}`, duration: 5 }));
         mocks.requestStructuredText.mockRejectedValueOnce(new Error("模型没有返回所需的结构化结果")).mockImplementation(async (input) => {
             const messages = (input as { messages: Array<{ role: string; content: string }> }).messages;
@@ -446,6 +532,7 @@ describe("POST /api/drama/analyze", () => {
     });
 
     it("requests only missing shots from a valid partial visual response", async () => {
+        mocks.authorizedWorkerUserId.mockReturnValue("user-one");
         const shots = [
             { id: "shot-one", sourceText: "原文一" },
             { id: "shot-two", sourceText: "原文二" },

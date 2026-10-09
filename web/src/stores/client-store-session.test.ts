@@ -455,6 +455,29 @@ describe("client store session isolation", () => {
         expect(shots[1]).toMatchObject({ id: "shot-idle", storyboardStatus: "queued", storyboardAttempt: 1, generationStatus: "idle", audioStatus: "idle" });
     });
 
+    it("replaces imported Drama episodes only after the server save succeeds", async () => {
+        useUserStore.getState().setUser(user("user-a"));
+        const project = dramaProject("drama-a", "用户 A 短剧");
+        const pendingSave = deferred<DramaProject>();
+        mocks.saveDramaProject.mockReturnValueOnce(pendingSave.promise);
+        useDramaStore.setState({ projects: [project], hydrated: true, hydratedUserId: "user-a" });
+
+        const importing = useDramaStore.getState().importEpisodes(project.id, [
+            { title: "第一章", script: "第一集正文", sourceRange: "第一章" },
+            { title: "第二章", script: "第二集正文", sourceRange: "第二章" },
+        ]);
+        await Promise.resolve();
+
+        expect(useDramaStore.getState().projects[0].episodes).toHaveLength(1);
+        expect(mocks.saveDramaProject).toHaveBeenCalledWith(expect.objectContaining({ id: project.id, episodes: [expect.objectContaining({ script: "第一集正文" }), expect.objectContaining({ script: "第二集正文" })] }));
+        const saved = mocks.saveDramaProject.mock.calls[0][0] as DramaProject;
+        pendingSave.resolve(saved);
+        await importing;
+
+        expect(useDramaStore.getState().projects[0].episodes).toHaveLength(2);
+        expect(useDramaStore.getState().saveStateByProject[project.id]).toEqual({ status: "saved", savedAt: saved.updatedAt });
+    });
+
     it("waits for an in-flight save before restoring a Drama version", async () => {
         vi.useFakeTimers();
         try {
@@ -476,6 +499,26 @@ describe("client store session isolation", () => {
 
             expect(mocks.restoreDramaProjectVersion).toHaveBeenCalledWith(project.id, "version-1");
             expect(useDramaStore.getState().projects[0].title).toBe("历史版本");
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("flushes critical Drama task state without waiting for the debounce timer", async () => {
+        vi.useFakeTimers();
+        try {
+            useUserStore.getState().setUser(user("user-a"));
+            const project = dramaProject("drama-a", "用户 A 短剧");
+            mocks.saveDramaProject.mockImplementationOnce(async (value: DramaProject) => value);
+            useDramaStore.setState({ projects: [project], hydrated: true, hydratedUserId: "user-a" });
+
+            useDramaStore.getState().updateEpisode(project.id, project.episodes[0].id, { contentTaskId: "text-task-one" });
+            await useDramaStore.getState().saveProjectNow(project.id);
+
+            expect(mocks.saveDramaProject).toHaveBeenCalledOnce();
+            expect(mocks.saveDramaProject).toHaveBeenCalledWith(expect.objectContaining({ episodes: [expect.objectContaining({ contentTaskId: "text-task-one" })] }));
+            await vi.runAllTimersAsync();
+            expect(mocks.saveDramaProject).toHaveBeenCalledOnce();
         } finally {
             vi.useRealTimers();
         }
