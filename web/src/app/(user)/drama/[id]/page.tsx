@@ -259,7 +259,8 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
                     const imageUrl = stableTaskUrl(result.remoteUrl, result.serverUrl, result.dataUrl);
                     if (!imageUrl) throw new Error("尾帧图没有可持久化的访问地址");
                     const imageStorageKey = parseServerMediaUrl(imageUrl)?.storageKey;
-                    const latest = currentDramaShot(project.id, episode.id, runningEnd.id) || runningEnd;
+                    const latest = currentDramaShot(project.id, episode.id, runningEnd.id);
+                    if (!latest || latest.storyboardEndTaskId !== runningEnd.storyboardEndTaskId || latest.storyboardEndStatus !== "running") return;
                     const resultIsCurrent = attemptMatchesCurrent(latest.storyboardEndAttemptFingerprint, latest.storyboardEndInputFingerprint);
                     updateShot(project.id, episode.id, runningEnd.id, {
                         storyboardEndStatus: "success",
@@ -274,9 +275,13 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
                         ...(resultIsCurrent ? { generationAttempt: (latest.generationAttempt || 0) + 1 } : {}),
                     });
                 })
-                .catch((error) => updateShot(project.id, episode.id, runningEnd.id, { storyboardEndStatus: "error", storyboardEndError: error instanceof Error ? error.message : "尾帧图生成失败" }))
+                .catch((error) => {
+                    const latest = currentDramaShot(project.id, episode.id, runningEnd.id);
+                    if (latest && latest.storyboardEndTaskId === runningEnd.storyboardEndTaskId && latest.storyboardEndStatus === "running")
+                        updateShot(project.id, episode.id, runningEnd.id, { storyboardEndStatus: "error", storyboardEndError: error instanceof Error ? error.message : "尾帧图生成失败" });
+                })
                 .finally(() => {
-                    storyboardTaskRef.current = "";
+                    if (storyboardTaskRef.current === key) storyboardTaskRef.current = "";
                 });
             return;
         }
@@ -292,7 +297,8 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
                     const imageUrl = stableTaskUrl(result.remoteUrl, result.serverUrl, result.dataUrl);
                     if (!imageUrl) throw new Error("分镜图没有可持久化的访问地址");
                     const imageStorageKey = parseServerMediaUrl(imageUrl)?.storageKey;
-                    const latest = currentDramaShot(project.id, episode.id, running.id) || running;
+                    const latest = currentDramaShot(project.id, episode.id, running.id);
+                    if (!latest || latest.storyboardTaskId !== running.storyboardTaskId || latest.storyboardStatus !== "running") return;
                     const resultIsCurrent = attemptMatchesCurrent(latest.storyboardAttemptFingerprint, latest.storyboardInputFingerprint);
                     const needsEndFrame = resultIsCurrent && latest.storyboardFrameMode === "first_last";
                     updateShot(project.id, episode.id, running.id, {
@@ -310,9 +316,13 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
                         ...(resultIsCurrent && !needsEndFrame ? { generationAttempt: (latest.generationAttempt || 0) + 1 } : {}),
                     });
                 })
-                .catch((error) => updateShot(project.id, episode.id, running.id, { storyboardStatus: "error", storyboardError: error instanceof Error ? error.message : "分镜图生成失败" }))
+                .catch((error) => {
+                    const latest = currentDramaShot(project.id, episode.id, running.id);
+                    if (latest && latest.storyboardTaskId === running.storyboardTaskId && latest.storyboardStatus === "running")
+                        updateShot(project.id, episode.id, running.id, { storyboardStatus: "error", storyboardError: error instanceof Error ? error.message : "分镜图生成失败" });
+                })
                 .finally(() => {
-                    storyboardTaskRef.current = "";
+                    if (storyboardTaskRef.current === key) storyboardTaskRef.current = "";
                 });
             return;
         }
@@ -320,7 +330,8 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
         if (nextEnd && !storyboardTaskRef.current) {
             const retryKey = `storyboard-end:${nextEnd.id}`;
             if (isCapacityWaiting(retryKey)) return;
-            storyboardTaskRef.current = `${episode.id}:${nextEnd.id}:creating-end`;
+            const key = `${episode.id}:${nextEnd.id}:creating-end`;
+            storyboardTaskRef.current = key;
             const prompt = compileDramaShotPrompts(project, episode, nextEnd).endFramePrompt;
             const references = [referenceImage(`storyboard-start-${nextEnd.id}`, `${nextEnd.title}-起始帧.png`, nextEnd.storyboardImageUrl!, "image/png", nextEnd.storyboardImageWidth, nextEnd.storyboardImageHeight)];
             const imageModel = resolveDramaImageModel(config, project, nextEnd);
@@ -349,7 +360,7 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
                         : updateShot(project.id, episode.id, nextEnd.id, { storyboardEndStatus: "error", storyboardEndError: error instanceof Error ? error.message : "尾帧图任务创建失败" }),
                 )
                 .finally(() => {
-                    storyboardTaskRef.current = "";
+                    if (storyboardTaskRef.current === key) storyboardTaskRef.current = "";
                 });
             return;
         }
@@ -357,7 +368,8 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
         if (!next || storyboardTaskRef.current) return;
         const retryKey = `storyboard:${next.id}`;
         if (isCapacityWaiting(retryKey)) return;
-        storyboardTaskRef.current = `${episode.id}:${next.id}:creating`;
+        const key = `${episode.id}:${next.id}:creating`;
+        storyboardTaskRef.current = key;
         const prompts = compileDramaShotPrompts(project, episode, next);
         const references = shotReferenceImages(project, next);
         const imageModel = resolveDramaImageModel(config, project, next);
@@ -386,7 +398,7 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
                     : updateShot(project.id, episode.id, next.id, { storyboardStatus: "error", storyboardError: error instanceof Error ? error.message : "分镜图任务创建失败" }),
             )
             .finally(() => {
-                storyboardTaskRef.current = "";
+                if (storyboardTaskRef.current === key) storyboardTaskRef.current = "";
             });
     }, [config, episode.id, episode.shots, isCapacityWaiting, project.id, project.ratio, project.title, scheduleCapacityRetry, updateShot]);
 

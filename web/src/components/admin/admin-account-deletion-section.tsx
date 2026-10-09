@@ -117,7 +117,15 @@ export function AdminAccountDeletionSection({ active }: { active: boolean }) {
             <section className="admin-panel-surface min-w-0 overflow-hidden rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
                 <div className="grid gap-2 border-b border-zinc-200 bg-zinc-50/50 p-3 md:grid-cols-[minmax(260px,360px)_160px_auto] md:items-center md:justify-start sm:p-4 dark:border-zinc-800 dark:bg-zinc-900/20">
                     <div className="min-w-0">
-                        <Input className="w-full" allowClear prefix={<Search className="size-4 text-zinc-400" />} placeholder="搜索用户名、昵称、邮箱或用户 ID" value={keyword} onChange={(event) => setKeyword(event.target.value)} onPressEnter={() => void load(1)} />
+                        <Input
+                            className="w-full"
+                            allowClear
+                            prefix={<Search className="size-4 text-zinc-400" />}
+                            placeholder="搜索用户名、昵称、邮箱或用户 ID"
+                            value={keyword}
+                            onChange={(event) => setKeyword(event.target.value)}
+                            onPressEnter={() => void load(1)}
+                        />
                     </div>
                     <div className="min-w-0">
                         <Select
@@ -139,36 +147,36 @@ export function AdminAccountDeletionSection({ active }: { active: boolean }) {
                     </Button>
                 </div>
 
-            {screens.md ? (
-                <Table rowKey="id" columns={columns} dataSource={items} loading={loading} pagination={{ current: page, pageSize: PAGE_SIZE, total, showSizeChanger: false, hideOnSinglePage: true, onChange: (nextPage) => void load(nextPage) }} />
-            ) : (
-                <div className="space-y-2 p-3">
-                    {items.map((item) => (
-                        <article key={item.id} className="rounded-md border border-zinc-200 p-3 dark:border-zinc-800">
-                            <div className="flex min-w-0 items-start justify-between gap-3">
-                                <AdminUserIdentity displayName={item.displayName} username={item.username} accountId={item.accountId} className="min-w-0" />
-                                <Tag color={statusColor(item.status)}>{statusLabel(item.status)}</Tag>
-                            </div>
-                            <div className="mt-3 text-xs leading-5 text-zinc-500 dark:text-zinc-400">
-                                {formatTime(item.requestedAt)}
-                                {item.note ? ` · ${item.note}` : ""}
-                            </div>
-                            {item.status === "pending" ? (
-                                <div className="mt-3 flex gap-2 border-t border-zinc-200 pt-3 dark:border-zinc-800">
-                                    <Button className="flex-1" type="primary" icon={<Check className="size-3.5" />} onClick={() => openReview(item, "accepted")}>
-                                        受理
-                                    </Button>
-                                    <Button className="flex-1" danger icon={<X className="size-3.5" />} onClick={() => openReview(item, "rejected")}>
-                                        拒绝
-                                    </Button>
+                {screens.md ? (
+                    <Table rowKey="id" columns={columns} dataSource={items} loading={loading} pagination={{ current: page, pageSize: PAGE_SIZE, total, showSizeChanger: false, hideOnSinglePage: true, onChange: (nextPage) => void load(nextPage) }} />
+                ) : (
+                    <div className="space-y-2 p-3">
+                        {items.map((item) => (
+                            <article key={item.id} className="rounded-md border border-zinc-200 p-3 dark:border-zinc-800">
+                                <div className="flex min-w-0 items-start justify-between gap-3">
+                                    <AdminUserIdentity displayName={item.displayName} username={item.username} accountId={item.accountId} className="min-w-0" />
+                                    <Tag color={statusColor(item.status)}>{statusLabel(item.status)}</Tag>
                                 </div>
-                            ) : null}
-                        </article>
-                    ))}
-                    {!loading && !items.length ? <div className="py-10 text-center text-sm text-zinc-400">暂无注销申请</div> : null}
-                    {total > PAGE_SIZE ? <Pagination size="small" current={page} pageSize={PAGE_SIZE} total={total} showSizeChanger={false} onChange={(nextPage) => void load(nextPage)} /> : null}
-                </div>
-            )}
+                                <div className="mt-3 text-xs leading-5 text-zinc-500 dark:text-zinc-400">
+                                    {formatTime(item.requestedAt)}
+                                    {item.note ? ` · ${item.note}` : ""}
+                                </div>
+                                {item.status === "pending" ? (
+                                    <div className="mt-3 flex gap-2 border-t border-zinc-200 pt-3 dark:border-zinc-800">
+                                        <Button className="flex-1" type="primary" icon={<Check className="size-3.5" />} onClick={() => openReview(item, "accepted")}>
+                                            受理
+                                        </Button>
+                                        <Button className="flex-1" danger icon={<X className="size-3.5" />} onClick={() => openReview(item, "rejected")}>
+                                            拒绝
+                                        </Button>
+                                    </div>
+                                ) : null}
+                            </article>
+                        ))}
+                        {!loading && !items.length ? <div className="py-10 text-center text-sm text-zinc-400">暂无注销申请</div> : null}
+                        {total > PAGE_SIZE ? <Pagination size="small" current={page} pageSize={PAGE_SIZE} total={total} showSizeChanger={false} onChange={(nextPage) => void load(nextPage)} /> : null}
+                    </div>
+                )}
             </section>
 
             <Modal

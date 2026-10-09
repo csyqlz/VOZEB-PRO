@@ -487,14 +487,14 @@ test("Drama production persists storyboard and shot video results through reload
         await expect(page.getByRole("heading", { name: "镜头生成", exact: true })).toBeVisible();
         await expect(page.getByRole("button", { name: /查看图片：.*起始帧/ })).toBeVisible();
         await expect(page.getByRole("button", { name: /查看视频：.*生成视频/ })).toBeVisible();
-        expect((await dramaProject(request, project.id)).episodes[0]?.shots[0]).toMatchObject({ storyboardStatus: "success", generationStatus: "success" });
+        expect((await dramaProject(request, project.id)).episodes[0]?.shots[0]).toMatchObject({ storyboardStatus: "success", generationStatus: "success", generationAttempt: 1 });
     } finally {
         const deleted = await request.delete(`/api/drama/projects/${project.id}`);
         expect(deleted.ok(), await deleted.text()).toBe(true);
     }
 });
 
-test("Drama wide script workspace keeps episode settings collapsed and editor wide", async ({ page, request }) => {
+test("Drama wide script workspace keeps episode settings collapsed and editor wide", async ({ page, request }, testInfo) => {
     await page.setViewportSize({ width: 1672, height: 1000 });
     const created = await request.post("/api/drama/projects", {
         data: {
@@ -531,6 +531,48 @@ test("Drama wide script workspace keeps episode settings collapsed and editor wi
         const editorWidth = await page.locator("[data-drama-script-editor] .ProseMirror").evaluate((element) => Math.round(element.getBoundingClientRect().width));
         expect(editorWidth).toBeGreaterThan(900);
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+        await page.reload({ waitUntil: "domcontentloaded" });
+        const header = page.locator("[data-drama-workspace-header]");
+        await expect(header).toBeVisible();
+        for (const width of [1672, 1440, 390, 430]) {
+            await page.setViewportSize({ width, height: 1000 });
+            for (const theme of ["light", "dark"]) {
+                const toggle = page.getByRole("button", { name: theme === "dark" ? "切换到深色主题" : "切换到浅色主题" });
+                if (await toggle.isVisible()) await toggle.click();
+                await expect(page.locator("html")).not.toHaveAttribute("data-magicui-theme-vt", "active");
+                const layout = await header.evaluate((element) => {
+                    const bounds = (target: Element) => {
+                        const { left, right, top, bottom, width, height } = target.getBoundingClientRect();
+                        return { left, right, top, bottom, width, height };
+                    };
+                    const navigation = element.querySelector<HTMLElement>("[data-drama-stage-navigation]")!;
+                    return {
+                        dark: document.documentElement.classList.contains("dark"),
+                        header: bounds(element),
+                        title: bounds(element.querySelector<HTMLInputElement>('input[aria-label="短剧项目名称"]')!),
+                        navigator: bounds(element.querySelector<HTMLButtonElement>('button[aria-label$="剧集导航"]')!),
+                        navigation: bounds(navigation),
+                        stages: Array.from(navigation.querySelectorAll("button"), bounds),
+                        gridRows: getComputedStyle(element).gridTemplateRows,
+                        navigationRow: getComputedStyle(navigation).gridRow,
+                        scrollWidth: document.documentElement.scrollWidth,
+                    };
+                });
+                await testInfo.attach(`drama-header-${width}-${theme}`, { body: JSON.stringify(layout), contentType: "application/json" });
+                expect(layout.dark).toBe(theme === "dark");
+                expect(layout.stages).toHaveLength(4);
+                for (const control of [layout.title, layout.navigator, layout.navigation, ...layout.stages]) {
+                    expect(control.width).toBeGreaterThan(0);
+                    expect(control.height).toBeGreaterThan(0);
+                    expect(control.left).toBeGreaterThanOrEqual(0);
+                    expect(control.right).toBeLessThanOrEqual(width);
+                    expect(control.top).toBeGreaterThanOrEqual(layout.header.top);
+                    expect(control.bottom).toBeLessThanOrEqual(layout.header.bottom);
+                }
+                expect(layout.scrollWidth).toBeLessThanOrEqual(width);
+                if (process.env.VOZEB_PRO_VISUAL_CAPTURE === "1") await header.screenshot({ path: testInfo.outputPath(`drama-header-${width}-${theme}.png`) });
+            }
+        }
     } finally {
         const deleted = await request.delete(`/api/drama/projects/${project.id}`);
         expect(deleted.ok(), await deleted.text()).toBe(true);

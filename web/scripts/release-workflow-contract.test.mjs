@@ -18,7 +18,7 @@ describe("release workflow contract", () => {
         expect(source).toContain("quality:");
         expect(jobs.build.needs).toEqual(["quality", "security", "meta"]);
         expect(source).toContain("type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v')");
-        expect(source).toContain("anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610");
+        expect(source).toContain("anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c");
         expect(source).toContain("cosign sign --yes");
         expect(source).toContain("cosign attest --yes");
         expect(source).toContain("awk '/^Digest:/ && digest == \"\" { digest = $2 } END { print digest }'");

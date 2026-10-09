@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { channelSupportsModel, generationModelId, resolveModelAdvancedConfig, resolveSystemGenerationChannel, systemGenerationChannelId } from "./generation-channel";
+import { channelSupportsModel, generationModelId, resolveModelAdvancedConfig, resolveSystemGenerationChannel, systemGenerationChannelId, toSystemGenerationChannel } from "./generation-channel";
 
 const channels = [{ id: "channel-1", enabled: true, apiFormat: "gemini" as const, models: ["models/video-v1"] }];
 
@@ -52,5 +52,27 @@ describe("resolveSystemGenerationChannel", () => {
 
         expect(resolveModelAdvancedConfig(advanced, "openai-text")).toMatchObject({ createPath: "/chat/completions", queryPath: "" });
         expect(resolveModelAdvancedConfig(advanced, "sd2.0")).toMatchObject({ protocol: "seedance", createPath: "/videos", queryPath: "/videos/:task_id" });
+    });
+
+    it("uses the effective logical binding reference capabilities at runtime", () => {
+        const channel = {
+            id: "one",
+            name: "One",
+            enabled: true,
+            baseUrl: "https://one.example.com/v1",
+            apiKey: "secret",
+            apiFormat: "openai" as const,
+            models: ["video-one"],
+            advancedConfig: { protocol: "openai", supportsReferenceImage: true, supportsReferenceVideo: false, supportsReferenceAudio: false } as never,
+        };
+        const resolved = {
+            logicalModelId: "video",
+            upstreamModel: "video-one",
+            channelId: "one",
+            channel,
+            capabilityProfile: { supportsReferenceImage: true, supportsReferenceVideo: true, supportsReferenceAudio: false, supportsAsync: true, supportsCancel: false, supportsWebhook: false },
+        };
+
+        expect(toSystemGenerationChannel(resolved as never).advancedConfig).toMatchObject({ supportsReferenceImage: true, supportsReferenceVideo: true, supportsReferenceAudio: false });
     });
 });

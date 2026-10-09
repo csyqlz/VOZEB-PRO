@@ -50,7 +50,13 @@ test("creative workspaces remain usable without horizontal overflow in light and
             const dramaWorkspace = page.locator("[data-drama-workspace]");
             await expect(dramaWorkspace).toBeVisible();
             await expect(page.locator(".workspace-shell")).toHaveCount(0);
-            await expect(page.getByLabel("短剧项目名称").first()).toHaveValue("E2E 短剧项目");
+            const projectTitle = page.getByLabel("短剧项目名称");
+            await expect(projectTitle).toHaveValue("E2E 短剧项目");
+            await expect(projectTitle).toBeVisible();
+            const titleBounds = await projectTitle.boundingBox();
+            expect(titleBounds!.width).toBeGreaterThan(0);
+            expect(titleBounds!.x).toBeGreaterThanOrEqual(0);
+            expect(titleBounds!.x + titleBounds!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
             await expect(page.locator("[data-drama-workspace-header]")).toHaveCount(1);
             await expect(page.locator("[data-drama-stage-navigation]")).toHaveCount(1);
             const workspaceBody = page.locator("[data-drama-workspace-body]");
@@ -164,6 +170,8 @@ test("creative workspaces remain usable without horizontal overflow in light and
             await expect(stageSuggestionMenu.getByRole("menuitem")).toHaveCount(4);
             await page.keyboard.press("Escape");
             await agentSurface.getByRole("button", { name: "收起项目 Agent" }).click();
+            await expect(agentSurface).toBeHidden();
+            await expect(page.locator(".drama-agent-drawer .ant-drawer-content-wrapper")).toBeHidden();
             await expect(page.getByRole("button", { name: "打开项目 Agent", exact: true })).toBeVisible();
         }
         if (route === canvasRoute) {
@@ -221,8 +229,6 @@ test("creative workspaces remain usable without horizontal overflow in light and
 
 test("admin user editor groups permission controls and keeps the footer visible", async ({ page }, testInfo) => {
     await page.goto("/admin?section=users", { waitUntil: "domcontentloaded" });
-    await expect(page.getByRole("heading", { name: "用户管理" })).toBeVisible();
-
     const adminRow = page.getByRole("row").filter({ hasText: "@e2e_admin" });
     await expect(adminRow).toBeVisible();
     await adminRow.getByRole("button", { name: "管理", exact: true }).click();

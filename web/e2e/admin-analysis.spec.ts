@@ -4,6 +4,54 @@ import { expect, test } from "@playwright/test";
 
 import { expectNoHorizontalOverflow, expectVisibleControlsWithinViewport } from "./responsive-helpers";
 
+test("admin filters stay inside their actual layout on desktop, tablets and phones", async ({ page }, testInfo) => {
+    const viewports = testInfo.project.name === "chromium" ? [page.viewportSize()!, { width: 768, height: 1024 }, { width: 1024, height: 768 }] : [page.viewportSize()!];
+    const filters = [
+        { section: "logs", selector: '[data-testid="admin-log-filters"]', display: "flex" },
+        { section: "generationOperations", selector: '[data-testid="generation-task-filters"]', display: "flex" },
+        { section: "works", selector: '[data-testid="admin-work-filters"]', display: "grid" },
+        { section: "mediaStorage", selector: 'div.grid:has(> .ant-input-affix-wrapper input[placeholder="搜索文件名、用户、用户 ID 或关联 ID"])', display: "grid" },
+    ];
+    for (const theme of ["light", "dark"]) {
+        await page.addInitScript((value) => localStorage.setItem("vozeb-pro:theme_store", JSON.stringify({ state: { theme: value }, version: 0 })), theme);
+        for (const viewport of viewports) {
+            await page.setViewportSize(viewport);
+            for (const filter of filters) {
+                await page.goto(`/admin?section=${filter.section}`, { waitUntil: "domcontentloaded" });
+                await expect(page.locator("[data-hydrated='true']")).toBeVisible();
+                const surface = page.getByRole("main").locator(filter.selector).filter({ visible: true });
+                await expect(surface).toBeVisible();
+                const layout = await surface.evaluate((element) => {
+                    const bounds = element.getBoundingClientRect();
+                    return {
+                        display: getComputedStyle(element).display,
+                        width: element.clientWidth,
+                        scrollWidth: element.scrollWidth,
+                        left: bounds.left,
+                        right: bounds.right,
+                        controls: [...element.children].map((child) => {
+                            const rect = child.getBoundingClientRect();
+                            return { left: rect.left, right: rect.right, top: rect.top, width: rect.width, height: rect.height };
+                        }),
+                    };
+                });
+                const label = `${filter.section} ${viewport.width}px ${theme}: ${JSON.stringify(layout)}`;
+                expect(layout.display, label).toBe(filter.display);
+                expect(layout.scrollWidth, label).toBeLessThanOrEqual(layout.width + 1);
+                expect(layout.controls.length, label).toBeGreaterThan(1);
+                for (const control of layout.controls) {
+                    expect(control.width, label).toBeGreaterThan(0);
+                    expect(control.height, label).toBeGreaterThan(0);
+                    expect(control.left, label).toBeGreaterThanOrEqual(layout.left - 1);
+                    expect(control.right, label).toBeLessThanOrEqual(layout.right + 1);
+                }
+                await expectNoHorizontalOverflow(page, label);
+                await expectVisibleControlsWithinViewport(page, label);
+            }
+        }
+    }
+});
+
 test("admin analysis keeps a dense data-first layout across viewports", async ({ page }, testInfo) => {
     await page.addInitScript(() => {
         localStorage.setItem("vozeb-pro:theme_store", JSON.stringify({ state: { theme: "light" }, version: 0 }));
@@ -79,6 +127,8 @@ test("admin operations pages keep one clear SaaS hierarchy across viewports", as
             await expect(page.getByRole("heading", { name: "运行概览", exact: true })).toBeVisible();
         } else if (surface.section === "logs" && testInfo.project.name === "chromium") {
             await expect(page.getByTestId("admin-log-list-surface")).toBeVisible();
+        } else if (testInfo.project.name === "chromium") {
+            await expect(page.locator(".admin-dashboard-title-row").getByText(surface.section === "users" ? "用户运营" : surface.heading, { exact: true })).toBeVisible();
         } else {
             await expect(pagePanel.getByRole("heading", { name: surface.heading, exact: true })).toBeVisible();
         }
@@ -95,7 +145,7 @@ test("admin operations pages keep one clear SaaS hierarchy across viewports", as
         if (surface.section === "works") {
             await page.getByText("举报申诉", { exact: true }).last().click();
             await expect(page.getByPlaceholder("搜索作品标题、作者、提交人、用户 ID 或作品链接")).toBeVisible();
-            await expect(pagePanel.getByRole("heading", { name: "作品管理", exact: true })).toHaveCount(1);
+            await expect(pagePanel.getByRole("heading", { name: "作品管理", exact: true, includeHidden: true })).toHaveCount(1);
             await expectNoHorizontalOverflow(page, `${testInfo.project.name} works governance`);
         }
 
@@ -123,6 +173,7 @@ test("admin operations pages keep one clear SaaS hierarchy across viewports", as
                     searchWidth: searchRect?.width || 0,
                     tableClientWidth: tableContent?.clientWidth || 0,
                     tableScrollWidth: tableContent?.scrollWidth || 0,
+                    tableOverflowX: tableContent ? getComputedStyle(tableContent).overflowX : null,
                     viewportWidth: document.documentElement.clientWidth,
                 };
             });
@@ -132,7 +183,13 @@ test("admin operations pages keep one clear SaaS hierarchy across viewports", as
             expect(logLayout.surface.radius).not.toBe("0px");
             if (testInfo.project.name === "chromium") {
                 expect(logLayout.searchWidth).toBeLessThanOrEqual(321);
-                expect(logLayout.tableScrollWidth).toBeLessThanOrEqual(logLayout.tableClientWidth + 1);
+                expect(logLayout.tableClientWidth).toBeLessThanOrEqual(logLayout.surface.right - logLayout.surface.left);
+                if (logLayout.tableScrollWidth > logLayout.tableClientWidth) {
+                    expect(logLayout.tableOverflowX).toBe("auto");
+                    const table = page.getByTestId("admin-log-list-surface").locator(".ant-table-content");
+                    await table.evaluate((element) => element.scrollTo({ left: element.scrollWidth }));
+                    await expect.poll(() => table.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
+                }
             }
         }
     }

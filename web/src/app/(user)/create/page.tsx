@@ -8,7 +8,7 @@ import { useRouter } from "next/navigation";
 
 import { CREATIVE_UPLOAD_ACCEPT, CREATIVE_UPLOAD_MAX_BYTES, isCreativeUploadMimeType } from "@/lib/creative-upload";
 import type { CreateOverviewAsset } from "@/lib/create-workbench-overview";
-import type { CreativeAsset, CreativeGenerationMode, CreativeGenerationPreferences, CreativeMessage } from "@/lib/creative-runtime-contract";
+import { agentSkillSupportsGenerationMode, type CreativeAsset, type CreativeGenerationMode, type CreativeGenerationPreferences, type CreativeMessage } from "@/lib/creative-runtime-contract";
 import { reconcileCreativeGenerationPreferences } from "@/lib/creative-model-capabilities";
 import { cn } from "@/lib/utils";
 import type { VideoReferenceRole } from "@/lib/video-reference-contract";
@@ -23,7 +23,7 @@ import { resolveSiteTitle } from "@/lib/site-brand";
 
 import { CreativeComposer } from "./components/creative-composer";
 import { CreativeAssetsPanel } from "./components/creative-assets-panel";
-import { applyAgentGenerationCapability, shouldShowVideoFrameControls } from "./components/creative-composer-video-mode";
+import { applyAgentGenerationCapability, generationPreferencesAfterSubmit, generationPreferencesForSelectedSkill, shouldShowVideoFrameControls } from "./components/creative-composer-video-mode";
 import { CreativeConversationList } from "./components/creative-conversation-list";
 import { CreateInspirationGallery } from "./components/create-inspiration-gallery";
 import { CreativeMessages } from "./components/creative-messages";
@@ -219,7 +219,7 @@ export default function CreatePage() {
             ) {
                 updatePrompt("");
                 setSelectedSkillId(undefined);
-                setGenerationPreferences((current) => (current.video ? { ...current, video: { ...current.video, firstFrameAssetId: undefined, lastFrameAssetId: undefined } } : current));
+                setGenerationPreferences((current) => generationPreferencesAfterSubmit(creationMode, current));
             }
         } catch (error) {
             message.error(error instanceof Error ? error.message : "素材上传失败");
@@ -321,7 +321,12 @@ export default function CreatePage() {
     };
 
     const selectSkill = (skill: AgentSkillSummary) => {
+        if (creationMode !== "agent" && !agentSkillSupportsGenerationMode(skill.workspaces, creationMode)) {
+            message.warning(`${skill.name}不支持${creationMode === "video" ? "视频" : creationMode === "image" ? "图片" : "音频"}生成，请先切换创作类型`);
+            return;
+        }
         setSelectedSkillId(skill.id);
+        setGenerationPreferences((current) => generationPreferencesForSelectedSkill(current, skill.workspaces));
         window.requestAnimationFrame(() => inputRef.current?.focus());
     };
 

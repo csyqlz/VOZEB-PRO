@@ -256,6 +256,36 @@ test("a long-running media task uses warm elapsed-time feedback", async ({ page 
     }
 });
 
+test("paused media runs show the real reason without loading or direct retry", async ({ page }, testInfo) => {
+    await preparePage(page, testInfo);
+    for (const theme of ["light", "dark"] as const) {
+        for (const taskStatus of ["needs_review", "ready"] as const) {
+            const fixture = await mockPendingCreativeRound(page, "video", taskStatus);
+            try {
+                await page.goto(`/create?conversationId=${fixture.id}`, { waitUntil: "domcontentloaded" });
+                await page.evaluate((value) => document.documentElement.classList.toggle("dark", value === "dark"), theme);
+                const review = page.getByTestId("creative-generation-review");
+                await expect(review).toBeVisible();
+                await expect(review).toContainText(taskStatus === "needs_review" ? "上游任务已提交，等待确认生成结果" : "任务已暂停，进度已保存。");
+                await expect(page.getByTestId("creative-generation-waiting")).toHaveCount(0);
+                await expect(page.getByRole("button", { name: "直接重试本次创作" })).toHaveCount(0);
+                const bounds = await review.evaluate((element) => {
+                    const rect = element.getBoundingClientRect();
+                    return { left: rect.left, right: rect.right, width: rect.width, height: rect.height, viewport: window.innerWidth };
+                });
+                expect(bounds.width).toBeGreaterThan(0);
+                expect(bounds.height).toBeGreaterThan(0);
+                expect(bounds.left).toBeGreaterThanOrEqual(0);
+                expect(bounds.right).toBeLessThanOrEqual(bounds.viewport);
+                await expectNoHorizontalOverflow(page);
+                await captureResult(review, testInfo, `creative-paused-${taskStatus}-${theme}`);
+            } finally {
+                fixture.releaseEvents();
+            }
+        }
+    }
+});
+
 test("single video results keep real ratios and retain complete player controls", async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== "chromium", "桌面视频尺寸矩阵由 1672×941 基准项目验证");
     await preparePage(page, testInfo);
@@ -730,7 +760,7 @@ async function mockCreativeRound(page: Page, options: { type: MediaType; sizes: 
     };
 }
 
-async function mockPendingCreativeRound(page: Page, type: MediaType) {
+async function mockPendingCreativeRound(page: Page, type: MediaType, pausedTaskStatus?: "needs_review" | "ready") {
     const id = `e2e-pending-${randomUUID()}`;
     const runId = `e2e-pending-run-${randomUUID()}`;
     const timestamp = Date.now();
@@ -755,13 +785,13 @@ async function mockPendingCreativeRound(page: Page, type: MediaType) {
         conversationId: id,
         inputMessageId: userMessage.id,
         assistantMessageId: assistantMessage.id,
-        status: "running",
+        status: pausedTaskStatus ? "paused" : "running",
         prompt,
         referencedAssetIds: [],
         requestedModelIds: [`${type}-gen`],
         generationPreferences: type === "image" ? { mode: "image", image: { size: "1:1", quality: "high" } } : { mode: "video", video: { size: "16:9", quality: "high", seconds: 15 } },
         assetIds: [],
-        tasks: [{ id: `${type}-task`, title: `${type === "image" ? "图片" : "视频"}生成`, type, model: `${type}-gen`, status: "running" }],
+        tasks: [{ id: `${type}-task`, title: `${type === "image" ? "图片" : "视频"}生成`, type, model: `${type}-gen`, status: pausedTaskStatus || "running", error: pausedTaskStatus === "needs_review" ? "上游任务已提交，等待确认生成结果" : undefined }],
         createdAt: startedAt,
         updatedAt: timestamp,
     };
@@ -776,7 +806,7 @@ async function mockPendingCreativeRound(page: Page, type: MediaType) {
     await page.route(new RegExp(`/api/agent/runs/${runId}$`), (route) => route.fulfill({ json: { code: 0, data: { run }, msg: "OK" } }));
     await page.route(new RegExp(`/api/agent/runs/${runId}/events(?:\\?.*)?$`), async (route) => {
         await eventsReleased;
-        await route.abort();
+        await route.fulfill({ status: 200, contentType: "text/event-stream", body: `event: run.paused\ndata: ${JSON.stringify({ data: { run } })}\n\n` });
     });
     return { id, releaseEvents };
 }

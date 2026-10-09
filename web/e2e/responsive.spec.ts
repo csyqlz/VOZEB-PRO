@@ -612,14 +612,6 @@ test("creative conversation keeps successful media rounds copy-only", async ({ p
     expect(groupRect.width).toBeGreaterThanOrEqual(primaryRect.width - 2);
     expect(groupRect.width).toBeLessThanOrEqual(352);
     expect(requestRect.bottom, JSON.stringify({ requestBottom: requestRect.bottom, groupTop: groupRect.top })).toBeLessThanOrEqual(groupRect.top + 1);
-    if (process.env.VOZEB_PRO_VISUAL_CAPTURE === "1") {
-        await page.getByTestId("creative-conversation-scroll").evaluate((element) => element.scrollTo({ top: Math.max(0, element.scrollHeight - element.clientHeight - 230) }));
-        await expect(page.locator(".creative-composer")).toHaveAttribute("data-compact", "true");
-        const screenshotPath = testInfo.outputPath(`creative-media-single-${testInfo.project.name}.png`);
-        await page.screenshot({ path: screenshotPath });
-        await testInfo.attach("单结果创作记录", { path: screenshotPath, contentType: "image/png" });
-    }
-
     const scrollArea = page.getByTestId("creative-conversation-scroll");
     const composer = page.locator(".creative-composer");
     await scrollArea.evaluate((element) => element.scrollTo({ top: element.scrollHeight }));
@@ -641,6 +633,11 @@ test("creative conversation keeps successful media rounds copy-only", async ({ p
     await expect(composer).toHaveAttribute("data-compact", "true");
     await expect(page.getByRole("button", { name: "回到底部" })).toBeVisible();
     await expect.poll(() => composer.evaluate((element) => element.getBoundingClientRect().height)).toBeLessThanOrEqual(64);
+    if (process.env.VOZEB_PRO_VISUAL_CAPTURE === "1") {
+        const screenshotPath = testInfo.outputPath(`creative-media-single-${testInfo.project.name}.png`);
+        await page.screenshot({ path: screenshotPath });
+        await testInfo.attach("单结果创作记录", { path: screenshotPath, contentType: "image/png" });
+    }
     const compactAppearance = await composer.evaluate((element) => {
         const style = getComputedStyle(element);
         const shell = element.parentElement;

@@ -327,8 +327,8 @@ function AdminWorkReviewSection() {
     return (
         <>
             <div className="admin-panel-surface min-w-0 space-y-3 overflow-hidden rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950 sm:p-4">
-                <div className="grid min-w-0 grid-cols-2 gap-2.5 lg:grid-cols-[minmax(280px,360px)_120px_132px_auto_auto_auto] lg:items-center" data-testid="admin-work-filters">
-                    <div className="col-span-2 min-w-0 lg:col-span-1">
+                <div className="grid min-w-0 grid-cols-2 gap-2.5 xl:grid-cols-[minmax(280px,360px)_120px_132px_auto_auto_auto] xl:items-center" data-testid="admin-work-filters">
+                    <div className="col-span-2 min-w-0 xl:col-span-1">
                         <Input
                             className="w-full"
                             allowClear
@@ -364,11 +364,11 @@ function AdminWorkReviewSection() {
                             setPage(1);
                         }}
                     />
-                    <span className="col-span-2 whitespace-nowrap text-sm text-zinc-500 dark:text-zinc-400 lg:col-span-1">共 {total} 条</span>
-                    <Button className="w-full lg:w-auto" icon={<RefreshCw className="size-4" />} loading={loading} onClick={() => void load()}>
+                    <span className="col-span-2 whitespace-nowrap text-sm text-zinc-500 dark:text-zinc-400 xl:col-span-1">共 {total} 条</span>
+                    <Button className="w-full xl:w-auto" icon={<RefreshCw className="size-4" />} loading={loading} onClick={() => void load()}>
                         刷新
                     </Button>
-                    <Button className="w-full lg:w-auto" onClick={clearFilters}>
+                    <Button className="w-full xl:w-auto" onClick={clearFilters}>
                         清除筛选
                     </Button>
                 </div>

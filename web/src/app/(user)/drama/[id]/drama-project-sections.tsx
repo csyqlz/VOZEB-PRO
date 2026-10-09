@@ -226,7 +226,7 @@ export function DramaWorkspaceHeader({
 
     return (
         <header className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto] border-b border-border bg-card/95 min-[1366px]:h-[64px] min-[1366px]:grid-cols-[190px_minmax(0,1fr)_auto]" data-drama-workspace-header>
-            <div className="col-start-1 row-start-1 flex min-w-0 items-center gap-2 px-2.5 py-2 sm:px-4 min-[1366px]:h-full min-[1366px]:border-r min-[1366px]:border-border min-[1366px]:px-4 min-[1366px]:py-0">
+            <div className="col-start-1 row-start-1 flex min-w-0 items-center gap-2 px-2.5 py-2 max-sm:col-span-2 sm:px-4 min-[1366px]:h-full min-[1366px]:border-r min-[1366px]:border-border min-[1366px]:px-4 min-[1366px]:py-0">
                 <Tooltip title="返回短剧项目">
                     <Button type="text" shape="circle" className="!size-9 !min-w-9" icon={<ArrowLeft className="size-4" />} onClick={() => router.push("/drama")} aria-label="返回短剧项目" />
                 </Tooltip>
@@ -240,7 +240,7 @@ export function DramaWorkspaceHeader({
                 </div>
             </div>
             <nav
-                className="hide-scrollbar col-span-2 row-start-2 flex min-w-0 items-center justify-start overflow-x-auto border-t border-border/70 px-2 py-1.5 sm:px-4 min-[1366px]:col-span-1 min-[1366px]:col-start-2 min-[1366px]:row-start-1 min-[1366px]:justify-center min-[1366px]:border-t-0 min-[1366px]:px-4 min-[1366px]:py-1.5"
+                className="hide-scrollbar col-span-2 row-start-2 flex min-w-0 items-center justify-start overflow-x-auto border-t border-border/70 px-2 py-1.5 max-sm:row-start-3 sm:px-4 min-[1366px]:col-span-1 min-[1366px]:col-start-2 min-[1366px]:row-start-1 min-[1366px]:justify-center min-[1366px]:border-t-0 min-[1366px]:px-4 min-[1366px]:py-1.5"
                 aria-label="短剧单集生产阶段"
                 data-drama-stage-navigation
             >
@@ -269,7 +269,7 @@ export function DramaWorkspaceHeader({
                     );
                 })}
             </nav>
-            <div className="col-start-2 row-start-1 flex min-w-0 shrink-0 items-center justify-end gap-1 px-2.5 py-2 sm:px-4 min-[1366px]:col-start-3 min-[1366px]:h-full min-[1366px]:py-0">
+            <div className="col-start-2 row-start-1 flex min-w-0 shrink-0 items-center justify-end gap-1 px-2.5 py-2 max-sm:col-span-2 max-sm:col-start-1 max-sm:row-start-2 max-sm:pt-0 sm:px-4 min-[1366px]:col-start-3 min-[1366px]:h-full min-[1366px]:py-0">
                 <DramaEpisodeAutomation projectId={project.id} episodeId={episode.id} />
                 <Tooltip title="项目资产">
                     <Button

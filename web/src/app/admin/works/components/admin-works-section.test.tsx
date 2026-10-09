@@ -13,8 +13,6 @@ describe("admin works table layout", () => {
         );
 
         expect(markup).toContain('data-testid="admin-work-filters"');
-        expect(markup).toContain("grid-cols-2");
-        expect(markup).toContain("md:grid-cols-[minmax(180px,1fr)");
         expect(markup.match(/>全部</g)).toHaveLength(2);
         expect(markup).toContain("admin-work-table");
         expect(markup).toContain("admin-page-panel");

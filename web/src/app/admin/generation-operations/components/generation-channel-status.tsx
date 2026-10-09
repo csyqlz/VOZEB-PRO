@@ -25,7 +25,15 @@ export function GenerationChannelStatus({ channels, loading }: { channels: Admin
             </div>
             <div className="mt-4 border-y border-zinc-200 bg-zinc-50/70 p-3 dark:border-zinc-800 dark:bg-zinc-900/40 sm:p-4">
                 <div className="w-full min-w-0 md:w-[420px]">
-                    <Input className="w-full" allowClear value={search} prefix={<Search className="size-4 text-zinc-400" />} placeholder="搜索渠道名 / ID、逻辑模型或上游模型" aria-label="搜索渠道运行状态" onChange={(event) => setSearch(event.target.value)} />
+                    <Input
+                        className="w-full"
+                        allowClear
+                        value={search}
+                        prefix={<Search className="size-4 text-zinc-400" />}
+                        placeholder="搜索渠道名 / ID、逻辑模型或上游模型"
+                        aria-label="搜索渠道运行状态"
+                        onChange={(event) => setSearch(event.target.value)}
+                    />
                 </div>
             </div>
             <div className="space-y-5 p-3 sm:p-5">

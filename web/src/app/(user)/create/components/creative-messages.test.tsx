@@ -497,6 +497,51 @@ describe("CreativeMessages", () => {
         expect(markup).not.toContain("正在处理「图片生成」");
     });
 
+    it.each(["needs_review", "ready"] as const)("stops waiting and retry controls for a paused media run with %s tasks", (taskStatus) => {
+        const userMessage: CreativeMessage = { id: "paused-user", conversationId: "conversation-one", runId: "paused-run", sequence: 1, role: "user", status: "completed", content: "生成视频", metadata: {}, createdAt: 1, updatedAt: 1 };
+        const assistantMessage: CreativeMessage = { ...userMessage, id: "paused-assistant", sequence: 2, role: "assistant", status: "running", content: "正在处理视频生成" };
+        const reason = "上游任务已提交，等待确认生成结果";
+        const markup = renderToStaticMarkup(
+            <App>
+                <CreativeMessages
+                    messages={[userMessage, assistantMessage]}
+                    assets={[]}
+                    loading={false}
+                    projectLinks={{}}
+                    projectErrors={{}}
+                    runDetails={{
+                        "paused-run": {
+                            id: "paused-run",
+                            conversationId: userMessage.conversationId,
+                            inputMessageId: userMessage.id,
+                            assistantMessageId: assistantMessage.id,
+                            status: "paused",
+                            generationPreferences: { mode: "video" },
+                            assetIds: [],
+                            tasks: [
+                                { id: "video-task", title: "视频生成", type: "video", model: "video-model", status: taskStatus, error: taskStatus === "needs_review" ? reason : undefined },
+                                { id: "failed-task", title: "图片生成", type: "image", status: "failed", error: "图片生成失败" },
+                            ],
+                        },
+                    }}
+                    onMaterializeProject={async () => {
+                        throw new Error("not used");
+                    }}
+                    onRetryMessage={vi.fn()}
+                    selectedAssetIds={[]}
+                    onToggleAsset={vi.fn()}
+                />
+            </App>,
+        );
+        expect(markup).toContain("任务已暂停");
+        expect(markup).toContain('data-testid="creative-generation-review"');
+        expect(markup).toContain(taskStatus === "needs_review" ? reason : "任务已暂停，进度已保存。");
+        expect(markup).not.toContain('data-testid="creative-generation-waiting"');
+        expect(markup).not.toContain("已等待");
+        expect(markup).not.toContain("直接重试");
+        if (taskStatus === "ready") expect(markup).not.toContain("上游创建结果待确认");
+    });
+
     it("restores the original text before retrying an initial submission failure", () => {
         const userMessage: CreativeMessage = {
             id: "temporary-user",
@@ -643,7 +688,7 @@ describe("CreativeMessages", () => {
                             status: "failed",
                             generationPreferences: { mode: "video" },
                             assetIds: [],
-                            tasks: [],
+                            tasks: [{ id: "video-task", title: "视频生成", type: "video", model: "video-model", status: "failed", error: "视频请求参数无效：duration 只支持 5 或 10 秒" }],
                         },
                     }}
                     onMaterializeProject={async () => {
@@ -662,6 +707,7 @@ describe("CreativeMessages", () => {
         expect(markup).toContain('aria-label="直接重试本次创作"');
         expect(markup).toContain("直接重试");
         const failureMarkup = markup.slice(markup.indexOf('data-testid="creative-generation-failure"'));
+        expect(failureMarkup).toContain("视频请求参数无效：duration 只支持 5 或 10 秒");
         expect(failureMarkup).not.toContain("size-12");
         expect(failureMarkup).not.toContain("Sparkles");
     });
