@@ -2,7 +2,7 @@
 
 版本保持 `0.0.8`，`VERSION` 为 `v0.0.8`，根、Web、Docs 的包版本一致。本轮在 `codex/v0.0.8-pr-review` 分支整合；审查基线为本地 `559857340cd497a5ee872ec6fef2699097be6d2a`，远端主线为 `3573154a12bab922c132df0159787cbe430eee17`。本地基线已有两个未推送提交，不能只根据 GitHub 的可合并标志判断兼容性。
 
-本文件记录本地审查与整合结论，未直接合并所审查的远端 PR。后续按用户要求提交整合分支 `codex/v0.0.8-pr-review`，并以 `v0.0.8` 标签触发镜像工作流；镜像是否生成以该提交对应的 GitHub Actions 结果和 GHCR digest 为准。用户原有的四份未跟踪授权协议 DOCX 不在改动范围内。
+本文件记录本地审查与整合结论，未直接整包合并所审查的远端 PR。整合结果已通过 `codex/v0.0.8-pr-review` 进入 `main`，`v0.0.8` 标签指向版本代码提交 `b0a0c5bf848202196b71fdf0aa4caa58627b101b`，并已创建 GitHub Release。用户原有的四份未跟踪授权协议 DOCX 不在改动范围内。
 
 ## 17 个 PR 的处理结论
 
@@ -50,6 +50,7 @@
 - Web 类型检查、ESLint、Prettier 与最终生产构建通过，静态生成 62 页；构建记录为 `web/.e2e-artifacts/pr-review-build-header.log`。全量检查后新增的布局和测试改动均补做相关检查。
 - Docs 类型检查与生产构建通过，静态生成 39 页；内容更新后的最终构建记录为 `web/.e2e-artifacts/pr-review-docs-build-final.log`。40 张图册图片的正确/提案 URL 已实际 HTTP 对比验证，结果为 `web/.e2e-artifacts/pr-review-doc-paths.json`。
 - 第三方许可证一致性、差异空白检查和严格 UTF-8/常见中文乱码扫描通过。构建产生的无关 Fumadocs 源索引差异已排除。
+- 首次同步主分支时，Gitleaks 命中升级服务单测中的六处固定示例令牌。经核实均为 mock 隔离的测试凭据，已按现有 `.gitleaksignore` 机制记录精确历史提交、文件、规则和行号；使用与 CI 相同的 Gitleaks 8.24.3 复验原始三个提交，结果为零发现。
 
 ## 发布阻断与外部验收边界
 
@@ -58,3 +59,9 @@ Web 依赖审计剩余一个开发依赖高危公告：[GHSA-vfj7-8cjw-p6xm](htt
 `pnpm --dir web run check:release` 已通过前置部署契约检查，并在依赖审计处正常阻断。没有忽略该公告、降低审计阈值或将开发依赖排除出门禁。当前不能宣称整个发布门禁通过。
 
 本轮生成请求全部使用独立空闲端口、隔离文件 Provider 和固定测试凭据的本地 fixture。没有调用管理员已配置的真实渠道；未配置隔离 PostgreSQL 测试库，因此 PostgreSQL 事务/并发与支付 E2E、真实供应商计费/质量、生产 Docker 多架构镜像和部署恢复仍需各自的验收证据。
+
+## GitHub 发布结果
+
+- [VOZEB PRO v0.0.8](https://github.com/csyqlz/VOZEB-PRO/releases/tag/v0.0.8) 已发布并设为 Latest，发布说明显式标注主应用镜像不可用及完整门禁未通过。
+- [主应用工作流](https://github.com/csyqlz/VOZEB-PRO/actions/runs/37922993044) 因上述依赖审计失败，构建、镜像合并、更新器和签名步骤被跳过；GHCR 主应用 `v0.0.8` manifest 返回 404。
+- [文档镜像工作流](https://github.com/csyqlz/VOZEB-PRO/actions/runs/37922992817) 全部成功。`ghcr.io/csyqlz/vozeb-pro-docs:v0.0.8` 与 `latest` 的 digest 均为 `sha256:d94db9d84e00f926b0b914aabe9bf435287f99727defc61c5038e52099595236`；amd64、arm64 两个镜像的 revision 均已核对为版本代码提交，并完成 SBOM、签名与 attestation。

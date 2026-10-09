@@ -1,4 +1,11 @@
 # Audited false positives from deterministic test fixtures, documentation examples, and PEM wrappers.
+# Mocked updater service tests use the fixed 32-character hexadecimal example token.
+0a20d3aa9e8cf2cf8c9edb0a931926c9e8b1cda9:web/src/lib/server/system-update-service.test.ts:generic-api-key:36
+0a20d3aa9e8cf2cf8c9edb0a931926c9e8b1cda9:web/src/lib/server/system-update-service.test.ts:generic-api-key:49
+0a20d3aa9e8cf2cf8c9edb0a931926c9e8b1cda9:web/src/lib/server/system-update-service.test.ts:generic-api-key:66
+0a20d3aa9e8cf2cf8c9edb0a931926c9e8b1cda9:web/src/lib/server/system-update-service.test.ts:generic-api-key:95
+0a20d3aa9e8cf2cf8c9edb0a931926c9e8b1cda9:web/src/lib/server/system-update-service.test.ts:generic-api-key:104
+0a20d3aa9e8cf2cf8c9edb0a931926c9e8b1cda9:web/src/lib/server/system-update-service.test.ts:generic-api-key:118
 21c4070927623160e7e62723ed50bbe4a759c542:.github/workflows/docker-image.yml:generic-api-key:68
 21c4070927623160e7e62723ed50bbe4a759c542:.github/workflows/quality.yml:generic-api-key:79
 2242bed6929a8a7cdf410bb43cfc733f44f7bf43:docs/content/docs/backend/backend-database.mdx:generic-api-key:139
