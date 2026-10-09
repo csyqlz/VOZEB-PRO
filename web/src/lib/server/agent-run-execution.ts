@@ -868,13 +868,13 @@ export async function pollTask(origin: string, path: string, taskId: string, coo
         if ([408, 425, 429].includes(response.status) || response.status >= 500) throw new AgentChildTaskDeferredError("生成任务查询暂时不可用");
         throw new AgentChildTaskTerminalError((await response.text()) || "生成任务查询失败");
     }
-    let payload: { task?: { status?: string; result?: unknown; error?: string; needsReview?: boolean } };
+    let payload: { task?: { status?: string; result?: unknown; error?: string; needsReview?: boolean; reviewReason?: string } };
     try {
         payload = (await response.json()) as typeof payload;
     } catch {
         throw new AgentChildTaskDeferredError("生成任务状态暂时无法解析");
     }
-    if (payload.task?.needsReview) throw new AgentChildTaskDeferredError("上游创建状态待确认", true);
+    if (payload.task?.needsReview) throw new AgentChildTaskDeferredError(payload.task.reviewReason?.trim() || payload.task.error?.trim() || "上游创建状态待确认", true);
     const terminal = agentChildTaskTerminal(payload.task?.status);
     if (terminal === "success") return payload.task?.result;
     if (terminal === "error") throw new AgentChildTaskTerminalError(payload.task?.error || "生成任务失败");

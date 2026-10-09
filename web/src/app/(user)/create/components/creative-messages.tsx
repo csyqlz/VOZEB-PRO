@@ -232,6 +232,10 @@ function CreativeMediaRound({
     const displayContent = assistantMessage.status === "failed" ? friendlyAgentError(assistantMessage.content) : formatAgentMessageText(assistantMessage.content);
     const handoff = isCreativeProjectHandoff(assistantMessage.metadata.projectHandoff) ? assistantMessage.metadata.projectHandoff : null;
     const failedTasks = run?.tasks.filter((task) => task.status === "failed") || [];
+    const reviewTasks = run?.tasks.filter((task) => task.status === "needs_review") || [];
+    const isPausedMediaRound = run?.status === "paused";
+    const failureReason = Array.from(new Set(failedTasks.map((task) => task.error?.trim()).filter((value): value is string => Boolean(value)))).join("；") || displayContent;
+    const reviewReason = reviewTasks.map((task) => task.error?.trim()).find(Boolean) || "上游创建结果待确认；为避免重复生成和扣费，任务已暂停。";
     const mediaOutputs = outputAssets.filter((asset) => asset.type !== "text" && assetUrl(asset));
     const videoOutputs = mediaOutputs.filter((asset) => asset.type === "video");
     const otherMediaOutputs = mediaOutputs.filter((asset) => asset.type !== "video");
@@ -263,20 +267,26 @@ function CreativeMediaRound({
                 <div className="flex min-w-0 items-start gap-4 sm:gap-5">
                     <CreativeAssistantAvatar logoUrl={siteLogoUrl} />
                     <div className="min-w-0 flex-1">
-                        {!isFailedMediaRound && assistantMessage.status !== "running" ? (
+                        {!isFailedMediaRound ? (
                             <>
                                 <div className="mb-2 flex w-fit max-w-full flex-wrap items-baseline gap-x-3 gap-y-0.5">
-                                    <h2 className="truncate text-[17px] font-semibold leading-7 text-[#1f2937] dark:text-[#f3f5f7]">{resultTitle}</h2>
-                                    <CreativeRunTiming run={run} time={assistantMessage.createdAt} />
+                                    <h2 className="truncate text-[17px] font-semibold leading-7 text-[#1f2937] dark:text-[#f3f5f7]">
+                                        {isPausedMediaRound ? "任务已暂停" : assistantMessage.status === "running" ? (mode === "video" ? "正在生成视频" : mode === "audio" ? "正在生成音频" : "正在生成图片") : resultTitle}
+                                    </h2>
+                                    {assistantMessage.status === "running" && !isPausedMediaRound ? null : <CreativeRunTiming run={run} time={assistantMessage.createdAt} />}
                                 </div>
                                 <CreativeRunSummary run={run} modelNames={modelNames} />
                             </>
                         ) : null}
                         <div data-testid="creative-result-group" className="mt-3 flex w-fit max-w-full flex-col items-start">
                             {isFailedMediaRound ? (
-                                <CreativeGenerationFailure message={failedTasks.length === 1 ? failedTasks[0]?.error || displayContent : displayContent} onRetry={() => onRetryMessage(assistantMessage, run)} />
+                                <CreativeGenerationFailure message={failureReason} onRetry={() => onRetryMessage(assistantMessage, run)} />
+                            ) : isPausedMediaRound ? (
+                                <p data-testid="creative-generation-review" className="max-w-[620px] break-words py-1 text-[15px] font-medium leading-7 text-amber-700 dark:text-amber-300">
+                                    {reviewReason}
+                                </p>
                             ) : assistantMessage.status === "running" ? (
-                                <CreativeGenerationWaiting run={run} message={assistantMessage} />
+                                <CreativeGenerationWaiting run={run} message={assistantMessage} readyAssets={outputAssets} />
                             ) : showAssistantText ? (
                                 <div
                                     className={cn(
@@ -566,12 +576,11 @@ function assetsForAssistant(message: CreativeMessage, assetsByMessage: Map<strin
 }
 
 function CreativeGenerationFailure({ message, onRetry }: { message: string; onRetry: () => Promise<boolean | void> }) {
-    const displayMessage = friendlyAgentError(message, "创作任务执行失败");
     const [retrying, setRetrying] = useState(false);
     return (
         <div data-testid="creative-generation-failure" className="max-w-[620px] py-1">
             <div className="min-w-0">
-                <p className="break-words text-[17px] font-medium leading-7 text-[#ef2b2d] dark:text-[#ff8b8d]">{displayMessage}</p>
+                <p className="break-words text-[17px] font-medium leading-7 text-[#ef2b2d] dark:text-[#ff8b8d]">{message || "创作任务执行失败"}</p>
                 <Button
                     type="default"
                     className="!mt-3 !h-9 !rounded-[10px] !border-[#ffd4d5] !bg-white !px-4 !text-sm !font-medium !text-[#e22b2e] hover:!border-[#ffb7b8] hover:!bg-[#fff8f8] hover:!text-[#c51f22] dark:!border-[#6b3438] dark:!bg-transparent dark:!text-[#ff9a9c] dark:hover:!border-[#9a4a4e] dark:hover:!bg-[#321e20]"
