@@ -7,6 +7,7 @@ const baseURL = `http://127.0.0.1:${port}`;
 const protocolFixturePort = Number(process.env.VOZEB_PRO_PROTOCOL_FIXTURE_PORT || 4010);
 const paymentFixturePort = Number(process.env.VOZEB_PRO_PAYMENT_FIXTURE_PORT || 4020);
 const databaseUrl = process.env.VOZEB_PRO_E2E_DATABASE_URL?.trim() || "";
+const browserExecutable = process.env.VOZEB_PRO_E2E_BROWSER_EXECUTABLE?.trim() || undefined;
 const storageState = path.join(process.cwd(), ".e2e-data", "admin-state.json");
 
 export default defineConfig({
@@ -22,20 +23,21 @@ export default defineConfig({
         baseURL,
         trace: "retain-on-failure",
         screenshot: "only-on-failure",
-        video: "retain-on-failure",
+        video: browserExecutable ? "off" : "retain-on-failure",
+        launchOptions: browserExecutable ? { executablePath: browserExecutable } : undefined,
     },
     projects: [
         { name: "setup", testMatch: /installation\.spec\.ts/ },
-        { name: "chromium", testMatch: [/(?:all-pages|canvas(?:-tools)?|commerce|core|creative-video-result|home|responsive(?:-workspaces)?)\.spec\.ts/], dependencies: ["setup"], use: { ...devices["Desktop Chrome"], storageState } },
+        { name: "chromium", testMatch: [/(?:all-pages|canvas(?:-tools)?|commerce|core|creative-video-result|home|responsive(?:-workspaces)?|tenants)\.spec\.ts/], dependencies: ["setup"], use: { ...devices["Desktop Chrome"], storageState } },
         {
             name: "mobile-390",
-            testMatch: /(?:all-pages|commerce|creative-video-result|home|responsive(?:-workspaces)?)\.spec\.ts/,
+            testMatch: /(?:all-pages|commerce|creative-video-result|home|responsive(?:-workspaces)?|tenants)\.spec\.ts/,
             dependencies: ["setup"],
             use: { ...devices["iPhone 13"], browserName: "chromium", viewport: { width: 390, height: 844 }, storageState },
         },
         {
             name: "mobile-430",
-            testMatch: /(?:all-pages|commerce|creative-video-result|home|responsive(?:-workspaces)?)\.spec\.ts/,
+            testMatch: /(?:all-pages|commerce|creative-video-result|home|responsive(?:-workspaces)?|tenants)\.spec\.ts/,
             dependencies: ["setup"],
             use: { ...devices["iPhone 14 Pro Max"], browserName: "chromium", viewport: { width: 430, height: 932 }, storageState },
         },
@@ -70,6 +72,8 @@ export default defineConfig({
                 VOZEB_PRO_INSTALL_TOKEN: "vozeb-pro-e2e-install-token-32chars",
                 VOZEB_PRO_MAINTENANCE_TOKEN: "vozeb-pro-e2e-maintenance-token-32chars",
                 VOZEB_PRO_WORKER_TOKEN: "vozeb-pro-e2e-worker-token-separate-32chars",
+                VOZEB_PRO_GENERATION_WORKER_ID: "e2e-worker",
+                VOZEB_PRO_TENANT_MVP_ENABLED: "true",
                 VOZEB_PRO_ALLOW_PRIVATE_UPSTREAMS: "1",
                 VOZEB_PRO_PRIVATE_UPSTREAM_HOSTS: "127.0.0.1",
                 ...(databaseUrl ? { DATABASE_URL: databaseUrl } : {}),

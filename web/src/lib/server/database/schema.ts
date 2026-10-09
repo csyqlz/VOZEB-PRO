@@ -167,7 +167,6 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS terms_url text;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS privacy_version text;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS privacy_url text;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS policy_accepted_at timestamptz;
-
 UPDATE users
 SET admin_permissions = '${FULL_ADMIN_PERMISSIONS_JSON}'::jsonb
 WHERE id = (
@@ -233,6 +232,37 @@ CREATE UNIQUE INDEX IF NOT EXISTS users_username_lower_idx ON users (lower(usern
 CREATE UNIQUE INDEX IF NOT EXISTS users_email_lower_idx ON users (lower(email)) WHERE email IS NOT NULL AND email <> '';
 CREATE UNIQUE INDEX IF NOT EXISTS users_account_id_idx ON users (account_id);
 CREATE INDEX IF NOT EXISTS users_plan_id_idx ON users (plan_id);
+
+CREATE TABLE IF NOT EXISTS tenants (
+    id text PRIMARY KEY,
+    slug text NOT NULL,
+    name text NOT NULL,
+    owner_user_id text NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    created_by_user_id text REFERENCES users(id) ON DELETE SET NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT tenants_name_length CHECK (char_length(name) BETWEEN 1 AND 80),
+    CONSTRAINT tenants_slug_format CHECK (slug ~ '^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$')
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS tenants_slug_lower_idx ON tenants (lower(slug));
+
+CREATE TABLE IF NOT EXISTS tenant_memberships (
+    tenant_id text NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
+    user_id text NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    role text NOT NULL,
+    status text NOT NULL DEFAULT 'active',
+    created_by_user_id text REFERENCES users(id) ON DELETE SET NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (tenant_id, user_id),
+    UNIQUE (user_id),
+    CONSTRAINT tenant_memberships_role CHECK (role IN ('owner', 'admin', 'member')),
+    CONSTRAINT tenant_memberships_status CHECK (status IN ('active', 'disabled'))
+);
+
+CREATE INDEX IF NOT EXISTS tenant_memberships_tenant_status_idx ON tenant_memberships (tenant_id, status, role, user_id);
+CREATE UNIQUE INDEX IF NOT EXISTS tenant_memberships_single_active_owner_idx ON tenant_memberships (tenant_id) WHERE role = 'owner' AND status = 'active';
 
 CREATE TABLE IF NOT EXISTS sessions (
     id text PRIMARY KEY,
@@ -980,19 +1010,40 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     target_id text,
     target_label text,
     metadata jsonb,
+    tenant_id text REFERENCES tenants(id) ON DELETE RESTRICT,
+    scope text NOT NULL DEFAULT 'platform',
+    actor_tenant_role text,
     created_at timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT audit_logs_status CHECK (status IN ('success', 'failure')),
-    CONSTRAINT audit_logs_actor_role CHECK (actor_role IS NULL OR actor_role IN ('admin', 'user'))
+    CONSTRAINT audit_logs_actor_role CHECK (actor_role IS NULL OR actor_role IN ('admin', 'user')),
+    CONSTRAINT audit_logs_scope CHECK (scope IN ('platform', 'tenant')),
+    CONSTRAINT audit_logs_actor_tenant_role CHECK (actor_tenant_role IS NULL OR actor_tenant_role IN ('owner', 'admin', 'member'))
 );
+
+ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS tenant_id text REFERENCES tenants(id) ON DELETE RESTRICT;
+ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS scope text NOT NULL DEFAULT 'platform';
+ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS actor_tenant_role text;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'audit_logs_scope' AND conrelid = 'audit_logs'::regclass) THEN
+        ALTER TABLE audit_logs ADD CONSTRAINT audit_logs_scope CHECK (scope IN ('platform', 'tenant'));
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'audit_logs_actor_tenant_role' AND conrelid = 'audit_logs'::regclass) THEN
+        ALTER TABLE audit_logs ADD CONSTRAINT audit_logs_actor_tenant_role CHECK (actor_tenant_role IS NULL OR actor_tenant_role IN ('owner', 'admin', 'member'));
+    END IF;
+END;
+$$;
 
 CREATE INDEX IF NOT EXISTS audit_logs_created_idx ON audit_logs (created_at DESC);
 CREATE INDEX IF NOT EXISTS audit_logs_action_idx ON audit_logs (action);
 CREATE INDEX IF NOT EXISTS audit_logs_actor_user_idx ON audit_logs (actor_user_id);
 CREATE INDEX IF NOT EXISTS audit_logs_target_idx ON audit_logs (target_type, target_id);
+CREATE INDEX IF NOT EXISTS audit_logs_tenant_created_idx ON audit_logs (tenant_id, created_at DESC) WHERE tenant_id IS NOT NULL;
 
 ${POSTGRESQL_TRIGGER_SCHEMA_SQL}
 
 INSERT INTO schema_migrations (version)
-VALUES ('20260709_postgresql_commercial_base'), ('20260709_billing_foundation'), ('20260709_billing_checkout'), ('20260709_commercial_seed_products'), ('20260709_vozeb_pro_table_prefix'), ('20260711_generation_tasks'), ('20260716_billing_reconciliation'), ('20260725_account_deletion_requests'), ('20260726_promotion_coupon_commerce'), ('20260727_referral_growth_rewards'), ('20260727_work_publications'), ('20260727_work_community'), ('20260728_user_blocks')
+VALUES ('20260709_postgresql_commercial_base'), ('20260709_billing_foundation'), ('20260709_billing_checkout'), ('20260709_commercial_seed_products'), ('20260709_vozeb_pro_table_prefix'), ('20260711_generation_tasks'), ('20260716_billing_reconciliation'), ('20260725_account_deletion_requests'), ('20260726_promotion_coupon_commerce'), ('20260727_referral_growth_rewards'), ('20260727_work_publications'), ('20260727_work_community'), ('20260728_user_blocks'), ('20260908_tenant_mvp')
 ON CONFLICT (version) DO NOTHING;
 `;

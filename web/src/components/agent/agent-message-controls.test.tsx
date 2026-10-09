@@ -3,7 +3,7 @@ import { App } from "antd";
 import { describe, expect, it, vi } from "vitest";
 
 import { agentMediaDownloadName } from "./agent-media-download";
-import { formatAgentArtifactText, formatAgentMessageText } from "./agent-message-format";
+import { formatAgentArtifactText, formatAgentMessageText, friendlyAgentError } from "./agent-message-format";
 import { agentMediaPreviewPopupStyles, AgentMediaPreview } from "./agent-media-preview";
 import { AgentMessageActions } from "./agent-message-actions";
 
@@ -65,11 +65,15 @@ describe("agent message controls", () => {
         expect(imageName).not.toBe(videoName);
         expect(formatAgentMessageText('{"error":{"message":"/backend-anon/conversation failed: status=403"}}')).toBe("当前渠道鉴权失败，请管理员检查 API Key 和模型权限。");
         expect(formatAgentMessageText('{"error":{"message":"/backend-api/conversation failed: status=422, body="}}')).toBe("当前请求参数不被模型支持，请检查模型与生成参数。");
-        expect(formatAgentMessageText('{"error":"当前渠道无法读取站内参考素材，请联系管理员检查站点部署地址"}')).toBe("当前渠道无法读取站内参考素材，请联系管理员检查站点部署地址");
+        expect(formatAgentMessageText('{"error":"当前渠道无法读取站内参考素材，请联系管理员检查站点部署地址"}')).toBe("参考图片暂时无法被上游模型读取，请重新上传图片，或使用公网可访问的图片地址后重试。");
         expect(formatAgentMessageText('{"code":400,"data":null,"msg":"积分不足，无法生成"}')).toBe("积分不足");
+        expect(formatAgentMessageText('{"error":{"message":"余额不足，请充值","type":"invalid_request_error"}}')).toBe("上游模型额度不足或请求过于频繁，请检查模型服务账号余额、Key 权限或稍后重试。");
         expect(formatAgentMessageText('{"error":"request timeout"}')).toBe("模型响应超时，请稍后重试。");
         expect(formatAgentMessageText('{"error":"fetch failed: ECONNRESET"}')).toBe("模型服务连接失败，请稍后重试。");
         expect(formatAgentMessageText('{"error":"status=429"}')).toBe("请求过于频繁，请稍后重试。");
+        expect(formatAgentMessageText('{"error":"width should be less than 2048"}')).toBe("当前图片尺寸超过模型限制，请把宽高调整到 1024×1024 或更小后重试。");
+        expect(formatAgentMessageText('{"error":"「肥胖橘猫进食广告主视觉」：上游图片无法通过授权媒体路径读取"}')).toBe("参考图片暂时无法被上游模型读取，请重新上传图片，或使用公网可访问的图片地址后重试。");
+        expect(friendlyAgentError("后台尚未配置可用的默认图片模型")).toBe("当前没有可用模型，请管理员检查默认模型和渠道配置。");
     });
 
     it("keeps generated text while removing upstream display directives", () => {

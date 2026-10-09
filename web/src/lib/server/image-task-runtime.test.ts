@@ -139,6 +139,17 @@ describe("image task runtime submission safety", () => {
         expect(mocks.runGemini).not.toHaveBeenCalled();
     });
 
+    it("routes SiliconFlow image tasks through the declarative image runtime", async () => {
+        state.config = { ...state.config, model: "Kwai-Kolors/Kolors", advancedConfig: { ...state.config.advancedConfig!, protocol: "siliconflow", createPath: "/images/generations", requestTemplate: "{}", resultField: "images[0].url" } };
+        state.candidateConfigs = [];
+        mocks.runCustom.mockResolvedValueOnce({ dataUrl: "", pending: { id: "siliconflow-task", mediaBaseUrl: "https://api.siliconflow.cn/v1/images/generations", pollBaseUrl: "https://api.siliconflow.cn/v1/images/generations" } });
+
+        await expect(createImageTaskUpstreamStep(state, "http://internal", "https://public.example")).resolves.toMatchObject({ state: "pending", upstream: { id: "siliconflow-task" } });
+        expect(mocks.runCustom).toHaveBeenCalledOnce();
+        expect(mocks.runOpenAi).not.toHaveBeenCalled();
+        expect(mocks.runGemini).not.toHaveBeenCalled();
+    });
+
     it("keeps declarative media resolution separate from system-proxy polling", async () => {
         state.config = { ...state.config, baseUrl: "/api/ai/system/channel-one", advancedConfig: { ...emptyAdvancedConfig(), protocol: "custom", queryPath: "/jobs/:task_id" } };
         state.upstream = {
@@ -282,7 +293,7 @@ describe("image task runtime submission safety", () => {
     });
 
     it("downloads system-proxied image results with task-bound media authorization", async () => {
-        state.config = { ...state.config, baseUrl: "/api/ai/system/channel-one", advancedConfig: { ...emptyAdvancedConfig(), protocol: "openai" } };
+        state.config = { ...state.config, baseUrl: "/api/ai/system/channel-one", logicalModel: "logical-image", advancedConfig: { ...emptyAdvancedConfig(), protocol: "openai" } };
         state.candidateConfigs = [];
         const remoteUrl = "https://provider.example/media/result.png";
         const proxyUrl = `/api/ai/system/channel-one/_media?url=${encodeURIComponent(remoteUrl)}`;

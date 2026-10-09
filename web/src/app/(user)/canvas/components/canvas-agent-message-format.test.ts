@@ -13,6 +13,11 @@ describe("Canvas Agent 消息清理", () => {
         expect(friendlyAgentError('{"error":{"message":"积分不足，当前余额 2，需要 3"}}')).toBe("积分不足");
     });
 
+    it("distinguishes upstream model quota errors from local point errors", () => {
+        expect(formatAgentMessageText('{"error":{"message":"余额不足，请充值","type":"invalid_request_error"}}')).toBe("上游模型额度不足或请求过于频繁，请检查模型服务账号余额、Key 权限或稍后重试。");
+        expect(friendlyAgentError("文本模型渠道请求过于频繁或额度不足（HTTP 429）")).toBe("上游模型额度不足或请求过于频繁，请检查模型服务账号余额、Key 权限或稍后重试。");
+    });
+
     it("shows a safe fix for protocol mismatches", () => {
         expect(formatAgentMessageText('{"error":{"message":"MetaJing video requests must use application/json"}}')).toBe("当前视频渠道要求 application/json，请在后台选择匹配的内置协议，或使用自定义协议配置请求模板。");
     });

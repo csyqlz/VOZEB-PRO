@@ -225,7 +225,11 @@ export function CreativeAgentControls({
                         </button>
                     );
                 })}
-                {!visibleModels.length ? <p className={cn("px-2 text-center text-xs leading-5 text-stone-500 dark:text-stone-400", compact ? "py-3" : "py-5")}>当前未配置可用的{capabilityLabel(activeCapability)}模型</p> : null}
+                {!visibleModels.length ? (
+                    <p className={cn("px-2 text-center text-xs leading-5 text-stone-500 dark:text-stone-400", compact ? "py-3" : "py-5")}>
+                        {smartPlanning ? `未配置可用的${capabilityLabel(activeCapability)}模型；本轮会先用文本模型生成提示词方案` : `当前未配置可用的${capabilityLabel(activeCapability)}模型`}
+                    </p>
+                ) : null}
             </div>
         </div>
     );

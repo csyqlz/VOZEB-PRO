@@ -11,38 +11,41 @@ description: VOZEB PRO 环境变量、模型渠道、服务器媒体与支付配
 
 ## 核心环境变量
 
-| 变量                                         | 必填             | 说明                                                                                  |
-| -------------------------------------------- | ---------------- | ------------------------------------------------------------------------------------- |
-| `NEXT_PUBLIC_SITE_URL`                       | 生产必填         | 外部可访问的站点地址，生产使用 HTTPS，不带尾部 `/`                                    |
-| `VOZEB_PRO_DATABASE_PROVIDER`                | 是               | 生产使用 `postgres`；`file` 仅用于单机文件模式体验                                    |
-| `DATABASE_URL`                               | PostgreSQL 必填  | PostgreSQL 连接串；Docker 内数据库 Host 使用 `postgres`                               |
-| `VOZEB_PRO_DATABASE_POOL_MAX`                | 否               | 连接池上限，默认 10，低内存或托管数据库可设置 5                                       |
-| `VOZEB_PRO_DATABASE_SSL`                     | 否               | 本机/Docker 通常为 0，云 PostgreSQL 按要求使用 1                                      |
-| `VOZEB_PRO_DATABASE_SSL_REJECT_UNAUTHORIZED` | 否               | SSL 开启时默认校验证书；仅供应商明确无法提供可信证书时才设为 0                        |
-| `VOZEB_PRO_DATABASE_SSL_CA`                  | 私有 CA 可选     | PEM CA 证书，可使用真实换行或 `\\n`；用于托管数据库的私有证书链                       |
-| `VOZEB_PRO_ENCRYPTION_KEY`                   | 生产必填         | 64 位十六进制或精确 32 字节 Base64 密钥，部署后必须保持稳定                           |
-| `VOZEB_PRO_INSTALL_TOKEN`                    | 首次安装必填     | 至少 32 个字符；只用于初始化数据库和创建首个管理员，安装完成后可移除                  |
-| `VOZEB_PRO_INTERNAL_ORIGIN`                  | 推荐             | 服务端回调自身 API，Docker 默认 `http://127.0.0.1:3000`                               |
-| `VOZEB_PRO_DATA_DIR`                         | 否               | 服务器媒体和文件模式数据目录                                                          |
-| `VOZEB_PRO_COOKIE_SECURE`                    | 否               | 留空自动判断；特殊代理可强制 `true/false`                                             |
-| `VOZEB_PRO_TRUSTED_PROXY_HOPS`               | 否               | 速率限制读取代理 IP 时信任的代理层数；直连保持 `0`，单层 Nginx/Caddy 使用 `1`         |
-| `VOZEB_PRO_ALLOW_PRIVATE_UPSTREAMS`          | 否               | 默认 `0`；只有接入管理员控制的 Ollama/局域网模型时才设置为 `1`                        |
-| `VOZEB_PRO_PRIVATE_UPSTREAM_HOSTS`           | 私网上游必填     | 允许访问的精确 Host/IP，逗号分隔；链路本地、云元数据和组播地址始终拒绝                |
-| `VOZEB_PRO_MAINTENANCE_TOKEN`                | 生产推荐         | 只供外部计划任务调用订单、邀请等维护接口，至少 32 个字符                              |
-| `VOZEB_PRO_WORKER_TOKEN`                     | 生产必填         | 只供 App 与生成 Worker 内部调用，至少 32 个字符且必须与维护令牌不同                   |
-| `VOZEB_PRO_WORKER_API_ORIGIN`                | 独立 Worker 可选 | Worker 调用主应用的站内地址；Compose 使用 `http://app:3000`，Render 注入私网 hostport |
-| `VOZEB_PRO_GENERATION_WORKER_ID`             | 否               | 生成 Worker 稳定标识；留空时由主机名和进程号生成                                      |
-| `VOZEB_PRO_GENERATION_WORKER_INTERVAL_MS`    | 否               | 空闲恢复批次初始间隔，默认 2000ms；连续空批次退避到 10000ms                           |
-| `VOZEB_PRO_GENERATION_WORKER_LANES`          | 否               | 单个 Worker 并行恢复通道数，默认 2                                                    |
-| `VOZEB_PRO_GENERATION_WORKER_HEARTBEAT_MS`   | 否               | Worker 心跳间隔，默认 15000ms                                                         |
-| `VOZEB_PRO_GENERATION_WORKER_STALE_MS`       | 否               | 就绪检查判定 Worker 失联的窗口，默认 90000ms                                          |
-| `VOZEB_PRO_APP_URL`                          | 文档站可选       | 独立文档站使用的主应用地址，使文档 favicon 跟随后台站点图标                           |
-| `FFMPEG_PATH`                                | 否               | 本机 FFmpeg 不在 PATH 时填写；Docker 已内置 FFmpeg                                    |
-| `FFPROBE_PATH`                               | 否               | 可选的 FFprobe 路径；默认使用 `FFMPEG_PATH` 同目录二进制或系统 PATH                   |
-| `VOZEB_PRO_CONTENT_MODERATION_PROVIDER`      | 否               | 作品审核信号 Provider：`manual`、`keywords` 或 `http`，默认人工审核                   |
-| `VOZEB_PRO_CONTENT_MODERATION_KEYWORDS`      | keywords 可选    | 逗号或换行分隔的风险关键词，只生成后台复核信号                                        |
-| `VOZEB_PRO_CONTENT_MODERATION_URL`           | http 必填        | 外部内容审核 HTTP 地址；服务端以 3 秒超时发送公开草稿字段                             |
-| `VOZEB_PRO_CONTENT_MODERATION_API_KEY`       | http 可选        | 外部审核 Bearer Token，仅保存在服务器环境变量                                         |
+| 变量                                         | 必填             | 说明                                                                                   |
+| -------------------------------------------- | ---------------- | -------------------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_SITE_URL`                       | 生产必填         | 外部可访问的站点地址，生产使用 HTTPS，不带尾部 `/`                                     |
+| `VOZEB_PRO_DATABASE_PROVIDER`                | 是               | 生产使用 `postgres`；`file` 仅用于单机文件模式体验                                     |
+| `DATABASE_URL`                               | PostgreSQL 必填  | PostgreSQL 连接串；Docker 内数据库 Host 使用 `postgres`                                |
+| `VOZEB_PRO_DATABASE_POOL_MAX`                | 否               | 连接池上限，默认 10，低内存或托管数据库可设置 5                                        |
+| `VOZEB_PRO_DATABASE_SSL`                     | 否               | 本机/Docker 通常为 0，云 PostgreSQL 按要求使用 1                                       |
+| `VOZEB_PRO_DATABASE_SSL_REJECT_UNAUTHORIZED` | 否               | SSL 开启时默认校验证书；仅供应商明确无法提供可信证书时才设为 0                         |
+| `VOZEB_PRO_DATABASE_SSL_CA`                  | 私有 CA 可选     | PEM CA 证书，可使用真实换行或 `\\n`；用于托管数据库的私有证书链                        |
+| `VOZEB_PRO_DEEPSEEK_API_KEY`                 | 否               | 当后台尚未配置默认文本模型时，使用 DeepSeek OpenAI-compatible API 自动创建默认文本模型 |
+| `VOZEB_PRO_DEEPSEEK_TEXT_MODEL`              | 否               | DeepSeek 默认文本模型，默认 `deepseek-v4-flash`                                        |
+| `VOZEB_PRO_DEEPSEEK_BASE_URL`                | 否               | DeepSeek API Base URL，默认 `https://api.deepseek.com`                                 |
+| `VOZEB_PRO_ENCRYPTION_KEY`                   | 生产必填         | 64 位十六进制或精确 32 字节 Base64 密钥，部署后必须保持稳定                            |
+| `VOZEB_PRO_INSTALL_TOKEN`                    | 首次安装必填     | 至少 32 个字符；只用于初始化数据库和创建首个管理员，安装完成后可移除                   |
+| `VOZEB_PRO_INTERNAL_ORIGIN`                  | 推荐             | 服务端回调自身 API，Docker 默认 `http://127.0.0.1:3000`                                |
+| `VOZEB_PRO_DATA_DIR`                         | 否               | 服务器媒体和文件模式数据目录                                                           |
+| `VOZEB_PRO_COOKIE_SECURE`                    | 否               | 留空自动判断；特殊代理可强制 `true/false`                                              |
+| `VOZEB_PRO_TRUSTED_PROXY_HOPS`               | 否               | 速率限制读取代理 IP 时信任的代理层数；直连保持 `0`，单层 Nginx/Caddy 使用 `1`          |
+| `VOZEB_PRO_ALLOW_PRIVATE_UPSTREAMS`          | 否               | 默认 `0`；只有接入管理员控制的 Ollama/局域网模型时才设置为 `1`                         |
+| `VOZEB_PRO_PRIVATE_UPSTREAM_HOSTS`           | 私网上游必填     | 允许访问的精确 Host/IP，逗号分隔；链路本地、云元数据和组播地址始终拒绝                 |
+| `VOZEB_PRO_MAINTENANCE_TOKEN`                | 生产推荐         | 只供外部计划任务调用订单、邀请等维护接口，至少 32 个字符                               |
+| `VOZEB_PRO_WORKER_TOKEN`                     | 生产必填         | 只供 App 与生成 Worker 内部调用，至少 32 个字符且必须与维护令牌不同                    |
+| `VOZEB_PRO_WORKER_API_ORIGIN`                | 独立 Worker 可选 | Worker 调用主应用的站内地址；Compose 使用 `http://app:3000`，Render 注入私网 hostport  |
+| `VOZEB_PRO_GENERATION_WORKER_ID`             | 否               | 生成 Worker 稳定标识；留空时由主机名和进程号生成                                       |
+| `VOZEB_PRO_GENERATION_WORKER_INTERVAL_MS`    | 否               | 空闲恢复批次初始间隔，默认 2000ms；连续空批次退避到 10000ms                            |
+| `VOZEB_PRO_GENERATION_WORKER_LANES`          | 否               | 单个 Worker 并行恢复通道数，默认 2                                                     |
+| `VOZEB_PRO_GENERATION_WORKER_HEARTBEAT_MS`   | 否               | Worker 心跳间隔，默认 15000ms                                                          |
+| `VOZEB_PRO_GENERATION_WORKER_STALE_MS`       | 否               | 就绪检查判定 Worker 失联的窗口，默认 90000ms                                           |
+| `VOZEB_PRO_APP_URL`                          | 文档站可选       | 独立文档站使用的主应用地址，使文档 favicon 跟随后台站点图标                            |
+| `FFMPEG_PATH`                                | 否               | 本机 FFmpeg 不在 PATH 时填写；Docker 已内置 FFmpeg                                     |
+| `FFPROBE_PATH`                               | 否               | 可选的 FFprobe 路径；默认使用 `FFMPEG_PATH` 同目录二进制或系统 PATH                    |
+| `VOZEB_PRO_CONTENT_MODERATION_PROVIDER`      | 否               | 作品审核信号 Provider：`manual`、`keywords` 或 `http`，默认人工审核                    |
+| `VOZEB_PRO_CONTENT_MODERATION_KEYWORDS`      | keywords 可选    | 逗号或换行分隔的风险关键词，只生成后台复核信号                                         |
+| `VOZEB_PRO_CONTENT_MODERATION_URL`           | http 必填        | 外部内容审核 HTTP 地址；服务端以 3 秒超时发送公开草稿字段                              |
+| `VOZEB_PRO_CONTENT_MODERATION_API_KEY`       | http 可选        | 外部审核 Bearer Token，仅保存在服务器环境变量                                          |
 
 ## PostgreSQL
 
@@ -68,6 +71,18 @@ POSTGRES_PASSWORD=replace-with-a-strong-database-password
 安装页不会保存数据库密码或一次性安装令牌。GET 状态检查只执行连接与表存在性查询；只有提交与服务器 `VOZEB_PRO_INSTALL_TOKEN` 一致的令牌并点击“初始化表结构”才会创建 `vozeb_pro_` 前缀表。创建首个管理员必须再次提交同一令牌，普通公开注册永远只创建普通用户。安装完成后可从 App 环境变量移除该令牌，不影响站点继续运行。
 
 使用宝塔宿主机 PostgreSQL 时，应用通过 `docker-compose.baota.yml` 的 host 网络连接 `127.0.0.1:5432`；不要同时启动默认 Compose 中的 PostgreSQL 服务。
+
+## DeepSeek 默认文本模型
+
+当后台还没有配置可用的默认文本模型时，可以只在服务器环境变量中填入 DeepSeek API Key，系统会自动补齐一个 `deepseek-env` 渠道、一个 `deepseek-default-text` 逻辑模型，并把它设为默认文本模型。已有可解析的后台默认文本模型不会被覆盖。
+
+```dotenv
+VOZEB_PRO_DEEPSEEK_API_KEY=replace-with-your-deepseek-api-key
+VOZEB_PRO_DEEPSEEK_TEXT_MODEL=deepseek-v4-flash
+VOZEB_PRO_DEEPSEEK_BASE_URL=https://api.deepseek.com
+```
+
+DeepSeek Key 只在服务端参与系统代理请求。浏览器端公开配置只会看到 `/api/ai/system/deepseek-env` 和 `apiKey: "system"`，不会返回真实 Key 或 DeepSeek 上游地址。需要改用 `deepseek-v4-pro` 等模型时，修改 `VOZEB_PRO_DEEPSEEK_TEXT_MODEL` 并重启服务即可。
 
 ## 0.0.7 发布部署要求
 

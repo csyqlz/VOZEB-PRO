@@ -15,9 +15,16 @@ DATABASE_URL=postgres://vozeb_pro:change-me@localhost:5432/vozeb_pro
 VOZEB_PRO_DATABASE_POOL_MAX=10
 VOZEB_PRO_DATABASE_SSL=0
 VOZEB_PRO_ENCRYPTION_KEY=64位十六进制或32字节Base64密钥
+# 默认 false；完成 Schema、备份和回滚验证后再开启 PostgreSQL 租户 MVP
+VOZEB_PRO_TENANT_MVP_ENABLED=false
+# 可选：后台尚未配置默认文本模型时，自动用 DeepSeek 创建默认文本模型
+VOZEB_PRO_DEEPSEEK_API_KEY=
+VOZEB_PRO_DEEPSEEK_TEXT_MODEL=deepseek-v4-flash
 ```
 
 首次部署后访问 `/install`。状态 GET 只读检查 `DATABASE_URL`、PostgreSQL 连接、表结构和管理员数量，不执行 DDL；表结构由安装页 POST 初始化操作显式创建。有效的 32 字节加密密钥是初始化和创建首个管理员的前置条件。
+
+租户 MVP 当前面向全新安装。已有普通账号的数据库在第一次开启 `VOZEB_PRO_TENANT_MVP_ENABLED` 前，必须先为每个普通账号建立唯一租户与 active owner membership；当前版本不提供自动回填。开关启用后，普通账号登录会校验 active membership，租户禁用成员只修改 membership 并撤销 Session，不会覆盖平台管理员维护的全局账号状态。真实租户开始使用后不得再关闭开关或回滚到无 membership Gate 的旧版本。
 
 如果只需要本地文件存储体验，可显式配置：
 
@@ -43,6 +50,8 @@ VOZEB PRO 的 PostgreSQL 真实表名统一使用项目名前缀 `vozeb_pro_`。
 - `vozeb_pro_system_model_channels`：系统模型渠道、分别加密保存的 API Key 与渠道生成回调密钥、模型列表和高级配置；后台不保存渠道验证记录。
 - `vozeb_pro_entitlement_plans`：商业套餐权益、每日额度、调用限制和功能标记；新用户不再通过套餐获得注册初始积分。
 - `vozeb_pro_users`：用户账号、角色、状态、头像存储键、最多 160 字的个人简介、当前套餐、积分余额和密码哈希；`admin_permissions` JSONB 保存管理员的显式职责列表，并由 CHECK 约束保证为数组，普通用户保持空数组。管理员 TOTP MFA 使用 `mfa_secret_ciphertext` 保存 AES-GCM 密文，`mfa_enabled_at` 表示已完成验证并启用，CHECK 约束禁止启用时间存在但密文缺失。公开注册还原子保存当时的服务条款版本/链接、隐私政策版本/链接和同意时间，五个留痕字段必须同时为空或同时存在。管理员代建账号不伪造用户同意记录。公开创作者接口只按用户名返回允许公开的资料字段，不暴露邮箱、内部用户 ID、职责、MFA 密文或协议留痕。
+- `vozeb_pro_tenants`：租户名称、全局唯一 slug、唯一 owner 用户和创建者；MVP 不提供删除、暂停、owner 转移或账号跨租户迁移。
+- `vozeb_pro_tenant_memberships`：租户与账号的永久关系，角色为 `owner/admin/member`，状态为 `active/disabled`。`UNIQUE (user_id)` 固定一个账号只属于一个租户，部分唯一索引保证一个租户至多一个 active owner；服务层事务保证创建后至少一个 owner。业务资源仍按 `user_id` 私有，租户管理者只能读取成员公开身份与聚合指标。
 - `vozeb_pro_sessions`：登录会话 token 哈希和过期时间。
 - `vozeb_pro_account_deletion_requests`：账号注销申请、用户资料快照、申请状态、管理员处理备注与处理人快照；同一用户同一时间只能存在一条待处理申请，受理不会自动停用账号或删除业务数据。
 - `vozeb_pro_rate_limits`：PostgreSQL 多实例共享的接口限流窗口，保存哈希后的业务键、原子请求计数和重置时间；数据库不可用时服务端临时退回进程内保护。
@@ -99,7 +108,7 @@ VOZEB PRO 的 PostgreSQL 真实表名统一使用项目名前缀 `vozeb_pro_`。
 
 Agent Run 的状态与任务数组继续保存在 `generation_tasks.payload`，每个多副本子任务同时保存子任务 ID、完成状态、尝试次数和结果，恢复时复用已完成结果并继续轮询未完成任务；事件独立写入 `creative_run_events`。状态更新、助手消息终态和事件追加在同一 PostgreSQL 事务内完成；暂停、恢复、取消、完成和失败竞争时，旧 Run 快照不能覆盖更新后的状态。文件 Provider 使用串行 mutation queue 保持相同的进程内语义。短剧成本概览按 `user_id + project_id + task_type + status` 在数据库聚合，并使用 `generation_tasks_user_project_idx`，不读取数千条完整任务 JSON 后再汇总。
 
-- `vozeb_pro_audit_logs`：登录、后台操作、CDK 兑换等安全审计记录。
+- `vozeb_pro_audit_logs`：登录、后台操作、CDK 兑换等安全审计记录；租户高风险操作额外保存 `tenant_id`、`scope` 与操作者租户角色，并按租户和时间建立定向索引。
 
 ## Repository 边界
 
@@ -107,6 +116,7 @@ Agent Run 的状态与任务数组继续保存在 `generation_tasks.payload`，�
 
 - `settings`
 - `users`
+- `tenants`
 - `sessions`
 - `points`
 - `cdk`

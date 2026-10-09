@@ -4,15 +4,31 @@ import { Panel, PanelHeader } from "@/components/admin/admin-panel";
 import { AgentSkillCreateModal } from "@/components/admin/agent-skill-create-modal";
 import { AdminChannelWorkspace } from "@/components/admin/channels/admin-channel-workspace";
 import type { AgentSkill } from "@/lib/auth/store";
-import { Button, Input, InputNumber, Select, Switch, Tag } from "antd";
-import { ChevronDown, Plus, Save, Trash2 } from "lucide-react";
+import { Alert, Button, Input, InputNumber, Select, Switch, Tag } from "antd";
+import { Activity, ChevronDown, Plus, Save, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import type { AdminDashboardController } from "./use-admin-dashboard-controller";
 
 export function AdminChannelsSection({ controller }: { controller: AdminDashboardController }) {
-    const { settings, setSettings, settingsLoading, fetchingModelId, activeSection, saveSettings, deleteChannel, fetchModelsForChannel, fetchAllModels } = controller;
+    const { settings, setSettings, settingsLoading, fetchingModelId, activeSection, agentReadiness, setAgentReadiness, saveSettings, deleteChannel, fetchModelsForChannel, fetchAllModels, message } = controller;
+    const [diagnosing, setDiagnosing] = useState(false);
     if (activeSection !== "channels") return null;
+    const runDiagnostics = async () => {
+        if (diagnosing) return;
+        setDiagnosing(true);
+        try {
+            const response = await fetch("/api/admin/agent-readiness", { method: "POST", cache: "no-store" });
+            const payload = await response.json().catch(() => null);
+            if (!response.ok || payload?.code !== 0) throw new Error(payload?.msg || "模型诊断失败");
+            setAgentReadiness(payload.data);
+            message.success(payload.msg || "模型诊断完成");
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "模型诊断失败");
+        } finally {
+            setDiagnosing(false);
+        }
+    };
     return (
         <Panel>
             <PanelHeader
@@ -32,6 +48,7 @@ export function AdminChannelsSection({ controller }: { controller: AdminDashboar
                 }
             />
             <div className="p-3 sm:p-5">
+                <ModelDiagnosticsCard readiness={agentReadiness} loading={diagnosing} onRun={runDiagnostics} />
                 <AdminChannelWorkspace
                     settings={{ systemChannels: settings.systemChannels, logicalModels: settings.logicalModels, defaultModels: settings.defaultModels }}
                     fetchingModelId={fetchingModelId}
@@ -44,6 +61,77 @@ export function AdminChannelsSection({ controller }: { controller: AdminDashboar
                 />
             </div>
         </Panel>
+    );
+}
+
+function ModelDiagnosticsCard({ readiness, loading, onRun }: { readiness: AdminDashboardController["agentReadiness"]; loading: boolean; onRun: () => void }) {
+    const probes = readiness?.diagnostics?.probes || [];
+    const textProbe = probes.find((probe) => probe.capability === "text");
+    return (
+        <section className="mb-4 rounded-lg border border-stone-200 bg-stone-50/70 p-4 dark:border-stone-800 dark:bg-stone-900/40" data-testid="admin-model-diagnostics">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                    <div className="flex items-center gap-2 font-semibold">
+                        <Activity className="size-4" />
+                        模型诊断
+                    </div>
+                    <p className="mt-1 text-sm leading-6 text-stone-500 dark:text-stone-400">检查默认模型、渠道绑定、API Key 与基础生成参数；点击按钮会对默认文本模型发起一次极短实测。</p>
+                </div>
+                <Button icon={<Activity className="size-4" />} loading={loading} onClick={onRun}>
+                    运行低成本诊断
+                </Button>
+            </div>
+            {readiness ? (
+                <div className="mt-4 space-y-3">
+                    <Alert type={readiness.ready ? "success" : "warning"} showIcon message={readiness.diagnostics?.summary || (readiness.ready ? "模型配置已就绪" : "模型配置需要检查")} />
+                    <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                        {readiness.capabilities.map((item) => (
+                            <div key={item.type} className="rounded-md border border-stone-200 bg-white px-3 py-2 text-sm dark:border-stone-700 dark:bg-stone-950">
+                                <div className="flex items-center justify-between gap-2">
+                                    <span className="font-medium">{{ text: "文本生成", image: "图片生成", video: "视频生成", audio: "音频生成" }[item.type]}</span>
+                                    <Tag className="m-0" color={item.ready && item.configured !== false ? "success" : item.configured === false ? "default" : "warning"}>
+                                        {item.ready && item.configured !== false ? "配置可用" : item.configured === false ? "未启用" : "需处理"}
+                                    </Tag>
+                                </div>
+                                <div className="mt-1 truncate text-xs text-stone-500">{item.model || "未设置默认模型"}</div>
+                                <div className="mt-1 truncate text-xs text-stone-500">{item.channelName || item.message}</div>
+                                <div className="mt-2 space-y-1">
+                                    {item.checks.slice(0, 4).map((check) => (
+                                        <div key={check.key} className="flex items-start gap-1.5 text-xs leading-5 text-stone-500">
+                                            <span className={check.status === "pass" ? "text-emerald-600" : check.status === "warn" ? "text-amber-600" : "text-red-600"}>{check.status === "pass" ? "✓" : check.status === "warn" ? "!" : "×"}</span>
+                                            <span className="min-w-0 truncate" title={check.message}>
+                                                {check.label}：{check.message}
+                                            </span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                    {textProbe ? (
+                        <div className="rounded-md border border-stone-200 bg-white px-3 py-2 text-sm dark:border-stone-700 dark:bg-stone-950">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                <span className="font-medium">文本模型实测</span>
+                                <Tag className="m-0" color={textProbe.status === "pass" ? "success" : textProbe.status === "skip" ? "default" : "error"}>
+                                    {textProbe.status === "pass" ? "通过" : textProbe.status === "skip" ? "跳过" : "失败"}
+                                </Tag>
+                            </div>
+                            <div className="mt-1 text-xs leading-5 text-stone-500">
+                                {textProbe.message}
+                                {textProbe.channelName ? ` · ${textProbe.channelName}` : ""}
+                                {textProbe.protocol ? ` · ${textProbe.protocol}` : ""}
+                                {typeof textProbe.elapsedMs === "number" ? ` · ${textProbe.elapsedMs}ms` : ""}
+                                {typeof textProbe.pointsCost === "number" ? ` · 约 ${textProbe.pointsCost} 积分` : ""}
+                            </div>
+                        </div>
+                    ) : null}
+                    {readiness.diagnostics?.blockingIssues?.length ? <Alert type="error" showIcon message="需要先修复" description={readiness.diagnostics.blockingIssues.join("；")} /> : null}
+                    {readiness.diagnostics?.warnings?.length ? <Alert type="warning" showIcon message="建议优化" description={readiness.diagnostics.warnings.join("；")} /> : null}
+                </div>
+            ) : (
+                <p className="mt-3 text-xs leading-5 text-stone-500">尚未加载诊断结果。保存模型渠道后可运行一次低成本诊断。</p>
+            )}
+        </section>
     );
 }
 
@@ -78,7 +166,7 @@ export function AdminSkillsSection({ controller }: { controller: AdminDashboardC
                             <div key={item.type} className="rounded-md border border-stone-200 bg-white px-3 py-2 text-sm dark:border-stone-700 dark:bg-stone-950">
                                 <div className="flex items-center justify-between">
                                     <span className="font-medium">{{ text: "文本", image: "图片", video: "视频", audio: "音频" }[item.type]}</span>
-                                    <span className={item.ready ? "text-emerald-600" : "text-amber-600"}>{item.ready ? "就绪" : "未就绪"}</span>
+                                    <span className={item.ready && item.configured !== false ? "text-emerald-600" : "text-amber-600"}>{item.ready && item.configured !== false ? "就绪" : item.configured === false ? "未启用" : "未就绪"}</span>
                                 </div>
                                 <div className="mt-1 truncate text-xs text-stone-500">{item.model || "未设置模型"}</div>
                                 <div className="mt-1 text-xs text-stone-500">{item.message}</div>

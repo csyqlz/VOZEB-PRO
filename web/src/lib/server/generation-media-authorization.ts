@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 
 import type { GenerationTaskType } from "@/lib/server/generation-task-store";
 
@@ -13,11 +13,13 @@ type GenerationMediaClaim = {
     taskId: string;
     channelId: string;
     upstreamModel: string;
-    url: string;
+    url?: string;
+    urlSha256?: string;
     expiresAt: number;
 };
+type GenerationMediaProxyInput = Omit<GenerationMediaClaim, "v" | "expiresAt" | "url" | "urlSha256"> & { url: string };
 
-export function generationMediaProxyHeaders(input: Omit<GenerationMediaClaim, "v" | "expiresAt">) {
+export function generationMediaProxyHeaders(input: GenerationMediaProxyInput) {
     const claim: GenerationMediaClaim = {
         v: TOKEN_VERSION,
         userId: clean(input.userId, 160),
@@ -25,10 +27,10 @@ export function generationMediaProxyHeaders(input: Omit<GenerationMediaClaim, "v
         taskId: clean(input.taskId, 160),
         channelId: clean(input.channelId, 160),
         upstreamModel: clean(input.upstreamModel, 300),
-        url: clean(input.url, 4_000),
+        urlSha256: digestUrl(input.url),
         expiresAt: Date.now() + TOKEN_TTL_MS,
     };
-    if (!claim.userId || !claim.taskId || !claim.channelId || !claim.upstreamModel || !claim.url) throw new Error("生成媒体授权参数不完整");
+    if (!claim.userId || !claim.taskId || !claim.channelId || !claim.upstreamModel || !claim.urlSha256) throw new Error("生成媒体授权参数不完整");
     const payload = Buffer.from(JSON.stringify(claim), "utf8").toString("base64url");
     return { [HEADER]: `${payload}.${signature(payload)}` };
 }
@@ -49,8 +51,14 @@ export function readGenerationMediaClaim(request: Request, expected: { userId: s
     }
     if (claim.v !== TOKEN_VERSION || !["image", "video", "audio"].includes(claim.taskType)) return null;
     if (claim.expiresAt < Date.now() || claim.expiresAt > Date.now() + TOKEN_TTL_MS + 5_000) return null;
-    if (claim.userId !== expected.userId || claim.channelId !== expected.channelId || claim.url !== expected.url) return null;
+    if (claim.userId !== expected.userId || claim.channelId !== expected.channelId) return null;
+    if (claim.urlSha256 ? claim.urlSha256 !== digestUrl(expected.url) : claim.url !== expected.url) return null;
     return claim;
+}
+
+function digestUrl(value: string) {
+    const url = value.trim();
+    return url ? createHash("sha256").update(url).digest("base64url") : "";
 }
 
 function signature(payload: string) {

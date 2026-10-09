@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { readJsonBody, readJsonBodyResult } from "./request";
+import { readJsonBody, readJsonBodyResult, readJsonObjectBody } from "./request";
 
 describe("readJsonBody", () => {
     it("parses JSON within the default limit", async () => {
@@ -22,5 +22,10 @@ describe("readJsonBody", () => {
 
     it("returns structured input errors for route-specific response envelopes", async () => {
         await expect(readJsonBodyResult(new Request("http://localhost", { method: "POST", body: "{" }))).resolves.toEqual({ ok: false, status: 400, message: "请求内容不是有效 JSON" });
+    });
+
+    it("rejects JSON scalars and arrays when an endpoint requires an object", async () => {
+        await expect(readJsonObjectBody(new Request("http://localhost", { method: "POST", body: "null" }))).rejects.toMatchObject({ status: 400, message: "请求内容必须是 JSON 对象" });
+        await expect(readJsonObjectBody(new Request("http://localhost", { method: "POST", body: "[]" }))).rejects.toMatchObject({ status: 400, message: "请求内容必须是 JSON 对象" });
     });
 });

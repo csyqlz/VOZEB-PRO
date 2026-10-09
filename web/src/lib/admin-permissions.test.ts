@@ -21,6 +21,12 @@ describe("administrator permissions", () => {
         expect(ALL_ADMIN_PERMISSIONS.length).toBeGreaterThan(0);
     });
 
+    it("keeps tenant operations behind dedicated platform permissions", () => {
+        expect(normalizeAdminPermissions(["tenants.read", "tenants.manage"])).toEqual(["tenants.read", "tenants.manage"]);
+        expect(hasAdminPermission({ role: "admin", status: "active", adminPermissions: ["tenants.read"] }, "tenants.read")).toBe(true);
+        expect(hasAdminPermission({ role: "user", status: "active", adminPermissions: ["tenants.manage"] }, "tenants.manage")).toBe(false);
+    });
+
     it("limits financial workspace tabs to the current duties", () => {
         const finance = { role: "admin", status: "active", adminPermissions: ["billing.read"] };
         const commerce = { role: "admin", status: "active", adminPermissions: ["commerce.manage"] };

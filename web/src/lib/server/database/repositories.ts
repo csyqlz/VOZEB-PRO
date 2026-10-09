@@ -13,6 +13,7 @@ import { WorkGovernanceRepository } from "./work-governance-repository";
 import { WorkCommunityRepository } from "./work-community-repository";
 import { AnnouncementsRepository, GenerationLogsRepository, PromptsRepository } from "./content-repository";
 import { CdkRepository, EmailCodesRepository, PointsRepository, SessionsRepository, UsersRepository } from "./user-repository";
+import { TenantRepository } from "./tenant-repository";
 import type { AppSettingsRecord, EntitlementPlanRecord, JsonValue, SystemModelChannelRecord } from "./repository-shared";
 import { isoValue, jsonParam, jsonValue, numberValue, optionalIso, optionalJson, optionalString, stringValue } from "./repository-shared";
 
@@ -81,6 +82,7 @@ export function createPostgresRepositories(executor: QueryExecutor = { query: po
     return {
         settings: new SettingsRepository(executor),
         users: new UsersRepository(executor),
+        tenants: new TenantRepository(executor),
         sessions: new SessionsRepository(executor),
         emailCodes: new EmailCodesRepository(executor),
         points: new PointsRepository(executor),

@@ -29,9 +29,20 @@ const channel = {
 describe("channel protocol registry", () => {
     it("exposes only active protocols and keeps SD2 separate from Stable Diffusion", () => {
         const protocols = channelProtocolOptions().map((item) => item.value);
-        expect(protocols).toEqual(["openai", "yumeng", "gemini", "seedance", "stable-diffusion", "volcengine-video", "sub2api", "newapi", "custom", "compatible", "auto"]);
+        expect(protocols).toEqual(["openai", "siliconflow", "yumeng", "gemini", "seedance", "stable-diffusion", "volcengine-video", "sub2api", "newapi", "custom", "compatible", "auto"]);
         expect(protocols).not.toEqual(expect.arrayContaining(["vozeb-recommended", "seedance-special", "globalaiopc"]));
         expect(channelProtocolDefinition("openai").modelCatalogPaths).toEqual(["/v1/models"]);
+        expect(channelProtocolDefinition("siliconflow")).toMatchObject({
+            label: "SiliconFlow",
+            defaultBaseUrl: "https://api.siliconflow.cn/v1",
+            modelCatalogPaths: ["/v1/models"],
+            capabilities: ["image"],
+            builtInModels: [
+                { id: "Kwai-Kolors/Kolors", label: "Kwai-Kolors/Kolors（低价图片）", capability: "image" },
+                { id: "Qwen/Qwen-Image", label: "Qwen/Qwen-Image（高质量图片）", capability: "image" },
+                { id: "Qwen/Qwen-Image-Edit", label: "Qwen/Qwen-Image-Edit（图片编辑）", capability: "image" },
+            ],
+        });
         expect(channelProtocolDefinition("sub2api").modelCatalogPaths).toEqual(["/v1/models"]);
         expect(channelProtocolDefinition("newapi").modelCatalogPaths).toEqual(["/v1/models"]);
         expect(channelProtocolDefinition("seedance").modelCatalogPaths).toEqual(["/models"]);
@@ -56,6 +67,7 @@ describe("channel protocol registry", () => {
             audio: { createPath: "/audio/speech" },
         });
         expect(channelProtocolDefinition("sub2api").operations.image).toMatchObject({ createPath: "/images/generations", editPath: "/images/generations", requestTemplate: expect.stringContaining("image_urls") });
+        expect(channelProtocolDefinition("siliconflow").operations.image).toMatchObject({ createPath: "/images/generations", editPath: "/images/generations", requestTemplate: expect.stringContaining("image_size"), resultField: "images[0].url" });
         expect(channelProtocolDefinition("newapi").operations).toEqual(channelProtocolDefinition("openai").operations);
         expect(channelProtocolDefinition("seedance").operations.video).toMatchObject({ createPath: "/contents/generations/tasks", queryPath: "/contents/generations/tasks/:task_id", resultField: "content.video_url" });
         expect(channelProtocolDefinition("volcengine-video").operations.video).toEqual(channelProtocolDefinition("seedance").operations.video);
@@ -126,6 +138,24 @@ describe("channel protocol registry", () => {
     it("classifies opaque models from strict single-capability protocol catalogs", () => {
         expect(applyChannelProtocol({ ...channel, models: ["opaque"] }, "seedance").advancedConfig?.modelCapabilities?.opaque).toBe("video");
         expect(applyChannelProtocol({ ...channel, models: ["opaque"] }, "stable-diffusion").advancedConfig?.modelCapabilities?.opaque).toBe("image");
+    });
+
+    it("applies the SiliconFlow image protocol with built-in economical defaults", () => {
+        const configured = applyChannelProtocol({ ...channel, baseUrl: "", models: [] }, "siliconflow");
+
+        expect(configured).toMatchObject({ baseUrl: "https://api.siliconflow.cn/v1", apiFormat: "openai", models: ["Kwai-Kolors/Kolors", "Qwen/Qwen-Image", "Qwen/Qwen-Image-Edit"] });
+        expect(configured.advancedConfig).toMatchObject({
+            protocol: "siliconflow",
+            authMode: "bearer",
+            createPath: "/images/generations",
+            editPath: "/images/generations",
+            resultField: "images[0].url",
+            supportsReferenceImage: true,
+        });
+        expect(configured.advancedConfig?.modelCapabilities?.["kwai-kolors/kolors"]).toBe("image");
+        expect(configured.advancedConfig?.modelConfigs?.["kwai-kolors/kolors"]).toMatchObject({ protocol: "siliconflow", capability: "image", apiFormat: "openai" });
+        expect(protocolAuthHeaders("secret", configured.advancedConfig)).toEqual({ authorization: "Bearer secret" });
+        expect(channelProtocolValidationErrors(configured)).toEqual([]);
     });
 
     it("supports keyless Stable Diffusion channels without an authorization header", () => {

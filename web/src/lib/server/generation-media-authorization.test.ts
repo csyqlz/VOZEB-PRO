@@ -14,6 +14,15 @@ describe("generation media authorization", () => {
         expect(readGenerationMediaClaim(request, { userId: "user", channelId: "channel", url: "https://cdn.example.com/other.mp4" })).toBeNull();
     });
 
+    it("authorizes long signed upstream media urls without truncating the target", () => {
+        const url = `https://s3.siliconflow.cn/temporary/result.png?X-Amz-Signature=${"a".repeat(6000)}`;
+        const headers = generationMediaProxyHeaders({ userId: "user", taskType: "image", taskId: "task", channelId: "channel", upstreamModel: "vendor-image", url });
+        const request = new Request("http://localhost", { headers });
+
+        expect(readGenerationMediaClaim(request, { userId: "user", channelId: "channel", url })).toMatchObject({ taskType: "image", taskId: "task", upstreamModel: "vendor-image" });
+        expect(readGenerationMediaClaim(request, { userId: "user", channelId: "channel", url: `${url}tampered` })).toBeNull();
+    });
+
     it("rejects tampered and expired capabilities", () => {
         vi.useFakeTimers();
         vi.setSystemTime(new Date("2026-08-01T00:00:00.000Z"));

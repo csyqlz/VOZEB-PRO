@@ -586,6 +586,40 @@ describe("executeAgentRun backend settings", () => {
         expect(mocks.run?.status).toBe("completed");
     });
 
+    it("falls back to a text prompt deliverable when image generation is requested without an image model", async () => {
+        mocks.run = planningRun("帮我生成一张身体圆滑的橘猫吃猫粮的电商买品图");
+        const textOnlySettings = settings("", "missing-image-channel") as unknown as {
+            defaultModels: { imageModel: string };
+            systemChannels: Array<{ id: string }>;
+            logicalModels: Array<{ id: string; capability: string }>;
+        };
+        textOnlySettings.defaultModels.imageModel = "";
+        textOnlySettings.systemChannels = textOnlySettings.systemChannels.filter((channel) => channel.id === "planner-channel");
+        textOnlySettings.logicalModels = textOnlySettings.logicalModels.filter((model) => model.capability === "text");
+        mocks.getAuthSettings.mockResolvedValue(textOnlySettings as never);
+        const plan = canvasPlan("missing-image-model");
+        mocks.fetchInternalApi.mockImplementation(async (url: string, init?: RequestInit) => {
+            if (url.endsWith("/chat/completions")) return Response.json({ output: [{ type: "function_call", name: "create_agent_plan", arguments: JSON.stringify(plan) }] });
+            if (init?.method === "POST" && url.endsWith("/api/text-tasks")) return Response.json({ task: { id: "fallback-text-task" } });
+            if (url.endsWith("/api/text-tasks/fallback-text-task")) return Response.json({ task: { status: "success", result: { content: "橘猫电商图提示词：圆润橘猫正在吃猫粮，商业摄影，高级布光。" } } });
+            throw new Error(`unexpected request: ${url}`);
+        });
+
+        await executeAgentRun(mocks.run, "http://localhost", "session=test");
+
+        expect(mocks.fetchInternalApi.mock.calls.some(([url, init]) => init?.method === "POST" && String(url).endsWith("/api/image-tasks"))).toBe(false);
+        expect(mocks.fetchInternalApi.mock.calls.some(([url, init]) => init?.method === "POST" && String(url).endsWith("/api/text-tasks"))).toBe(true);
+        expect(mocks.run?.tasks[0]).toMatchObject({
+            type: "text",
+            model: "planner",
+            title: "主视觉提示词",
+            status: "completed",
+            result: { content: expect.stringContaining("橘猫电商图提示词") },
+        });
+        expect(mocks.run?.tasks[0]?.prompt).toContain("后台尚未配置可用的默认图片模型");
+        expect(mocks.run?.status).toBe("completed");
+    });
+
     it("passes the persistent summary and recent messages to the planner", async () => {
         mocks.run = planningRun("继续刚才的红色服装方案");
         mocks.getCreativeConversationContext.mockResolvedValue({

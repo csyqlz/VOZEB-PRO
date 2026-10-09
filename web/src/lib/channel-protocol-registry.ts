@@ -47,6 +47,16 @@ const openAiOperations: ChannelProtocolDefinition["operations"] = {
     audio: { capability: "audio", createPath: "/audio/speech", requestTemplate: '{"model":"{{model}}","input":"{{prompt}}","voice":"alloy","response_format":"mp3"}', resultField: "binary" },
 };
 
+const siliconFlowImageOperation: ProtocolOperation = {
+    capability: "image",
+    createPath: "/images/generations",
+    editPath: "/images/generations",
+    requestTemplate: '{"model":"{{model}}","prompt":"{{prompt}}","image_size":"{{size}}","batch_size":"{{batch_size}}","num_inference_steps":20,"guidance_scale":7.5,"image":"{{image}}"}',
+    resultField: "images[0].url",
+    referenceRule: "SiliconFlow 图片生成接口使用 application/json；文生图提交 model、prompt、image_size、batch_size，图生图/参考图可通过 image 字段提交上游可访问 URL 或 base64。",
+    supportsReferenceImage: true,
+};
+
 const geminiVideoOperation: ProtocolOperation = {
     capability: "video",
     createPath: "/models/:model:predictLongRunning",
@@ -129,6 +139,23 @@ export const registeredChannelProtocolDefinitions: ChannelProtocolDefinition[] =
         modelCatalogPaths: ["/v1/models"],
         capabilities: ["text", "image", "video", "audio"],
         operations: openAiOperations,
+        strict: true,
+    },
+    {
+        id: "siliconflow",
+        label: "SiliconFlow",
+        description: "SiliconFlow 图片生成协议，适合低成本接入 Kwai-Kolors 和 Qwen Image。",
+        apiFormat: "openai",
+        authMode: "bearer",
+        defaultBaseUrl: "https://api.siliconflow.cn/v1",
+        modelCatalogPaths: ["/v1/models"],
+        capabilities: ["image"],
+        builtInModels: [
+            { id: "Kwai-Kolors/Kolors", label: "Kwai-Kolors/Kolors（低价图片）", capability: "image" },
+            { id: "Qwen/Qwen-Image", label: "Qwen/Qwen-Image（高质量图片）", capability: "image" },
+            { id: "Qwen/Qwen-Image-Edit", label: "Qwen/Qwen-Image-Edit（图片编辑）", capability: "image" },
+        ],
+        operations: { image: siliconFlowImageOperation },
         strict: true,
     },
     {

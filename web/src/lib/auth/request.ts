@@ -17,6 +17,12 @@ export async function readJsonBody<T>(request: Request, maxBytes = DEFAULT_JSON_
     }
 }
 
+export async function readJsonObjectBody(request: Request, maxBytes = DEFAULT_JSON_BODY_BYTES): Promise<Record<string, unknown>> {
+    const value = await readJsonBody<unknown>(request, maxBytes);
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new AuthInputError("请求内容必须是 JSON 对象");
+    return value as Record<string, unknown>;
+}
+
 export async function readJsonBodyResult<T>(request: Request, maxBytes = DEFAULT_JSON_BODY_BYTES) {
     try {
         return { ok: true, data: await readJsonBody<T>(request, maxBytes) } as const;

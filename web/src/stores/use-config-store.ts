@@ -12,7 +12,7 @@ import { materializeLogicalModelPointCosts } from "@/lib/model-point-cost";
 import type { LogicalModelCapabilityProfile } from "@/lib/auth/store-types";
 
 type ApiCallFormat = "openai" | "gemini";
-type SystemChannelProtocol = "auto" | "openai" | "yumeng" | "gemini" | "sub2api" | "newapi" | "vozeb-recommended" | "globalaiopc" | "seedance" | "stable-diffusion" | "volcengine-video" | "seedance-special" | "custom" | "compatible";
+type SystemChannelProtocol = "auto" | "openai" | "siliconflow" | "yumeng" | "gemini" | "sub2api" | "newapi" | "vozeb-recommended" | "globalaiopc" | "seedance" | "stable-diffusion" | "volcengine-video" | "seedance-special" | "custom" | "compatible";
 
 type SystemChannelAdvancedConfig = {
     protocol: SystemChannelProtocol;
@@ -26,6 +26,8 @@ type SystemChannelAdvancedConfig = {
     imageModel: string;
     videoModel: string;
     createPath: string;
+    editPath?: string;
+    imageToVideoPath?: string;
     queryPath: string;
     requestTemplate: string;
     resultField: string;
@@ -45,6 +47,8 @@ type SystemChannelAdvancedConfig = {
             apiFormat?: ApiCallFormat;
             protocol?: SystemChannelProtocol;
             createPath?: string;
+            editPath?: string;
+            imageToVideoPath?: string;
             queryPath?: string;
             requestTemplate?: string;
             resultField?: string;

@@ -313,5 +313,5 @@ async function completeImageResult(task: ImageTask, safeResults: StoredImageTask
 }
 
 function usesDeclarativeImageProtocol(protocol: NonNullable<ImageTask["config"]["advancedConfig"]>["protocol"] | undefined) {
-    return protocol === "custom" || protocol === "stable-diffusion" || protocol === "yumeng";
+    return protocol === "custom" || protocol === "stable-diffusion" || protocol === "yumeng" || protocol === "siliconflow";
 }

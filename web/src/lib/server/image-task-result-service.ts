@@ -2,7 +2,7 @@ import type { ImageTaskMediaResult, ImageTaskResult } from "@/app/api/image-task
 import { directRemoteImageResult, imageReferenceToDataUrl, inlineRemoteImageResult, resolveProxiedMediaSource } from "@/app/api/image-tasks/image-task-support";
 import { resolveResultSize } from "@/app/api/image-tasks/image-task-size";
 import { dedupeImageResults } from "@/lib/image-result-dedupe";
-import { generationModelId, systemGenerationChannelId } from "@/lib/server/generation-channel";
+import { systemGenerationChannelId } from "@/lib/server/generation-channel";
 import { generationMediaProxyHeaders } from "@/lib/server/generation-media-authorization";
 import { deleteLocalAsset, normalizeAssets } from "@/lib/server/generation-log-repository";
 import { validateImageLayerOutputs } from "@/lib/server/image-layer-output";
@@ -96,7 +96,7 @@ async function normalizeSafeImageResult(task: ImageTask, result: ImageTaskMediaR
     const proxiedMedia = resolveProxiedMediaSource(result.dataUrl || "", origin);
     const proxiedRemoteUrl = proxiedMedia.remoteUrl;
     const channelId = task.config.channelId || systemGenerationChannelId(task.config.baseUrl);
-    const mediaHeaders = proxiedRemoteUrl && channelId ? generationMediaProxyHeaders({ userId: task.userId, taskType: "image", taskId: task.id, channelId, upstreamModel: generationModelId(task.config), url: proxiedRemoteUrl }) : undefined;
+    const mediaHeaders = proxiedRemoteUrl && channelId ? generationMediaProxyHeaders({ userId: task.userId, taskType: "image", taskId: task.id, channelId, upstreamModel: task.config.model, url: proxiedRemoteUrl }) : undefined;
     const inlineResult = proxiedMedia.proxyUrl ? await inlineRemoteImageResult(result.dataUrl, origin, authContext, remoteUrl, mediaHeaders) : null;
     if (proxiedMedia.proxyUrl && !inlineResult?.dataUrl?.startsWith("data:image/")) throw new Error("上游图片无法通过授权媒体路径读取");
     if (task.config.outputMode === "layers") {

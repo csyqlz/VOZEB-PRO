@@ -3,7 +3,23 @@ import { isGlobalAiOpcPreset } from "@/lib/globalaiopc-catalog";
 
 import type { LogicalModelCapability, SystemChannelAdvancedConfig, SystemChannelProtocol } from "./store-types";
 
-const CHANNEL_PROTOCOLS: SystemChannelProtocol[] = ["auto", "openai", "yumeng", "gemini", "sub2api", "newapi", "vozeb-recommended", "globalaiopc", "seedance", "stable-diffusion", "volcengine-video", "seedance-special", "custom", "compatible"];
+const CHANNEL_PROTOCOLS: SystemChannelProtocol[] = [
+    "auto",
+    "openai",
+    "siliconflow",
+    "yumeng",
+    "gemini",
+    "sub2api",
+    "newapi",
+    "vozeb-recommended",
+    "globalaiopc",
+    "seedance",
+    "stable-diffusion",
+    "volcengine-video",
+    "seedance-special",
+    "custom",
+    "compatible",
+];
 
 export function normalizeSystemChannelAdvancedConfig(config: Partial<SystemChannelAdvancedConfig> | undefined): SystemChannelAdvancedConfig | undefined {
     if (!config || typeof config !== "object") return undefined;

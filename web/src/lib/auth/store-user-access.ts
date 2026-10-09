@@ -9,6 +9,7 @@ import { adjustPermanentPointsInAuthDb, adjustPermanentPointsInPostgresTransacti
 import { bindReferralRelationshipAfterRegistration, normalizeReferralCode } from "@/lib/server/referral-service";
 import { createRegistrationPolicyConsent } from "@/lib/registration-consent";
 import { verifyAdminMfaForLogin } from "@/lib/server/admin-mfa-service";
+import { isTenantMvpEnabled } from "@/lib/server/tenant-context";
 import { ALL_ADMIN_PERMISSIONS, hasAdminPermission, hasAllAdminPermissions, normalizeAdminPermissions, type AdminPermission } from "@/lib/admin-permissions";
 
 import { hashPassword, verifyPasswordWithDummy } from "./password";
@@ -85,6 +86,7 @@ export async function createUser(input: { username: string; email?: string; emai
                 createdAt: now,
                 updatedAt: now,
             });
+            if (isTenantMvpEnabled()) await createPersonalTenant(repos, user, now, user.id);
             if (referralCode) {
                 try {
                     await bindReferralRelationshipAfterRegistration(client, {
@@ -217,6 +219,19 @@ export async function createFirstAdmin(input: { username: string; email?: string
     });
 }
 
+async function createPersonalTenant(repos: ReturnType<typeof createPostgresRepositories>, user: { id: string; username: string; displayName: string }, now: string, createdByUserId: string) {
+    const tenant = await repos.tenants.createTenant({
+        id: randomUUID(),
+        slug: `personal-${user.id}`,
+        name: `${user.displayName || user.username}的团队`.slice(0, 80),
+        ownerUserId: user.id,
+        createdByUserId,
+        createdAt: now,
+        updatedAt: now,
+    });
+    await repos.tenants.addMembership({ tenantId: tenant.id, userId: user.id, role: "owner", status: "active", createdByUserId, createdAt: now, updatedAt: now });
+}
+
 export async function createUserByAdmin(input: {
     actorId: string;
     username: string;
@@ -265,6 +280,7 @@ export async function createUserByAdmin(input: {
                 createdAt: now,
                 updatedAt: now,
             });
+            if (isTenantMvpEnabled() && user.role === "user") await createPersonalTenant(repos, user, now, input.actorId);
             if (pointsBalance) {
                 await adjustPermanentPointsInPostgresTransaction(client, {
                     userId: user.id,
@@ -325,6 +341,7 @@ export async function authenticateUser(input: { username: string; password: stri
         const passwordMatches = await verifyPasswordWithDummy(input.password, user?.passwordHash);
         if (!user || !passwordMatches) throw new AuthInputError("用户名或密码不正确");
         if (user.status !== "active") throw new AuthInputError("账号已被禁用");
+        if (isTenantMvpEnabled() && user.role === "user" && !(await repos.tenants.findContextByUserId(user.id))) throw new AuthInputError("账号已被租户禁用");
         verifyAdminMfaForLogin(user, input.totpCode);
 
         const lastLoginAt = new Date().toISOString();

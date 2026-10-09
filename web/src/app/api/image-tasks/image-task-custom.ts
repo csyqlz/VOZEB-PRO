@@ -83,9 +83,43 @@ export async function runCustomImageTask(task: ImageTask, origin: string, public
     });
 }
 
-export function resolveDeclarativeImageSize(config: Pick<ImageTask["config"], "quality" | "size" | "advancedConfig">) {
+export function resolveDeclarativeImageSize(config: Pick<ImageTask["config"], "quality" | "size" | "advancedConfig"> & { model?: string }) {
     const size = resolveRequestSize(config.quality, config.size || "auto") || config.size || "";
-    return !size || size.toLowerCase() === "auto" ? "" : size;
+    if (config.advancedConfig?.protocol !== "siliconflow") return size && size.toLowerCase() !== "auto" ? size : "";
+    if (size && size.toLowerCase() !== "auto") return siliconFlowSafeImageSize(size);
+    return normalizeSiliconFlowModel(config.model).startsWith("qwen/qwen-image") ? "1328x1328" : "1024x1024";
+}
+
+function normalizeSiliconFlowModel(value: string | undefined) {
+    return String(value || "")
+        .trim()
+        .replace(/^models\//i, "")
+        .toLowerCase();
+}
+
+const SILICONFLOW_SAFE_IMAGE_SIZES = [
+    { size: "1024x1024", width: 1024, height: 1024 },
+    { size: "1024x576", width: 1024, height: 576 },
+    { size: "576x1024", width: 576, height: 1024 },
+    { size: "768x1024", width: 768, height: 1024 },
+    { size: "1024x768", width: 1024, height: 768 },
+    { size: "512x1024", width: 512, height: 1024 },
+    { size: "768x512", width: 768, height: 512 },
+    { size: "512x512", width: 512, height: 512 },
+] as const;
+
+function siliconFlowSafeImageSize(value: string) {
+    const dimensions = /^(\d+)x(\d+)$/i.exec(value.trim());
+    if (!dimensions) return "1024x1024";
+    const width = Number(dimensions[1]);
+    const height = Number(dimensions[2]);
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return "1024x1024";
+    const aspectRatio = width / height;
+    return SILICONFLOW_SAFE_IMAGE_SIZES.reduce((best, candidate) => {
+        const bestDistance = Math.abs(best.width / best.height - aspectRatio);
+        const candidateDistance = Math.abs(candidate.width / candidate.height - aspectRatio);
+        return candidateDistance < bestDistance ? candidate : best;
+    }).size;
 }
 
 export async function pollCustomImageTask(task: ImageTask, taskId: string, mediaBaseUrl: string, pollBaseUrl: string, cookie: string, singleStep = false) {

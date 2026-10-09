@@ -23,6 +23,7 @@ export const ADMIN_SECTION_KEYS = [
     "announcements",
     "works",
     "users",
+    "tenants",
     "logs",
     "generationOperations",
     "prompts",
@@ -34,6 +35,7 @@ export type AdminSectionKey = (typeof ADMIN_SECTION_KEYS)[number];
 export const ADMIN_SECTION_PERMISSIONS: Record<AdminSectionKey, readonly AdminPermission[]> = {
     overview: ["analytics.read"],
     users: ["users.read"],
+    tenants: ["tenants.read", "tenants.manage"],
     logs: ["generation.read"],
     generationOperations: ["generation.manage"],
     products: ["commerce.manage"],

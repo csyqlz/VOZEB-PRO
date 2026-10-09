@@ -11,8 +11,37 @@ const settingsPanelSurfaceClass = "rounded-lg border border-zinc-200 bg-white p-
 
 export type AgentReadiness = {
     ready: boolean;
-    capabilities: Array<{ type: "text" | "image" | "video" | "audio"; model: string; ready: boolean; message: string }>;
+    capabilities: Array<{
+        type: "text" | "image" | "video" | "audio";
+        model: string;
+        configured?: boolean;
+        channelId?: string;
+        channelName?: string;
+        upstreamModel?: string;
+        protocol?: string;
+        apiFormat?: string;
+        ready: boolean;
+        message: string;
+        checks: Array<{ key: string; label: string; status: "pass" | "warn" | "fail"; message: string }>;
+    }>;
     skills: Record<"image" | "video" | "canvas" | "drama", number>;
+    diagnostics?: {
+        checkedAt: string;
+        summary: string;
+        blockingIssues: string[];
+        warnings: string[];
+        probes?: Array<{
+            capability: "text";
+            status: "pass" | "fail" | "skip";
+            message: string;
+            protocol?: string;
+            channelName?: string;
+            logicalModel?: string;
+            upstreamModel?: string;
+            elapsedMs?: number;
+            pointsCost?: number;
+        }>;
+    };
 };
 
 export function GenerationConcurrencyPanel({ settings, onChange }: { settings: AuthSettings; onChange: (key: keyof AuthSettings["generationConcurrency"], value: number | null) => void }) {
@@ -68,11 +97,31 @@ export function localAgentReadiness(settings: AuthSettings): AgentReadiness {
     const capabilities = Object.entries(models).map(([type, model]) => {
         const capability = type as keyof typeof models;
         const resolved = resolveLogicalModelConfig(settings.logicalModels, settings.systemChannels, capability, model);
-        return { type: capability, model, ready: Boolean(model && resolved), message: !model ? "未设置默认模型" : !resolved ? "默认模型没有可用渠道绑定" : "使用渠道：" + resolved.channel.name };
+        const configured = isRequiredCapability(capability) || Boolean(model) || settings.logicalModels.some((item) => item.enabled && item.capability === capability && item.bindings.some((binding) => binding.enabled));
+        const checks = !configured
+            ? [
+                  { key: "optional-capability", label: "能力状态", status: "warn" as const, message: "当前 MVP 未启用，可后续接入" },
+                  { key: "generation-defaults", label: "生成参数", status: "pass" as const, message: "默认参数可用于诊断" },
+              ]
+            : [
+            { key: "default-model", label: "默认模型", status: model ? ("pass" as const) : ("fail" as const), message: model ? `默认模型：${model}` : "未设置默认模型" },
+            { key: "logical-binding", label: "逻辑绑定", status: resolved ? ("pass" as const) : ("fail" as const), message: resolved ? `已绑定上游模型：${resolved.binding.upstreamModel}` : "默认模型没有可用渠道绑定" },
+            { key: "channel", label: "渠道状态", status: resolved?.channel.enabled ? ("pass" as const) : ("fail" as const), message: resolved?.channel ? `渠道可用：${resolved.channel.name}` : "没有可用渠道" },
+            { key: "api-key", label: "API Key", status: resolved?.channel.apiKey?.trim() ? ("pass" as const) : ("fail" as const), message: resolved?.channel.apiKey?.trim() ? "API Key 已配置" : "API Key 未配置" },
+        ];
+        return { type: capability, model, configured, channelId: resolved?.channel.id, channelName: resolved?.channel.name, upstreamModel: resolved?.binding.upstreamModel, protocol: resolved?.channel.advancedConfig?.protocol || resolved?.channel.apiFormat, apiFormat: resolved?.channel.apiFormat, ready: !configured || Boolean(model && resolved), message: !configured ? "当前 MVP 未启用" : !model ? "未设置默认模型" : !resolved ? "默认模型没有可用渠道绑定" : "使用渠道：" + resolved.channel.name, checks };
     });
     const skills = { image: 0, video: 0, canvas: 0, drama: 0 };
     for (const skill of settings.agentSkills) if (skill.enabled) for (const workspace of skill.workspaces || ["image"]) skills[workspace] += 1;
-    return { ready: capabilities.every((item) => item.ready), capabilities, skills };
+    const blockingIssues = capabilities.flatMap((capability) => {
+        if (!isRequiredCapability(capability.type) && !capability.configured) return [];
+        return capability.checks.filter((check) => check.status === "fail").map((check) => `${{ text: "文本", image: "图片", video: "视频", audio: "音频" }[capability.type]}：${check.message}`);
+    });
+    return { ready: capabilities.every((item) => item.ready), capabilities, skills, diagnostics: { checkedAt: new Date().toISOString(), summary: blockingIssues.length ? `发现 ${blockingIssues.length} 个阻断项` : "模型配置已就绪", blockingIssues, warnings: [] } };
+}
+
+function isRequiredCapability(type: "text" | "image" | "video" | "audio") {
+    return type === "text" || type === "image";
 }
 
 export function GenerationDefaultsPanel({ settings, onChange }: { settings: AuthSettings; onChange: <K extends keyof AuthSettings["generationDefaults"]>(key: K, value: AuthSettings["generationDefaults"][K]) => void }) {

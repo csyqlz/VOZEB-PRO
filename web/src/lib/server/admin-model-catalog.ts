@@ -317,6 +317,7 @@ function isChannelProtocol(value: unknown): value is SystemChannelProtocol {
     return (
         value === "auto" ||
         value === "openai" ||
+        value === "siliconflow" ||
         value === "yumeng" ||
         value === "gemini" ||
         value === "sub2api" ||

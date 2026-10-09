@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- [多租户] 新增 PostgreSQL-only 最小租户模型，一个普通账号只能属于一个租户；平台管理员与租户 owner/admin 权限彻底分离，公开注册可原子创建个人租户。
+- [后台] 平台后台新增租户列表、创建和改名；新增 `/team` 租户看板、成员管理与租户审计，聚合数据通过 membership 限定范围，不开放成员私有创作内容。
+- [安全] 租户上下文只从当前 Session 反查，拒绝客户端覆盖 tenant ID；owner 与同级管理员受保护，成员禁用会撤销全部 Session，并由登录 Gate 校验 active membership，不覆盖平台账号状态；高风险成员和租户变更与审计在同一事务提交。
+- [模型] 支持通过 `VOZEB_PRO_DEEPSEEK_API_KEY` 在后台未配置默认文本模型时自动接入 DeepSeek OpenAI-compatible API，前端只暴露系统代理配置。
+- [修复] 清洗本地生成 Worker ID 中的非 ASCII 主机名，避免中文用户名/主机名在 HTTP Header 中触发 ByteString 编码错误。
+- [供应链] 将整组 Tiptap 依赖统一升级到 3.31.3，修复 `@tiptap/core` 属性合并漏洞并保持 peer 版本一致。
+
 ## v0.0.7
 
 - [回归修复] 恢复短剧“本集设置”按钮收缩面板，并修复模型能力档案误隐藏 2K/4K 尺寸预设。

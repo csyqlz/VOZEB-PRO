@@ -242,7 +242,16 @@ function CreativeMediaRound({
     const taskTitle = run?.tasks.find((task) => task.type === mode)?.title.trim();
     const resultTitle = taskTitle?.startsWith("生成") ? `已为你${taskTitle}` : mode === "video" ? "已为你生成视频" : mode === "audio" ? "已为你生成音频" : "已为你生成图片";
     const renderRoundActions = (activeAsset: CreativeAsset) =>
-        activeAsset.status === "ready" ? <CreativeRoundActions outputAssets={outputAssets} activeAsset={activeAsset} run={run} selectedAssetIds={selectedAssetIds} onToggleAsset={onToggleAsset} /> : null;
+        activeAsset.status === "ready" ? (
+            <CreativeRoundActions
+                outputAssets={outputAssets}
+                activeAsset={activeAsset}
+                run={run}
+                selectedAssetIds={selectedAssetIds}
+                onToggleAsset={onToggleAsset}
+                onRetry={() => onRetryMessage(assistantMessage, run)}
+            />
+        ) : null;
 
     return (
         <section data-testid="creative-media-round" className="pb-8 sm:pb-11">
@@ -307,7 +316,7 @@ function CreativeMediaRound({
                             ) : mediaOutputs.length ? (
                                 <CreativeMediaResult assets={mediaOutputs} fallbackRatio={run?.tasks.find((task) => task.type === "image")?.ratio || run?.generationPreferences?.image?.size} renderActions={renderRoundActions} />
                             ) : assistantMessage.status === "completed" && textOutputs.length ? (
-                                <CreativeRoundActions outputAssets={outputAssets} run={run} selectedAssetIds={selectedAssetIds} onToggleAsset={onToggleAsset} />
+                                <CreativeRoundActions outputAssets={outputAssets} run={run} selectedAssetIds={selectedAssetIds} onToggleAsset={onToggleAsset} onRetry={() => onRetryMessage(assistantMessage, run)} />
                             ) : null}
                         </div>
                         {handoff ? (
@@ -477,16 +486,33 @@ export function creativeReferenceAction(activeAsset: CreativeAsset | undefined, 
     return { assetId: activeAsset.id, referenced: selectedAssetIds.includes(activeAsset.id) };
 }
 
-function CreativeRoundActions({ outputAssets, activeAsset, run, selectedAssetIds, onToggleAsset }: { outputAssets: CreativeAsset[]; activeAsset?: CreativeAsset; run?: CreativeAgentRun; selectedAssetIds: string[]; onToggleAsset: (id: string) => void }) {
+function CreativeRoundActions({
+    outputAssets,
+    activeAsset,
+    run,
+    selectedAssetIds,
+    onToggleAsset,
+    onRetry,
+}: {
+    outputAssets: CreativeAsset[];
+    activeAsset?: CreativeAsset;
+    run?: CreativeAgentRun;
+    selectedAssetIds: string[];
+    onToggleAsset: (id: string) => void;
+    onRetry?: () => Promise<boolean | void>;
+}) {
     const { message } = App.useApp();
     const copyText = useCopyText();
     const [copyingPrompt, setCopyingPrompt] = useState(false);
+    const [retrying, setRetrying] = useState(false);
     const downloads = agentAssetDownloads(activeAsset ? [activeAsset] : outputAssets);
     const allDownloads = agentAssetDownloads(outputAssets.filter((asset) => asset.status === "ready"));
     const referenceAction = creativeReferenceAction(activeAsset, selectedAssetIds);
     const primaryDownload = downloads[0];
     const mode = creativeRunMode(run);
     const optimizedPrompt = creativeResultPrompt(activeAsset, outputAssets, run);
+    const downloadLabel = mode === "video" ? "下载视频" : "下载图片";
+    const referenceLabel = referenceAction ? (referenceAction.referenced ? "已加入引用" : activeAsset?.type === "image" ? "继续编辑" : "引用继续创作") : "";
     const menuItems = [
         { key: "copy-prompt", label: copyingPrompt ? "正在复制提示词" : "复制提示词", icon: <Copy className="size-4" />, disabled: copyingPrompt },
         ...(primaryDownload ? [{ key: "copy-link", label: "复制链接", icon: <Link2 className="size-4" /> }] : []),
@@ -495,8 +521,8 @@ function CreativeRoundActions({ outputAssets, activeAsset, run, selectedAssetIds
     const actionClass =
         "!flex !h-8 !min-w-0 !items-center !justify-center !gap-1.5 !overflow-hidden !whitespace-nowrap !rounded-md !border !border-[#e4e7ec] !bg-white !px-2.5 !text-[11px] !font-medium !text-[#667085] !shadow-none hover:!border-[#d0d5dd] hover:!bg-[#f8f9fb] hover:!text-[#344054] disabled:!border-[#edf0f2] disabled:!bg-[#f8f9fa] disabled:!text-[#b3bac4] dark:!border-[#343a43] dark:!bg-[#181b20] dark:!text-[#aab2bc] dark:hover:!border-[#4a525c] dark:hover:!bg-[#22262c] dark:hover:!text-white dark:disabled:!border-[#2a2f36] dark:disabled:!bg-[#1a1d22] dark:disabled:!text-[#5f6873]";
     const downloadButton = (
-        <Button className={cn(actionClass, "!w-full")} disabled={!downloads.length} icon={<Download className="size-3.5" />}>
-            {mode === "video" ? "下载视频" : "下载"}
+        <Button className={cn(actionClass, "!w-full")} disabled={!downloads.length} icon={<Download className="size-3.5" />} aria-label={downloadLabel}>
+            {downloadLabel}
         </Button>
     );
     const copyOptimizedPrompt = async () => {
@@ -516,7 +542,7 @@ function CreativeRoundActions({ outputAssets, activeAsset, run, selectedAssetIds
         }
     };
     return (
-        <div data-active-asset-id={activeAsset?.id} className={cn("mt-2 grid w-max items-center gap-1.5", mode === "video" ? "grid-cols-[94px_32px]" : "grid-cols-[72px_32px]")} aria-label="本轮创作操作">
+        <div data-active-asset-id={activeAsset?.id} className="mt-2 flex w-fit max-w-full flex-wrap items-center gap-1.5" aria-label="本轮创作操作">
             {allDownloads.length > 1 ? (
                 <Dropdown
                     trigger={["click"]}
@@ -531,10 +557,25 @@ function CreativeRoundActions({ outputAssets, activeAsset, run, selectedAssetIds
                     {downloadButton}
                 </Dropdown>
             ) : (
-                <Button className={cn(actionClass, "!w-full")} disabled={!downloads.length} icon={<Download className="size-3.5" />} onClick={() => downloadAgentMedia(downloads)}>
-                    {mode === "video" ? "下载视频" : "下载"}
+                <Button className={cn(actionClass, "!min-w-[84px]")} disabled={!downloads.length} icon={<Download className="size-3.5" />} onClick={() => downloadAgentMedia(downloads)} aria-label={downloadLabel}>
+                    {downloadLabel}
                 </Button>
             )}
+            {referenceAction ? (
+                <Button
+                    className={cn(actionClass, "!min-w-[84px]", referenceAction.referenced && "!border-emerald-200 !bg-emerald-50 !text-emerald-700 hover:!border-emerald-300 hover:!bg-emerald-50 dark:!border-emerald-900/60 dark:!bg-emerald-950/30 dark:!text-emerald-300")}
+                    icon={referenceAction.referenced ? <Check className="size-3.5" /> : <Link2 className="size-3.5" />}
+                    onClick={() => onToggleAsset(referenceAction.assetId)}
+                    aria-pressed={referenceAction.referenced}
+                >
+                    {referenceLabel}
+                </Button>
+            ) : null}
+            {onRetry ? (
+                <Button className={cn(actionClass, "!min-w-[82px]")} icon={<RotateCw className="size-3.5" />} loading={retrying} onClick={() => void runRetry(onRetry, setRetrying)} aria-label="再次生成本轮创作">
+                    再次生成
+                </Button>
+            ) : null}
             {menuItems.length ? (
                 <Dropdown
                     trigger={["click"]}

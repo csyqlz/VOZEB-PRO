@@ -7,7 +7,20 @@ import { agentPlannerSystemPrompt, agentPlanReply, buildAgentPlannerInput, conve
 import { getCreativeAssetsByIds, getCreativeConversationContext, listRecentCreativeMediaAssets } from "@/lib/server/creative-runtime-store";
 import { toSafeGenerationErrorMessage } from "@/lib/server/generation-errors";
 import { parseAgentPlanCall, type AgentFunctionCallResult } from "./agent-function-call";
-import { agentModelOptions, agentPlanFallbackExample, agentPlanTool, canContinue, directAgentPlan, directGenerationPreferences, executeTasks, normalizeTasks, planToOps, refundFunctionCall, requestFunctionCall } from "./agent-run-execution";
+import {
+    agentModelOptions,
+    agentPlanFallbackExample,
+    agentPlanTool,
+    canContinue,
+    directAgentPlan,
+    directGenerationPreferences,
+    executeTasks,
+    fallbackUnsupportedMediaPlanToText,
+    normalizeTasks,
+    planToOps,
+    refundFunctionCall,
+    requestFunctionCall,
+} from "./agent-run-execution";
 import { isExplicitProjectHandoffRequest, normalizeAgentProjectHandoff } from "./agent-run-project-handoff";
 import { normalizeCanvasPlanForSelection } from "./agent-run-task-input";
 import { GenerationSubmissionUncertainError } from "@/lib/server/generation-submission-error";
@@ -209,13 +222,14 @@ export async function executeAgentRun(run: AgentRun, origin: string, cookie: str
             planningPersisted = true;
             return;
         }
-        const tasks = normalizeTasks(plan, skills, settings, claimed.snapshot, claimed.prompt, claimed.surface, referencedAssets, claimed.requestedImageSize, claimed.generationPreferences);
-        const projectHandoff = normalizeAgentProjectHandoff(plan, claimed.surface, referencedAssets, claimed.prompt);
-        const reply = agentPlanReply({ ...plan, projectHandoff }, tasks, claimed.surface);
-        const event = claimed.surface === "canvas" ? { type: "canvas.ops", data: { ops: planToOps(plan, tasks, run.id, claimed.snapshot), reply } } : { type: "run.planned", data: { reply, tasks: tasks.map(taskPlanSummary), projectHandoff } };
+        const executablePlan = fallbackUnsupportedMediaPlanToText(plan, settings);
+        const tasks = normalizeTasks(executablePlan, skills, settings, claimed.snapshot, claimed.prompt, claimed.surface, referencedAssets, claimed.requestedImageSize, claimed.generationPreferences);
+        const projectHandoff = normalizeAgentProjectHandoff(executablePlan, claimed.surface, referencedAssets, claimed.prompt);
+        const reply = agentPlanReply({ ...executablePlan, projectHandoff }, tasks, claimed.surface);
+        const event = claimed.surface === "canvas" ? { type: "canvas.ops", data: { ops: planToOps(executablePlan, tasks, run.id, claimed.snapshot), reply } } : { type: "run.planned", data: { reply, tasks: tasks.map(taskPlanSummary), projectHandoff } };
         const planned = await updateAgentRunById(
             run.id,
-            { tasks, foundation: plan.foundation, projectHandoff, reviewed: tasks.length ? claimed.reviewed : true, plannerAudit, timings: { ...(claimed.timings || { requestAcceptedAt: claimed.createdAt }), planningCompletedAt: Date.now() } },
+            { tasks, foundation: executablePlan.foundation, projectHandoff, reviewed: tasks.length ? claimed.reviewed : true, plannerAudit, timings: { ...(claimed.timings || { requestAcceptedAt: claimed.createdAt }), planningCompletedAt: Date.now() } },
             event,
             ["running"],
             executionId,

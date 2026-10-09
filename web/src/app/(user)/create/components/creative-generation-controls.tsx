@@ -107,7 +107,11 @@ export function CreativeGenerationControls({
                             </div>
                         ) : null}
                         <div className="hide-scrollbar max-h-64 space-y-1 overflow-y-auto overscroll-contain">
-                            {!models.some((model) => model.capability === activeCapability) ? <p className="px-2 py-5 text-center text-xs text-[#8b949f] dark:text-[#7f8996]">当前未配置可用的{mediaCapabilityLabel(activeCapability)}模型</p> : null}
+                            {!models.some((model) => model.capability === activeCapability) ? (
+                                <p className="px-2 py-5 text-center text-xs leading-5 text-[#8b949f] dark:text-[#7f8996]">
+                                    {smartPlanning ? `未配置可用的${mediaCapabilityLabel(activeCapability)}模型；本轮会先用文本模型生成提示词方案` : `当前未配置可用的${mediaCapabilityLabel(activeCapability)}模型`}
+                                </p>
+                            ) : null}
                             {models
                                 .filter((model) => model.capability === activeCapability)
                                 .map((model) => {

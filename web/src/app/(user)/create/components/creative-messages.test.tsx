@@ -411,10 +411,11 @@ describe("CreativeMessages", () => {
         expect(markup).toContain('data-testid="creative-run-timing"');
         expect(markup).toContain('aria-label="查看本轮创作详细信息"');
         expect(markup).not.toContain(">复制提示词</button>");
-        expect(markup).toContain("grid-cols-[94px_32px]");
-        expect(markup).not.toContain("grid-cols-[minmax(0,1fr)_minmax(0,1fr)_32px]");
-        expect(markup).not.toContain("重新编辑");
-        expect(markup).not.toContain("再次生成");
+        expect(markup).toContain("mt-2 flex w-fit max-w-full flex-wrap items-center gap-1.5");
+        expect(markup).not.toContain("grid-cols-[94px_32px]");
+        expect(markup).toContain("引用继续创作");
+        expect(markup).toContain("再次生成");
+        expect(markup).toContain('aria-label="再次生成本轮创作"');
         expect(markup).toContain("下载视频");
         expect(markup).toContain('aria-label="更多本轮创作操作"');
         expect(markup).toContain('preload="metadata"');
@@ -430,6 +431,85 @@ describe("CreativeMessages", () => {
         expect(markup).not.toContain("!bg-[#f7f6ff]");
         expect(markup).not.toContain("!text-[#5c5fff]");
         expect(markup).not.toContain("shadow-[0_4px_16px_rgba(32,36,42,0.04)]");
+    });
+
+    it("shows visible continue-edit and regenerate actions for generated image rounds", () => {
+        const userMessage: CreativeMessage = {
+            id: "user-image-round",
+            conversationId: "conversation-one",
+            runId: "run-image",
+            sequence: 1,
+            role: "user",
+            status: "completed",
+            content: "生成一只橘猫主图",
+            metadata: {},
+            createdAt: 1,
+            updatedAt: 1,
+        };
+        const assistantMessage: CreativeMessage = {
+            id: "assistant-image-round",
+            conversationId: "conversation-one",
+            runId: "run-image",
+            sequence: 2,
+            role: "assistant",
+            status: "completed",
+            content: "图片已生成。",
+            metadata: {},
+            createdAt: 1,
+            updatedAt: 1,
+        };
+        const output = {
+            id: "image-round-output",
+            userId: "user-one",
+            conversationId: "conversation-one",
+            messageId: assistantMessage.id,
+            sourceRunId: "run-image",
+            sourceTaskId: "task-image",
+            ordinal: 0,
+            type: "image",
+            status: "ready",
+            title: "橘猫主图",
+            serverUrl: "/generated/cat.png",
+            width: 1024,
+            height: 1024,
+            metadata: { agentTaskId: "task-image" },
+            createdAt: 1,
+            updatedAt: 1,
+        } satisfies CreativeAsset;
+        const markup = renderToStaticMarkup(
+            <App>
+                <CreativeMessages
+                    messages={[userMessage, assistantMessage]}
+                    assets={[output]}
+                    loading={false}
+                    projectLinks={{}}
+                    projectErrors={{}}
+                    runDetails={{
+                        "run-image": {
+                            id: "run-image",
+                            conversationId: "conversation-one",
+                            inputMessageId: userMessage.id,
+                            assistantMessageId: assistantMessage.id,
+                            status: "completed",
+                            assetIds: [output.id],
+                            tasks: [{ id: "task-image", title: "生成图片", type: "image", status: "completed", optimizedPrompt: "可爱的橘猫电商主图", ratio: "1:1", model: "qwen-image" }],
+                        },
+                    }}
+                    onMaterializeProject={async () => {
+                        throw new Error("not used");
+                    }}
+                    onRetryMessage={vi.fn()}
+                    selectedAssetIds={[]}
+                    onToggleAsset={vi.fn()}
+                />
+            </App>,
+        );
+
+        expect(markup).toContain("下载图片");
+        expect(markup).toContain("继续编辑");
+        expect(markup).toContain("再次生成");
+        expect(markup).toContain('aria-label="再次生成本轮创作"');
+        expect(markup).toContain('aria-label="更多本轮创作操作"');
     });
 
     it("uses a warm elapsed-time status while a media result is still running", () => {

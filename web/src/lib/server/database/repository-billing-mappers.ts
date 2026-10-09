@@ -296,6 +296,9 @@ export function mapAuditLog(row: Record<string, unknown>): AuditLogRecord {
         targetId: optionalString(row.target_id),
         targetLabel: optionalString(row.target_label),
         metadata: optionalJson(row.metadata),
+        tenantId: optionalString(row.tenant_id),
+        scope: row.scope === "tenant" ? "tenant" : "platform",
+        actorTenantRole: row.actor_tenant_role === "owner" || row.actor_tenant_role === "admin" || row.actor_tenant_role === "member" ? row.actor_tenant_role : undefined,
         createdAt: isoValue(row.created_at),
     };
 }

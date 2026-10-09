@@ -21,4 +21,10 @@ describe("admin sections", () => {
         expect(allowedAdminSections(auditor)).toEqual(["updates", "adminHelp"]);
         expect(resolveAdminSection(auditor, "backup")).toBe("updates");
     });
+
+    it("exposes tenant management only to tenant operators", () => {
+        const reader = { role: "admin", status: "active", adminPermissions: ["tenants.read"] };
+        expect(canAccessAdminSection(reader, "tenants")).toBe(true);
+        expect(allowedAdminSections(reader)).toContain("tenants");
+    });
 });

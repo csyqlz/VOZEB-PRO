@@ -7,6 +7,10 @@ describe("system channel model capabilities", () => {
         expect(normalizeSystemChannelAdvancedConfig({ protocol: "yumeng" } as never)?.protocol).toBe("yumeng");
     });
 
+    it("keeps the SiliconFlow protocol identity", () => {
+        expect(normalizeSystemChannelAdvancedConfig({ protocol: "siliconflow" } as never)?.protocol).toBe("siliconflow");
+    });
+
     it("normalizes supported capabilities and removes invalid entries", () => {
         const normalized = normalizeSystemChannelAdvancedConfig({
             protocol: "auto",

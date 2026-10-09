@@ -5,7 +5,7 @@ import { decryptSecretValue, encryptSecretValue, isEncryptedSecretValue } from "
 import { ECOMMERCE_IMAGE_SKILL } from "@/lib/server/agent-skills/ecommerce-image";
 import { YANAI_BEAUTY_SKILL } from "@/lib/server/agent-skills/yanai-beauty";
 import { DEFAULT_CREATIVE_SHORTCUT_SKILLS } from "@/lib/server/agent-skills/creative-shortcuts";
-import { deriveLogicalModelsConfig, normalizeDefaultModelsConfig, normalizeLogicalModelsConfig } from "@/lib/model-routing-config";
+import { deriveLogicalModelsConfig, isLogicalModelResolvable, normalizeDefaultModelsConfig, normalizeLogicalModelsConfig } from "@/lib/model-routing-config";
 import { applyChannelProtocol } from "@/lib/channel-protocol-registry";
 import { resolveConfiguredModelPointCost } from "@/lib/model-point-cost";
 import { normalizeSystemChannelAdvancedConfig } from "./store-normalizers-channel";
@@ -237,6 +237,10 @@ export function countActiveFullAdmins(db: AuthDatabase, excludingUserId?: string
 export function normalizeSettings(settings: AuthSettings): AuthSettings {
     const systemChannels = Array.isArray(settings.systemChannels) ? settings.systemChannels.map(normalizeSystemChannel).filter((channel) => channel.name || channel.baseUrl || channel.models.length) : [];
     const logicalModels = normalizeLogicalModels(settings.logicalModels, systemChannels);
+    const defaultModels = normalizeDefaultModelsConfig(settings.defaultModels, logicalModels, systemChannels);
+    const textDefaults = applyEnvironmentTextDefaults(systemChannels, logicalModels, defaultModels);
+    const siliconFlowTextOptions = applyEnvironmentSiliconFlowTextOptions(textDefaults.systemChannels, textDefaults.logicalModels, textDefaults.defaultModels);
+    const imageDefaults = applyEnvironmentImageDefaults(siliconFlowTextOptions.systemChannels, siliconFlowTextOptions.logicalModels, siliconFlowTextOptions.defaultModels);
     const site = normalizeSiteSettings(settings.site);
     return {
         site,
@@ -253,11 +257,195 @@ export function normalizeSettings(settings: AuthSettings): AuthSettings {
         entitlements: normalizeEntitlementSettings(settings.entitlements),
         generationConcurrency: normalizeGenerationConcurrency(settings.generationConcurrency),
         generationDefaults: normalizeGenerationDefaults(settings.generationDefaults),
-        systemChannels,
-        logicalModels,
-        defaultModels: normalizeDefaultModelsConfig(settings.defaultModels, logicalModels, systemChannels),
+        systemChannels: imageDefaults.systemChannels,
+        logicalModels: imageDefaults.logicalModels,
+        defaultModels: imageDefaults.defaultModels,
         agentSkills: normalizeAgentSkills(settings.agentSkills),
     };
+}
+
+const SILICONFLOW_RECOMMENDED_TEXT_MODELS = [
+    { id: "siliconflow-fast-text", name: "小万极速文本（DeepSeek V4 Flash）", upstreamModel: "deepseek-ai/DeepSeek-V4-Flash" },
+    { id: "siliconflow-quality-text", name: "小万高质量文本（DeepSeek V4 Pro）", upstreamModel: "deepseek-ai/DeepSeek-V4-Pro" },
+    { id: "siliconflow-backup-text", name: "小万备用文本（Qwen3.5 9B）", upstreamModel: "Qwen/Qwen3.5-9B" },
+] as const;
+
+const SILICONFLOW_RECOMMENDED_IMAGE_MODELS = [
+    { id: "siliconflow-kolors-image", name: "小万经济生图（Kolors）", upstreamModel: "Kwai-Kolors/Kolors" },
+    { id: "siliconflow-qwen-image", name: "小万高清生图（Qwen Image）", upstreamModel: "Qwen/Qwen-Image" },
+    { id: "siliconflow-qwen-image-edit", name: "小万图片编辑（Qwen Image Edit）", upstreamModel: "Qwen/Qwen-Image-Edit" },
+] as const;
+
+function applyEnvironmentTextDefaults(systemChannels: SystemModelChannel[], logicalModels: LogicalModel[], defaultModels: SystemDefaultModels) {
+    const existingDefault = defaultModels.textModel && isLogicalModelResolvable(logicalModels, systemChannels, "text", defaultModels.textModel);
+    const apiKey = normalizeText(process.env.VOZEB_PRO_DEEPSEEK_API_KEY, "", 4000) || normalizeText(process.env.DEEPSEEK_API_KEY, "", 4000);
+    if (!apiKey) return { systemChannels, logicalModels, defaultModels };
+
+    const channelId = uniqueSettingsId(
+        "deepseek-env",
+        systemChannels.map((channel) => channel.id),
+    );
+    const logicalModelId = uniqueSettingsId(
+        "deepseek-default-text",
+        logicalModels.map((model) => model.id),
+    );
+    const upstreamModel = normalizeText(process.env.VOZEB_PRO_DEEPSEEK_TEXT_MODEL, "", 120) || "deepseek-v4-flash";
+    const baseUrl = normalizeText(process.env.VOZEB_PRO_DEEPSEEK_BASE_URL, "", 500) || "https://api.deepseek.com";
+    const channel = applyChannelProtocol(
+        {
+            id: channelId,
+            name: "DeepSeek（环境变量）",
+            baseUrl,
+            apiKey,
+            apiFormat: "openai",
+            models: [upstreamModel],
+            enabled: true,
+        },
+        "openai",
+    );
+    const nextSystemChannels = [...systemChannels, channel];
+    const nextLogicalModels = [
+        ...logicalModels,
+        {
+            id: logicalModelId,
+            name: `DeepSeek ${upstreamModel}`,
+            capability: "text" as const,
+            enabled: true,
+            bindings: [{ id: `${channelId}:${upstreamModel}`, channelId, upstreamModel, enabled: true, priority: 1 }],
+        },
+    ];
+    return {
+        systemChannels: nextSystemChannels,
+        logicalModels: nextLogicalModels,
+        defaultModels: normalizeDefaultModelsConfig({ ...defaultModels, textModel: existingDefault ? defaultModels.textModel : logicalModelId }, nextLogicalModels, nextSystemChannels),
+    };
+}
+
+function applyEnvironmentSiliconFlowTextOptions(systemChannels: SystemModelChannel[], logicalModels: LogicalModel[], defaultModels: SystemDefaultModels) {
+    const apiKey = normalizeText(process.env.VOZEB_PRO_SILICONFLOW_API_KEY, "", 4000) || normalizeText(process.env.SILICONFLOW_API_KEY, "", 4000);
+    if (!apiKey) return { systemChannels, logicalModels, defaultModels };
+
+    const channelId = uniqueSettingsId(
+        "siliconflow-text-env",
+        systemChannels.map((channel) => channel.id),
+    );
+    const baseUrl = normalizeText(process.env.VOZEB_PRO_SILICONFLOW_BASE_URL, "", 500) || "https://api.siliconflow.cn/v1";
+    const upstreamModels = uniqueRecommendedModels(SILICONFLOW_RECOMMENDED_TEXT_MODELS.map((model) => model.upstreamModel));
+    const channel = applyChannelProtocol(
+        {
+            id: channelId,
+            name: "SiliconFlow 文本（环境变量）",
+            baseUrl,
+            apiKey,
+            apiFormat: "openai",
+            models: upstreamModels,
+            enabled: true,
+        },
+        "openai",
+    );
+    const nextSystemChannels = [...systemChannels, channel];
+    const nextLogicalModels = [
+        ...logicalModels,
+        ...SILICONFLOW_RECOMMENDED_TEXT_MODELS.map((model, index) => ({
+            id: uniqueSettingsId(
+                model.id,
+                [...logicalModels.map((item) => item.id), ...SILICONFLOW_RECOMMENDED_TEXT_MODELS.slice(0, index).map((item) => item.id)],
+            ),
+            name: model.name,
+            capability: "text" as const,
+            enabled: true,
+            bindings: [{ id: `${channelId}:${model.upstreamModel}`, channelId, upstreamModel: model.upstreamModel, enabled: true, priority: index + 1 }],
+        })),
+    ];
+    return {
+        systemChannels: nextSystemChannels,
+        logicalModels: nextLogicalModels,
+        defaultModels: normalizeDefaultModelsConfig(defaultModels, nextLogicalModels, nextSystemChannels),
+    };
+}
+
+function applyEnvironmentImageDefaults(systemChannels: SystemModelChannel[], logicalModels: LogicalModel[], defaultModels: SystemDefaultModels) {
+    const existingDefault = defaultModels.imageModel && isLogicalModelResolvable(logicalModels, systemChannels, "image", defaultModels.imageModel);
+    const apiKey = normalizeText(process.env.VOZEB_PRO_SILICONFLOW_API_KEY, "", 4000) || normalizeText(process.env.SILICONFLOW_API_KEY, "", 4000);
+    if (!apiKey) return { systemChannels, logicalModels, defaultModels };
+
+    const channelId = uniqueSettingsId(
+        "siliconflow-env",
+        systemChannels.map((channel) => channel.id),
+    );
+    const logicalModelId = uniqueSettingsId(
+        "siliconflow-default-image",
+        logicalModels.map((model) => model.id),
+    );
+    const requestedModel = normalizeText(process.env.VOZEB_PRO_SILICONFLOW_IMAGE_MODEL, "", 120);
+    const upstreamModel = requestedModel.toLowerCase() === "qwen/qwen-image" ? "Qwen/Qwen-Image" : "Kwai-Kolors/Kolors";
+    const baseUrl = normalizeText(process.env.VOZEB_PRO_SILICONFLOW_BASE_URL, "", 500) || "https://api.siliconflow.cn/v1";
+    const recommendedModels = uniqueRecommendedModelConfigs([
+        { id: "siliconflow-default-image", name: `小万默认生图（${upstreamModel}）`, upstreamModel },
+        ...SILICONFLOW_RECOMMENDED_IMAGE_MODELS,
+    ]);
+    const channel = applyChannelProtocol(
+        {
+            id: channelId,
+            name: "SiliconFlow（环境变量）",
+            baseUrl,
+            apiKey,
+            apiFormat: "openai",
+            models: recommendedModels.map((model) => model.upstreamModel),
+            enabled: true,
+        },
+        "siliconflow",
+    );
+    const nextSystemChannels = [...systemChannels, channel];
+    const nextLogicalModels = [
+        ...logicalModels,
+        ...recommendedModels.map((model, index) => ({
+            id:
+                index === 0
+                    ? logicalModelId
+                    : uniqueSettingsId(
+                          model.id,
+                          [...logicalModels.map((item) => item.id), logicalModelId, ...recommendedModels.slice(1, index).map((item) => item.id)],
+                      ),
+            name: model.name,
+            capability: "image" as const,
+            enabled: true,
+            bindings: [{ id: `${channelId}:${model.upstreamModel}`, channelId, upstreamModel: model.upstreamModel, enabled: true, priority: index + 1 }],
+        })),
+    ];
+    return {
+        systemChannels: nextSystemChannels,
+        logicalModels: nextLogicalModels,
+        defaultModels: normalizeDefaultModelsConfig({ ...defaultModels, imageModel: existingDefault ? defaultModels.imageModel : logicalModelId }, nextLogicalModels, nextSystemChannels),
+    };
+}
+
+function uniqueRecommendedModels(models: string[]) {
+    const seen = new Set<string>();
+    return models.filter((model) => {
+        const key = model.trim().toLowerCase();
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+}
+
+function uniqueRecommendedModelConfigs<T extends { upstreamModel: string }>(models: T[]) {
+    const seen = new Set<string>();
+    return models.filter((model) => {
+        const key = model.upstreamModel.trim().toLowerCase();
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+}
+
+function uniqueSettingsId(base: string, usedValues: string[]) {
+    const used = new Set(usedValues.map((value) => value.toLowerCase()));
+    let candidate = base;
+    let suffix = 2;
+    while (used.has(candidate.toLowerCase())) candidate = `${base}-${suffix++}`;
+    return candidate;
 }
 
 export function normalizeLogicalModels(models: LogicalModel[] | undefined, channels: SystemModelChannel[]): LogicalModel[] {

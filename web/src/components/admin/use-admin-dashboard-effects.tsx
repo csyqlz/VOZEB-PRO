@@ -71,7 +71,7 @@ export function useAdminDashboardEffects({ state, data, settingsActions }: { sta
     const {} = settingsActions;
 
     useEffect(() => {
-        if (activeSection !== "skills" || settingsLoading) return;
+        if ((activeSection !== "skills" && activeSection !== "channels") || settingsLoading) return;
         void fetch("/api/admin/agent-readiness", { cache: "no-store" })
             .then((response) => (response.ok ? response.json() : null))
             .then((payload) => setAgentReadiness(payload?.data || localAgentReadiness(settings)));

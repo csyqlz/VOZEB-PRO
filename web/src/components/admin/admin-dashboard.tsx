@@ -49,6 +49,7 @@ const loadPromptsSection = () => import("./admin-content-sections").then((module
 const loadWorksSection = () => import("@/app/admin/works/components/admin-works-section").then((module) => module.AdminWorksSection);
 const loadHelpSection = () => import("./admin-help-section").then((module) => module.AdminHelpSection);
 const loadUsersSection = () => import("./admin-users-section").then((module) => module.AdminUsersSection);
+const loadTenantsSection = () => import("./admin-tenants-section").then((module) => module.AdminTenantsSection);
 const loadLogsSection = () => import("./admin-logs-section").then((module) => module.AdminLogsSection);
 const loadGenerationOperationsSection = () => import("./admin-generation-operations-section").then((module) => module.AdminGenerationOperationsSection);
 const loadAccountDeletionSection = () => import("./admin-account-deletion-section").then((module) => module.AdminAccountDeletionSection);
@@ -76,6 +77,7 @@ const sectionLoaders: Partial<Record<AdminSectionKey, () => Promise<unknown>>> =
     works: loadWorksSection,
     adminHelp: loadHelpSection,
     users: loadUsersSection,
+    tenants: loadTenantsSection,
     logs: loadLogsSection,
     generationOperations: loadGenerationOperationsSection,
     accountDeletion: loadAccountDeletionSection,
@@ -103,6 +105,7 @@ const AdminPromptsSection = dynamic(loadPromptsSection, { loading: AdminSectionL
 const AdminWorksSection = dynamic(loadWorksSection, { loading: AdminSectionLoading });
 const AdminHelpSection = dynamic(loadHelpSection, { loading: AdminSectionLoading });
 const AdminUsersSection = dynamic(loadUsersSection, { loading: AdminSectionLoading });
+const AdminTenantsSection = dynamic(loadTenantsSection, { loading: AdminSectionLoading });
 const AdminLogsSection = dynamic(loadLogsSection, { loading: AdminSectionLoading });
 const AdminGenerationOperationsSection = dynamic(loadGenerationOperationsSection, { loading: AdminSectionLoading });
 const AdminAccountDeletionSection = dynamic(loadAccountDeletionSection, { loading: AdminSectionLoading });
@@ -255,6 +258,7 @@ export function AdminDashboard(props: AdminDashboardProps) {
                     {activeSection === "works" ? <AdminWorksSection /> : null}
                     {activeSection === "prompts" ? <AdminPromptsSection controller={controller} /> : null}
                     {activeSection === "users" ? <AdminUsersSection controller={controller} /> : null}
+                    {activeSection === "tenants" ? <AdminTenantsSection currentUser={currentUser} /> : null}
                     {activeSection === "logs" ? <AdminLogsSection controller={controller} /> : null}
                     {activeSection === "generationOperations" ? <AdminGenerationOperationsSection controller={controller} /> : null}
                     {activeSection === "adminHelp" ? <AdminHelpSection onOpenSection={setActiveSection} /> : null}

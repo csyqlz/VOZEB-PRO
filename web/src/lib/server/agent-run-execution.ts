@@ -260,6 +260,71 @@ export function normalizeTasks(
     return tasks;
 }
 
+export function fallbackUnsupportedMediaPlanToText(plan: AgentPlan, settings: Awaited<ReturnType<typeof getAuthSettings>>): AgentPlan {
+    const textModel = defaultModel(settings, "text");
+    if (!textModel) return plan;
+    let changed = false;
+    const fallbackTypes = new Set<string>();
+    const deliverables = plan.deliverables.map((item) => {
+        if (item.type === "text" || resolvePlannedModel(settings, item.type, item.model)) return item;
+        changed = true;
+        fallbackTypes.add(taskTypeLabel(item.type));
+        return {
+            ...item,
+            title: `${item.title.trim()}提示词`,
+            type: "text" as const,
+            model: textModel,
+            prompt: unsupportedMediaPrompt(item),
+            count: 1,
+            ratio: undefined,
+            quality: undefined,
+            seconds: undefined,
+            voice: undefined,
+            format: undefined,
+            generateAudio: undefined,
+            watermark: undefined,
+            speed: undefined,
+        };
+    });
+    if (!changed) return plan;
+    const unavailable = Array.from(fallbackTypes).join("、");
+    const notice = `后台尚未配置可用的默认${unavailable}模型，本轮先生成可复制到对应模型渠道的提示词方案。`;
+    return {
+        ...plan,
+        reply: [plan.reply?.trim(), notice].filter(Boolean).join("\n\n"),
+        decisions: [...(plan.decisions || []), { label: "模型兜底", value: "文本提示词方案", reason: `缺少可用的默认${unavailable}模型，改用默认文本模型输出可执行提示词。` }],
+        deliverables,
+    };
+}
+
+function unsupportedMediaPrompt(item: AgentPlan["deliverables"][number]) {
+    const typeLabel = taskTypeLabel(item.type);
+    const outputs =
+        item.type === "image"
+            ? ["一段可直接复制到图片生成模型的中文主提示词", "推荐画幅、质量和数量", "负面提示词或避坑说明"]
+            : item.type === "video"
+              ? ["一段可直接复制到视频生成模型的中文主提示词", "推荐画幅、时长和运镜", "首帧/尾帧或参考素材建议"]
+              : ["一段可直接复制到音频生成模型的中文主提示词", "推荐音色、语速和格式", "后期处理建议"];
+    return [
+        `后台尚未配置可用的默认${typeLabel}模型，无法直接生成${typeLabel}媒体。`,
+        "请改为输出一个给用户可直接使用的生成方案。",
+        `原始任务标题：${item.title.trim()}`,
+        `原始生成需求：${item.prompt.trim()}`,
+        item.ratio ? `原计划画幅：${item.ratio}` : "",
+        item.quality ? `原计划质量：${item.quality}` : "",
+        item.seconds ? `原计划时长：${item.seconds} 秒` : "",
+        "输出要求：",
+        ...outputs.map((output, index) => `${index + 1}. ${output}。`),
+        "开头先用一句话说明：当前没有配置图片/视频/音频上游，因此本轮先提供提示词方案。",
+    ]
+        .filter(Boolean)
+        .join("\n");
+}
+
+function taskTypeLabel(type: LogicalModelCapability) {
+    return type === "image" ? "图片" : type === "video" ? "视频" : type === "audio" ? "音频" : "文本";
+}
+
 export function agentModelOptions(settings: Awaited<ReturnType<typeof getAuthSettings>>) {
     return settings.logicalModels
         .filter((model) => model.enabled && resolveLogicalModel(settings, model.capability, model.id))

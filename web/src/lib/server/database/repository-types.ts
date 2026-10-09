@@ -325,6 +325,9 @@ export type AuditLogRecord = {
     targetId?: string;
     targetLabel?: string;
     metadata?: JsonValue;
+    tenantId?: string;
+    scope?: "platform" | "tenant";
+    actorTenantRole?: "owner" | "admin" | "member";
     createdAt: string;
 };
 
