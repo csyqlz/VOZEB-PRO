@@ -52,16 +52,21 @@
 - 第三方许可证一致性、差异空白检查和严格 UTF-8/常见中文乱码扫描通过。构建产生的无关 Fumadocs 源索引差异已排除。
 - 首次同步主分支时，Gitleaks 命中升级服务单测中的六处固定示例令牌。经核实均为 mock 隔离的测试凭据，已按现有 `.gitleaksignore` 机制记录精确历史提交、文件、规则和行号；使用与 CI 相同的 Gitleaks 8.24.3 复验原始三个提交，结果为零发现。
 
-## 发布阻断与外部验收边界
+## 依赖审计修复与外部验收边界
 
-Web 依赖审计剩余一个开发依赖高危公告：[GHSA-vfj7-8cjw-p6xm](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm)。`braces@3.0.3` 通过 Next ESLint plugin 和 shadcn 的 `fast-glob → micromatch` 引入；审计返回 `patched_versions: null`，修复版本尚未发布。Docs 审计为零已知漏洞。
+首次发布审计被 [GHSA-vfj7-8cjw-p6xm](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm) 阻断：`braces@3.0.3` 经 Next ESLint plugin 和 shadcn 的 `fast-glob → micromatch` 引入，且没有已发布修复版。本次移除未使用的 shadcn CLI，把实际使用的三种 Radix Select 状态样式保留在现有样式文件；仅对 `@next/eslint-plugin-next@16.3.8` 的目录扫描使用 `tinyglobby@0.2.17`，补丁关闭自动递归展开并保持绝对/相对路径语义。
 
-`pnpm --dir web run check:release` 已通过前置部署契约检查，并在依赖审计处正常阻断。没有忽略该公告、降低审计阈值或将开发依赖排除出门禁。当前不能宣称整个发布门禁通过。
+`braces`、`micromatch` 和原 `fast-glob` 软件包已从 Web 锁文件移除，Web 与 Docs 完整审计均为零已知漏洞；没有忽略公告、降低阈值或排除开发依赖。Dockerfile 在冻结安装前复制 pnpm 补丁，第三方许可证清单同步精简。
 
-本轮生成请求全部使用独立空闲端口、隔离文件 Provider 和固定测试凭据的本地 fixture。没有调用管理员已配置的真实渠道；未配置隔离 PostgreSQL 测试库，因此 PostgreSQL 事务/并发与支付 E2E、真实供应商计费/质量、生产 Docker 多架构镜像和部署恢复仍需各自的验收证据。
+- pnpm 11.9.0 冻结安装通过；14 项新增回归验证真实目录、Windows 分隔符、绝对/相对路径、通配符、目录数组、文件过滤和 Next 内部链接规则仍能检出违规。
+- 完整 `pnpm --dir web run check:release` 通过：部署契约、审计、ESLint、Prettier、591 个测试文件通过、5 个环境相关文件跳过，2863 项测试通过、10 项 PostgreSQL 测试跳过，类型检查与 62 页隔离生产构建通过；Standalone 包含 132 个静态文件及 18 个公开资源。记录为 `web/.e2e-artifacts/release-audit-fix-gate-final.log`。
+- Docs 类型检查和 39 页生产构建通过，记录为 `web/.e2e-artifacts/release-audit-fix-docs.log`。
+- 独立生产构建的浏览器专项 6 项全部通过，包含 3 项安装前置和 1440px、390px、430px 三组选择框回归，每组覆盖浅深主题、打开动画、禁用态样式、真实选项点击与保存、Escape 关闭及菜单/页面边界。截图和几何证据位于 `web/.e2e-artifacts/release-audit-fix-browser-production/`；此前开发环境首次编译/热更新期间的等待失败保留为诊断记录，最终验收采用生产产物。
+
+本轮生成请求全部使用独立空闲端口、隔离文件 Provider 和固定测试凭据的本地 fixture，没有调用管理员已配置的真实渠道。本机未配置隔离 PostgreSQL 测试库；PostgreSQL 事务/并发与支付 E2E 由 GitHub CI 单独验收。真实供应商计费/质量与生产部署恢复仍需真实环境证据，不能用镜像构建成功替代。
 
 ## GitHub 发布结果
 
-- [VOZEB PRO v0.0.8](https://github.com/csyqlz/VOZEB-PRO/releases/tag/v0.0.8) 已发布并设为 Latest，发布说明显式标注主应用镜像不可用及完整门禁未通过。
-- [主应用工作流](https://github.com/csyqlz/VOZEB-PRO/actions/runs/37922993044) 因上述依赖审计失败，构建、镜像合并、更新器和签名步骤被跳过；GHCR 主应用 `v0.0.8` manifest 返回 404。
-- [文档镜像工作流](https://github.com/csyqlz/VOZEB-PRO/actions/runs/37922992817) 全部成功。`ghcr.io/csyqlz/vozeb-pro-docs:v0.0.8` 与 `latest` 的 digest 均为 `sha256:d94db9d84e00f926b0b914aabe9bf435287f99727defc61c5038e52099595236`；amd64、arm64 两个镜像的 revision 均已核对为版本代码提交，并完成 SBOM、签名与 attestation。
+- [VOZEB PRO v0.0.8](https://github.com/csyqlz/VOZEB-PRO/releases/tag/v0.0.8) 的发布说明统一维护最终源提交、各镜像 digest、平台、Actions 与签名结果，版本号保持 0.0.8。
+- 初次发布的[主应用工作流](https://github.com/csyqlz/VOZEB-PRO/actions/runs/37922993044) 因依赖审计失败，构建、镜像合并、更新器和签名步骤被跳过；当时 GHCR 主应用 `v0.0.8` manifest 返回 404。这是修复前的失败记录，不能作为本次修复的镜像产物。
+- 初次发布的[文档镜像工作流](https://github.com/csyqlz/VOZEB-PRO/actions/runs/37922992817) 成功，旧 digest 为 `sha256:d94db9d84e00f926b0b914aabe9bf435287f99727defc61c5038e52099595236`，对应 `b0a0c5bf848202196b71fdf0aa4caa58627b101b`。重新发布必须同时核对主应用、文档和更新器的版本标签及真实 revision，保留初次产物的来源记录。

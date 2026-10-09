@@ -1,3 +1,8 @@
+/* Radix Select state styles are local; the shadcn code generator is not a runtime dependency. */
+@custom-variant data-open (&:where([data-state="open"]));
+@custom-variant data-closed (&:where([data-state="closed"]));
+@custom-variant data-disabled (&:where([data-disabled]:not([data-disabled="false"])));
+
 @layer components {
     .ant-select-dropdown {
         border: 1px solid var(--border) !important;

@@ -1,0 +1,22 @@
+diff --git a/dist/utils/get-root-dirs.js b/dist/utils/get-root-dirs.js
+index 47108c943514a1d7e686c5eb18aad00a59963c83..197a9782c78ca74316a9013dd6b402ab7d0bd85b 100644
+--- a/dist/utils/get-root-dirs.js
++++ b/dist/utils/get-root-dirs.js
+@@ -9,11 +9,15 @@ Object.defineProperty(exports, "getRootDirs", {
+     }
+ });
+ var _fastglob = require("fast-glob");
++var _path = require("node:path");
+ /**
+  * Process a Next.js root directory glob.
+  */ var processRootDir = function(rootDir) {
+-    return (0, _fastglob.globSync)(rootDir.replace(/\\/g, '/'), {
+-        onlyDirectories: true
++    var pattern = rootDir.replace(/\\/g, '/');
++    return (0, _fastglob.globSync)(pattern, {
++        onlyDirectories: true,
++        expandDirectories: false,
++        absolute: _path.isAbsolute(pattern)
+     });
+ };
+ var getRootDirs = function(context) {

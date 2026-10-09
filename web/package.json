@@ -82,7 +82,6 @@
         "jsonrepair": "^3.15.0",
         "postcss": "8.5.26",
         "prettier": "^3.9.6",
-        "shadcn": "^4.16.2",
         "typescript": "^5",
         "vitest": "^4.1.11"
     }

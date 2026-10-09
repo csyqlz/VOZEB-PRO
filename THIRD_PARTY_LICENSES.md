@@ -4,7 +4,7 @@
 
 ## Web 应用
 
-共 465 个运行时依赖记录。
+共 448 个运行时依赖记录。
 
 | 包 | 版本 | 许可证 | 项目主页 |
 | --- | --- | --- | --- |
@@ -223,7 +223,6 @@
 | @types/mdast | 4.0.4 | MIT | [链接](https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/mdast) |
 | @types/ms | 2.1.0 | MIT | [链接](https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/ms) |
 | @types/node | 20.19.43 | MIT | [链接](https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/node) |
-| @types/parse-json | 4.0.2 | MIT | [链接](https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/parse-json) |
 | @types/react | 19.2.18 | MIT | [链接](https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/react) |
 | @types/react-dom | 19.2.4 | MIT | [链接](https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/react-dom) |
 | @types/unist | 2.0.11, 3.0.3 | MIT | [链接](https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/unist) |
@@ -234,13 +233,11 @@
 | aria-hidden | 1.2.6 | MIT | [链接](https://github.com/theKashey/aria-hidden#readme) |
 | asynckit | 0.4.0 | MIT | [链接](https://github.com/alexindigo/asynckit#readme) |
 | axios | 1.20.0 | MIT | [链接](https://axios-http.com) |
-| babel-plugin-macros | 3.1.0 | MIT | [链接](https://github.com/kentcdodds/babel-plugin-macros#readme) |
 | bail | 2.0.2 | MIT | [链接](https://github.com/wooorm/bail#readme) |
 | baseline-browser-mapping | 2.11.14 | Apache-2.0 | [链接](https://github.com/web-platform-dx/baseline-browser-mapping#readme) |
 | bowser | 2.14.1 | MIT | [链接](https://github.com/bowser-js/bowser) |
 | browserslist | 4.28.8 | MIT | [链接](https://github.com/browserslist/browserslist#readme) |
 | call-bind-apply-helpers | 1.0.2 | MIT | [链接](https://github.com/ljharb/call-bind-apply-helpers#readme) |
-| callsites | 3.1.0 | MIT | [链接](https://github.com/sindresorhus/callsites#readme) |
 | caniuse-lite | 1.0.30001809 | CC-BY-4.0 | [链接](https://github.com/browserslist/caniuse-lite#readme) |
 | ccount | 2.0.1 | MIT | [链接](https://github.com/wooorm/ccount#readme) |
 | character-entities | 2.0.2 | MIT | [链接](https://github.com/wooorm/character-entities#readme) |
@@ -254,7 +251,6 @@
 | compute-scroll-into-view | 3.1.1 | MIT | [链接](https://scroll-into-view.dev) |
 | convert-source-map | 2.0.0 | MIT | [链接](https://github.com/thlorenz/convert-source-map) |
 | copy-to-clipboard | 4.0.2 | MIT | [链接](https://github.com/sudodoki/copy-to-clipboard#readme) |
-| cosmiconfig | 7.1.0 | MIT | [链接](https://github.com/davidtheclark/cosmiconfig#readme) |
 | csstype | 3.2.3 | MIT | [链接](https://github.com/frenic/csstype#readme) |
 | dayjs | 1.11.21 | MIT | [链接](https://day.js.org) |
 | debug | 4.4.3 | MIT | [链接](https://github.com/debug-js/debug#readme) |
@@ -267,7 +263,6 @@
 | dunder-proto | 1.0.1 | MIT | [链接](https://github.com/es-shims/dunder-proto#readme) |
 | electron-to-chromium | 1.5.405 | ISC | [链接](https://github.com/Kilian/electron-to-chromium#readme) |
 | entities | 8.0.0 | BSD-2-Clause | [链接](https://github.com/fb55/entities#readme) |
-| error-ex | 1.3.4 | MIT | [链接](https://github.com/qix-/node-error-ex#readme) |
 | es-define-property | 1.0.1 | MIT | [链接](https://github.com/ljharb/es-define-property#readme) |
 | es-errors | 1.3.0 | MIT | [链接](https://github.com/ljharb/es-errors#readme) |
 | es-object-atoms | 1.1.2 | MIT | [链接](https://github.com/ljharb/es-object-atoms#readme) |
@@ -298,12 +293,9 @@
 | html-url-attributes | 3.0.1 | MIT | [链接](https://github.com/rehypejs/rehype-minify/tree/main#readme) |
 | https-proxy-agent | 5.0.1 | MIT | [链接](https://github.com/TooTallNate/node-https-proxy-agent#readme) |
 | ieee754 | 1.2.1 | BSD-3-Clause | [链接](https://github.com/feross/ieee754#readme) |
-| import-fresh | 3.3.1 | MIT | [链接](https://github.com/sindresorhus/import-fresh#readme) |
 | inline-style-parser | 0.2.7 | MIT | [链接](https://github.com/remarkablemark/inline-style-parser#readme) |
 | is-alphabetical | 2.0.1 | MIT | [链接](https://github.com/wooorm/is-alphabetical#readme) |
 | is-alphanumerical | 2.0.1 | MIT | [链接](https://github.com/wooorm/is-alphanumerical#readme) |
-| is-arrayish | 0.2.1 | MIT | [链接](https://github.com/qix-/node-is-arrayish#readme) |
-| is-core-module | 2.16.2 | MIT | [链接](https://github.com/inspect-js/is-core-module) |
 | is-decimal | 2.0.1 | MIT | [链接](https://github.com/wooorm/is-decimal#readme) |
 | is-hexadecimal | 2.0.1 | MIT | [链接](https://github.com/wooorm/is-hexadecimal#readme) |
 | is-mobile | 5.0.0 | MIT | [链接](https://github.com/juliangruber/is-mobile) |
@@ -311,10 +303,8 @@
 | js-tokens | 4.0.0 | MIT | [链接](https://github.com/lydell/js-tokens#readme) |
 | jsesc | 3.1.0 | MIT | [链接](https://mths.be/jsesc) |
 | jsjianyingdraft | 1.0.0 | MIT | - |
-| json-parse-even-better-errors | 2.3.1 | MIT | [链接](https://github.com/npm/json-parse-even-better-errors#readme) |
 | json2mq | 0.2.0 | MIT | [链接](https://github.com/akiran/json2mq) |
 | json5 | 2.2.3 | MIT | [链接](http://json5.org/) |
-| lines-and-columns | 1.2.4 | MIT | [链接](https://github.com/eventualbuddha/lines-and-columns#readme) |
 | linkifyjs | 4.3.3 | MIT | [链接](https://linkify.js.org) |
 | longest-streak | 3.1.0 | MIT | [链接](https://github.com/wooorm/longest-streak#readme) |
 | lru-cache | 5.1.1 | ISC | [链接](https://github.com/isaacs/node-lru-cache#readme) |
@@ -375,12 +365,8 @@
 | node-releases | 2.0.53 | MIT | [链接](https://github.com/chicoxyzzy/node-releases#readme) |
 | orderedmap | 2.1.1 | MIT | [链接](https://github.com/marijnh/orderedmap#readme) |
 | otpauth | 9.5.1 | MIT | [链接](https://github.com/hectorm/otpauth) |
-| parent-module | 1.0.1 | MIT | [链接](https://github.com/sindresorhus/parent-module#readme) |
 | parse-entities | 4.0.2 | MIT | [链接](https://github.com/wooorm/parse-entities#readme) |
-| parse-json | 5.2.0 | MIT | [链接](https://github.com/sindresorhus/parse-json#readme) |
 | parse5 | 8.0.1 | MIT | [链接](https://parse5.js.org) |
-| path-parse | 1.0.7 | MIT | [链接](https://github.com/jbgutierrez/path-parse#readme) |
-| path-type | 4.0.0 | MIT | [链接](https://github.com/sindresorhus/path-type#readme) |
 | pg | 8.22.0 | MIT | [链接](https://github.com/brianc/node-postgres) |
 | pg-cloudflare | 1.4.0 | MIT | [链接](https://github.com/brianc/node-postgres#readme) |
 | pg-connection-string | 2.14.0 | MIT | [链接](https://github.com/brianc/node-postgres/tree/master/packages/pg-connection-string) |
@@ -424,8 +410,6 @@
 | remark-parse | 11.0.0 | MIT | [链接](https://remark.js.org) |
 | remark-rehype | 11.1.2 | MIT | [链接](https://github.com/remarkjs/remark-rehype#readme) |
 | remark-stringify | 11.0.0 | MIT | [链接](https://remark.js.org) |
-| resolve | 1.22.12 | MIT | [链接](https://github.com/browserify/resolve#readme) |
-| resolve-from | 4.0.0 | MIT | [链接](https://github.com/sindresorhus/resolve-from#readme) |
 | rope-sequence | 1.3.4 | MIT | [链接](https://github.com/marijnh/rope-sequence#readme) |
 | scheduler | 0.27.0 | MIT | [链接](https://react.dev/) |
 | scroll-into-view-if-needed | 3.1.0 | MIT | [链接](https://scroll-into-view.dev) |
@@ -442,7 +426,6 @@
 | styled-jsx | 5.1.6 | MIT | [链接](https://github.com/vercel/styled-jsx#readme) |
 | stylis | 4.4.0 | MIT | [链接](https://github.com/thysultan/stylis.js) |
 | supports-color | 7.2.0 | MIT | [链接](https://github.com/chalk/supports-color#readme) |
-| supports-preserve-symlinks-flag | 1.0.0 | MIT | [链接](https://github.com/inspect-js/node-supports-preserve-symlinks-flag#readme) |
 | tailwind-merge | 3.6.0 | MIT | [链接](https://github.com/dcastil/tailwind-merge) |
 | tailwindcss | 4.3.3 | MIT | [链接](https://tailwindcss.com) |
 | three | 0.185.1 | MIT | [链接](https://threejs.org/) |
@@ -470,7 +453,7 @@
 | w3c-keyname | 2.2.8 | MIT | [链接](https://github.com/marijnh/w3c-keyname#readme) |
 | xtend | 4.0.2 | MIT | [链接](https://github.com/Raynos/xtend) |
 | yallist | 3.1.1 | ISC | [链接](https://github.com/isaacs/yallist#readme) |
-| yaml | 1.10.3, 2.9.0 | ISC | [链接](https://eemeli.org/yaml/) |
+| yaml | 2.9.0 | ISC | [链接](https://eemeli.org/yaml/) |
 | zustand | 5.0.14 | MIT | [链接](https://github.com/pmndrs/zustand) |
 | zwitch | 2.0.4 | MIT | [链接](https://github.com/wooorm/zwitch#readme) |
 
