@@ -1,8 +1,88 @@
 import { randomUUID } from "node:crypto";
 
-import { expect, test, type APIRequestContext, type Locator } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 
 import { billingProductsFixture, expectDialogWithinViewport, expectNoHorizontalOverflow, masonryGalleryFixture, masonryLayoutIsReady, openCreativeHistory, readMasonryLayout } from "./responsive-helpers";
+
+test("GCP Agent Platform channel credentials persist across desktop and mobile reloads", async ({ page, request }, testInfo) => {
+    const channelName = `E2E GCP ${testInfo.project.name} ${randomUUID().slice(0, 8)}`;
+    try {
+        await page.goto("/admin?section=channels", { waitUntil: "domcontentloaded" });
+        await expect(page.locator(".admin-dashboard-shell")).toHaveAttribute("data-hydrated", "true");
+        await page
+            .getByRole("button", { name: /接入(?:新)?渠道/ })
+            .first()
+            .click();
+
+        const onboarding = page.getByRole("dialog", { name: "接入新渠道" });
+        await expect(onboarding).toBeVisible();
+        await onboarding.getByRole("button", { name: /GCP Agent Platform/ }).click();
+        await onboarding.getByRole("button", { name: "开始配置" }).click();
+        await onboarding.getByLabel("渠道名称").fill(channelName);
+        await onboarding.getByLabel("GCP Project ID").fill("vozeb-e2e-123");
+        await onboarding.getByLabel("Location").fill("asia-east1");
+        await expect(onboarding.getByLabel("服务端 Endpoint")).toHaveValue("https://asia-east1-aiplatform.googleapis.com");
+
+        const credentialMode = onboarding.locator(".ant-segmented").filter({ hasText: "ADC" });
+        const geometry = await credentialMode.evaluate((element) => {
+            const rect = element.getBoundingClientRect();
+            const parentRect = element.parentElement?.getBoundingClientRect();
+            return { display: getComputedStyle(element).display, width: Math.round(rect.width), parentWidth: Math.round(parentRect?.width || 0), left: Math.round(rect.left), right: Math.round(rect.right) };
+        });
+        expect(["flex", "inline-flex"]).toContain(geometry.display);
+        expect(geometry.width).toBeGreaterThan(180);
+        expect(geometry.width).toBeLessThanOrEqual(geometry.parentWidth + 1);
+        expect(geometry.left).toBeGreaterThanOrEqual(0);
+        expect(geometry.right).toBeLessThanOrEqual((page.viewportSize()?.width || 0) + 1);
+
+        await onboarding.getByText("API Key", { exact: true }).click();
+        await onboarding.getByPlaceholder("仅保存在服务端").fill("gcp-e2e-api-key");
+        await onboarding.getByRole("button", { name: "保存草稿" }).click();
+        await expect(page.getByText("渠道草稿已保存")).toBeVisible();
+
+        await page.reload({ waitUntil: "domcontentloaded" });
+        await expect(page.locator(".admin-dashboard-shell")).toHaveAttribute("data-hydrated", "true");
+        let channelContainer = adminChannelContainer(page, channelName);
+        await expect(channelContainer).toBeVisible();
+        await channelContainer.getByRole("button", { name: /查\s*看/ }).click();
+
+        let detail = page.getByRole("dialog", { name: channelName });
+        await detail.getByRole("tab", { name: "渠道配置" }).click();
+        await expect(detail.getByLabel("Location")).toHaveValue("asia-east1");
+        await expect(detail.getByLabel("服务端 Endpoint")).toHaveValue("https://asia-east1-aiplatform.googleapis.com");
+        await expect(detail.locator(".ant-segmented-item-selected")).toContainText("API Key");
+        await detail.getByText("ADC", { exact: true }).click();
+        await expect(detail.getByLabel("鉴权")).toHaveValue("Application Default Credentials (ADC)");
+        await detail.locator("button.ant-drawer-close").click();
+
+        await page.getByRole("button", { name: "保存模型渠道配置" }).click();
+        await expect(page.getByText("模型渠道配置已保存")).toBeVisible();
+        await page.reload({ waitUntil: "domcontentloaded" });
+        await expect(page.locator(".admin-dashboard-shell")).toHaveAttribute("data-hydrated", "true");
+
+        const persistedResponse = await request.get("/api/admin/settings");
+        expect(persistedResponse.ok(), await persistedResponse.text()).toBe(true);
+        const persisted = ((await persistedResponse.json()) as { settings: { systemChannels: Array<Record<string, unknown>> } }).settings.systemChannels.find((channel) => channel.name === channelName);
+        expect(persisted).toMatchObject({ baseUrl: "https://asia-east1-aiplatform.googleapis.com", hasApiKey: false, advancedConfig: { authMode: "google-adc", gcpProjectId: "vozeb-e2e-123", gcpLocation: "asia-east1" } });
+
+        channelContainer = adminChannelContainer(page, channelName);
+        await channelContainer.getByRole("button", { name: /查\s*看/ }).click();
+        detail = page.getByRole("dialog", { name: channelName });
+        await expect(detail.getByText("ADC（应用容器）", { exact: true })).toBeVisible();
+    } finally {
+        const latestResponse = await request.get("/api/admin/settings");
+        if (latestResponse.ok()) {
+            const latest = ((await latestResponse.json()) as { settings: { systemChannels: Array<Record<string, unknown>> } }).settings.systemChannels;
+            const cleanup = await request.patch("/api/admin/settings", { data: { systemChannels: latest.filter((channel) => channel.name !== channelName) } });
+            expect(cleanup.ok(), await cleanup.text()).toBe(true);
+        }
+    }
+});
+
+function adminChannelContainer(page: Page, channelName: string) {
+    if ((page.viewportSize()?.width || 0) < 768) return page.locator(".md\\:hidden > div").filter({ hasText: channelName });
+    return page.getByRole("row").filter({ hasText: channelName });
+}
 
 test("creative workspaces remain usable without horizontal overflow in light and dark themes", async ({ page, request }) => {
     const created = await request.post("/api/drama/projects", { data: { title: "E2E 短剧项目", ratio: "9:16" } });

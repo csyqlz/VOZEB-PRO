@@ -5,6 +5,7 @@ description: VOZEB PRO 当前版本需要人工或真实环境确认的事项
 
 # 待测试
 
+- GCP Agent Platform 已作为独立原生协议接入，不复用 Gemini Developer API：支持 `global` 与区域 Vertex 资源路径、ADC 自动令牌或 Google Cloud API Key、文本生成/流式返回、文生图以及 `inlineData` 参考图编辑；上游未提供可靠通用目录时保留管理员手工模型 ID。服务器 TCP fixture 已通过两层协议矩阵，覆盖后台保存、逻辑模型、系统代理、鉴权头、计费头、文本、图片和参考图请求。真实 Docker 环境已验证服务账号 JSON 只读挂载到 `app`、`GOOGLE_APPLICATION_CREDENTIALS` 读取、OAuth Bearer Token 获取和真实 GCP Project 的 Vertex AI 模型列表访问（HTTP 200）；同时复现并记录了官方镜像 `uid=1000` 读取 `root:root 600` 文件时的 `EACCES`，使用 `1000:1000` 与 `0400` 后恢复。仍需分别使用 API Key 和 ADC 验收区域与模型可用性、流式文本、真实计费文生图、图生图、积分扣除和失败退款。
 - Agent Runtime 已完成 AgentRequestV1、Chat/Responses/Gemini/custom 规划协议、内部流式解析、幂等回退和安全 SSE；短剧“AI 整理”也通过共享运行时使用内部流式读取、请求取消和可靠完整响应回退，最终只向浏览器返回校验后的结构化结果。本地 TCP fixture 已覆盖 Chat/Responses/Gemini/custom 的 SSE/NDJSON 分片、模型目录、媒体创建/查询/结果代理、鉴权、计费幂等和 POST/DELETE 取消，Responses 代理已确认 `baseUrl=https://api.openai.com/v1` 与显式 `/v1/responses` 不会重复版本前缀，短剧分析也覆盖了兼容网关结果包装。登录态生产构建已完成统一 Agent、Canvas、短剧的桌面、390×844、430×932、浅深主题和页面刷新回归；Canvas 真实 Run 已确认使用 Chat Completions 流式规划，SSE 重连未重复创建任务或计费。仍需在真实运行中的任务上人工验收暂停/恢复和上游失败重试，并核对正式渠道的退款、流式首字节和上游响应质量。
 - 统一创作、Canvas、短剧 Agent 的系统身份，以及提示词优化、创作质检和 GitHub Skill 导入的内部模型提示词，已统一读取后台“站点资料 → 网站标题”；空标题仍回退 `VOZEB PRO`，历史消息、开源项目名称、备份标识和数据库前缀不会被重写。专项 5 个测试文件、70 项测试与 TypeScript 检查已通过；仍需在已配置真实默认文本模型的环境修改网站标题后，分别验证新建普通问候、Canvas/短剧 Agent、提示词优化、自动复盘和 Skill 导入均使用新名称，旧会话内容保持不变。
 - 统一创作图片参数已增加 1:1、16:9、9:16 的 2K/4K 精确像素预设，服务端仍按用户明确尺寸提交并校验真实结果；专项参数回归与 TypeScript 已通过。仍需在实际配置了对应高分辨率能力的图片渠道分别验证上游接受、落盘尺寸和积分扣费，未声明该能力的渠道应由上游返回明确错误。

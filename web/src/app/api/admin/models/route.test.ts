@@ -39,6 +39,32 @@ describe("admin models route", () => {
         expect(fetchMock).toHaveBeenCalledWith("https://sd.example.com/sdapi/v1/sd-models", expect.objectContaining({ headers: {} }));
     });
 
+    it("does not require an API key for an ADC GCP channel", async () => {
+        const fetchMock = vi.fn();
+        vi.stubGlobal("fetch", fetchMock);
+
+        const response = await POST(
+            request({
+                baseUrl: "https://aiplatform.googleapis.com",
+                apiKey: "",
+                apiFormat: "gemini",
+                protocol: "gcp-agent-platform",
+                authMode: "google-adc",
+                configuredModels: ["gemini-2.5-flash"],
+            }),
+        );
+
+        expect(response.status).toBe(200);
+        expect(await response.json()).toMatchObject({
+            models: ["gemini-2.5-flash"],
+            modelCapabilities: { "gemini-2.5-flash": "text" },
+            modelConfigs: { "gemini-2.5-flash": { protocol: "gcp-agent-platform", capability: "text", createPath: "/models/:model:generateContent" } },
+            discoveredCount: 0,
+            catalogSupported: false,
+        });
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+
     it("classifies opaque models from the selected protocol catalog", async () => {
         const fetchMock = vi.fn(async () => Response.json({ data: [{ id: "opaque-seedance-model", object: "model" }] }));
         vi.stubGlobal("fetch", fetchMock);

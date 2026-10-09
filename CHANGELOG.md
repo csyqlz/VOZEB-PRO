@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- [模型] 新增 GCP Agent Platform 原生文本与图片渠道，支持 ADC 或 Google Cloud API Key、流式文本、文生图和参考图编辑。
+
 ## v0.0.7
 
 - [回归修复] 恢复短剧“本集设置”按钮收缩面板，并修复模型能力档案误隐藏 2K/4K 尺寸预设。

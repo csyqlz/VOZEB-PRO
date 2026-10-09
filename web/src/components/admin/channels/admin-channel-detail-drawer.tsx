@@ -81,7 +81,7 @@ function ChannelOverview({ channel, settings, status, onFetchModels, fetching }:
             </div>
             <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
                 <OverviewValue label="Base URL" value={channel.baseUrl || "未配置"} />
-                <OverviewValue label="凭据" value={channelRequiresApiKey(channel) ? (channel.apiKey || channel.hasApiKey ? "已安全保存" : "未配置") : "无需凭据"} />
+                <OverviewValue label="凭据" value={channelRequiresApiKey(channel) ? (channel.apiKey || channel.hasApiKey ? "已安全保存" : "未配置") : channel.advancedConfig?.protocol === "gcp-agent-platform" ? "ADC（应用容器）" : "无需凭据"} />
                 <OverviewValue label="协议" value={channelProtocolLabel(channel)} />
                 <OverviewValue label="上游模型" value={`${channel.models.length} 个`} />
                 <OverviewValue label="逻辑绑定" value={`${channelBindingCount(channel.id, settings)} 个`} />
