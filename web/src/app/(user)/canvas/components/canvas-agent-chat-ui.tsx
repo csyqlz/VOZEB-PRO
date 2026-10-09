@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useRef, useState, type DragEvent as ReactDragEvent, type ReactNode } from "react";
-import { Button, Popover, Tooltip } from "antd";
+import { useRef, useState, type DragEvent as ReactDragEvent, type ReactNode } from "react";
+import { Button, Tooltip } from "antd";
 import { ArrowUp, Check, CheckCircle2, Circle, CircleAlert, Crosshair, LoaderCircle, Pause, Play, Plus, RotateCcw, Wrench, X, XCircle } from "lucide-react";
 
 import { AgentMessageActions } from "@/components/agent/agent-message-actions";
@@ -9,24 +9,14 @@ import { AgentMarkdown } from "@/components/agent/agent-markdown";
 import { AgentMediaPreview } from "@/components/agent/agent-media-preview";
 import { SiteLogo } from "@/components/layout/site-logo";
 import { canvasThemes } from "@/lib/canvas-theme";
-import { clipboardImageFiles } from "@/lib/clipboard-image-files";
 import { droppedFiles, leftDropTarget, preventFileDragEvent } from "@/lib/file-drop";
 import { imagePreviewUrl } from "@/lib/media-image-url";
 import { userAvatarFallback } from "@/lib/user-avatar";
 import { DEFAULT_SITE_TITLE, resolveSiteTitle } from "@/lib/site-brand";
 import { usePublicSessionStore } from "@/stores/use-public-session-store";
 import type { LocalUser } from "@/stores/use-user-store";
-import {
-    canvasAgentMentionAtCursor,
-    canvasAgentMentionCandidates,
-    canvasAgentMentionDeletionAtKey,
-    canvasAgentMentionSegments,
-    canvasAgentReferenceAliases,
-    remapCanvasAgentReferences,
-    replaceCanvasAgentMention,
-    type CanvasAgentMentionAsset,
-} from "./canvas-agent-mention";
-import { CanvasAgentMentionPicker, CanvasAgentMentionPreview } from "./canvas-agent-mention-picker";
+import type { CanvasAgentMentionAsset } from "./canvas-agent-mention";
+import { CanvasAgentPromptEditor } from "./canvas-agent-prompt-editor";
 import { canvasAgentProgressSteps, type CanvasAgentRunStage } from "./canvas-agent-progress";
 
 export type CanvasAgentChatAttachment = {
@@ -274,8 +264,7 @@ export function AgentChatComposer({
     onAddFiles,
     onRemoveAttachment,
     onRetryAttachment,
-    onSelectReference,
-    onRemoveReference,
+    onReferenceIdsChange,
     beforeInput,
     left,
 }: {
@@ -292,58 +281,16 @@ export function AgentChatComposer({
     onAddFiles?: (files: FileList | File[] | null) => void | Promise<void>;
     onRemoveAttachment?: (id: string) => void;
     onRetryAttachment?: (id: string) => void;
-    onSelectReference?: (id: string) => void;
-    onRemoveReference?: (id: string) => void;
+    onReferenceIdsChange?: (ids: string[]) => void;
     beforeInput?: ReactNode;
     left?: ReactNode;
 }) {
     const fileInputRef = useRef<HTMLInputElement>(null);
-    const textareaRef = useRef<HTMLTextAreaElement>(null);
-    const caretRef = useRef(0);
-    const mentionHighlightRef = useRef<HTMLDivElement>(null);
     const [isDragActive, setIsDragActive] = useState(false);
-    const [mentionQuery, setMentionQuery] = useState<string | null>(null);
     const uploading = attachments.some((item) => item.status === "uploading");
     const hasFailedUpload = attachments.some((item) => item.status === "failed");
     const canSubmit = !disabled && !sending && !uploading && !hasFailedUpload && Boolean(prompt.trim() || attachments.length);
-    const mentionCandidates = useMemo(() => canvasAgentMentionCandidates(mentionAssets, mentionQuery || ""), [mentionAssets, mentionQuery]);
-    const mentionAssetsById = useMemo(() => new Map(mentionAssets.map((asset) => [asset.id, asset])), [mentionAssets]);
-    const referenceAliases = useMemo(() => canvasAgentReferenceAliases(mentionAssets, selectedReferenceIds), [mentionAssets, selectedReferenceIds]);
-    const mentionSegments = useMemo(() => canvasAgentMentionSegments(prompt, referenceAliases), [prompt, referenceAliases]);
-    const hasMentionReferences = mentionSegments.some((segment) => segment.referenced);
-    const updateComposerValue = (value: string, cursor: number) => {
-        caretRef.current = cursor;
-        onPromptChange(value);
-        setMentionQuery(canvasAgentMentionAtCursor(value, cursor)?.query ?? null);
-    };
-    const updateMentionCursor = (value: string, cursor: number) => {
-        caretRef.current = cursor;
-        setMentionQuery(canvasAgentMentionAtCursor(value, cursor)?.query ?? null);
-    };
-    const focusComposerAt = (cursor: number) => {
-        window.requestAnimationFrame(() => {
-            textareaRef.current?.focus();
-            textareaRef.current?.setSelectionRange(cursor, cursor);
-        });
-    };
-    const selectMentionAsset = (asset: CanvasAgentMentionAsset) => {
-        const nextReferenceIds = selectedReferenceIds.includes(asset.id) ? selectedReferenceIds : [...selectedReferenceIds, asset.id];
-        const alias = canvasAgentReferenceAliases(mentionAssets, nextReferenceIds).get(asset.id);
-        if (!alias) return;
-        const result = replaceCanvasAgentMention(prompt, caretRef.current, alias);
-        onSelectReference?.(asset.id);
-        onPromptChange(result.value);
-        setMentionQuery(null);
-        focusComposerAt(result.cursor);
-    };
-    const removeMentionReference = (nodeId: string, cursor: number) => {
-        const nextReferenceIds = selectedReferenceIds.filter((id) => id !== nodeId);
-        const nextPrompt = remapCanvasAgentReferences(prompt, mentionAssets, selectedReferenceIds, nextReferenceIds);
-        onPromptChange(nextPrompt);
-        onRemoveReference?.(nodeId);
-        setMentionQuery(null);
-        focusComposerAt(Math.min(cursor, nextPrompt.length));
-    };
+    const pendingAttachments = attachments.filter((item) => !selectedReferenceIds.includes(item.id));
     const handleDragOver = (event: ReactDragEvent<HTMLDivElement>) => {
         if (!onAddFiles || sending || !preventFileDragEvent(event)) return;
         setIsDragActive(true);
@@ -383,10 +330,10 @@ export function AgentChatComposer({
                         }}
                     />
                 ) : null}
-                <div className="flex min-w-0 items-start gap-2" data-canvas-agent-input-row>
-                    {onAddFiles || attachments.length ? (
-                        <div className="hide-scrollbar flex max-w-[44%] shrink-0 items-start gap-1 overflow-x-auto overflow-y-hidden px-0.5 py-1" aria-label="本轮参考素材" aria-live="polite">
-                            {attachments.map((item) => (
+                <div className="min-w-0" data-canvas-agent-input-row>
+                    {pendingAttachments.length ? (
+                        <div className="flex flex-wrap items-start gap-1 px-0.5 py-1" aria-label="本轮参考素材" aria-live="polite">
+                            {pendingAttachments.map((item) => (
                                 <div
                                     key={item.id}
                                     className="group relative size-10 shrink-0 overflow-visible rounded-md border"
@@ -446,83 +393,36 @@ export function AgentChatComposer({
                                     ) : null}
                                 </div>
                             ))}
-                            {onAddFiles ? (
-                                <Tooltip title={uploading ? "正在上传图片" : attachments.length ? "继续添加参考素材" : "添加参考素材"}>
-                                    <Button
-                                        type="text"
-                                        className="!size-10 !min-w-10 !shrink-0 !rounded-lg !border !p-0"
-                                        disabled={sending}
-                                        style={{ color: theme.node.muted, background: theme.node.fill, borderColor: theme.node.stroke }}
-                                        icon={uploading ? <LoaderCircle className="size-4 animate-spin" /> : <Plus className="size-4" />}
-                                        onClick={() => fileInputRef.current?.click()}
-                                        aria-label={uploading ? "正在上传图片" : attachments.length ? "继续添加参考素材" : "添加参考素材"}
-                                    />
-                                </Tooltip>
-                            ) : null}
                         </div>
                     ) : null}
-                    <Popover
-                        trigger={[]}
-                        placement="topLeft"
-                        arrow={false}
-                        open={mentionQuery !== null}
-                        onOpenChange={(open) => {
-                            if (!open) setMentionQuery(null);
+                    <CanvasAgentPromptEditor
+                        prompt={prompt}
+                        assets={mentionAssets}
+                        selectedIds={selectedReferenceIds}
+                        placeholder={placeholder}
+                        onChange={onPromptChange}
+                        onReferenceIdsChange={onReferenceIdsChange}
+                        onSubmit={() => {
+                            if (canSubmit) onSubmit();
                         }}
-                        styles={{ container: { padding: 0, borderRadius: 12, overflow: "hidden", background: theme.node.panel, border: `1px solid ${theme.toolbar.border}` } }}
-                        content={<CanvasAgentMentionPicker assets={mentionCandidates} selectedNodeIds={selectedReferenceIds} theme={theme} onSelect={selectMentionAsset} />}
-                    >
-                        <div className="relative min-w-0 flex-1">
-                            {hasMentionReferences ? <CanvasAgentMentionPreview segments={mentionSegments} assetsById={mentionAssetsById} previewRef={mentionHighlightRef} theme={theme} /> : null}
-                            <textarea
-                                ref={textareaRef}
-                                value={prompt}
-                                onChange={(event) => updateComposerValue(event.target.value, event.target.selectionStart)}
-                                onClick={(event) => updateMentionCursor(event.currentTarget.value, event.currentTarget.selectionStart)}
-                                onKeyUp={(event) => {
-                                    if (["ArrowUp", "ArrowDown", "Enter", "Escape"].includes(event.key)) return;
-                                    updateMentionCursor(event.currentTarget.value, event.currentTarget.selectionStart);
-                                }}
-                                onScroll={(event) => {
-                                    if (mentionHighlightRef.current) mentionHighlightRef.current.style.transform = `translate3d(0, -${event.currentTarget.scrollTop}px, 0)`;
-                                }}
-                                onPaste={(event) => {
-                                    if (!onAddFiles) return;
-                                    const images = clipboardImageFiles(event.clipboardData);
-                                    if (!images.length) return;
-                                    event.preventDefault();
-                                    void onAddFiles(images);
-                                }}
-                                onKeyDown={(event) => {
-                                    if ((event.key === "Backspace" || event.key === "Delete") && onRemoveReference) {
-                                        const deletion = canvasAgentMentionDeletionAtKey(prompt, event.currentTarget.selectionStart, event.currentTarget.selectionEnd, event.key, referenceAliases);
-                                        if (deletion) {
-                                            event.preventDefault();
-                                            removeMentionReference(deletion.nodeId, deletion.cursor);
-                                            return;
-                                        }
-                                    }
-                                    if (event.key === "Escape" && mentionQuery !== null) {
-                                        event.preventDefault();
-                                        setMentionQuery(null);
-                                        return;
-                                    }
-                                    if (event.key !== "Enter" || event.shiftKey || event.ctrlKey || event.metaKey) return;
-                                    event.preventDefault();
-                                    if (mentionQuery !== null && mentionCandidates.length) {
-                                        selectMentionAsset(mentionCandidates[0]);
-                                        return;
-                                    }
-                                    void onSubmit();
-                                }}
-                                className="thin-scrollbar relative z-[1] block max-h-32 min-h-20 w-full resize-none border-0 bg-transparent px-1 py-1 text-sm leading-5 outline-none placeholder:opacity-45"
-                                style={{ color: hasMentionReferences ? "transparent" : theme.node.text, caretColor: theme.node.text }}
-                                placeholder={placeholder}
-                            />
-                        </div>
-                    </Popover>
+                        onAddFiles={sending ? undefined : onAddFiles}
+                    />
                 </div>
                 <div className="mt-2 flex min-w-0 items-center gap-2.5" data-canvas-agent-toolbar>
+                    {onAddFiles ? (
+                        <Tooltip title={uploading ? "正在上传图片" : attachments.length ? "继续添加参考素材" : "添加参考素材"}>
+                            <Button
+                                type="text"
+                                className="!size-8 !min-w-8 !shrink-0 !rounded-lg !border !p-0"
+                                disabled={sending}
+                                style={{ color: theme.node.muted, background: theme.node.fill, borderColor: theme.node.stroke }}
+                                icon={uploading ? <LoaderCircle className="size-4 animate-spin" /> : <Plus className="size-4" />}
+                                onClick={() => fileInputRef.current?.click()}
+                                aria-label={uploading ? "正在上传图片" : attachments.length ? "继续添加参考素材" : "添加参考素材"}
+                            />
+                        </Tooltip>
+                    ) : null}
+
                     <div className="min-w-0 flex-1 overflow-hidden py-0.5">{left}</div>
                     <Button
                         type="primary"

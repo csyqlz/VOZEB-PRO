@@ -42,6 +42,68 @@ describe("creative result references", () => {
 });
 
 describe("CreativeMessages", () => {
+    it.each([
+        ["confirm_purposes", "确认用途并继续"],
+        ["retry_analysis", "重新分析"],
+    ] as const)("restores the original paused round's %s entry when its assistant message is completed", (kind, button) => {
+        const userMessage: CreativeMessage = {
+            id: "reference-input-original",
+            conversationId: "conversation-one",
+            runId: "reference-run-original",
+            sequence: 1,
+            role: "user",
+            status: "completed",
+            content: "参考这张图的光线，生成商品场景图",
+            metadata: {},
+            createdAt: 1,
+            updatedAt: 1,
+        };
+        const assistantMessage: CreativeMessage = { ...userMessage, id: "reference-assistant-original", sequence: 2, role: "assistant", content: "请确认参考图片用途" };
+        const markup = renderToStaticMarkup(
+            <App>
+                <CreativeMessages
+                    messages={[userMessage, assistantMessage]}
+                    assets={[]}
+                    loading={false}
+                    projectLinks={{}}
+                    projectErrors={{}}
+                    runDetails={{
+                        "reference-run-original": {
+                            id: "reference-run-original",
+                            conversationId: "conversation-one",
+                            inputMessageId: userMessage.id,
+                            assistantMessageId: assistantMessage.id,
+                            status: "paused",
+                            assetIds: [],
+                            tasks: [{ id: "placeholder", title: "商品场景图", type: "image", status: "needs_review" }],
+                            ecommerceReferenceReview: {
+                                version: "ecommerce-reference-review.v1",
+                                reviewId: "reference-review-original",
+                                kind,
+                                question: "请确认参考图片用途",
+                                assets: [
+                                    { assetId: "product", assetVersion: "version-one", alias: "图片1", previewUrl: "/api/reference-assets/product.png", purposes: ["edit_target", "product_identity"], allowedPurposes: ["edit_target", "product_identity"] },
+                                ],
+                            },
+                        },
+                    }}
+                    onMaterializeProject={async () => {
+                        throw new Error("not used");
+                    }}
+                    onRetryMessage={vi.fn()}
+                    onRecoverReference={async () => undefined}
+                    selectedAssetIds={[]}
+                    onToggleAsset={vi.fn()}
+                />
+            </App>,
+        );
+        expect(markup).toContain(button);
+        expect(markup).toContain("/api/reference-assets/product.png");
+        expect(markup.match(/data-testid="creative-generation-waiting"/g)).toHaveLength(1);
+        expect(markup).not.toContain("已为你生成图片");
+        expect(markup).not.toContain("已等待");
+    });
+
     it("renders completed assistant markdown instead of showing syntax markers", () => {
         const message: CreativeMessage = {
             id: "assistant-markdown",
@@ -430,6 +492,172 @@ describe("CreativeMessages", () => {
         expect(markup).not.toContain("!bg-[#f7f6ff]");
         expect(markup).not.toContain("!text-[#5c5fff]");
         expect(markup).not.toContain("shadow-[0_4px_16px_rgba(32,36,42,0.04)]");
+    });
+
+    it.each([
+        ["product_silhouette", "商品轮廓与原图不一致", "needs_review"],
+        ["canvas_geometry", "画幅与本轮尺寸要求不一致", "needs_review"],
+        ["protected_structure", "受保护的结构与原图不一致", "needs_review"],
+        ["unmodified_region", "编辑范围外的内容未保持", "needs_review"],
+        ["composition_lighting", "构图或光线需要调整", "needs_adjustment"],
+    ] as const)("shows readable %s acceptance without a QA regeneration action", (failureKey, label, qualityStatus) => {
+        const userMessage: CreativeMessage = {
+            id: "review-user",
+            conversationId: "conversation-one",
+            runId: "review-run",
+            sequence: 1,
+            role: "user",
+            status: "completed",
+            content: "把白底商品放进现代客厅",
+            metadata: { assetIds: ["reference-product"] },
+            createdAt: 1,
+            updatedAt: 1,
+        };
+        const assistantMessage: CreativeMessage = {
+            id: "review-assistant",
+            conversationId: "conversation-one",
+            runId: "review-run",
+            sequence: 2,
+            role: "assistant",
+            status: "completed",
+            content: "商品一致性验收未通过，请复核后重试。",
+            metadata: {},
+            createdAt: 2,
+            updatedAt: 2,
+        };
+        const reference = {
+            id: "reference-product",
+            userId: "user-one",
+            conversationId: "conversation-one",
+            sourceRunId: "upload",
+            ordinal: 0,
+            type: "image",
+            status: "ready",
+            title: "商品白底图",
+            serverUrl: "/reference-product.png",
+            metadata: {},
+            createdAt: 1,
+            updatedAt: 1,
+        } satisfies CreativeAsset;
+        const internalResult = {
+            ...reference,
+            id: "internal-result",
+            messageId: assistantMessage.id,
+            sourceRunId: "review-run",
+            sourceTaskId: "image-task",
+            title: "内部生成结果",
+            serverUrl: "/internal-result.png",
+            metadata: { agentTaskId: "image-task" },
+            createdAt: 2,
+            updatedAt: 2,
+        } satisfies CreativeAsset;
+
+        const markup = renderToStaticMarkup(
+            <App>
+                <CreativeMessages
+                    messages={[userMessage, assistantMessage]}
+                    assets={[reference, internalResult]}
+                    loading={false}
+                    projectLinks={{}}
+                    projectErrors={{}}
+                    runDetails={{
+                        "review-run": {
+                            id: "review-run",
+                            conversationId: "conversation-one",
+                            inputMessageId: userMessage.id,
+                            assistantMessageId: assistantMessage.id,
+                            status: qualityStatus === "needs_review" ? "paused" : "completed",
+                            assetIds: qualityStatus === "needs_review" ? [] : [internalResult.id],
+                            ecommerceQualityStatus: qualityStatus,
+                            ecommerceQualityReview: { kind: qualityStatus === "needs_review" ? "hard_failure" : "needs_adjustment", failureKeys: [failureKey] },
+                            tasks: [
+                                {
+                                    id: "image-task",
+                                    title: "生成商品场景图",
+                                    type: "image",
+                                    status: "completed",
+                                },
+                            ],
+                        },
+                    }}
+                    onMaterializeProject={async () => {
+                        throw new Error("not used");
+                    }}
+                    onRetryMessage={vi.fn()}
+                    onAdjustRequest={vi.fn()}
+                    selectedAssetIds={[]}
+                    onToggleAsset={vi.fn()}
+                />
+            </App>,
+        );
+
+        expect(markup).toContain('alt="商品白底图"');
+        expect(markup).toContain("商品一致性验收未通过，请复核后重试。");
+        if (qualityStatus === "needs_review") {
+            expect(markup).not.toContain("/internal-result.png");
+            expect(markup).not.toContain('data-testid="creative-media-result"');
+        } else {
+            expect(markup).toContain("/internal-result.png");
+            expect(markup).toContain('data-testid="creative-media-result"');
+        }
+        expect(markup).toContain(label);
+        expect(markup).toContain(qualityStatus === "needs_review" ? "待复核" : "需要调整");
+        expect(markup).not.toContain("已为你生成");
+        expect(markup).toContain('data-testid="creative-quality-review"');
+        expect(markup).not.toContain('aria-label="重新生成未通过的商品图"');
+        expect(markup).toContain('aria-label="调整本轮创作要求"');
+    });
+
+    it.each(["hard_failure", "check_unavailable", "needs_adjustment"] as const)("keeps delivered media usable when advisory %s arrives", (kind) => {
+        const userMessage: CreativeMessage = { id: "advisory-user", conversationId: "conversation-one", runId: "advisory-run", sequence: 1, role: "user", status: "completed", content: "参考光线修改商品场景", metadata: {}, createdAt: 1, updatedAt: 1 };
+        const assistantMessage: CreativeMessage = { ...userMessage, id: "advisory-assistant", sequence: 2, role: "assistant", content: "图片已生成。" };
+        const result: CreativeAsset = { ...mediaAsset("advisory-result"), messageId: assistantMessage.id, sourceRunId: userMessage.runId, sourceTaskId: "image-task", metadata: { agentTaskId: "image-task" } };
+        const markup = renderToStaticMarkup(
+            <App>
+                <CreativeMessages
+                    messages={[userMessage, assistantMessage]}
+                    assets={[result]}
+                    loading={false}
+                    projectLinks={{}}
+                    projectErrors={{}}
+                    runDetails={{
+                        "advisory-run": {
+                            id: "advisory-run",
+                            conversationId: userMessage.conversationId,
+                            inputMessageId: userMessage.id,
+                            assistantMessageId: assistantMessage.id,
+                            status: "completed",
+                            assetIds: [result.id],
+                            ecommerceQualityStatus: "needs_adjustment",
+                            ecommerceQualityReview: { kind, advisory: true, failureKeys: ["protected_structure"] },
+                            tasks: [{ id: "image-task", title: "商品场景图", type: "image", status: "completed" }],
+                        },
+                    }}
+                    onMaterializeProject={async () => {
+                        throw new Error("not used");
+                    }}
+                    onRetryMessage={vi.fn()}
+                    onAdjustRequest={vi.fn()}
+                    selectedAssetIds={[]}
+                    onToggleAsset={vi.fn()}
+                />
+            </App>,
+        );
+        expect(markup).toContain('data-testid="creative-media-result"');
+        expect(markup).toContain("/advisory-result.png");
+        expect(markup).toContain("下载");
+        expect(markup).toContain('aria-label="更多本轮创作操作"');
+        expect(markup).toContain("参考建议");
+        expect(markup).toContain("已为你生成图片");
+        expect(markup).not.toContain(">需要调整<");
+        expect(markup).toContain("图片已交付，可下载、引用或继续编辑");
+        expect(markup).not.toContain('data-testid="creative-generation-waiting"');
+        expect(markup).not.toContain("待复核");
+        expect(markup).not.toContain("未作为合格作品发布");
+        if (kind === "check_unavailable") {
+            expect(markup).toContain("视觉质检暂时不可用，图片已交付");
+            expect(markup).not.toContain("受保护的结构与原图不一致");
+        }
     });
 
     it("uses a warm elapsed-time status while a media result is still running", () => {

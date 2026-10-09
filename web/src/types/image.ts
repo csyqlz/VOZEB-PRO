@@ -1,3 +1,4 @@
+import type { ImageEditRegion } from "@/lib/image-edit-region";
 import type { VideoReferenceRole } from "@/lib/video-reference-contract";
 
 export type ReferenceImage = {
@@ -15,4 +16,5 @@ export type ReferenceImage = {
     width?: number;
     height?: number;
     videoRole?: VideoReferenceRole;
+    editRegion?: ImageEditRegion;
 };

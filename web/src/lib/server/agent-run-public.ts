@@ -1,8 +1,46 @@
 import type { CreativeRunEvent } from "@/lib/creative-runtime-contract";
 import { toSafeGenerationErrorMessage } from "./generation-errors";
 import type { AgentRun, AgentRunTask } from "./agent-run-store";
+import { ECOMMERCE_QUALITY_CHECK_KEYS, type EcommerceQualityCheck } from "./ecommerce-quality-check";
+
+const PUBLIC_QUALITY_KEYS = new Set<string>([...ECOMMERCE_QUALITY_CHECK_KEYS, "canvas_geometry", "stored_media"]);
 
 export function publicAgentRun(run: AgentRun) {
+    const qualityCheck = run.ecommerceSnapshot?.qualityCheck;
+    const technicalCheck = run.ecommerceSnapshot?.technicalCheck;
+    const optionalQuality = Boolean(run.ecommerceSnapshot?.qualityPolicy);
+    const ecommerceQualityStatus = optionalQuality
+        ? technicalCheck && technicalCheck.status !== "passed"
+            ? "needs_review"
+            : qualityCheck
+              ? qualityCheck.status === "passed"
+                  ? "passed"
+                  : "needs_adjustment"
+              : undefined
+        : qualityCheck?.status === "blocked" || qualityCheck?.status === "unavailable" || qualityCheck?.hardFailures?.length
+          ? "needs_review"
+          : qualityCheck?.publicStatus;
+    const reviewCheck = optionalQuality && technicalCheck?.status !== "passed" ? technicalCheck : qualityCheck;
+    const ecommerceQualityReview =
+        ecommerceQualityStatus === "needs_review" || ecommerceQualityStatus === "needs_adjustment"
+            ? {
+                  kind: reviewCheck?.status === "unavailable" && !reviewCheck?.hardFailures?.length ? ("check_unavailable" as const) : ecommerceQualityStatus === "needs_adjustment" ? ("needs_adjustment" as const) : ("hard_failure" as const),
+                  ...(optionalQuality && technicalCheck?.status === "passed" ? { advisory: true } : {}),
+                  failureKeys: Array.from(
+                      new Set(
+                          (ecommerceQualityStatus === "needs_adjustment" ? reviewCheck?.checks || [] : reviewCheck?.hardFailures || [])
+                              .filter((item) => (ecommerceQualityStatus !== "needs_adjustment" || item.status === "failed") && PUBLIC_QUALITY_KEYS.has(item.key))
+                              .map((item) => item.key),
+                      ),
+                  ),
+                  ...(optionalQuality && technicalCheck?.status === "passed"
+                      ? { message: qualityCheck?.status === "unavailable" ? "图片已生成，视觉质检暂时不可用。" : "图片已生成，以下视觉建议供参考。" }
+                      : publicCanvasFailureMessage(reviewCheck)
+                        ? { message: publicCanvasFailureMessage(reviewCheck) }
+                        : {}),
+              }
+            : undefined;
+    const blockedEcommerceResult = optionalQuality ? technicalCheck?.status !== "passed" : ecommerceQualityStatus === "needs_review";
     return {
         id: run.id,
         conversationId: run.conversationId,
@@ -16,7 +54,9 @@ export function publicAgentRun(run: AgentRun) {
         selectedSkillIds: run.selectedSkillIds,
         requestedModelIds: run.requestedModelIds,
         generationPreferences: run.generationPreferences,
-        assetIds: run.assetIds || [],
+        assetIds: blockedEcommerceResult ? [] : run.assetIds || [],
+        ...(ecommerceQualityStatus ? { ecommerceQualityStatus } : {}),
+        ...(ecommerceQualityReview ? { ecommerceQualityReview } : {}),
         tasks: (run.tasks || []).map(publicAgentRunTask),
         cancellation: run.cancellation ? { pendingCount: run.cancellation.pendingChildTaskIds.length } : undefined,
         timings: run.timings,
@@ -27,7 +67,28 @@ export function publicAgentRun(run: AgentRun) {
 
 export function publicAgentRunSnapshot(run: AgentRun) {
     const value = publicAgentRun(run);
-    return { id: value.id, status: value.status, tasks: value.tasks, cancellation: value.cancellation, timings: value.timings, updatedAt: value.updatedAt };
+    return {
+        id: value.id,
+        status: value.status,
+        tasks: value.tasks,
+        assetIds: value.assetIds,
+        ecommerceQualityStatus: value.ecommerceQualityStatus,
+        ecommerceQualityReview: value.ecommerceQualityReview,
+        cancellation: value.cancellation,
+        timings: value.timings,
+        updatedAt: value.updatedAt,
+    };
+}
+
+function publicCanvasFailureMessage(check: Pick<EcommerceQualityCheck, "hardFailures" | "canvasEvidence"> | undefined) {
+    if (!check?.hardFailures?.some((item) => item.key === "canvas_geometry")) return "";
+    const evidence = check.canvasEvidence?.find((item) => item.nativeMatches === false || item.storedMatches === false);
+    const sizeText = (size: { width: number; height: number } | undefined) => (size && Number.isSafeInteger(size.width) && size.width > 0 && Number.isSafeInteger(size.height) && size.height > 0 ? `${size.width}×${size.height}` : "");
+    const requested = sizeText(evidence?.constraint.size);
+    const native = sizeText(evidence?.nativeSize);
+    const stored = sizeText(evidence?.storedSize);
+    const sizes = [requested ? `${evidence?.constraint.mode === "ratio" ? "要求比例" : "要求"} ${requested}` : "", native ? `上游原图 ${native}` : "", stored ? `落盘图片 ${stored}` : ""].filter(Boolean);
+    return `画幅与要求不一致${sizes.length ? `：${sizes.join("，")}` : ""}。`;
 }
 
 export function publicAgentRunEvent(event: CreativeRunEvent): CreativeRunEvent {
@@ -37,6 +98,12 @@ export function publicAgentRunEvent(event: CreativeRunEvent): CreativeRunEvent {
     if (event.type === "canvas.ops") {
         const data = recordValue(event.data);
         return { ...event, data: { ...(textValue(data.reply) ? { reply: textValue(data.reply) } : {}), ops: publicCanvasOps(arrayValue(data.ops)) } };
+    }
+    if (event.type === "ecommerce.quality") {
+        const data = recordValue(event.data);
+        const status = textValue(data.status);
+        const text = textValue(data.text);
+        return { ...event, data: { ...(status ? { status } : {}), ...(text ? { text } : {}) } };
     }
     return event;
 }

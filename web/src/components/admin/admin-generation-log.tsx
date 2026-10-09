@@ -1,12 +1,13 @@
 "use client";
 
 import { Button, Checkbox, Popconfirm, Tag } from "antd";
-import { Eye, Film, Image as ImageIcon, Trash2 } from "lucide-react";
+import { Eye, Film, Image as ImageIcon, ListChecks, ScanSearch, ShieldCheck, Trash2 } from "lucide-react";
 
 import { browserReadableMediaUrl } from "@/lib/browser-media-url";
 import { AdminAccountId } from "@/components/admin/admin-user-identity";
 import { imagePreviewUrl } from "@/lib/media-image-url";
 import type { StoredGenerationLog } from "@/lib/server/generation-log-store";
+import type { EcommerceGenerationTrace, EcommerceGenerationTraceStage } from "@/lib/server/ecommerce-generation-trace";
 
 export function GenerationLogAssetPreview({ log }: { log: StoredGenerationLog }) {
     const asset = log.assets[0];
@@ -76,6 +77,7 @@ export function GenerationLogDetail({ log }: { log: StoredGenerationLog }) {
                 <InfoBox label="数量" value={`成功 ${log.successCount} / 失败 ${log.failCount} / 共 ${log.count}`} />
             </div>
             <GenerationLogResultSection log={log} />
+            {log.ecommerceTrace ? <EcommerceGenerationTraceSection trace={log.ecommerceTrace} /> : null}
             <div>
                 <div className="mb-1 text-sm font-semibold text-stone-950 dark:text-stone-100">提示词</div>
                 <div className="max-h-48 overflow-y-auto whitespace-pre-wrap rounded-lg border border-stone-200 bg-stone-50 p-3 text-sm leading-6 text-stone-700 dark:border-stone-800 dark:bg-stone-900 dark:text-stone-200">{log.prompt || "-"}</div>
@@ -88,6 +90,89 @@ export function GenerationLogDetail({ log }: { log: StoredGenerationLog }) {
             ) : null}
         </div>
     );
+}
+
+function EcommerceGenerationTraceSection({ trace }: { trace: EcommerceGenerationTrace }) {
+    return (
+        <section>
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <div className="text-sm font-semibold text-stone-950 dark:text-stone-100">电商执行流水</div>
+                <Tag className="m-0" color={trace.finalStatus === "passed" ? "success" : trace.finalStatus === "needs_adjustment" ? "warning" : "error"}>
+                    {traceStatusLabel(trace.finalStatus)}
+                </Tag>
+            </div>
+            <div className="mb-3 grid gap-x-4 gap-y-1 text-xs text-stone-500 dark:text-stone-400 sm:grid-cols-2">
+                <span className="min-w-0 break-all">Run：{trace.runId}</span>
+                <span className="min-w-0 break-all">图片任务：{trace.imageTaskIds.join("、") || "-"}</span>
+            </div>
+            <div className="divide-y divide-stone-200 border-y border-stone-200 dark:divide-stone-800 dark:border-stone-800">
+                {trace.stages.map((stage) => (
+                    <TraceStage key={stage.key} stage={stage} />
+                ))}
+            </div>
+        </section>
+    );
+}
+
+function TraceStage({ stage }: { stage: EcommerceGenerationTraceStage }) {
+    const Icon = stage.key === "visual_analysis" ? ScanSearch : stage.key === "edit_planning" ? ListChecks : stage.key === "image_generation" ? ImageIcon : ShieldCheck;
+    const model = [stage.model?.logicalModelId, stage.model?.upstreamModel].filter(Boolean).join(" → ") || "未执行";
+    return (
+        <div className="py-3">
+            <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
+                <div className="flex min-w-0 items-start gap-2.5">
+                    <Icon className="mt-0.5 size-4 shrink-0 text-stone-500 dark:text-stone-400" />
+                    <div className="min-w-0">
+                        <div className="text-sm font-medium text-stone-900 dark:text-stone-100">{traceStageLabel(stage.key)}</div>
+                        <div className="mt-1 break-all text-xs text-stone-500 dark:text-stone-400">{model}</div>
+                        {stage.model?.channelId ? <div className="mt-0.5 break-all text-xs text-stone-400 dark:text-stone-500">渠道：{stage.model.channelId}</div> : null}
+                    </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                    {stage.completedAt !== undefined ? <span className="text-xs tabular-nums text-stone-400">{formatTraceTime(stage.completedAt)}</span> : null}
+                    <Tag className="m-0" color={traceStatusTone(stage.status)}>
+                        {traceStatusLabel(stage.status)}
+                    </Tag>
+                </div>
+            </div>
+            <details className="mt-2 pl-6">
+                <summary className="cursor-pointer select-none text-xs font-medium text-stone-600 dark:text-stone-300">结构化输出</summary>
+                <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-all border-l-2 border-stone-200 bg-stone-50 px-3 py-2 text-xs leading-5 text-stone-700 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-200">
+                    {JSON.stringify(stage.output, null, 2)}
+                </pre>
+            </details>
+        </div>
+    );
+}
+
+function traceStageLabel(key: EcommerceGenerationTraceStage["key"]) {
+    if (key === "visual_analysis") return "视觉分析";
+    if (key === "edit_planning") return "编辑规划";
+    if (key === "image_generation") return "图片生成";
+    return "结果验收";
+}
+
+function traceStatusLabel(status: string) {
+    if (status === "completed") return "已完成";
+    if (status === "passed") return "通过";
+    if (status === "needs_adjustment") return "待调整";
+    if (status === "blocked" || status === "needs_review") return "待复核";
+    if (status === "unavailable") return "不可用";
+    if (status === "failed") return "失败";
+    if (status === "not_run") return "未执行";
+    return status || "-";
+}
+
+function traceStatusTone(status: string) {
+    if (status === "completed" || status === "passed") return "success";
+    if (status === "needs_adjustment") return "warning";
+    if (status === "not_run") return "default";
+    return "error";
+}
+
+function formatTraceTime(value: number) {
+    const date = new Date(value);
+    return Number.isFinite(date.getTime()) ? date.toLocaleString("zh-CN", { hour12: false }) : "-";
 }
 
 function GenerationLogResultSection({ log }: { log: StoredGenerationLog }) {

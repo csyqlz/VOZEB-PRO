@@ -85,6 +85,23 @@ describe("split Postgres repositories", () => {
         expect(String(queryArgs(query, 0)[0])).not.toContain("system_model_channels");
     });
 
+    it("maps and updates ecommerce model role JSON", async () => {
+        const timestamp = "2026-09-24T00:00:00.000Z";
+        const ecommerceModelRoles = {
+            vision_analysis: ["vision-fast"],
+            edit_planning: ["planner-pro"],
+            image_generation: ["gpt-image-2.5-flare", "nano-banana-2"],
+            quality_check: ["quality-pro"],
+        };
+        const { executor, query } = mockExecutor([[{ id: "default", ecommerce_model_roles: ecommerceModelRoles, created_at: timestamp, updated_at: timestamp }]]);
+
+        const settings = await createPostgresRepositories(executor).settings.updateSettings({ ecommerceModelRoles });
+
+        expect(String(queryArgs(query, 0)[0])).toContain("ecommerce_model_roles");
+        expect(queryArgs(query, 0)[1]).toEqual([JSON.stringify(ecommerceModelRoles)]);
+        expect(settings.ecommerceModelRoles).toEqual(ecommerceModelRoles);
+    });
+
     it("persists channel configuration without validation records", async () => {
         const timestamp = "2026-08-01T00:00:00.000Z";
         const { executor, query } = mockExecutor([
@@ -863,6 +880,28 @@ describe("split Postgres repositories", () => {
         expect(query).toHaveBeenCalledWith("DELETE FROM generation_logs WHERE id = ANY($1::text[])", [["log-one", "log-three"]]);
     });
 
+    it("attaches one private ecommerce trace to the exact image task ids", async () => {
+        const { executor, query } = mockExecutor([[]]);
+        const trace = { version: "ecommerce-generation-trace.v1", runId: "agent-run-one", stages: [] };
+
+        const updated = await createPostgresRepositories(executor).generationLogs.updateEcommerceTraceByTaskIds([" image-one ", "image-one", "image-two"], trace);
+
+        expect(updated).toBe(1);
+        const [statement, params] = queryArgs(query, 0);
+        expect(String(statement)).toContain("SET ecommerce_trace = $2::jsonb");
+        expect(String(statement)).toContain("WHERE task_id = ANY($1::text[])");
+        expect(params).toEqual([["image-one", "image-two"], JSON.stringify(trace)]);
+    });
+
+    it.each([null, { version: "ecommerce-generation-trace.v1", finalStatus: "completed" }])("compares the previous log trace before reconciliation (%j)", async (expectedTrace) => {
+        const { executor, query } = mockExecutor([[]]);
+        const trace = { finalStatus: "completed" };
+        await createPostgresRepositories(executor).generationLogs.updateEcommerceTraceByTaskIds(["image-one"], trace, expectedTrace);
+        const [statement, params] = queryArgs(query, 0);
+        expect(String(statement)).toContain("ecommerce_trace IS NOT DISTINCT FROM $3::jsonb");
+        expect(params).toEqual([["image-one"], JSON.stringify(trace), expectedTrace === null ? null : JSON.stringify(expectedTrace)]);
+    });
+
     it("loads one stable, parameterized generation-log deletion batch with its assets", async () => {
         const timestamp = "2026-01-01T00:00:00.000Z";
         const { executor, query } = mockExecutor([
@@ -947,6 +986,14 @@ describe("split Postgres repositories", () => {
         const [statement, params] = queryArgs(query, 0);
         expect(String(statement)).toContain("LIMIT 4");
         expect(String(statement)).toContain("LIMIT $2::integer");
+        expect(String(statement)).toContain("LEFT JOIN generation_tasks image_task");
+        expect(String(statement)).toContain("image_task.user_id = log.user_id");
+        expect(String(statement)).toContain("image_task.id = log.task_id");
+        expect(String(statement)).toContain("'{ecommerceTrace,finalStatus}'");
+        expect(String(statement)).toContain("'ecommerceExecution'");
+        expect(String(statement)).toContain("trace ->> 'mode' = 'shadow'");
+        expect(String(statement)).toContain("jsonb_typeof(trace -> 'stages') = 'array'");
+        expect(String(statement)).toContain("= 'passed'");
         expect(String(statement)).not.toMatch(/SELECT\s+\*|\bprompt\b|\berror\b/i);
         expect(params).toEqual(["user-one", 8]);
     });

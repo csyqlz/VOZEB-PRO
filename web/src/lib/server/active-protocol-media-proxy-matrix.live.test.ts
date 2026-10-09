@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
     refundUserPoints: vi.fn(),
     safeRecordAuditLog: vi.fn(),
     taskAccess: vi.fn(),
+    gcpTargetUrl: vi.fn(),
 }));
 
 vi.mock("@/lib/auth/session", () => ({ getCurrentUser: mocks.getCurrentUser }));
@@ -29,14 +30,19 @@ vi.mock("@/lib/server/internal-origin", () => ({
 }));
 vi.mock("@/lib/server/media-concurrency", () => ({ acquireMediaConcurrency: () => ({ release: vi.fn() }), withMediaConcurrency: (response: Response) => response }));
 vi.mock("@/lib/server/proxy-dispatcher", () => ({ configureServerProxyDispatcher: vi.fn() }));
+vi.mock("@/lib/gcp-agent-platform", async (importOriginal) => {
+    const actual = await importOriginal<typeof import("@/lib/gcp-agent-platform")>();
+    return { ...actual, gcpAgentPlatformTargetUrl: mocks.gcpTargetUrl };
+});
 
 import { runCustomImageTask, pollCustomImageTask } from "@/app/api/image-tasks/image-task-custom";
+import { runGeminiImageTask } from "@/app/api/image-tasks/image-task-gemini";
 import { runOpenAiImageTask } from "@/app/api/image-tasks/image-task-openai";
 import { GET as proxyGet, HEAD as proxyHead, POST as proxyPost } from "@/app/api/ai/system/[channelId]/[...path]/route";
 import { PATCH as saveAdminSettings } from "@/app/api/admin/settings/route";
 import { createUpstream } from "@/app/api/video-generation-tasks/video-generation-route";
 import type { LogicalModelCapability, SystemChannelAdvancedConfig, SystemChannelModelConfig, SystemChannelProtocol, SystemDefaultModels, SystemModelChannel } from "@/lib/auth/store-types";
-import { channelProtocolDefinitions, emptyAdvancedConfig, protocolAuthHeaders, protocolModelConfig, registeredChannelProtocolDefinitions, type ChannelProtocolDefinition } from "@/lib/channel-protocol-registry";
+import { channelProtocolDefinition, channelProtocolDefinitions, emptyAdvancedConfig, protocolAuthHeaders, protocolModelConfig, registeredChannelProtocolDefinitions, type ChannelProtocolDefinition } from "@/lib/channel-protocol-registry";
 import type { SystemGenerationChannelConfig } from "@/lib/server/generation-channel";
 import type { ImageTask } from "@/lib/server/image-task-store";
 import { requestStructuredText } from "@/lib/server/text-planning-runtime";
@@ -74,6 +80,7 @@ describe("active protocols through persisted admin settings and the system proxy
         mocks.mediaAccess.mockReset().mockResolvedValue(true);
         mocks.taskAccess.mockReset().mockResolvedValue(true);
         mocks.fetchInternalApi.mockReset().mockImplementation(dispatchInternalRequest);
+        mocks.gcpTargetUrl.mockReset().mockImplementation((_resource: unknown, path: string[], search: string) => `${fixtureOrigin}/v1beta/${path.filter((segment) => !["v1", "v1beta"].includes(segment.toLowerCase())).join("/")}${search}`);
     });
 
     afterEach(async () => {
@@ -106,6 +113,35 @@ describe("active protocols through persisted admin settings and the system proxy
         expectProxyRequests(channel, operation.createPath, model, false);
     });
 
+    it("streams GCP Agent Platform structured text through the persisted system proxy", async () => {
+        const definition = channelProtocolDefinition("gcp-agent-platform");
+        const model = protocolModel(definition, "text");
+        const operation = protocolOperation(definition, "text", model);
+        const channel = await configureProxyChannel(definition, "text", model, protocolAdvancedConfig(definition.id, operation, model));
+
+        const result = await requestStructuredText({
+            origin: INTERNAL_ORIGIN,
+            cookie: "",
+            candidate: { channelId: channel.channelId, upstreamModel: model, channel: channel.savedChannel },
+            messages: [{ role: "user", content: "return a streamed protocol test plan" }],
+            tool: { name: "make_plan", description: "streaming protocol round-trip", parameters: { type: "object", properties: {} } },
+            headers: {
+                "idempotency-key": "text-gcp-agent-platform-stream",
+                "x-client-request-id": "text-gcp-agent-platform-stream",
+                "x-vozeb-pro-logical-model": channel.logicalModelId,
+                "x-vozeb-pro-upstream-model": model,
+            },
+            stream: true,
+            streamFallback: false,
+        });
+
+        expect(result).toMatchObject({ arguments: "{}", protocol: "gemini", transport: "stream" });
+        const streamPath = operation.streaming?.path?.split("?")[0];
+        expectProxyRequests(channel, streamPath, model, false);
+        expect(fixture.requests[0]?.search).toBe("?alt=sse");
+        expect(fixture.requests[0]?.headers.accept).toContain("text/event-stream");
+    });
+
     it.each(IMAGE_PROTOCOLS)("routes $id text-to-image and image-to-image through its configured upstream contract", async (definition) => {
         const model = protocolModel(definition, "image");
         const operation = protocolOperation(definition, "image", model);
@@ -120,6 +156,50 @@ describe("active protocols through persisted admin settings and the system proxy
         const edited = await runImage(imageTask(channel, true), definition.id);
         await expectImageResult(edited);
         expectProxyRequests(channel, operation.editPath || operation.createPath, model, true);
+    });
+
+    it.each([
+        ["high", "16:9", "gemini-3.1-flash-image-4k-16x9"],
+        ["2K", "9:16", "gemini-3.1-flash-image-2k-9x16"],
+        ["4K", "auto", "gemini-3.1-flash-image-4k"],
+        ["auto", "3840x2160", "gemini-3.1-flash-image-4k-16x9"],
+        ["auto", "1152x2048", "gemini-3.1-flash-image-2k-9x16"],
+        ["auto", "auto", "gemini-3.1-flash-image"],
+    ])("routes custom Gemini image quality %s and ratio %s as model suffixes", async (quality, size, expectedModel) => {
+        const definition = channelProtocolDefinition("custom");
+        const model = "gemini-3.1-flash-image";
+        const operation = protocolOperation(definition, "image", model);
+        const channel = await configureProxyChannel(definition, "image", model, protocolAdvancedConfig("custom", operation, model));
+        for (const edit of [false, true]) {
+            const task = imageTask(channel, edit);
+            task.config = { ...task.config, quality, size };
+            const result = await runImage(task, "custom");
+            expect(JSON.parse(fixture.requests[0]!.body.toString("utf8"))).toMatchObject({ model: expectedModel });
+            await expectImageResult(result);
+            expect(task.config.model).toBe(model);
+            expect(mocks.consumeUserPoints).toHaveBeenLastCalledWith("proxy-user", channel.logicalModelId, 1, "image", expect.any(String), expect.any(String));
+            fixture.requests.splice(0);
+        }
+    });
+
+    it("preserves native sub2api source and mask objects through persisted model config and the system proxy", async () => {
+        const definition = channelProtocolDefinition("sub2api");
+        const model = protocolModel(definition, "image");
+        const operation = { ...definition.operations.image!, capability: "image" as const, protocol: "sub2api" as const };
+        const channel = await configureProxyChannel(definition, "image", model, protocolAdvancedConfig("sub2api", operation, model));
+        const task = imageTask(channel, true);
+        task.source = "canvas";
+        task.mask = { type: "image/png", dataUrl: PNG_DATA_URL };
+
+        await expectImageResult(await runImage(task, "sub2api"));
+        expectProxyRequests(channel, "/images/edits", model, true);
+        expect(fixture.requests).toHaveLength(1);
+        expect(JSON.parse(fixture.requests[0]!.body.toString("utf8"))).toMatchObject({
+            images: [{ image_url: PNG_DATA_URL }],
+            mask: { image_url: PNG_DATA_URL },
+            input_fidelity: "high",
+        });
+        expect(mocks.consumeUserPoints).toHaveBeenCalledTimes(1);
     });
 
     it.each(VIDEO_PROTOCOLS)("routes $id text-to-video and image-to-video creation, polling, and media", async (definition) => {
@@ -254,6 +334,7 @@ function protocolAdvancedConfig(protocol: SystemChannelProtocol, operation: Syst
         ...base,
         ...operation,
         protocol,
+        ...(protocol === "gcp-agent-platform" ? { authMode: "custom-header" as const, gcpProjectId: "fixture-project-123", gcpLocation: "global" } : {}),
         modelConfigs: { [normalizeModel(model)]: operation },
     };
 }
@@ -333,7 +414,7 @@ function imageTask(channel: ProxyChannel, edit: boolean): ImageTask {
                       id: "reference",
                       name: "reference.png",
                       type: "image/png",
-                      dataUrl: protocol === "yumeng" ? `${fixtureOrigin}/media/fixture.png` : ["sub2api", "custom"].includes(protocol) ? "https://cdn.example.com/reference.png" : PNG_DATA_URL,
+                      dataUrl: protocol === "yumeng" ? `${fixtureOrigin}/media/fixture.png` : protocol === "custom" ? "https://cdn.example.com/reference.png" : PNG_DATA_URL,
                   },
               ]
             : [],
@@ -342,7 +423,11 @@ function imageTask(channel: ProxyChannel, edit: boolean): ImageTask {
 
 async function runImage(task: ImageTask, protocol: SystemChannelProtocol) {
     const declarative = protocol === "custom" || protocol === "stable-diffusion" || protocol === "yumeng";
-    const submitted = declarative ? await runCustomImageTask(task, INTERNAL_ORIGIN, fixtureOrigin, "", true) : await runOpenAiImageTask(task, INTERNAL_ORIGIN, fixtureOrigin, "", true);
+    const submitted = declarative
+        ? await runCustomImageTask(task, INTERNAL_ORIGIN, fixtureOrigin, "", true)
+        : task.config.apiFormat === "gemini"
+          ? await runGeminiImageTask(task, INTERNAL_ORIGIN, "")
+          : await runOpenAiImageTask(task, INTERNAL_ORIGIN, fixtureOrigin, "", true);
     return submitted.pending ? pollCustomImageTask(task, submitted.pending.id, submitted.pending.mediaBaseUrl, submitted.pending.pollBaseUrl, "", true) : submitted;
 }
 

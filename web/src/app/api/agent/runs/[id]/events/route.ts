@@ -2,7 +2,8 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { getAgentRun } from "@/lib/server/agent-run-store";
 import { CREATIVE_RUN_EVENT_BATCH_SIZE, getLatestCreativeRunEventId, listCreativeRunEvents } from "@/lib/server/creative-runtime-store";
 import { waitForCreativeRunEvent } from "@/lib/server/creative-run-event-signal";
-import { publicAgentRunEvent, publicAgentRunSnapshot } from "@/lib/server/agent-run-public";
+import { publicAgentRunEvent } from "@/lib/server/agent-run-public";
+import { publicAgentRunSnapshotForRequest } from "@/lib/server/agent-run-public-selection";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 2400;
@@ -49,7 +50,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
                     if (events.length === CREATIVE_RUN_EVENT_BATCH_SIZE) continue;
                     const snapshotVersion = `${current.status}:${current.updatedAt}`;
                     if (snapshotVersion !== lastSnapshotVersion) {
-                        controller.enqueue(encoder.encode(`event: run.snapshot\ndata: ${JSON.stringify(publicAgentRunSnapshot(current))}\n\n`));
+                        const snapshot = await publicAgentRunSnapshotForRequest(current, request);
+                        if (closed) return;
+                        controller.enqueue(encoder.encode(`event: run.snapshot\ndata: ${JSON.stringify(snapshot)}\n\n`));
                         lastSnapshotVersion = snapshotVersion;
                     }
                     if (["completed", "failed", "cancelled"].includes(current.status)) {

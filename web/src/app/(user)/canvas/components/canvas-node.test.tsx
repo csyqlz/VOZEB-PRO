@@ -5,7 +5,7 @@ import { canvasThemes } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasNodeType, type CanvasNodeData } from "../types";
 import { CanvasNode } from "./canvas-node";
-import { NodeContent } from "./canvas-node-content";
+import { canvasImagePreviewWidth, NodeContent } from "./canvas-node-content";
 
 const imageNode: CanvasNodeData = {
     id: "generated-image",
@@ -74,6 +74,12 @@ describe("CanvasNode image border", () => {
         expect(markup).toContain("/api/reference-assets/permanent/generated-image.png?format=webp&amp;width=320");
         expect(markup).toContain('loading="lazy"');
         expect(markup).toContain('decoding="async"');
+    });
+
+    it("sizes the canvas media variant to the visible node", () => {
+        expect(canvasImagePreviewWidth(320, 1)).toBe(320);
+        expect(canvasImagePreviewWidth(320, 4)).toBe(1280);
+        expect(canvasImagePreviewWidth(320, 4, 640)).toBe(640);
     });
 
     it("keeps the blue active border when the image is selected", () => {

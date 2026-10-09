@@ -13,13 +13,13 @@ const baseProps = {
 };
 
 describe("Canvas Agent image attachments", () => {
-    it("renders the add-reference slot inside the input row instead of the bottom toolbar", () => {
+    it("renders the add-reference slot in the bottom toolbar", () => {
         const markup = renderToStaticMarkup(<AgentChatComposer {...baseProps} onAddFiles={vi.fn()} />);
 
         expect(markup).toContain("data-canvas-agent-input-row");
         expect(markup).toContain('aria-label="添加参考素材"');
-        expect(markup.indexOf('aria-label="添加参考素材"')).toBeLessThan(markup.indexOf("data-canvas-agent-toolbar"));
-        expect(markup.slice(markup.indexOf("data-canvas-agent-toolbar"))).not.toContain('aria-label="添加参考素材"');
+        expect(markup.indexOf('aria-label="添加参考素材"')).toBeGreaterThan(markup.indexOf("data-canvas-agent-toolbar"));
+        expect(markup.slice(markup.indexOf("data-canvas-agent-toolbar"))).toContain('aria-label="添加参考素材"');
     });
 
     it("shows an immediate upload preview and blocks submission until it is ready", () => {
@@ -27,7 +27,7 @@ describe("Canvas Agent image attachments", () => {
 
         expect(markup).toContain('aria-label="clipboard-image.png 上传中"');
         expect(markup).toContain('aria-label="正在上传图片"');
-        expect(markup.indexOf('aria-label="clipboard-image.png 上传中"')).toBeLessThan(markup.indexOf("<textarea"));
+        expect(markup.indexOf('aria-label="clipboard-image.png 上传中"')).toBeLessThan(markup.indexOf("data-canvas-agent-toolbar"));
         expect(markup).toMatch(/aria-label="发送"[^>]*disabled=""/);
     });
 
@@ -58,14 +58,9 @@ describe("Canvas Agent image attachments", () => {
         expect(markup).toContain("group-focus-visible/remove:bg-[var(--remove-hover-surface)]");
     });
 
-    it("clips the scrolled @ reference preview inside the textarea", () => {
-        const markup = renderToStaticMarkup(
-            <AgentChatComposer {...baseProps} prompt="请基于 @图片1 生成视频" mentionAssets={[{ id: "image-one", title: "参考图", type: "image", url: "/api/reference-assets/permanent/reference.png" }]} selectedReferenceIds={["image-one"]} />,
-        );
-
-        const preview = markup.slice(markup.indexOf('data-testid="canvas-agent-mention-preview"'), markup.indexOf("<textarea"));
-        expect(preview).toContain("absolute inset-0 z-0 overflow-hidden");
-        expect(preview).toContain("data-canvas-agent-mention-scroll-layer");
-        expect(preview.indexOf("overflow-hidden")).toBeLessThan(preview.indexOf("data-canvas-agent-mention-scroll-layer"));
+    it("does not duplicate selected references in a separate attachment strip", () => {
+        const markup = renderToStaticMarkup(<AgentChatComposer {...baseProps} attachments={[{ id: "one", name: "reference", url: "/logo.svg", status: "ready" }]} selectedReferenceIds={["one"]} />);
+        expect(markup).not.toContain('aria-label="本轮参考素材"');
+        expect(markup).not.toContain('data-testid="canvas-agent-mention-preview"');
     });
 });

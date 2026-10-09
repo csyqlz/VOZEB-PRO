@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 
 import { DeleteObjectsCommand, GetObjectCommand, HeadObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client, type ObjectIdentifier } from "@aws-sdk/client-s3";
@@ -99,7 +99,7 @@ export async function getObjectBytes(config: ObjectStorageRuntimeConfig, key: st
 export async function signObjectRead(config: ObjectStorageRuntimeConfig, input: { key: string; contentType?: string; contentDisposition?: string; expiresIn?: number }) {
     const client = createObjectStorageClient(config);
     try {
-        return await getSignedUrl(client, new GetObjectCommand({ Bucket: config.bucket, Key: input.key, ResponseContentType: input.contentType, ResponseContentDisposition: input.contentDisposition }), {
+        return await getSignedUrl(client, new GetObjectCommand({ Bucket: config.bucket, Key: input.key, ResponseContentDisposition: input.contentDisposition }), {
             expiresIn: Math.max(60, Math.min(3600, input.expiresIn || 600)),
         });
     } finally {
@@ -157,7 +157,17 @@ export function objectStorageErrorMessage(error: unknown) {
 
 async function deleteObjectBatch(client: S3Client, bucket: string, keys: string[]) {
     const objects: ObjectIdentifier[] = keys.map((Key) => ({ Key }));
-    const result = await client.send(new DeleteObjectsCommand({ Bucket: bucket, Delete: { Objects: objects, Quiet: true } }));
+    const command = new DeleteObjectsCommand({ Bucket: bucket, Delete: { Objects: objects, Quiet: true } });
+    command.middlewareStack.add(
+        (next) => async (args) => {
+            const request = args.request as { body?: string | Uint8Array; headers: Record<string, string> };
+            const body = typeof request.body === "string" ? Buffer.from(request.body) : Buffer.from(request.body || []);
+            request.headers["content-md5"] = createHash("md5").update(body).digest("base64");
+            return next(args);
+        },
+        { step: "build", name: "deleteObjectsContentMd5", priority: "high" },
+    );
+    const result = await client.send(command);
     if (result.Errors?.length) throw new Error(result.Errors.map((error) => `${error.Key || "对象"}: ${error.Message || error.Code || "删除失败"}`).join("；"));
 }
 

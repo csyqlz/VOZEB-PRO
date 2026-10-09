@@ -132,6 +132,56 @@ describe("Agent child task retry concurrency", () => {
         expect(mocks.scheduleGenerationTask).toHaveBeenCalledWith("agent", "run", expect.objectContaining({ executionPhase: "created", nextPollAt: expect.any(Number), lastUpstreamStatus: "task_retry" }));
     });
 
+    it("starts a fresh generation attempt for a product-quality review task", async () => {
+        const qualityCheck = {
+            version: "ecommerce-quality.v1" as const,
+            status: "blocked" as const,
+            publicStatus: "needs_review" as const,
+            modelRole: {
+                logicalRole: "quality_check" as const,
+                capability: "text" as const,
+                logicalModelId: "quality",
+                channelId: "channel",
+                upstreamModel: "model",
+                apiFormat: "openai" as const,
+            },
+            checks: [],
+            hardFailures: [],
+            internalReason: "product_silhouette",
+            checkedAt: 1,
+        };
+        const run = {
+            id: "run",
+            userId: "user",
+            conversationId: "conversation-one",
+            status: "paused",
+            assetIds: [],
+            ecommerceSnapshot: { qualityCheck },
+            tasks: [
+                {
+                    id: "task",
+                    status: "needs_review",
+                    attempts: 1,
+                    taskId: "generated-result",
+                    taskIds: ["generated-result"],
+                    childTasks: [{ id: "generated-result", status: "completed" }],
+                    result: { images: [{ url: "/blocked.png" }] },
+                    error: "商品一致性检查未通过，需要复核。",
+                },
+            ],
+        };
+        mocks.countActive.mockResolvedValue(0);
+        mocks.getAgentRun.mockResolvedValue(run);
+        mocks.updateAgentRunById.mockImplementation(async (_id, patch) => ({ ...run, ...patch }));
+
+        const response = await POST(new Request("http://localhost/api/agent/runs/run/tasks/task/retry", { method: "POST" }), { params: Promise.resolve({ id: "run", taskId: "task" }) });
+
+        expect(response.status).toBe(200);
+        const patch = mocks.updateAgentRunById.mock.calls[0]?.[1];
+        expect(patch.tasks).toEqual([expect.objectContaining({ id: "task", status: "ready", taskId: undefined, taskIds: undefined, childTasks: undefined, result: undefined, error: undefined })]);
+        expect(patch.ecommerceSnapshot.qualityCheck).toBeUndefined();
+        expect(mocks.updateAgentRunById.mock.calls[0]?.[2]).toMatchObject({ type: "task.quality_retry.requested", data: { taskId: "task" } });
+    });
     it("repairs legacy canvas image references and invalid ratios before retrying", async () => {
         const run = {
             id: "run",

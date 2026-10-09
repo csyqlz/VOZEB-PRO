@@ -1,4 +1,4 @@
-import type { ObjectStorageSettings, ObjectStorageSettingsUpdate } from "@/lib/object-storage-contract";
+import { DEFAULT_OBJECT_STORAGE_CDN_BASE_URL, type ObjectStorageSettings, type ObjectStorageSettingsUpdate } from "@/lib/object-storage-contract";
 import { readObjectStorageSettings, writeObjectStorageSettings, type StoredObjectStorageSettings } from "@/lib/server/database/object-storage-repository";
 import { decryptSecretValue, encryptSecretValue } from "@/lib/server/secret-crypto";
 
@@ -9,6 +9,7 @@ export type ObjectStorageRuntimeConfig = {
     region: string;
     bucket: string;
     prefix: string;
+    cdnBaseUrl: string;
     accessKeyId: string;
     secretAccessKey: string;
     forcePathStyle: boolean;
@@ -35,13 +36,17 @@ export async function getObjectStorageRuntimeConfig() {
 }
 
 export async function getObjectStorageAdminSettings(): Promise<ObjectStorageSettings> {
+    invalidateObjectStorageConfig();
+    const revision = runtimeRevision;
     const stored = await readObjectStorageSettings();
+    if (revision === runtimeRevision) runtimeCache = { value: toRuntimeConfig(stored), expiresAt: Date.now() + CACHE_MS };
     return {
         enabled: stored.enabled,
         endpoint: stored.endpoint,
         region: stored.region,
         bucket: stored.bucket,
         prefix: stored.prefix,
+        cdnBaseUrl: stored.cdnBaseUrl,
         forcePathStyle: stored.forcePathStyle,
         hasAccessKeyId: Boolean(stored.accessKeyIdCiphertext),
         hasSecretAccessKey: Boolean(stored.secretAccessKeyCiphertext),
@@ -55,6 +60,7 @@ export async function saveObjectStorageAdminSettings(input: ObjectStorageSetting
     const region = text(input.region, 160) || "us-east-1";
     const bucket = normalizeBucket(input.bucket);
     const prefix = normalizeObjectStoragePrefix(input.prefix);
+    const cdnBaseUrl = normalizeCdnBaseUrl(input.cdnBaseUrl);
     const accessKeyIdCiphertext = resolveSecret(input.accessKeyId, input.clearAccessKeyId, current.accessKeyIdCiphertext);
     const secretAccessKeyCiphertext = resolveSecret(input.secretAccessKey, input.clearSecretAccessKey, current.secretAccessKeyCiphertext);
 
@@ -67,13 +73,13 @@ export async function saveObjectStorageAdminSettings(input: ObjectStorageSetting
         region,
         bucket,
         prefix,
+        cdnBaseUrl,
         accessKeyIdCiphertext,
         secretAccessKeyCiphertext,
         forcePathStyle: input.forcePathStyle === true,
         createdAt: current.createdAt,
         updatedAt: now,
     });
-    invalidateObjectStorageConfig();
     return getObjectStorageAdminSettings();
 }
 
@@ -99,6 +105,7 @@ function toRuntimeConfig(stored: StoredObjectStorageSettings): ObjectStorageRunt
         region: stored.region,
         bucket: stored.bucket,
         prefix: stored.prefix,
+        cdnBaseUrl: stored.cdnBaseUrl,
         accessKeyId: stored.accessKeyIdCiphertext ? decryptSecretValue(stored.accessKeyIdCiphertext) : "",
         secretAccessKey: stored.secretAccessKeyCiphertext ? decryptSecretValue(stored.secretAccessKeyCiphertext) : "",
         forcePathStyle: stored.forcePathStyle,
@@ -120,6 +127,19 @@ function normalizeEndpoint(value: unknown) {
         return url.toString().replace(/\/$/, "");
     } catch {
         throw new Error("Endpoint 必须是有效的 HTTP 或 HTTPS 地址");
+    }
+}
+
+function normalizeCdnBaseUrl(value: unknown) {
+    if (value === undefined) return DEFAULT_OBJECT_STORAGE_CDN_BASE_URL;
+    if (typeof value === "string" && !value.trim()) return "";
+    try {
+        if (typeof value !== "string") throw new Error();
+        const url = new URL(value.trim());
+        if ((url.protocol !== "http:" && url.protocol !== "https:") || url.username || url.password || url.href.includes("?") || url.href.includes("#")) throw new Error();
+        return url.toString().replace(/\/+$/, "");
+    } catch {
+        throw new Error("CDN 地址前缀必须是有效的 HTTP 或 HTTPS 地址，且不能包含账号、密码、查询参数或片段");
     }
 }
 

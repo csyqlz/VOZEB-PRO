@@ -3,9 +3,11 @@
 import { useDeferredValue, useMemo, useState } from "react";
 import { Button, Empty, Input, Popconfirm, Select, Space, Switch, Table, Tabs, Tag } from "antd";
 import type { TableColumnsType } from "antd";
-import { Blocks, Plus, RefreshCw, Route, Search, Settings2, Trash2 } from "lucide-react";
+import { Blocks, GitBranch, Plus, RefreshCw, Route, Search, Settings2, Trash2 } from "lucide-react";
 
 import { AdminLogicalModelManager } from "@/components/admin/admin-logical-model-manager";
+import { AdminEcommerceModelRoleManager } from "@/components/admin/admin-ecommerce-model-role-manager";
+import { EMPTY_ECOMMERCE_MODEL_ROLES } from "@/lib/ecommerce-model-role-config";
 import type { SystemChannelProtocol, SystemModelChannel } from "@/lib/auth/store";
 import { channelProtocolDefinitions, channelSupportsModelCatalog } from "@/lib/channel-protocol-registry";
 import { capabilityLabel, isLogicalModelResolvable } from "@/lib/model-routing-config";
@@ -147,6 +149,21 @@ export function AdminChannelWorkspace({ settings, fetchingModelId, saving, onCha
                         key: "logical",
                         label: <TabLabel icon={<Route className="size-4" />} text="逻辑模型" />,
                         children: <AdminLogicalModelManager channels={settings.systemChannels} logicalModels={settings.logicalModels} defaultModels={settings.defaultModels} onChange={(routing) => onChange({ ...settings, ...routing })} />,
+                    },
+                    {
+                        key: "ecommerce",
+                        label: <TabLabel icon={<GitBranch className="size-4" />} text="电商流程" />,
+                        children: (
+                            <AdminEcommerceModelRoleManager
+                                logicalModels={settings.logicalModels}
+                                roles={settings.ecommerceModelRoles || EMPTY_ECOMMERCE_MODEL_ROLES}
+                                enabled={settings.ecommerceGenerationEnabled === true}
+                                onEnabledChange={(ecommerceGenerationEnabled) => onChange({ ...settings, ecommerceGenerationEnabled })}
+                                visualQualityEnabled={settings.ecommerceVisualQualityCheckEnabled === true}
+                                onVisualQualityEnabledChange={(ecommerceVisualQualityCheckEnabled) => onChange({ ...settings, ecommerceVisualQualityCheckEnabled })}
+                                onChange={(ecommerceModelRoles) => onChange({ ...settings, ecommerceModelRoles })}
+                            />
+                        ),
                     },
                 ]}
             />

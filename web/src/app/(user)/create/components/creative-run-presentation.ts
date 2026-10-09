@@ -30,7 +30,8 @@ export function creativeRunPresentation(run: CreativeAgentRun | undefined, model
 
     const count = tasks.reduce((total, task) => total + (task.count || 1), 0);
     if (count > 1) items.push({ key: "count", label: "数量", value: `${count}个结果` });
-    items.push({ key: "status", label: "状态", value: runStatusLabel(run.status) });
+    const qualityStatus = run.ecommerceQualityReview?.advisory ? undefined : run.ecommerceQualityStatus;
+    items.push({ key: "status", label: "状态", value: qualityStatus === "needs_adjustment" ? "需要调整" : qualityStatus === "needs_review" ? "待复核" : runStatusLabel(run.status) });
     return items;
 }
 

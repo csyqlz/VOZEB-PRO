@@ -20,6 +20,7 @@ const recentAssetVisibilityClasses = ["", "", "hidden sm:block", "hidden lg:bloc
 
 export function CreateWorkbenchOverview({ onUseAsset }: { onUseAsset: (asset: CreateOverviewAsset) => Promise<void> }) {
     const { latestProject, runningTasks, recentAssets, loading, error, reload } = useCreateWorkbenchOverview();
+    const recentImages = recentAssets.filter((asset) => asset.kind === "image");
     const [importingAssetId, setImportingAssetId] = useState("");
 
     const importAsset = async (asset: CreateOverviewAsset) => {
@@ -39,7 +40,7 @@ export function CreateWorkbenchOverview({ onUseAsset }: { onUseAsset: (asset: Cr
                         <h2 id="create-assets-heading" className={sectionTitleClass}>
                             最近生成
                         </h2>
-                        <p className={sectionHintClass}>点击图片或视频可直接放大查看</p>
+                        <p className={sectionHintClass}>点击图片可查看或继续创作</p>
                     </div>
                     <Link href="/assets" className="inline-flex shrink-0 items-center gap-1 text-xs text-[#697381] transition hover:text-[#20242a] dark:text-[#9aa3af] dark:hover:text-white">
                         查看素材库 <ArrowUpRight className="size-3.5" />
@@ -47,16 +48,16 @@ export function CreateWorkbenchOverview({ onUseAsset }: { onUseAsset: (asset: Cr
                 </div>
                 {loading ? <OverviewLoading label="正在读取最近生成..." /> : null}
                 {!loading && error ? <OverviewError message={error} onRetry={reload} /> : null}
-                {!loading && !error && recentAssets.length ? (
+                {!loading && !error && recentImages.length ? (
                     <div className="grid grid-cols-2 gap-2 pt-2 sm:grid-cols-3 sm:gap-3 sm:pt-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
-                        {recentAssets.slice(0, recentAssetVisibilityClasses.length).map((asset, index) => (
+                        {recentImages.slice(0, recentAssetVisibilityClasses.length).map((asset, index) => (
                             <div key={asset.id} className={recentAssetVisibilityClasses[index]}>
                                 <RecentAssetCard asset={asset} importing={importingAssetId === asset.id} onUse={() => void importAsset(asset)} />
                             </div>
                         ))}
                     </div>
                 ) : null}
-                {!loading && !error && !recentAssets.length ? <OverviewEmpty label="完成一次图片或视频生成后，结果会出现在这里" /> : null}
+                {!loading && !error && !recentImages.length ? <OverviewEmpty label="完成一次图片生成后，结果会出现在这里" /> : null}
             </section>
 
             <section aria-labelledby="create-projects-heading">

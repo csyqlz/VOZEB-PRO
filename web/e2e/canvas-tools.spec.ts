@@ -7,8 +7,53 @@ import sharp from "sharp";
 
 import { normalizeImagePreviewWidth } from "../src/lib/media-image-variant";
 import { createCanvasProject, deleteCanvasProject, expectCanvasSaved, expectNoHorizontalOverflow, node, readCanvasProject } from "./canvas-e2e-helpers";
+import { E2E_PROTOCOL_ORIGIN } from "./support";
 
 test.describe.configure({ mode: "serial" });
+
+test("canvas mask edits submit neutral region instructions with a separate mask", async ({ page, request }) => {
+    const sourceBytes = await sharp({ create: { width: 640, height: 480, channels: 3, background: "#d6c4a8" } })
+        .png()
+        .toBuffer();
+    const upload = await request.post("/api/reference-assets", {
+        data: { type: "image", persistent: false, dataUrl: `data:image/png;base64,${sourceBytes.toString("base64")}`, originalName: "mask-scene.png" },
+    });
+    expect(upload.ok(), await upload.text()).toBe(true);
+    const asset = (await upload.json()) as { key: string; url: string; mimeType: string };
+    const project = await createCanvasProject(request, {
+        title: `Canvas 蒙版提示词 ${randomUUID().slice(0, 8)}`,
+        viewport: { x: 80, y: 100, k: 0.8 },
+        nodes: [node("mask-source", "image", 100, 120, 320, 240, { content: asset.url, serverUrl: asset.url, storageKey: asset.key, mimeType: asset.mimeType, naturalWidth: 640, naturalHeight: 480 })],
+        connections: [],
+    });
+    try {
+        await page.goto(`/canvas/${project.id}`, { waitUntil: "domcontentloaded" });
+        await page.locator('[data-node-id="mask-source"]').click();
+        await page.getByRole("button", { name: "添加蒙版遮罩后局部修改", exact: true }).click();
+        const dialog = page.getByRole("dialog");
+        const canvas = dialog.locator("canvas").last();
+        await expect(canvas).toBeVisible();
+        const box = await canvas.boundingBox();
+        if (!box) throw new Error("Mask selection canvas is missing");
+        await page.mouse.move(box.x + box.width * 0.4, box.y + box.height * 0.4);
+        await page.mouse.down();
+        await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.6, { steps: 5 });
+        await page.mouse.up();
+        const userPrompt = "选定区域新增 Somle 标志，保持原图风格和光影。";
+        await dialog.getByPlaceholder("例如：把选中区域改成金属材质，保持原图光影").fill(userPrompt);
+        const submitted = page.waitForRequest((current) => current.method() === "POST" && new URL(current.url()).pathname === "/api/image-tasks");
+        await dialog.getByRole("button", { name: "AI 修改", exact: true }).click();
+        const body = (await submitted).postDataJSON();
+        expect(body.prompt).toBe(`只修改选定区域，其他区域保持不变。${userPrompt}`);
+        expect(body.prompt).not.toContain("透明");
+        expect(body.mask).toMatchObject({ type: "image/png", editRegion: expect.objectContaining({ left: expect.any(Number), right: expect.any(Number) }) });
+        expect(body.references).toHaveLength(1);
+        await expect(page.locator('[data-node-id]:not([data-node-id="mask-source"])')).toHaveCount(1);
+        await expectCanvasSaved(page);
+    } finally {
+        await deleteCanvasProject(request, project.id);
+    }
+});
 
 test("canvas smart layering refines each element with an independent task", async ({ page, request }) => {
     const imageTaskRequests: Array<{
@@ -196,31 +241,20 @@ test("canvas Agent can reference images beyond the first fifty without stalling"
         await expect(composer).toBeVisible({ timeout: 20_000 });
 
         for (const nodeId of ["image-52", "image-59", "image-64"]) {
-            await composer.fill(`${await composer.inputValue()}@${nodeId}`);
+            await composer.press("Control+End");
+            await page.keyboard.insertText(`@${nodeId}`);
             const option = page.getByRole("button", { name: `引用${nodeId}`, exact: true });
             await expect(option).toBeVisible();
             await option.click();
         }
 
-        await expect(composer).toHaveValue("@图片1 @图片2 @图片3 ");
-        await expect(panel.locator('[data-canvas-agent-input-row] img[alt="image-64"]')).toBeVisible();
-        await composer.fill(`${await composer.inputValue()}${Array.from({ length: 18 }, (_, index) => `\n保持参考主体一致，补充第 ${index + 1} 条镜头运动说明。`).join("")}`);
+        await expect(composer).toHaveText("图片1 图片2 图片3 ");
+        await expect(composer.locator('[data-canvas-agent-reference="image-64"] img')).toBeVisible();
+        await composer.press("Control+End");
+        await page.keyboard.insertText(Array.from({ length: 18 }, (_, index) => `\n保持参考主体一致，补充第 ${index + 1} 条镜头运动说明。`).join(""));
         await expect.poll(() => composer.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
-        const mentionBounds = await panel.locator('[data-testid="canvas-agent-mention-preview"]').evaluate((preview) => {
-            const previewRect = preview.getBoundingClientRect();
-            const textareaRect = preview.parentElement?.querySelector("textarea")?.getBoundingClientRect();
-            const scrollLayerRect = preview.querySelector("[data-canvas-agent-mention-scroll-layer]")?.getBoundingClientRect();
-            return {
-                previewTop: previewRect.top,
-                previewBottom: previewRect.bottom,
-                textareaTop: textareaRect?.top ?? Number.NaN,
-                textareaBottom: textareaRect?.bottom ?? Number.NaN,
-                scrollLayerTop: scrollLayerRect?.top,
-            };
-        });
-        expect(mentionBounds.previewTop).toBeGreaterThanOrEqual(mentionBounds.textareaTop - 1);
-        expect(mentionBounds.previewBottom).toBeLessThanOrEqual(mentionBounds.textareaBottom + 1);
-        expect(mentionBounds.scrollLayerTop ?? Number.POSITIVE_INFINITY).toBeLessThan(mentionBounds.previewTop);
+        await expect(composer).toHaveCSS("overflow-y", "auto");
+        await expect(panel.locator("[data-canvas-agent-toolbar]")).toBeInViewport();
         await expect(page.locator('.node-element[data-node-id="image-64"]')).toHaveCSS("z-index", "50");
         const previewWidths = await page.locator('.node-element[data-node-id^="image-"] img').evaluateAll((images) => images.map((image) => new URL((image as HTMLImageElement).src).searchParams.get("width")).filter(Boolean));
         const devicePixelRatio = await page.evaluate(() => window.devicePixelRatio);
@@ -449,6 +483,53 @@ test("canvas box selection downloads selected images and videos as a browser ZIP
             if (project) await deleteCanvasProject(request, project.id);
         } finally {
             const cleanup = await request.delete("/api/media-assets", { data: { storageKeys: [imageAsset.key, videoAsset.key] } });
+            expect(cleanup.ok(), await cleanup.text()).toBe(true);
+        }
+    }
+});
+
+test("canvas upscale exports a cross-origin image through the media proxy", async ({ page, request }) => {
+    const sourceUrl = `${E2E_PROTOCOL_ORIGIN}/media/fixture.png`;
+    const project = await createCanvasProject(request, {
+        title: `Canvas 跨域放大 ${randomUUID().slice(0, 8)}`,
+        viewport: { x: 120, y: 100, k: 1 },
+        nodes: [node("source-image", "image", 120, 100, 320, 320, { content: sourceUrl, remoteUrl: sourceUrl })],
+        connections: [],
+    });
+    let generatedStorageKey = "";
+    let mediaProxyRequests = 0;
+    page.on("request", (current) => {
+        if (new URL(current.url()).pathname === "/api/media-proxy") mediaProxyRequests += 1;
+    });
+
+    try {
+        await page.goto(`/canvas/${project.id}`, { waitUntil: "domcontentloaded" });
+        await expect(page.locator("[data-canvas-surface]")).toBeVisible({ timeout: 20_000 });
+        await page.locator('[data-node-id="source-image"]').click();
+        await page.getByRole("button", { name: "放大图片分辨率", exact: true }).click();
+        const dialog = page.getByRole("dialog");
+        await expect(dialog.getByText("图片放大", { exact: true })).toBeVisible();
+        await dialog.getByText("4K · 4096px", { exact: true }).click();
+        await dialog.getByRole("button", { name: "生成放大图" }).click();
+
+        await expect.poll(async () => (await readCanvasProject(request, `/api/canvas/projects/${project.id}`)).nodes.length, { timeout: 30_000 }).toBe(2);
+        await expectCanvasSaved(page);
+        const saved = await readCanvasProject(request, `/api/canvas/projects/${project.id}`);
+        const generated = saved.nodes.find((item) => item.id !== "source-image");
+        generatedStorageKey = String(generated?.metadata?.storageKey || "");
+        expect(generatedStorageKey).toBeTruthy();
+        const generatedUrl = String(generated?.metadata?.content || "");
+        expect(generatedUrl).toBeTruthy();
+        const original = await request.get(`${generatedUrl}${generatedUrl.includes("?") ? "&" : "?"}download=original`);
+        expect(original.ok()).toBe(true);
+        const originalMetadata = await sharp(await original.body()).metadata();
+        expect(Math.max(originalMetadata.width || 0, originalMetadata.height || 0)).toBe(4096);
+        expect(mediaProxyRequests).toBeGreaterThan(0);
+        await expect(page.getByText(/Tainted canvases may not be exported/)).toHaveCount(0);
+    } finally {
+        await deleteCanvasProject(request, project.id);
+        if (generatedStorageKey) {
+            const cleanup = await request.delete("/api/media-assets", { data: { storageKeys: [generatedStorageKey] } });
             expect(cleanup.ok(), await cleanup.text()).toBe(true);
         }
     }

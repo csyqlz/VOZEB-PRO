@@ -35,6 +35,9 @@ import {
     type NewAsset,
     type NewConversationExchange,
     type RunMutation,
+    type RunMutationContext,
+    type RunMutationOptions,
+    type RuntimeFileDatabase,
 } from "./creative-runtime-repository";
 import { notifyCreativeRunEvent } from "./creative-run-event-signal";
 
@@ -382,31 +385,59 @@ export async function getCreativeRunByClientRequestId<T extends AgentRunBase>(us
     }));
 }
 
-export async function mutateCreativeRun<T extends AgentRunBase>(id: string, ttlMs: number, mutate: (current: T) => RunMutation<T> | null, allowedStatuses?: string[], expectedExecutionId?: string) {
+export async function mutateCreativeRun<T extends AgentRunBase>(
+    id: string,
+    ttlMs: number,
+    mutate: (current: T, context: RunMutationContext) => RunMutation<T> | null,
+    allowedStatuses?: string[],
+    expectedExecutionId?: string,
+    options?: RunMutationOptions,
+) {
     if (getDatabaseProvider() === "postgres") {
-        const result = await mutatePostgresRun(id, ttlMs, mutate, allowedStatuses, expectedExecutionId);
+        const result = await mutatePostgresRun(id, ttlMs, mutate, allowedStatuses, expectedExecutionId, options);
         if (result) notifyCreativeRunEvent(id);
         return result;
     }
-    const result = await queueRuntimeFileOperation(() =>
-        withGenerationTaskFileMutation(async (tasks) => {
-            const index = tasks.findIndex((item) => item.id === id && item.type === "agent" && item.expiresAt > Date.now());
-            if (index < 0) return { tasks, result: null };
-            const current = tasks[index].payload as T & { executionId?: string };
-            if (allowedStatuses && !allowedStatuses.includes(current.status)) return { tasks, result: null };
-            if (expectedExecutionId && current.executionId !== expectedExecutionId) return { tasks, result: null };
-            const mutation = mutate(current);
-            if (!mutation) return { tasks, result: null };
-            const now = Date.now();
-            const run = { ...mutation.run, id: current.id, userId: current.userId, createdAt: current.createdAt, updatedAt: now };
-            const db = await readRuntimeFile();
-            const nextDb = applyRuntimeMutation(db, run, mutation, now);
-            await writeRuntimeFile(nextDb);
-            const nextTasks = [...tasks];
-            nextTasks[index] = { ...tasks[index], status: normalizeTaskStatus(run.status), payload: run as unknown as Record<string, unknown>, updatedAt: now, expiresAt: now + ttlMs };
-            return { tasks: nextTasks, result: run };
-        }),
-    );
+    const result = await queueRuntimeFileOperation(async () => {
+        let preimage: RuntimeFileDatabase | undefined;
+        try {
+            return await withGenerationTaskFileMutation(async (tasks) => {
+                const index = tasks.findIndex((item) => item.id === id && item.type === "agent" && item.expiresAt > Date.now());
+                if (index < 0) return { tasks, result: null };
+                const current = tasks[index].payload as T & { executionId?: string };
+                if (allowedStatuses && !allowedStatuses.includes(current.status)) return { tasks, result: null };
+                if (expectedExecutionId && current.executionId !== expectedExecutionId) return { tasks, result: null };
+                const mutation = mutate(current, { persistedChildren: options?.referenceRecovery ? tasks.filter((task) => task.type !== "agent" && task.runId === current.id && task.userId === current.userId).map(({ id }) => ({ id })) : [] });
+                if (!mutation) return { tasks, result: null };
+                const now = Date.now();
+                const run = { ...mutation.run, id: current.id, userId: current.userId, createdAt: current.createdAt, updatedAt: now };
+                const db = await readRuntimeFile();
+                const nextDb = applyRuntimeMutation(db, run, mutation, now);
+                if (options?.referenceRecovery || mutation.schedule) preimage = db;
+                await writeRuntimeFile(nextDb);
+                const nextTasks = [...tasks];
+                nextTasks[index] = {
+                    ...tasks[index],
+                    status: normalizeTaskStatus(run.status),
+                    payload: run as unknown as Record<string, unknown>,
+                    updatedAt: now,
+                    expiresAt: now + ttlMs,
+                    ...mutation.schedule,
+                    ...(options?.referenceRecovery ? { executionPhase: "created" as const, nextPollAt: now, lastUpstreamStatus: "created", workerId: undefined, leaseUntil: undefined } : {}),
+                };
+                return { tasks: nextTasks, result: run };
+            });
+        } catch (error) {
+            if (preimage) {
+                try {
+                    await writeRuntimeFile(preimage);
+                } catch (compensationError) {
+                    throw new AggregateError([error, compensationError], "参考恢复未提交且原消息补偿失败");
+                }
+            }
+            throw error;
+        }
+    });
     if (result) notifyCreativeRunEvent(id);
     return result;
 }

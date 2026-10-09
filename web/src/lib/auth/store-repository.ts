@@ -349,6 +349,9 @@ export function mapPostgresSettings(settingsRow: Record<string, unknown> | undef
         })),
         logicalModels: dbJson(settingsRow?.logical_models, fallback.logicalModels),
         defaultModels: dbJson(settingsRow?.default_models, fallback.defaultModels),
+        ecommerceGenerationEnabled: dbBool(settingsRow?.ecommerce_generation_enabled, fallback.ecommerceGenerationEnabled),
+        ecommerceVisualQualityCheckEnabled: dbBool(settingsRow?.ecommerce_visual_quality_check_enabled, fallback.ecommerceVisualQualityCheckEnabled),
+        ecommerceModelRoles: dbJson(settingsRow?.ecommerce_model_roles, fallback.ecommerceModelRoles),
         agentSkills: dbJson(settingsRow?.agent_skills, fallback.agentSkills),
     });
 }
@@ -512,9 +515,9 @@ export async function upsertPostgresSettings(db: QueryExecutor, settings: AuthSe
         INSERT INTO app_settings (
             id, site, registration_enabled, email_registration_enabled, free_daily_points_enabled, mail, allow_user_api_config,
             model_point_costs, generation_point_multipliers, generation_cost_control, data_lifecycle, entitlements_enabled, default_plan_id, generation_concurrency, generation_defaults,
-            logical_models, default_models, agent_skills, free_daily_points
+            logical_models, default_models, ecommerce_model_roles, ecommerce_generation_enabled, agent_skills, free_daily_points, ecommerce_visual_quality_check_enabled
         )
-        VALUES ('default', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+        VALUES ('default', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
         ON CONFLICT (id) DO UPDATE SET
             site = EXCLUDED.site,
             registration_enabled = EXCLUDED.registration_enabled,
@@ -532,6 +535,9 @@ export async function upsertPostgresSettings(db: QueryExecutor, settings: AuthSe
             generation_defaults = EXCLUDED.generation_defaults,
             logical_models = EXCLUDED.logical_models,
             default_models = EXCLUDED.default_models,
+            ecommerce_model_roles = EXCLUDED.ecommerce_model_roles,
+            ecommerce_generation_enabled = EXCLUDED.ecommerce_generation_enabled,
+            ecommerce_visual_quality_check_enabled = EXCLUDED.ecommerce_visual_quality_check_enabled,
             agent_skills = EXCLUDED.agent_skills,
             free_daily_points = EXCLUDED.free_daily_points
         `,
@@ -552,8 +558,11 @@ export async function upsertPostgresSettings(db: QueryExecutor, settings: AuthSe
             dbJsonParam(settings.generationDefaults),
             dbJsonParam(settings.logicalModels),
             dbJsonParam(settings.defaultModels),
+            dbJsonParam(settings.ecommerceModelRoles),
+            settings.ecommerceGenerationEnabled,
             dbJsonParam(settings.agentSkills),
             settings.freeDailyPoints,
+            settings.ecommerceVisualQualityCheckEnabled,
         ],
     );
 }

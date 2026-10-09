@@ -1,4 +1,6 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { createServer } from "node:http";
+import { once } from "node:events";
 
 import type { SystemChannelAdvancedConfig, SystemModelChannel } from "@/lib/auth/store";
 import { channelProtocolDefinitions, registeredChannelProtocolDefinitions } from "@/lib/channel-protocol-registry";
@@ -26,6 +28,79 @@ afterAll(async () => {
 });
 
 describe("text planning runtime live protocol fixture", () => {
+    it.each(["chat", "responses", "gemini", "custom"] as const)("sends the actual validation fields to the existing repair budget through %s TCP", async (protocol) => {
+        const requests: Array<{ path: string; body: Record<string, unknown>; idempotencyKey?: string; billingKey?: string }> = [];
+        const expectedCalls = protocol === "custom" ? 2 : 3;
+        const server = createServer(async (request, response) => {
+            const chunks = [];
+            for await (const chunk of request) chunks.push(chunk);
+            const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+            requests.push({ path: request.url || "", body, idempotencyKey: request.headers["idempotency-key"] as string | undefined, billingKey: request.headers["x-vozeb-pro-points-idempotency-key"] as string | undefined });
+            const value = requests.length === expectedCalls ? { result: "accepted" } : { result: "invalid", attempt: requests.length };
+            const payload =
+                protocol === "responses"
+                    ? { output_text: JSON.stringify(value) }
+                    : protocol === "gemini"
+                      ? { candidates: [{ content: { parts: [{ text: JSON.stringify(value) }] } }] }
+                      : protocol === "custom"
+                        ? { data: { plan: value } }
+                        : { choices: [{ message: { content: JSON.stringify(value) } }] };
+            response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(payload));
+        });
+        server.listen(0, "127.0.0.1");
+        await once(server, "listening");
+        const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+        try {
+            const address = server.address();
+            if (!address || typeof address === "string") throw new Error("Repair fixture did not expose a TCP port");
+            const configured =
+                protocol === "custom"
+                    ? candidate("custom", { createPath: "/planner/run", requestTemplate: '{"deployment":"{{model}}","conversation":"{{messages}}"}', resultField: "data.plan" })
+                    : protocol === "gemini"
+                      ? candidate("compatible", { apiFormat: "gemini", createPath: "/models/:model:generateContent" })
+                      : protocol === "responses"
+                        ? candidate("compatible", { createPath: "/responses" })
+                        : candidate("newapi");
+            const validationInputs: string[] = [];
+            const original = input(configured);
+            const result = await requestStructuredText({
+                ...original,
+                origin: `http://127.0.0.1:${address.port}`,
+                preferNativeTools: true,
+                headers: { "idempotency-key": "reference-repair", "x-vozeb-pro-logical-model": "vision", "x-vozeb-pro-upstream-model": "mock-text", "x-vozeb-pro-points-idempotency-key": "reference-billing" },
+                validateArguments: (argumentsText) => {
+                    validationInputs.push(argumentsText);
+                    const value = JSON.parse(argumentsText);
+                    return value.result === "accepted"
+                        ? { valid: true, issues: [] }
+                        : { valid: false, issues: [{ code: "visual_field_invalid", path: value.attempt === 1 ? "references[0].productFacts.identity" : "references[1].cues[0].confidence", message: "缺少有效字段" }] };
+                },
+            });
+            expect(JSON.parse(result.arguments)).toEqual({ result: "accepted" });
+            expect(requests).toHaveLength(expectedCalls);
+            expect(validationInputs).toHaveLength(expectedCalls);
+            expect(new Set(requests.map((request) => request.path)).size).toBe(1);
+            const repair = requests.at(-1)!;
+            const repairText = JSON.stringify(repair.body);
+            expect(repairText).toContain(expectedCalls === 2 ? "references[0].productFacts.identity" : "references[1].cues[0].confidence");
+            expect(repairText).toContain("visual_field_invalid");
+            expect(repairText).toContain("缺少有效字段");
+            expect(repairText).toContain("返回测试计划");
+            expect(repair.idempotencyKey).toBe(`reference-repair:${protocol}-repair`);
+            expect(repair.billingKey).toMatch(/^reference-billing(?::json)?:repair$/);
+            expect(original.messages).toEqual([{ role: "user", content: "返回测试计划" }]);
+            expect(errors).toHaveBeenCalledTimes(expectedCalls - 1);
+            for (const [message, detail] of errors.mock.calls) {
+                expect(message).toBe("[text-planning] structured response failed argument validation");
+                expect(JSON.parse(String(detail))).toMatchObject({ protocol, tool: original.tool.name });
+            }
+        } finally {
+            errors.mockRestore();
+            server.closeAllConnections();
+            await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+        }
+    });
+
     it.each(STRICT_TEXT_PROTOCOLS)("sends the $id preset through Chat and reads strict JSON", async (definition) => {
         const result = await requestStructuredText(input(candidate(definition.id)));
 
@@ -49,6 +124,43 @@ describe("text planning runtime live protocol fixture", () => {
 
         expect(result).toMatchObject({ protocol: "gemini", arguments: "{}" });
         expect(lastRequest().path).toBe("/api/ai/system/compatible/models/mock-text:generateContent");
+    });
+
+    it("sends multimodal planning input through every supported TCP protocol contract", async () => {
+        await requestStructuredText(multimodalInput(candidate("newapi")));
+        expect(JSON.parse(lastRequest().body.toString("utf8"))).toMatchObject({
+            messages: expect.arrayContaining([
+                {
+                    role: "user",
+                    content: [
+                        { type: "text", text: "analyze" },
+                        { type: "image_url", image_url: { url: "data:image/png;base64,aW1hZ2U=" } },
+                    ],
+                },
+            ]),
+        });
+
+        await requestStructuredText(multimodalInput(candidate("compatible", { createPath: "/responses" })));
+        expect(JSON.parse(lastRequest().body.toString("utf8"))).toMatchObject({
+            input: expect.arrayContaining([
+                {
+                    role: "user",
+                    content: [
+                        { type: "input_text", text: "analyze" },
+                        { type: "input_image", image_url: "data:image/png;base64,aW1hZ2U=" },
+                    ],
+                },
+            ]),
+        });
+
+        await requestStructuredText(multimodalInput(candidate("compatible", { apiFormat: "gemini", createPath: "/models/:model:generateContent" })));
+        expect(JSON.parse(lastRequest().body.toString("utf8"))).toMatchObject({
+            contents: [{ role: "user", parts: [{ text: "analyze" }, { inlineData: { mimeType: "image/png", data: "aW1hZ2U=" } }] }],
+        });
+
+        const requestCount = fixture.requests.length;
+        await expect(requestStructuredText(multimodalInput(candidate("custom", { createPath: "/planner/run", requestTemplate: '{"prompt":"{{prompt}}"}', resultField: "data.plan" })))).rejects.toThrow("不支持图片理解");
+        expect(fixture.requests).toHaveLength(requestCount);
     });
 
     it.each(GLOBAL_AIOPC_TEXT_PRESETS)("receives structured text through the legacy $id preset", async (preset) => {
@@ -96,6 +208,21 @@ function input(configured: TextPlanningCandidate) {
         candidate: configured,
         messages: [{ role: "user", content: "返回测试计划" }],
         tool: { name: "make_plan", description: "创建测试计划", parameters: { type: "object", properties: {} } },
+    };
+}
+
+function multimodalInput(configured: TextPlanningCandidate) {
+    return {
+        ...input(configured),
+        messages: [
+            {
+                role: "user",
+                content: [
+                    { type: "text" as const, text: "analyze" },
+                    { type: "image_url" as const, image_url: { url: "data:image/png;base64,aW1hZ2U=" } },
+                ],
+            },
+        ],
     };
 }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, MouseEvent, PointerEvent, TextareaHTMLAttributes } from "react";
 import { createPortal } from "react-dom";
 import { FileText, Image as ImageIcon, Music2, Video } from "lucide-react";
@@ -35,6 +35,7 @@ export const CanvasResourceMentionTextarea = forwardRef<HTMLTextAreaElement, Pro
     const [mention, setMention] = useState<MentionAtCursor | null>(null);
     const [activeIndex, setActiveIndex] = useState(0);
     const [hasSelection, setHasSelection] = useState(false);
+    const [isFocused, setIsFocused] = useState(false);
 
     useEffect(() => {
         if (!autoFocus) return;
@@ -101,7 +102,16 @@ export const CanvasResourceMentionTextarea = forwardRef<HTMLTextAreaElement, Pro
     };
 
     const hasActiveLabelInValue = activeLabels.some((label) => value.includes(label));
-    const showOverlay = Boolean(value && hasActiveLabelInValue && !hasSelection);
+    // Rich tokens have different metrics from textarea text; edit with native text
+    // so the caret, hit testing, selection and IME share the same layout.
+    const showOverlay = Boolean(value && hasActiveLabelInValue && !hasSelection && !isFocused);
+    useLayoutEffect(() => {
+        const textarea = textareaRef.current;
+        const overlay = overlayRef.current;
+        if (!showOverlay || !textarea || !overlay) return;
+        overlay.scrollTop = textarea.scrollTop;
+        overlay.scrollLeft = textarea.scrollLeft;
+    }, [showOverlay, value]);
     const mergedStyle = {
         ...(style || {}),
         color: showOverlay ? "transparent" : style?.color,
@@ -142,6 +152,7 @@ export const CanvasResourceMentionTextarea = forwardRef<HTMLTextAreaElement, Pro
                     props.onSelect?.(event);
                 }}
                 onFocus={(event) => {
+                    setIsFocused(true);
                     updateSelectionState();
                     props.onFocus?.(event);
                 }}
@@ -167,6 +178,7 @@ export const CanvasResourceMentionTextarea = forwardRef<HTMLTextAreaElement, Pro
                     props.onScroll?.(event);
                 }}
                 onBlur={(event) => {
+                    setIsFocused(false);
                     setHasSelection(false);
                     window.setTimeout(closeMention, 120);
                     props.onBlur?.(event);
@@ -216,14 +228,14 @@ function ReferencePreviewIcon({ kind }: Pick<CanvasResourceReference, "kind">) {
     );
 }
 
-function MentionMenu({
+export function MentionMenu({
     textarea,
     references,
     activeIndex,
     theme,
     onSelect,
 }: {
-    textarea: HTMLTextAreaElement;
+    textarea: HTMLElement;
     references: CanvasResourceReference[];
     activeIndex: number;
     theme: (typeof canvasThemes)[keyof typeof canvasThemes];

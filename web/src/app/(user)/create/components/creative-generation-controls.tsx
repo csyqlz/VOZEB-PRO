@@ -4,7 +4,7 @@ import { Button, Popover } from "antd";
 import { Check, Orbit } from "lucide-react";
 import { useState } from "react";
 
-import type { CreativeGenerationMode, CreativeGenerationPreferences } from "@/lib/creative-runtime-contract";
+import type { CreativeGenerationPreferences } from "@/lib/creative-runtime-contract";
 import { cn } from "@/lib/utils";
 
 import { creativeComposerPopoverOverflow, type CreativeComposerPopoverPlacement } from "@/components/creative-composer-popover";
@@ -18,32 +18,27 @@ export function CreativeGenerationControls({
     models,
     selectedModels,
     smartPlanning,
-    creationMode,
     generationPreferences,
     placement,
     onToggleModel,
     onClearModels,
     onToggleSmartPlanning,
-    onCapabilityChange,
     onChangeGenerationPreference,
 }: {
     models: CreativeModelOption[];
     selectedModels: CreativeModelOption[];
     smartPlanning: boolean;
-    creationMode: "agent" | CreativeGenerationMode;
     generationPreferences: CreativeGenerationPreferences;
     placement: CreativeComposerPopoverPlacement;
     onToggleModel: (model: CreativeModelOption) => void;
     onClearModels: () => void;
     onToggleSmartPlanning: () => void;
-    onCapabilityChange: (capability: MediaCapability) => void;
     onChangeGenerationPreference: (capability: MediaCapability, patch: Record<string, string | number | boolean>) => void;
 }) {
     const [modelPickerOpen, setModelPickerOpen] = useState(false);
-    const [preferredCapability, setPreferredCapability] = useState<MediaCapability>("image");
-    const modelCapabilities = creationMode === "agent" ? (["image", "video", "audio"] as const).filter((capability) => models.some((model) => model.capability === capability)) : [creationMode];
-    const activeCapability = creationMode === "agent" ? (modelCapabilities.includes(preferredCapability) ? preferredCapability : selectedModels[0]?.capability || modelCapabilities[0] || "image") : creationMode;
-    const preferenceCapabilities = creationMode === "agent" ? (modelCapabilities.length ? modelCapabilities : [activeCapability]) : [creationMode];
+    const modelCapabilities: MediaCapability[] = ["image"];
+    const activeCapability = "image" as const;
+    const preferenceCapabilities = ["image"] as const;
     const capabilityProfile = creativeSelectedModelProfile(selectedModels, activeCapability);
     const modelSummary = selectedModels.length === 0 ? (smartPlanning ? "智能模型" : "选择模型") : selectedModels.length === 1 ? selectedModels[0].name : `${selectedModels[0].name} +${selectedModels.length - 1}`;
 
@@ -97,7 +92,7 @@ export function CreativeGenerationControls({
                                                 "h-8 rounded-lg text-xs font-medium transition",
                                                 activeCapability === capability ? "bg-white text-[#20242a] shadow-sm dark:bg-[#343b44] dark:text-white" : "text-[#7b8591] hover:text-[#20242a] dark:text-[#8f99a5] dark:hover:text-white",
                                             )}
-                                            onClick={() => setPreferredCapability(capability)}
+                                            onClick={() => undefined}
                                             aria-pressed={activeCapability === capability}
                                         >
                                             {mediaCapabilityLabel(capability)} · {count}
@@ -162,12 +157,7 @@ export function CreativeGenerationControls({
                 capabilities={preferenceCapabilities}
                 preferences={generationPreferences}
                 capabilityProfile={capabilityProfile}
-                triggerLabel={creationMode === "agent" ? "生成参数" : undefined}
                 placement={placement}
-                onCapabilityChange={(capability) => {
-                    setPreferredCapability(capability);
-                    onCapabilityChange(capability);
-                }}
                 onChange={(patch) => onChangeGenerationPreference(activeCapability, patch as Record<string, string | number | boolean>)}
             />
         </>

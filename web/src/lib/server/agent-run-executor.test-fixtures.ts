@@ -76,8 +76,8 @@ export function settings(imageModel: string, channelId: string) {
         site: { title: "星河创作" },
         defaultModels: { textModel: "planner", imageModel, videoModel: "", audioModel: "" },
         systemChannels: [
-            { id: "planner-channel", name: "规划", enabled: true, baseUrl: "https://api.example.com/v1", apiKey: "planner-secret", models: ["vendor/planner"] },
-            { id: channelId, name: "图片", enabled: true, baseUrl: "https://api.example.com/v1", apiKey: "image-secret", models: [`vendor/${imageModel}`] },
+            { id: "planner-channel", name: "规划", enabled: true, baseUrl: "https://api.example.com/v1", apiKey: "planner-secret", apiFormat: "openai", models: ["vendor/planner"] },
+            { id: channelId, name: "图片", enabled: true, baseUrl: "https://api.example.com/v1", apiKey: "image-secret", apiFormat: "openai", models: [`vendor/${imageModel}`] },
         ],
         logicalModels: [
             { id: "planner", name: "规划", capability: "text", enabled: true, bindings: [{ id: "planner-binding", channelId: "planner-channel", upstreamModel: "vendor/planner", enabled: true, priority: 1 }] },

@@ -24,6 +24,7 @@ const settings = {
     region: "auto",
     bucket: "media",
     prefix: "vozeb-pro",
+    cdnBaseUrl: "https://cdn.example.com",
     forcePathStyle: false,
     hasAccessKeyId: true,
     hasSecretAccessKey: true,
@@ -74,7 +75,7 @@ describe("administrator object storage API", () => {
         );
 
         expect(response.status).toBe(200);
-        expect(mocks.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ enabled: true, accessKeyId: "new-access", secretAccessKey: "new-secret", forcePathStyle: true }));
+        expect(mocks.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ enabled: true, cdnBaseUrl: settings.cdnBaseUrl, accessKeyId: "new-access", secretAccessKey: "new-secret", forcePathStyle: true }));
         expect(mocks.audit).toHaveBeenCalledWith(
             expect.objectContaining({
                 action: "admin.object-storage.update",
@@ -83,5 +84,10 @@ describe("administrator object storage API", () => {
             }),
         );
         expect(JSON.stringify(mocks.audit.mock.calls)).not.toContain("new-secret");
+    });
+
+    it("preserves an explicitly empty CDN prefix for the configuration service", async () => {
+        await PATCH(new Request("http://localhost/api/admin/object-storage", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...settings, cdnBaseUrl: "" }) }));
+        expect(mocks.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ cdnBaseUrl: "" }));
     });
 });

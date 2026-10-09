@@ -15,7 +15,7 @@ vi.mock("@/services/api/session-expiration", () => {
 });
 
 import { controlCreativeAgentRun, createCreativeAgentRun, listCreativeAgentRuns, listCreativeConversationPage, listCreativeMessages, retryCreativeAgentTask, watchCreativeAgentRun } from "./creative";
-import type { CreativeProjectHandoff } from "@/lib/creative-runtime-contract";
+import type { CreativeProjectHandoff, CreativeReferenceRecovery } from "@/lib/creative-runtime-contract";
 
 class FakeEventSource extends EventTarget {
     static instance: FakeEventSource;
@@ -35,6 +35,121 @@ class FakeEventSource extends EventTarget {
 }
 
 describe("统一创作 Agent 事件流", () => {
+    it.each([
+        { reviewId: "review-one", action: "retry_analysis" },
+        { reviewId: "review-one", action: "retry_source" },
+        { reviewId: "review-one", action: "confirm_purposes", decisionVersion: "ecommerce-reference-decision.v1", bindings: [{ assetId: "product", assetVersion: "version-one", purposes: ["edit_target", "product_identity"] }] },
+    ] satisfies CreativeReferenceRecovery[])("submits typed $action reference recovery to the original run and conversation", async (referenceRecovery) => {
+        const fetch = vi.fn(async () => Response.json({ code: 0, data: { run: { id: "run" } }, msg: "OK" }));
+        vi.stubGlobal("fetch", fetch);
+        await controlCreativeAgentRun("run", "resume", "conversation", undefined, referenceRecovery);
+        expect(fetch).toHaveBeenCalledExactlyOnceWith("/api/agent/runs/run/resume", expect.objectContaining({ method: "POST", cache: "no-store", body: JSON.stringify({ conversationId: "conversation", referenceRecovery }) }));
+    });
+
+    it("carries the public reference review through SSE and explicitly clears it after recovery", () => {
+        vi.stubGlobal("EventSource", FakeEventSource);
+        const onSnapshot = vi.fn();
+        const stop = watchCreativeAgentRun("run", { onProgress: vi.fn(), onTerminal: vi.fn(), onConnectionError: vi.fn(), onSnapshot });
+        const ecommerceReferenceReview = referenceReview();
+        FakeEventSource.instance.emit("run.snapshot", { id: "run", status: "paused", ecommerceReferenceReview, referenceCheckpoint: { model: "private-model" } });
+        FakeEventSource.instance.emit("run.snapshot", { id: "run", status: "running", ecommerceReferenceReview: null });
+        expect(onSnapshot).toHaveBeenNthCalledWith(1, expect.objectContaining({ ecommerceReferenceReview }));
+        expect(onSnapshot).toHaveBeenNthCalledWith(2, expect.objectContaining({ ecommerceReferenceReview: null }));
+        expect(JSON.stringify(onSnapshot.mock.calls)).not.toMatch(/referenceCheckpoint|private-model/);
+        stop();
+    });
+
+    it("carries the server-proven status action through SSE and clears it when the original Run resumes", () => {
+        vi.stubGlobal("EventSource", FakeEventSource);
+        const onSnapshot = vi.fn();
+        const stop = watchCreativeAgentRun("run", { onProgress: vi.fn(), onTerminal: vi.fn(), onConnectionError: vi.fn(), onSnapshot });
+        FakeEventSource.instance.emit("run.snapshot", { id: "run", status: "paused", canCheckStatus: true, childTaskId: "private-child" });
+        FakeEventSource.instance.emit("run.snapshot", { id: "run", status: "running", canCheckStatus: false });
+        expect(onSnapshot).toHaveBeenNthCalledWith(1, expect.objectContaining({ id: "run", canCheckStatus: true }));
+        expect(onSnapshot).toHaveBeenNthCalledWith(2, expect.objectContaining({ id: "run", canCheckStatus: false }));
+        expect(JSON.stringify(onSnapshot.mock.calls)).not.toContain("private-child");
+        stop();
+    });
+
+    it("restores the same reference review from a disconnected GET before reporting paused status", async () => {
+        vi.stubGlobal("EventSource", FakeEventSource);
+        const ecommerceReferenceReview = referenceReview();
+        vi.stubGlobal(
+            "fetch",
+            vi.fn(async () => Response.json({ code: 0, data: { run: { id: "run", status: "paused", tasks: [], ecommerceReferenceReview, referenceCheckpoint: "private-model" } }, msg: "OK" })),
+        );
+        const reconciled = Promise.withResolvers<void>();
+        const order: string[] = [];
+        const onSnapshot = vi.fn(() => order.push("snapshot"));
+        const stop = watchCreativeAgentRun("run", {
+            onProgress: vi.fn(),
+            onTerminal: vi.fn(),
+            onConnectionError: vi.fn(),
+            onSnapshot,
+            onStatus: () => {
+                order.push("status");
+                reconciled.resolve();
+            },
+        });
+        try {
+            FakeEventSource.instance.onerror?.();
+            await reconciled.promise;
+            expect(order).toEqual(["snapshot", "status"]);
+            expect(onSnapshot).toHaveBeenCalledWith(expect.objectContaining({ id: "run", status: "paused", ecommerceReferenceReview }));
+            expect(JSON.stringify(onSnapshot.mock.calls)).not.toMatch(/referenceCheckpoint|private-model/);
+        } finally {
+            stop();
+        }
+    });
+
+    it("clears the consumed reference review from a disconnected terminal GET before terminal delivery", async () => {
+        vi.stubGlobal("EventSource", FakeEventSource);
+        vi.stubGlobal(
+            "fetch",
+            vi.fn(async () => Response.json({ code: 0, data: { run: { id: "run", status: "completed", tasks: [], ecommerceReferenceReview: null } }, msg: "OK" })),
+        );
+        const reconciled = Promise.withResolvers<void>();
+        const order: string[] = [];
+        const onSnapshot = vi.fn(() => order.push("snapshot"));
+        const stop = watchCreativeAgentRun("run", {
+            onProgress: vi.fn(),
+            onConnectionError: vi.fn(),
+            onSnapshot,
+            onTerminal: () => {
+                order.push("terminal");
+                reconciled.resolve();
+            },
+        });
+        try {
+            FakeEventSource.instance.onerror?.();
+            await reconciled.promise;
+            expect(order).toEqual(["snapshot", "terminal"]);
+            expect(onSnapshot).toHaveBeenCalledWith(expect.objectContaining({ id: "run", status: "completed", ecommerceReferenceReview: null }));
+        } finally {
+            stop();
+        }
+    });
+
+    it("submits confirmed source pixels to the same resume route and conversation", async () => {
+        const fetch = vi.fn(async () => new Response(JSON.stringify({ code: 0, data: { run: { id: "run" } }, msg: "OK" })));
+        vi.stubGlobal("fetch", fetch);
+        const selection = { baselineAssetId: "scene", region: { x: 201, y: 101, width: 403, height: 202 } };
+        await controlCreativeAgentRun("run", "resume", "conversation", selection);
+        expect(fetch).toHaveBeenCalledWith("/api/agent/runs/run/resume", expect.objectContaining({ method: "POST", cache: "no-store", body: JSON.stringify({ conversationId: "conversation", sceneSelection: selection }) }));
+    });
+    it("carries acceptance and selection in SSE snapshots through pause and resume", () => {
+        vi.stubGlobal("EventSource", FakeEventSource);
+        const onSnapshot = vi.fn();
+        watchCreativeAgentRun("run", { onProgress: vi.fn(), onTerminal: vi.fn(), onConnectionError: vi.fn(), onSnapshot });
+        const ecommerceSceneSelection = { action: "confirm_scene_selection", baselineAssetId: "scene", url: "/api/reference-assets/scene.png", width: 1254, height: 1254 };
+        FakeEventSource.instance.emit("run.snapshot", { id: "run", status: "paused", ecommerceSceneSelection, compiledPrompt: "private" });
+        FakeEventSource.instance.emit("run.snapshot", { id: "run", status: "running" });
+        FakeEventSource.instance.emit("run.snapshot", { id: "run", status: "completed", ecommerceQualityStatus: "needs_adjustment" });
+        expect(onSnapshot).toHaveBeenNthCalledWith(1, expect.objectContaining({ id: "run", status: "paused", ecommerceSceneSelection }));
+        expect(onSnapshot).toHaveBeenNthCalledWith(2, expect.objectContaining({ status: "running", ecommerceSceneSelection: undefined }));
+        expect(onSnapshot).toHaveBeenNthCalledWith(3, expect.objectContaining({ ecommerceQualityStatus: "needs_adjustment" }));
+        expect(JSON.stringify(onSnapshot.mock.calls)).not.toContain("compiledPrompt");
+    });
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.stopIfClientSessionExpired.mockResolvedValue(false);
@@ -88,6 +203,23 @@ describe("统一创作 Agent 事件流", () => {
         expect(progress.join(" ")).not.toContain("must stay private");
     });
 
+    it("maps ecommerce stages from the public stage enum and ignores private payload fields", () => {
+        vi.stubGlobal("EventSource", FakeEventSource);
+        const progress: string[] = [];
+        watchCreativeAgentRun("run-ecommerce", {
+            onProgress: (text) => progress.push(text),
+            onTerminal: () => undefined,
+            onConnectionError: () => undefined,
+        });
+
+        FakeEventSource.instance.emit("ecommerce.progress", { data: { stage: "identifying_product", plan: "private" } });
+        FakeEventSource.instance.emit("ecommerce.progress", { data: { stage: "planning_scene", prompt: "private" } });
+        FakeEventSource.instance.emit("ecommerce.progress", { data: { stage: "generating_image", modelRoles: "private" } });
+
+        expect(progress).toEqual(["正在识别商品", "正在规划场景", "正在生成图片"]);
+        expect(progress.join(" ")).not.toContain("private");
+    });
+
     it("reports terminal failure without asking the user to choose a target", () => {
         vi.stubGlobal("EventSource", FakeEventSource);
         const terminal: unknown[] = [];
@@ -113,6 +245,25 @@ describe("统一创作 Agent 事件流", () => {
 
         expect(progress).toEqual(["上游创建状态待人工确认"]);
         expect(FakeEventSource.instance.url).toBe("/api/agent/runs/run-waiting/events");
+    });
+
+    it("keeps an actionable review reason visible after the paused snapshot", () => {
+        vi.stubGlobal("EventSource", FakeEventSource);
+        const progress: string[] = [];
+        const statuses: string[] = [];
+        watchCreativeAgentRun("run-review", {
+            onProgress: (text) => progress.push(text),
+            onStatus: (status) => statuses.push(status),
+            onTerminal: () => undefined,
+            onConnectionError: () => undefined,
+        });
+
+        FakeEventSource.instance.emit("task.needs_review", { data: { title: "商品图", error: "请确认这张图片是商品图还是场景参考图。" } });
+        FakeEventSource.instance.emit("run.snapshot", { status: "paused" });
+
+        expect(statuses).toContain("paused");
+        expect(progress.at(-1)).toBe("请确认这张图片是商品图还是场景参考图。");
+        expect(FakeEventSource.instance.closed).toBe(false);
     });
 
     it("forwards a persistent project handoff before the run completes", () => {
@@ -181,6 +332,41 @@ describe("统一创作 Agent 事件流", () => {
         expect(errors).toEqual([]);
     });
 
+    it("restores the persisted review reason after an SSE interruption", async () => {
+        vi.stubGlobal("EventSource", FakeEventSource);
+        vi.stubGlobal(
+            "fetch",
+            vi.fn(async () =>
+                Response.json({
+                    code: 0,
+                    data: {
+                        run: {
+                            id: "run-review-recover",
+                            conversationId: "conversation",
+                            inputMessageId: "input",
+                            assistantMessageId: "assistant",
+                            status: "paused",
+                            assetIds: [],
+                            tasks: [{ id: "image", title: "商品图", status: "needs_review", error: "请确认这张图片是商品图还是场景参考图。" }],
+                        },
+                    },
+                    msg: "OK",
+                }),
+            ),
+        );
+        const progress: string[] = [];
+        watchCreativeAgentRun("run-review-recover", {
+            onProgress: (text) => progress.push(text),
+            onTerminal: () => undefined,
+            onConnectionError: () => undefined,
+        });
+
+        FakeEventSource.instance.onerror?.();
+        await vi.waitFor(() => expect(progress.at(-1)).toBe("请确认这张图片是商品图还是场景参考图。"));
+
+        expect(FakeEventSource.instance.closed).toBe(false);
+    });
+
     it("uses the persisted terminal state after an SSE interruption", async () => {
         vi.stubGlobal("EventSource", FakeEventSource);
         vi.stubGlobal(
@@ -226,6 +412,16 @@ describe("统一创作 Agent 事件流", () => {
         expect(FakeEventSource.instance.closed).toBe(true);
     });
 });
+
+function referenceReview() {
+    return {
+        version: "ecommerce-reference-review.v1",
+        reviewId: "review-one",
+        kind: "confirm_purposes",
+        question: "请确认这次要修改的图片",
+        assets: [{ assetId: "product", assetVersion: "version-one", alias: "图片1", previewUrl: "/api/reference-assets/product.png", purposes: [], allowedPurposes: ["edit_target", "product_identity"] }],
+    };
+}
 
 describe("创作会话来源", () => {
     afterEach(() => vi.unstubAllGlobals());

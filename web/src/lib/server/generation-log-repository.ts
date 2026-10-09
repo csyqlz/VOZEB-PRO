@@ -14,6 +14,7 @@ import { deleteExternalMediaObject, persistExternalMediaIfEnabled } from "@/lib/
 import { fetchSafeOutbound } from "@/lib/server/safe-outbound-fetch";
 import { isSafeOutboundUrl } from "@/lib/server/security";
 import type { GenerationLogAsset, GenerationLogDatabase, GenerationLogKind, GenerationLogSource, GenerationLogStatus, StoredGenerationLog } from "./generation-log-types";
+import { normalizeEcommerceGenerationTrace } from "./ecommerce-generation-trace";
 
 const LOG_DATA_FILE = "generation-logs.json";
 const ASSET_ROOT = GENERATION_MEDIA_ROOT;
@@ -414,6 +415,7 @@ export function mapPostgresGenerationLog(row: Record<string, unknown>, assets: G
         failCount: dbNumber(row.fail_count, 0),
         assets,
         requestSnapshot: normalizeGenerationLogRequestSnapshot(row.request_snapshot),
+        ecommerceTrace: normalizeEcommerceGenerationTrace(row.ecommerce_trace),
         taskId: dbOptionalText(row.task_id),
         error: dbOptionalText(row.error),
         createdAt: dbIso(row.created_at),
@@ -494,6 +496,7 @@ export function normalizeStoredLog(log: Partial<StoredGenerationLog>): StoredGen
         failCount: normalizeNonNegativeInteger(log.failCount, status === "failed" ? 1 : 0),
         assets: Array.isArray(log.assets) ? log.assets.map(normalizeStoredAsset).filter((asset): asset is GenerationLogAsset => Boolean(asset?.url)) : [],
         requestSnapshot: normalizeGenerationLogRequestSnapshot(log.requestSnapshot),
+        ecommerceTrace: normalizeEcommerceGenerationTrace(log.ecommerceTrace),
         taskId: normalizeOptionalText(log.taskId, undefined, 160),
         error: normalizeOptionalText(log.error, undefined, 1000),
         createdAt: normalizeTime(log.createdAt, new Date().toISOString()),

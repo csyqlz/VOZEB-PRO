@@ -3,6 +3,17 @@ import { describe, expect, it } from "vitest";
 import { normalizeSystemChannelAdvancedConfig } from "./store-normalizers";
 
 describe("system channel model capabilities", () => {
+    it("preserves GCP Agent Platform resource and ADC settings", () => {
+        expect(
+            normalizeSystemChannelAdvancedConfig({
+                protocol: "gcp-agent-platform",
+                authMode: "google-adc",
+                gcpProjectId: "VOZEB-PROD-123",
+                gcpLocation: "ASIA-EAST1",
+            } as never),
+        ).toMatchObject({ protocol: "gcp-agent-platform", authMode: "google-adc", gcpProjectId: "vozeb-prod-123", gcpLocation: "asia-east1" });
+    });
+
     it("keeps the Yumeng protocol identity", () => {
         expect(normalizeSystemChannelAdvancedConfig({ protocol: "yumeng" } as never)?.protocol).toBe("yumeng");
     });

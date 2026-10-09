@@ -1,4 +1,5 @@
 import type { GenerationLogRequestSnapshot } from "@/lib/generation-log-snapshot";
+import type { EcommerceGenerationTrace } from "@/lib/server/ecommerce-generation-trace";
 
 export type GenerationLogKind = "image" | "video";
 export type GenerationLogSource = "agent" | "image-workbench" | "video-workbench" | "canvas" | "drama" | "unknown";
@@ -35,6 +36,7 @@ export type StoredGenerationLog = {
     failCount: number;
     assets: GenerationLogAsset[];
     requestSnapshot?: GenerationLogRequestSnapshot;
+    ecommerceTrace?: EcommerceGenerationTrace;
     taskId?: string;
     error?: string;
     createdAt: string;
@@ -98,6 +100,7 @@ export type GenerationLogListOptions = {
     userId?: string;
     start?: string;
     end?: string;
+    includeEcommerceTrace?: boolean;
 };
 
 export type GenerationAssetStats = {

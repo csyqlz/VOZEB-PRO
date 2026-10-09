@@ -4,12 +4,14 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import { Button, Input, Modal, Slider } from "antd";
 import { Brush, Eraser, RotateCcw, WandSparkles, X } from "lucide-react";
 
+import { imageEditRegionFromRgba, type ImageEditRegion } from "@/lib/image-edit-region";
 import { readImageMeta } from "@/lib/image-utils";
 import { imagePreviewUrl } from "@/lib/media-image-url";
 
 export type CanvasImageMaskEditPayload = {
     prompt: string;
     maskDataUrl: string;
+    editRegion: ImageEditRegion;
 };
 
 type DrawMode = "paint" | "erase";
@@ -97,8 +99,9 @@ export function CanvasNodeMaskEditDialog({ dataUrl, open, onClose, onConfirm }: 
         const canvas = maskCanvasRef.current;
         if (!nextPrompt) return setError("请输入修改要求");
         if (!canvas) return;
-        if (!canvasHasPaint(canvas)) return setError("请先涂抹局部区域");
-        onConfirm({ prompt: nextPrompt, maskDataUrl: buildEditMask(canvas) });
+        const editRegion = canvasEditRegion(canvas);
+        if (!editRegion) return setError("请先涂抹局部区域");
+        onConfirm({ prompt: nextPrompt, maskDataUrl: buildEditMask(canvas), editRegion });
     };
 
     return (
@@ -217,6 +220,12 @@ function canvasHasPaint(canvas: HTMLCanvasElement) {
         if (data[index] > 0) return true;
     }
     return false;
+}
+
+function canvasEditRegion(canvas: HTMLCanvasElement) {
+    const context = canvas.getContext("2d");
+    if (!context) return undefined;
+    return imageEditRegionFromRgba(context.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width, canvas.height);
 }
 
 function renderMaskPreview(maskCanvas: HTMLCanvasElement, previewCanvas: HTMLCanvasElement | null, withBorder = false) {

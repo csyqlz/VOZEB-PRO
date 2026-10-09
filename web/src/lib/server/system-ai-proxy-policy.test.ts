@@ -74,6 +74,31 @@ describe("system AI proxy policy", () => {
         ).toMatchObject({ allowed: true, operation: "query", upstreamTaskId: "operation-one" });
     });
 
+    it("authorizes native Gemini image resolution aliases against the base model binding", () => {
+        expect(
+            authorizeSystemAiProxyRequest({
+                method: "POST",
+                path: ["v1", "models", "gemini-3.1-flash-image-4k-16x9:generateContent"],
+                search: "",
+                channelId: "main",
+                upstreamModel: "gemini-3.1-flash-image",
+                preferredLogicalModelId: "gemini-image",
+                logicalModels: [
+                    {
+                        id: "gemini-image",
+                        name: "Gemini 图片",
+                        capability: "image" as const,
+                        enabled: true,
+                        bindings: [{ id: "gemini-image-main", channelId: "main", upstreamModel: "gemini-3.1-flash-image", enabled: true, priority: 1 }],
+                    },
+                ],
+                apiFormat: "gemini",
+                pointsUsageKind: "image",
+                paths: { create: ["/v1/models/gemini-3.1-flash-image:generateContent"] },
+            }),
+        ).toMatchObject({ allowed: true, logicalModelId: "gemini-image", operation: "create" });
+    });
+
     it("rejects unbound models, unknown paths, and unbilled create requests", () => {
         const base = { method: "POST", search: "", channelId: "main", preferredLogicalModelId: "", logicalModels, apiFormat: "openai" as const };
         expect(authorizeSystemAiProxyRequest({ ...base, path: ["chat", "completions"], upstreamModel: "unknown", pointsUsageKind: "text" })).toMatchObject({ allowed: false, status: 403 });

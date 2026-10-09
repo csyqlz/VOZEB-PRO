@@ -10,7 +10,29 @@ export const E2E_ADMIN = {
 export const E2E_PROTOCOL_ORIGIN = `http://127.0.0.1:${Number(process.env.VOZEB_PRO_PROTOCOL_FIXTURE_PORT || 4010)}`;
 export const E2E_PAYMENT_WEBHOOK_SECRET = "vozeb-pro-e2e-payply-webhook-secret";
 
-const models = ["e2e-text", "e2e-text-fallback", "e2e-text-fail", "e2e-image", "e2e-image-fallback", "e2e-video", "e2e-video-fallback", "e2e-video-slow", "e2e-audio", "e2e-audio-fallback"];
+const models = [
+    "e2e-text",
+    "e2e-text-fallback",
+    "e2e-text-fail",
+    "e2e-ecommerce-vision-upstream",
+    "e2e-ecommerce-planner-upstream",
+    "e2e-ecommerce-quality-upstream",
+    "e2e-image",
+    "e2e-image-fallback",
+    "gpt-image-2.5-flare",
+    "e2e-video",
+    "e2e-video-fallback",
+    "e2e-video-slow",
+    "e2e-audio",
+    "e2e-audio-fallback",
+];
+
+const ecommerceLogicalModels = [
+    logicalModel("e2e-ecommerce-vision", "E2E Ecommerce Vision", "text", "e2e-ecommerce-vision-upstream"),
+    logicalModel("e2e-ecommerce-planner", "E2E Ecommerce Planner", "text", "e2e-ecommerce-planner-upstream"),
+    logicalModel("e2e-ecommerce-image", "E2E Ecommerce Image", "image", "gpt-image-2.5-flare"),
+    logicalModel("e2e-ecommerce-quality", "E2E Ecommerce Quality", "text", "e2e-ecommerce-quality-upstream"),
+];
 
 const operations = {
     text: {
@@ -64,10 +86,28 @@ export function e2eSettingsPatch() {
     const modelConfigs = Object.fromEntries(models.map((model) => [model, operations[modelCapabilities[model] as keyof typeof operations]]));
     return {
         systemChannels: [channel("e2e-primary", "E2E 主渠道", "e2e-primary-secret", modelCapabilities, modelConfigs), channel("e2e-backup", "E2E 备用渠道", "e2e-backup-secret", modelCapabilities, modelConfigs)],
-        logicalModels: [],
+        logicalModels: ecommerceLogicalModels,
         defaultModels: { textModel: "e2e-text", imageModel: "e2e-image", videoModel: "e2e-video", audioModel: "e2e-audio" },
-        modelPointCosts: Object.fromEntries(models.map((model) => [model, 0])),
+        ecommerceGenerationEnabled: true,
+        ecommerceVisualQualityCheckEnabled: false,
+        ecommerceModelRoles: {
+            vision_analysis: ["e2e-ecommerce-vision"],
+            edit_planning: ["e2e-ecommerce-planner"],
+            image_generation: ["e2e-ecommerce-image"],
+            quality_check: ["e2e-ecommerce-quality"],
+        },
+        modelPointCosts: Object.fromEntries([...models, ...ecommerceLogicalModels.map((model) => model.id)].map((model) => [model, 0])),
         generationConcurrency: { agent: 2, image: 2, video: 2, audio: 2, text: 2, render: 1 },
+    };
+}
+
+function logicalModel(id: string, name: string, capability: "text" | "image", upstreamModel: string) {
+    return {
+        id,
+        name,
+        capability,
+        enabled: true,
+        bindings: [{ id: `${id}-primary`, channelId: "e2e-primary", upstreamModel, enabled: true, priority: 1 }],
     };
 }
 

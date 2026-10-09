@@ -26,10 +26,11 @@ describe("admin channel workspace model", () => {
     it("removes dead bindings and defaults with a deleted channel", () => {
         const settings = {
             systemChannels: [channel],
+            ecommerceVisualQualityCheckEnabled: true,
             logicalModels: [{ id: "video-pro", name: "专业视频", capability: "video" as const, enabled: true, bindings: [{ id: "binding", channelId: channel.id, upstreamModel: "seedance-pro", enabled: true, priority: 1 }] }],
             defaultModels: { textModel: "", imageModel: "", videoModel: "video-pro", audioModel: "" },
         };
-        expect(removeChannelFromWorkspace(settings, channel.id)).toEqual({ systemChannels: [], logicalModels: [], defaultModels: { textModel: "", imageModel: "", videoModel: "", audioModel: "" } });
+        expect(removeChannelFromWorkspace(settings, channel.id)).toEqual({ systemChannels: [], logicalModels: [], defaultModels: { textModel: "", imageModel: "", videoModel: "", audioModel: "" }, ecommerceVisualQualityCheckEnabled: true });
         expect(defaultModelField("video")).toBe("videoModel");
     });
 

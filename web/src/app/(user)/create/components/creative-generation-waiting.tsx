@@ -1,48 +1,121 @@
 "use client";
 
 import { Sparkles } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import type { CreativeMessage } from "@/lib/creative-runtime-contract";
-import type { CreativeAgentRun } from "@/services/api/creative";
+import type { CreativeMessage, CreativeReferenceRecovery } from "@/lib/creative-runtime-contract";
+import type { CreativeAgentRun, CreativeSceneSelection } from "@/services/api/creative";
 
 import { creativeRunMode } from "./creative-run-presentation";
+import { CreativeSceneSelectionPanel } from "./creative-scene-selection-panel";
+import { CreativeReferenceReviewPanel } from "./creative-reference-review-panel";
 
 const LONG_WAIT_MESSAGES = ["主人，久等了，辛苦你再陪我一会儿，我一直在这里守着这次创作。", "主人，别担心，创作还在继续，不用重复发送，先放松一下，这里交给我守着吧。", "主人，作品正在慢慢雕琢，可能比平时久一点，但我没有离开。"] as const;
 
-export function CreativeGenerationWaiting({ run, message }: { run?: CreativeAgentRun; message: Pick<CreativeMessage, "content" | "createdAt"> }) {
+export function CreativeGenerationWaiting({
+    run,
+    message,
+    onConfirmSceneSelection,
+    onRecoverReference,
+    onCheckStatus,
+}: {
+    run?: CreativeAgentRun;
+    message: Pick<CreativeMessage, "content" | "createdAt">;
+    onConfirmSceneSelection?: (runId: string, selection: CreativeSceneSelection) => Promise<void>;
+    onRecoverReference?: (runId: string, recovery: CreativeReferenceRecovery) => Promise<void>;
+    onCheckStatus?: (runId: string) => Promise<void>;
+}) {
     const startedAt = run?.createdAt || message.createdAt;
+    const active = !run || run.status === "planning" || run.status === "running";
     const [now, setNow] = useState(() => Date.now());
+    const [checking, setChecking] = useState(false);
+    const [checkError, setCheckError] = useState("");
+    const checkingRef = useRef(false);
+    const checkStatus = async () => {
+        if (!run?.canCheckStatus || !onCheckStatus || checkingRef.current) return;
+        checkingRef.current = true;
+        setChecking(true);
+        setCheckError("");
+        try {
+            await onCheckStatus(run.id);
+        } catch (error) {
+            setCheckError(error instanceof Error ? error.message : "暂时无法检查原任务状态，请重试。");
+        } finally {
+            checkingRef.current = false;
+            setChecking(false);
+        }
+    };
 
     useEffect(() => {
+        if (!active) return;
         const update = () => setNow(Date.now());
         update();
         const timer = window.setInterval(update, 1000);
         return () => window.clearInterval(timer);
-    }, [startedAt]);
+    }, [startedAt, active]);
 
     const elapsedSeconds = Math.max(0, Math.floor((now - startedAt) / 1000));
-    const copy = creativeGenerationWaitingCopy({ mode: creativeRunMode(run), runStatus: run?.status, progressText: message.content, elapsedSeconds });
+    const reviewText = run?.status === "paused" ? run.tasks.find((task) => task.status === "needs_review" && task.error?.trim())?.error : undefined;
+    const copy =
+        run?.ecommerceReferenceReview && run.status === "paused"
+            ? run.ecommerceReferenceReview.question
+            : run?.ecommerceSceneSelection && run.status === "paused"
+              ? "请确认需要修改的位置，然后继续这次创作。"
+              : creativeGenerationWaitingCopy({ mode: creativeRunMode(run), runStatus: run?.status, progressText: message.content, reviewText, elapsedSeconds });
 
     return (
         <div data-testid="creative-generation-waiting" className="mb-3 max-w-[520px] py-1 text-[#667085] dark:text-[#a0a9b4]">
             <div className="flex items-start gap-2.5">
-                <Sparkles className="mt-1 size-4 shrink-0 animate-pulse text-primary/75" aria-hidden />
-                <div className="min-w-0">
+                <Sparkles className={`mt-1 size-4 shrink-0 text-primary/75${active ? " animate-pulse" : ""}`} aria-hidden />
+                <div className="min-w-0 flex-1">
                     <p className="text-sm leading-6 text-[#596474] dark:text-[#b0b8c2]" aria-live="polite">
                         {copy}
                     </p>
-                    <p data-testid="creative-generation-elapsed" className="mt-0.5 text-[11px] tabular-nums leading-4 text-[#98a2b3] dark:text-[#7f8996]">
-                        已等待 {formatCreativeWaitingTime(elapsedSeconds)}
-                    </p>
+                    {active ? (
+                        <p data-testid="creative-generation-elapsed" className="mt-0.5 text-[11px] tabular-nums leading-4 text-[#98a2b3] dark:text-[#7f8996]">
+                            已等待 {formatCreativeWaitingTime(elapsedSeconds)}
+                        </p>
+                    ) : null}
+                    {run?.status === "paused" && run.ecommerceSceneSelection && onConfirmSceneSelection ? (
+                        <CreativeSceneSelectionPanel key={`${run.id}:${run.ecommerceSceneSelection.baselineAssetId}`} runId={run.id} action={run.ecommerceSceneSelection} onConfirm={onConfirmSceneSelection} />
+                    ) : null}
+                    {run?.status === "paused" && run.ecommerceReferenceReview && onRecoverReference ? (
+                        <CreativeReferenceReviewPanel key={`${run.id}:${run.ecommerceReferenceReview.reviewId}`} runId={run.id} review={run.ecommerceReferenceReview} onRecover={onRecoverReference} />
+                    ) : null}
+                    {run?.status === "paused" && run.canCheckStatus && onCheckStatus && !run.ecommerceReferenceReview && !run.ecommerceSceneSelection ? (
+                        <button type="button" disabled={checking} onClick={() => void checkStatus()} className="mt-3 rounded-lg bg-primary px-3 py-1.5 text-sm text-primary-foreground disabled:opacity-60">
+                            {checking ? "正在检查" : "检查状态"}
+                        </button>
+                    ) : null}
+                    {checkError ? (
+                        <p role="alert" className="mt-2 text-sm text-red-600 dark:text-red-300">
+                            {checkError}
+                        </p>
+                    ) : null}
                 </div>
             </div>
         </div>
     );
 }
 
-export function creativeGenerationWaitingCopy({ mode, runStatus, progressText, elapsedSeconds }: { mode?: "text" | "image" | "video" | "audio"; runStatus?: CreativeAgentRun["status"]; progressText: string; elapsedSeconds: number }) {
+export function creativeGenerationWaitingCopy({
+    mode,
+    runStatus,
+    progressText,
+    reviewText,
+    elapsedSeconds,
+}: {
+    mode?: "text" | "image" | "video" | "audio";
+    runStatus?: CreativeAgentRun["status"];
+    progressText: string;
+    reviewText?: string;
+    elapsedSeconds: number;
+}) {
     const progress = progressText.trim();
+    const review = reviewText?.trim();
+    if (runStatus === "paused" && review) return review;
+    if (["正在识别商品", "正在规划场景", "正在生成图片", "正在检查商品细节"].includes(progress)) return progress;
+    if (runStatus === "paused" && progress && !/任务已暂停|任务仍在后台保存/.test(progress)) return progress;
     if (runStatus === "paused" || /任务已暂停/.test(progress)) return "主人，任务已经替你暂停，进度好好保存着，想继续时叫我就好。";
     if (/连接暂时中断|无法确认实时状态/.test(progress)) return "主人，连接刚刚有些不稳，不过任务仍在后台继续，我正在替你确认。";
     if (/连接已恢复|恢复连接/.test(progress)) return "主人，连接恢复啦，我会继续守着这次创作。";

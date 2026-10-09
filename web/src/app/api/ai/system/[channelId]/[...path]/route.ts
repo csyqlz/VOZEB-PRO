@@ -17,13 +17,16 @@ import { resolveGlobalAiOpcPathPreset, resolveGlobalAiOpcPreset } from "@/lib/gl
 import { adaptGlobalAiOpcTextRequest, adaptGlobalAiOpcTextResponse, isGlobalAiOpcChannel } from "@/lib/server/globalaiopc-proxy";
 import { readVerifiedSystemAiBusinessRequestId, SYSTEM_AI_LOGICAL_MODEL_HEADER, SYSTEM_AI_UPSTREAM_MODEL_HEADER, systemAiPointsIdempotencyKey, systemAiRequestFingerprint } from "@/lib/server/system-ai-billing";
 import { isAgnesApiBaseUrl } from "@/lib/agnes-model-catalog";
-import { channelConnectionReady, protocolAuthHeaders, resolveChannelModelConfig } from "@/lib/channel-protocol-registry";
+import { channelConnectionReady, protocolAuthHeaders, resolveChannelAuthMode, resolveChannelModelConfig } from "@/lib/channel-protocol-registry";
+import { gcpAgentPlatformTargetUrl } from "@/lib/gcp-agent-platform";
+import { gcpAgentPlatformAuthHeaders } from "@/lib/server/gcp-agent-platform-auth";
 import { normalizeYumengModelCenterBaseUrl } from "@/lib/yumeng-model-center";
 import { authorizedWorkerUserId } from "@/lib/server/maintenance-auth";
 import { authorizeGenerationMediaProxyRequest } from "@/lib/server/generation-media-access";
 import { SYSTEM_PROXY_JSON_BODY_MAX_BYTES } from "@/lib/server/system-proxy-request-limits";
 import { userOwnsGenerationUpstreamTask } from "@/lib/server/generation-task-authorization";
 import { authorizeSystemAiProxyRequest } from "@/lib/server/system-ai-proxy-policy";
+import { customGeminiImageModelParts } from "@/lib/server/custom-gemini-image-model";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -91,26 +94,53 @@ async function proxySystemRequest(request: Request, context: RouteContext) {
         if (error instanceof RequestBodyTooLargeError) return NextResponse.json({ error: error.message }, { status: error.status });
         throw error;
     }
-    const upstreamModel = readRequestModel(readRequestBody(contentType, requestBody.pointsPayload)) || request.headers.get(SYSTEM_AI_UPSTREAM_MODEL_HEADER)?.trim() || readPathModel(path);
+    const requestBodyModel = readRequestModel(readRequestBody(contentType, requestBody.pointsPayload));
+    const headerModel = request.headers.get(SYSTEM_AI_UPSTREAM_MODEL_HEADER)?.trim() || "";
+    const pathModel = readPathModel(path);
+    const rawRequestedModel = requestBodyModel || headerModel || pathModel;
+    const requestImageModel = customGeminiImageModelParts(rawRequestedModel);
+    const pathImageModel = customGeminiImageModelParts(pathModel);
+    const requestIsImageVariant = Boolean(requestImageModel?.resolution || requestImageModel?.ratio);
+    const pathIsImageVariant = Boolean(pathImageModel?.resolution || pathImageModel?.ratio);
+    const imageModel = requestIsImageVariant ? requestImageModel : pathIsImageVariant ? pathImageModel : requestImageModel;
+    const imageAliasModel = requestIsImageVariant ? rawRequestedModel : pathIsImageVariant ? pathModel : "";
+    const baseModel = imageModel?.baseModel || "";
+    const baseModelConfig = baseModel ? resolveChannelModelConfig(channel.advancedConfig, baseModel) : undefined;
+    const usesImageAlias = Boolean(imageAliasModel && baseModel && !channelHasModel(channel.models, imageAliasModel) && channelHasModel(channel.models, baseModel) && (baseModelConfig?.protocol || channel.advancedConfig?.protocol) === "custom");
+    const upstreamModel = usesImageAlias ? baseModel : rawRequestedModel;
+    // Authorize and bill the configured model while forwarding its resolution variant unchanged.
+    const pointsPayload = usesImageAlias ? { ...readRequestBody(contentType, requestBody.pointsPayload), model: upstreamModel } : requestBody.pointsPayload;
     const modelConfig = upstreamModel ? resolveChannelModelConfig(channel.advancedConfig, upstreamModel) : undefined;
     const apiFormat = modelConfig?.apiFormat || channel.apiFormat;
     const globalChannel = isGlobalAiOpcChannel(channel.advancedConfig);
     const globalPreset = resolveGlobalAiOpcPreset(channel.advancedConfig, upstreamModel) || resolveGlobalAiOpcPathPreset(channel.advancedConfig, path);
     const globalAdaptation = adaptGlobalAiOpcTextRequest(channel.advancedConfig, path, requestBody.body);
     if (globalAdaptation === "responses-unsupported") return NextResponse.json({ error: "该 GlobalAiOpc 原生文本接口不支持 Responses，已切换 Chat 兼容回退。" }, { status: 404 });
+    const configuredPointsRequest = classifyConfiguredPointsRequest(
+        request.method,
+        path,
+        contentType,
+        pointsPayload,
+        channel.id,
+        [
+            globalPreset?.createPath,
+            modelConfig?.streaming?.path,
+            modelConfig?.createPath,
+            modelConfig?.editPath,
+            modelConfig?.imageToVideoPath,
+            channel.advancedConfig?.streaming?.path,
+            channel.advancedConfig?.createPath,
+            channel.advancedConfig?.editPath,
+            channel.advancedConfig?.imageToVideoPath,
+        ],
+        upstreamModel,
+        settings.logicalModels,
+        settings.generationPointMultipliers,
+    );
     const pointsRequest =
-        classifyPointsRequest(request.method, apiFormat, path, contentType, requestBody.pointsPayload, settings.generationPointMultipliers) ||
-        classifyConfiguredPointsRequest(
-            request.method,
-            path,
-            contentType,
-            requestBody.pointsPayload,
-            channel.id,
-            [globalPreset?.createPath, modelConfig?.createPath, modelConfig?.editPath, modelConfig?.imageToVideoPath, channel.advancedConfig?.createPath, channel.advancedConfig?.editPath, channel.advancedConfig?.imageToVideoPath],
-            upstreamModel,
-            settings.logicalModels,
-            settings.generationPointMultipliers,
-        );
+        (imageModel && (modelConfig?.protocol || channel.advancedConfig?.protocol) === "custom" ? configuredPointsRequest : null) ||
+        classifyPointsRequest(request.method, apiFormat, path, contentType, pointsPayload, settings.generationPointMultipliers) ||
+        configuredPointsRequest;
     if (pointsRequest?.model && !channelHasModel(channel.models, pointsRequest.model)) return NextResponse.json({ error: "该模型未在后台渠道中启用" }, { status: 403 });
     const access = authorizeSystemAiProxyRequest({
         method: request.method,
@@ -124,7 +154,17 @@ async function proxySystemRequest(request: Request, context: RouteContext) {
         pointsUsageKind: pointsRequest?.usageKind,
         upstreamTaskIdHint: readRequestTaskId(readRequestBody(contentType, requestBody.pointsPayload)),
         paths: {
-            create: [globalPreset?.createPath, modelConfig?.createPath, modelConfig?.editPath, modelConfig?.imageToVideoPath, channel.advancedConfig?.createPath, channel.advancedConfig?.editPath, channel.advancedConfig?.imageToVideoPath],
+            create: [
+                globalPreset?.createPath,
+                modelConfig?.streaming?.path,
+                modelConfig?.createPath,
+                modelConfig?.editPath,
+                modelConfig?.imageToVideoPath,
+                channel.advancedConfig?.streaming?.path,
+                channel.advancedConfig?.createPath,
+                channel.advancedConfig?.editPath,
+                channel.advancedConfig?.imageToVideoPath,
+            ],
             query: [globalPreset?.queryPath, modelConfig?.queryPath, channel.advancedConfig?.queryPath],
             cancel: [
                 { path: modelConfig?.cancelPath, method: modelConfig?.cancelMethod },
@@ -138,7 +178,19 @@ async function proxySystemRequest(request: Request, context: RouteContext) {
         if (!owned) return NextResponse.json({ error: "任务不存在或无权访问" }, { status: 404 });
     }
 
-    const target = targetUrl(globalPreset?.baseUrl || channel.baseUrl, globalPreset?.apiFormat || apiFormat, globalAdaptation?.path || path, new URL(request.url).search, globalChannel, modelConfig?.protocol || channel.advancedConfig?.protocol);
+    const authConfig = modelConfig?.protocol ? { ...channel.advancedConfig, protocol: modelConfig.protocol } : channel.advancedConfig;
+    const protocol = authConfig?.protocol;
+    const requestPath = globalAdaptation?.path || path;
+    const search = new URL(request.url).search;
+    let target: string;
+    try {
+        target =
+            protocol === "gcp-agent-platform"
+                ? gcpAgentPlatformTargetUrl({ projectId: authConfig?.gcpProjectId || "", location: authConfig?.gcpLocation || "global" }, requestPath, search)
+                : targetUrl(globalPreset?.baseUrl || channel.baseUrl, globalPreset?.apiFormat || apiFormat, requestPath, search, globalChannel, protocol);
+    } catch (error) {
+        return NextResponse.json({ error: error instanceof Error ? error.message : "上游接口地址无效" }, { status: 400 });
+    }
     if (!(await isSafeOutboundUrl(target, { allowCredentials: false }))) return NextResponse.json({ error: "接口地址不允许访问内网或保留地址" }, { status: 400 });
     const headers = new Headers();
     if (contentType && !isMultipart) headers.set("content-type", contentType);
@@ -147,8 +199,13 @@ async function proxySystemRequest(request: Request, context: RouteContext) {
     const clientRequestId = request.headers.get("x-client-request-id")?.trim().slice(0, 200);
     if (idempotencyKey) headers.set("idempotency-key", idempotencyKey);
     if (clientRequestId) headers.set("x-client-request-id", clientRequestId);
-    const authConfig = modelConfig?.protocol ? { ...channel.advancedConfig, protocol: modelConfig.protocol } : channel.advancedConfig;
-    Object.entries(protocolAuthHeaders(channel.apiKey, authConfig, globalChannel ? "openai" : apiFormat)).forEach(([key, value]) => headers.set(key, value));
+    try {
+        const authHeaders = protocol === "gcp-agent-platform" ? await gcpAgentPlatformAuthHeaders(channel.apiKey, resolveChannelAuthMode(authConfig)) : protocolAuthHeaders(channel.apiKey, authConfig, globalChannel ? "openai" : apiFormat);
+        Object.entries(authHeaders).forEach(([key, value]) => headers.set(key, value));
+    } catch (error) {
+        console.error("System API proxy authentication failed", error instanceof Error ? error.message : error);
+        return NextResponse.json({ error: "GCP Agent Platform 服务端凭据不可用" }, { status: 502 });
+    }
     const callType = `${access.capability}:${access.operation}:/${(globalAdaptation?.path || path).join("/")}`;
     const businessRequestId = readVerifiedSystemAiBusinessRequestId(request.headers, access.logicalModelId, upstreamModel) || `direct:${randomUUID()}`;
     const pointsIdempotencyKey = pointsRequest ? systemAiPointsIdempotencyKey({ userId, businessRequestId, logicalModel: access.logicalModelId, channelId: channel.id, upstreamModel, callType }) : undefined;
@@ -477,11 +534,12 @@ function classifyConfiguredPointsRequest(
     multipliers?: GenerationPointMultipliers,
 ): PointsRequest | null {
     if (method.toUpperCase() !== "POST") return null;
-    const cleanPath = normalizedConfiguredProxyPath(`/${path.join("/")}`);
-    if (!createPaths.some((createPath) => createPath && cleanPath === normalizedConfiguredProxyPath(createPath))) return null;
     const payload = readRequestBody(contentType, body);
     const model = readRequestModel(payload) || modelHint;
     if (!model) return null;
+    const cleanPath = normalizedConfiguredProxyPath(`/${path.join("/")}`);
+    const normalizedModelPath = normalizedCustomGeminiImagePath(cleanPath, model);
+    if (!createPaths.some((createPath) => createPath && [cleanPath, normalizedModelPath].includes(normalizedConfiguredProxyPath(createPath)))) return null;
     const capability = logicalModels.find((logical) => logical.enabled && logical.bindings.some((binding) => binding.enabled && binding.channelId === channelId && sameModel(binding.upstreamModel, model)))?.capability;
     if (capability === "image") return { model, amount: readRequestCount(payload) * imageQualityMultiplier(payload, multipliers), usageKind: "image" };
     if (capability === "video") return { model, amount: videoParameterMultiplier(payload, multipliers), usageKind: "video" };
@@ -495,6 +553,16 @@ function normalizedConfiguredProxyPath(value: string) {
         .replace(/^\/+/, "")
         .replace(/^(?:v1|v1beta)\//i, "")
         .replace(/\/+$/, "")}`.toLowerCase();
+}
+
+function normalizedCustomGeminiImagePath(candidate: string, model: string) {
+    const baseModel = customGeminiImageModelParts(model)?.baseModel;
+    if (!baseModel) return candidate;
+
+    return candidate.replace(/(\/models\/)([^/:?#]+)(:generateContent(?:$|[/?#]))/i, (match, prefix: string, requestedModel: string, suffix: string) => {
+        const requested = customGeminiImageModelParts(requestedModel);
+        return requested?.baseModel?.toLowerCase() === baseModel.toLowerCase() ? `${prefix}${baseModel}${suffix}` : match;
+    });
 }
 
 function sameModel(left: string, right: string) {

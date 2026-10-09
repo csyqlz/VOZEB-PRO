@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentRun } from "./agent-run-store";
+import { writeJsonDataFile } from "./data-adapter";
 
 const mocks = vi.hoisted(() => ({
     files: new Map<string, unknown>(),
@@ -98,6 +99,76 @@ describe("creative runtime file provider", () => {
             { role: "user", content: "生成一张图" },
             { role: "assistant", content: "上一轮确定使用红色跑车。" },
         ]);
+    });
+
+    it("atomically persists completed delivery with a review queue readable after reload", async () => {
+        await createBundle(run({ id: "run-review" }));
+        const due = Date.now();
+        await mutateCreativeRun<AgentRun>(
+            "run-review",
+            60_000,
+            (current) => ({
+                run: { ...current, status: "completed", reviewStatus: "review_pending", reviewed: false },
+                assistant: { status: "completed", content: "图片已生成。" },
+                event: { type: "run.completed" },
+                schedule: { executionPhase: "review_pending", nextPollAt: due, lastUpstreamStatus: "review_pending" },
+            }),
+            ["planning"],
+        );
+        expect(mocks.files.get("generation-tasks.json")).toMatchObject([{ id: "run-review", status: "success", executionPhase: "review_pending", nextPollAt: due, payload: { status: "completed", reviewStatus: "review_pending" } }]);
+        vi.resetModules();
+        const { claimDueGenerationTasks } = await import("./generation-task-scheduler");
+        expect(await claimDueGenerationTasks({ workerId: "fixture-review", taskIds: ["run-review"] })).toMatchObject([{ id: "run-review", executionPhase: "review_pending", payload: { status: "completed" } }]);
+    });
+
+    it("rolls back delivery messages when the atomic review task write fails", async () => {
+        await createBundle(run({ id: "run-review" }));
+        const before = structuredClone([...mocks.files]);
+        const write = vi.mocked(writeJsonDataFile),
+            implementation = write.getMockImplementation()!;
+        write.mockImplementationOnce(implementation).mockRejectedValueOnce(new Error("fixture task write failed"));
+        await expect(
+            mutateCreativeRun<AgentRun>(
+                "run-review",
+                60_000,
+                (current) => ({
+                    run: { ...current, status: "completed", reviewStatus: "review_pending" },
+                    assistant: { status: "completed", content: "图片已生成。" },
+                    event: { type: "run.completed" },
+                    schedule: { executionPhase: "review_pending", nextPollAt: Date.now(), lastUpstreamStatus: "review_pending" },
+                }),
+                ["planning"],
+            ),
+        ).rejects.toThrow("fixture task write failed");
+        expect([...mocks.files]).toEqual(before);
+    });
+
+    it("writes PostgreSQL delivery and its review schedule in one transaction update", async () => {
+        mocks.databaseProvider = "postgres";
+        const current = run({ id: "run-review" });
+        const queries: Array<{ sql: string; parameters?: unknown[] }> = [];
+        const query = vi.fn(async (sql: string, parameters?: unknown[]) => {
+            queries.push({ sql, parameters });
+            return { rows: sql.startsWith("SELECT payload") ? [{ payload: current }] : [] };
+        });
+        mocks.transaction.mockImplementation(async (handler: (client: { query: typeof query }) => Promise<unknown>) => handler({ query }));
+        const due = Date.now();
+        await mutateCreativeRun<AgentRun>(
+            current.id,
+            60_000,
+            (saved) => ({
+                run: { ...saved, status: "completed", reviewStatus: "review_pending", reviewed: false },
+                event: { type: "run.completed" },
+                schedule: { executionPhase: "review_pending", nextPollAt: due, lastUpstreamStatus: "review_pending" },
+            }),
+            ["planning"],
+        );
+        const updates = queries.filter((item) => item.sql.startsWith("UPDATE generation_tasks"));
+        expect(updates).toHaveLength(1);
+        expect(updates[0].sql).toContain("execution_phase = $6, next_poll_at = $7, last_upstream_status = $8");
+        expect(updates[0].parameters?.slice(5)).toEqual(["review_pending", new Date(due), "review_pending"]);
+        expect(JSON.parse(updates[0].parameters![2] as string)).toMatchObject({ status: "completed", reviewStatus: "review_pending" });
+        expect(updates[0].sql).not.toContain("lease_until = NULL");
     });
 
     it("replays events after a numeric cursor without duplication", async () => {

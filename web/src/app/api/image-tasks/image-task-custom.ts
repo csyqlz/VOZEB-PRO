@@ -2,6 +2,9 @@ import type { ImageTask } from "@/lib/server/image-task-store";
 import { GenerationSubmissionSafeFailure, GenerationSubmissionUncertainError } from "@/lib/server/generation-submission-error";
 import { buildProviderRequest, isProviderBusinessError, readProviderError, readProviderString, readProviderValue } from "@/lib/server/provider-task-config";
 import { buildYumengImageRequest, resolveYumengImageResolution } from "@/lib/yumeng-model-center";
+import { resolveCustomGeminiImageModel } from "@/lib/server/custom-gemini-image-model";
+import { ecommerceCanvasSize } from "@/lib/server/ecommerce-edit-plan";
+import { recordEcommerceCanvasRequest, resolveCanvasRequestSize, templateCanvasRequest } from "./image-task-size";
 
 import { publicImageReferenceRequestUrl } from "./image-task-openai";
 import { IMAGE_TASK_POLL_INTERVAL_MS, type ImageApiResponse, type ImageTaskResult } from "./image-task-types";
@@ -32,7 +35,9 @@ export async function runCustomImageTask(task: ImageTask, origin: string, public
     const config = task.config;
     const advanced = config.advancedConfig;
     if (!advanced?.createPath || !advanced.requestTemplate || !advanced.resultField) throw new GenerationSubmissionSafeFailure("自定义图片协议缺少创建路径、请求模板或结果字段");
-    const size = resolveDeclarativeImageSize(config);
+    const canvas = task.ecommerceExecution?.canvas;
+    const size = canvas ? resolveCanvasRequestSize(task, config.quality) || "" : resolveDeclarativeImageSize(config);
+    const ratio = canvas ? ecommerceCanvasSize({ ...canvas, mode: "ratio" }) : imageRequestAspectRatio(config.size || "auto");
     const [width, height] = /^\d+x\d+$/.test(size) ? size.split("x").map(Number) : [undefined, undefined];
     const context = { ownerUserId: task.userId, taskId: task.id };
     const inlineReferences = advanced.protocol === "stable-diffusion" || /\bbase64\b|data:image|\binline\b/i.test(advanced.referenceRule || "");
@@ -43,11 +48,11 @@ export async function runCustomImageTask(task: ImageTask, origin: string, public
     ).filter(Boolean);
     const outputCount = config.outputMode === "layers" ? undefined : 1;
     const values = {
-        model: config.model,
+        model: advanced.protocol === "custom" ? resolveCustomGeminiImageModel(config.model, config.quality, config.size) : config.model,
         prompt: withSystemPrompt(config, withImageOutputInstructions(config, task.prompt)),
         size,
-        ratio: imageRequestAspectRatio(config.size || "auto"),
-        aspect_ratio: imageRequestAspectRatio(config.size || "auto"),
+        ratio,
+        aspect_ratio: ratio,
         resolution: advanced.protocol === "yumeng" ? resolveYumengImageResolution(config.model, config.quality) : config.quality || "auto",
         width,
         height,
@@ -68,6 +73,10 @@ export async function runCustomImageTask(task: ImageTask, origin: string, public
     const url = taskUrl(config, task.kind === "edit" ? advanced.editPath || advanced.createPath : advanced.createPath, origin);
     const headers = taskHeaders(config, cookie, imagePointsIdempotencyKey(task));
     headers.set("content-type", "application/json");
+    if (canvas) {
+        const request = advanced.protocol === "yumeng" ? { size: payload.size as string | undefined, aspectRatio: payload.aspect_ratio as string | undefined } : templateCanvasRequest(advanced.requestTemplate, payload);
+        await recordEcommerceCanvasRequest(task, request, `${advanced.protocol} declarative`);
+    }
     const response = await imageSubmissionFetch(config, url, { method: "POST", headers, body: JSON.stringify(payload), cache: "no-store" });
     if (!response.ok) throw imageSubmissionResponseError(response.status, await readFetchError(response, "自定义图片接口调用失败"));
     const data = await parseImageSubmissionJson<ImageApiResponse>(task, response);

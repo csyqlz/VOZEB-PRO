@@ -7,6 +7,8 @@ import {
     type CreativeMessage,
     type CreativeProjectHandoff,
     type CreativeRunRequest,
+    type CreativeReferenceReview,
+    type CreativeReferenceRecovery,
 } from "@/lib/creative-runtime-contract";
 import { refreshUserPointsIfSystem } from "@/services/api/points";
 import { ClientSessionExpiredError, stopIfClientSessionExpired, throwIfClientSessionExpired } from "@/services/api/session-expiration";
@@ -24,6 +26,30 @@ export type CreativeAgentRun = {
     selectedSkillIds?: string[];
     requestedModelIds?: string[];
     generationPreferences?: CreativeGenerationPreferences;
+    ecommerceQualityStatus?: "passed" | "needs_adjustment" | "needs_review";
+    ecommerceQualityReview?: {
+        kind: "hard_failure" | "check_unavailable" | "needs_adjustment";
+        advisory?: boolean;
+        failureKeys: Array<
+            | "product_identity"
+            | "product_silhouette"
+            | "product_color_material"
+            | "product_proportions_view"
+            | "brand_logo"
+            | "packaging_text"
+            | "scene_intent"
+            | "composition_lighting"
+            | "canvas_geometry"
+            | "stored_media"
+            | "protected_structure"
+            | "protected_material"
+            | "unmodified_region"
+        >;
+        message?: string;
+    };
+    ecommerceSceneSelection?: { action: "confirm_scene_selection"; baselineAssetId: string; url: string; width: number; height: number };
+    ecommerceReferenceReview?: CreativeReferenceReview | null;
+    canCheckStatus?: boolean;
     createdAt?: number;
     updatedAt?: number;
     assetIds: string[];
@@ -47,6 +73,10 @@ export type CreativeAgentRun = {
     }>;
     cancellation?: { pendingCount: number };
 };
+
+export type CreativeSceneSelection = { baselineAssetId: string; region: { x: number; y: number; width: number; height: number } };
+export type CreativeAgentRunSnapshot = Pick<CreativeAgentRun, "id" | "status"> &
+    Partial<Pick<CreativeAgentRun, "tasks" | "assetIds" | "ecommerceQualityStatus" | "ecommerceQualityReview" | "ecommerceSceneSelection" | "ecommerceReferenceReview" | "canCheckStatus" | "cancellation" | "updatedAt">>;
 
 type ApiResponse<T> = { code: number; data: T; msg: string };
 
@@ -93,10 +123,12 @@ export function createCreativeAgentRun(input: CreativeRunRequest) {
     return request<{ run: CreativeAgentRun; conversation?: CreativeConversation; created: boolean }>("/api/agent/runs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
 }
 
-export function controlCreativeAgentRun(runId: string, action: "cancel" | "pause" | "resume" | "retry", expectedConversationId?: string) {
+export function controlCreativeAgentRun(runId: string, action: "cancel" | "pause" | "resume" | "retry", expectedConversationId?: string, sceneSelection?: CreativeSceneSelection, referenceRecovery?: CreativeReferenceRecovery) {
     return request<{ run: CreativeAgentRun }>(`/api/agent/runs/${encodeURIComponent(runId)}/${action}`, {
         method: "POST",
-        ...(expectedConversationId ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify({ conversationId: expectedConversationId }) } : {}),
+        ...(expectedConversationId
+            ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify({ conversationId: expectedConversationId, ...(sceneSelection ? { sceneSelection } : {}), ...(referenceRecovery ? { referenceRecovery } : {}) }) }
+            : {}),
     });
 }
 
@@ -149,6 +181,7 @@ type CreativeRunHandlers = {
     onConnectionError: (message: string) => void;
     onProjectHandoff?: (handoff: CreativeProjectHandoff) => void;
     onStatus?: (status: CreativeAgentRun["status"]) => void;
+    onSnapshot?: (snapshot: CreativeAgentRunSnapshot) => void;
     onTaskCompleted?: (progress?: CreativeTaskProgress) => void;
 };
 
@@ -165,10 +198,11 @@ export function watchCreativeAgentRun(runId: string, handlers: CreativeRunHandle
     let settled = false;
     let connectionInterrupted = false;
     let reconciliation: Promise<void> | null = null;
+    let latestReviewReason = "";
     const read = (event: Event) => {
-        let parsed: { data?: Record<string, unknown>; status?: string };
+        let parsed: { data?: Record<string, unknown>; status?: string } & Partial<Omit<CreativeAgentRunSnapshot, "status">>;
         try {
-            parsed = JSON.parse((event as MessageEvent<string>).data) as { data?: Record<string, unknown>; status?: string };
+            parsed = JSON.parse((event as MessageEvent<string>).data) as typeof parsed;
         } catch {
             return null;
         }
@@ -195,11 +229,14 @@ export function watchCreativeAgentRun(runId: string, handlers: CreativeRunHandle
         try {
             const run = await getCreativeAgentRun(runId);
             if (settled) return;
+            handlers.onSnapshot?.(publicRunSnapshot(run));
             handlers.onStatus?.(run.status);
             if (run.status === "completed") return finish("completed");
             if (run.status === "failed") return finish("failed", run.tasks.find((task) => task.status === "failed")?.error || "Agent 执行失败");
             if (run.status === "cancelled") return finish("cancelled", "任务已取消");
-            handlers.onProgress(run.status === "paused" ? "任务仍在后台保存，当前处于暂停状态" : "任务仍在后台运行，正在恢复连接");
+            const reviewReason = run.tasks.find((task) => task.status === "needs_review" && task.error?.trim())?.error?.trim();
+            if (reviewReason) latestReviewReason = reviewReason;
+            handlers.onProgress(run.status === "paused" ? latestReviewReason || "任务仍在后台保存，当前处于暂停状态" : "任务仍在后台运行，正在恢复连接");
         } catch (error) {
             if (settled) return;
             if (error instanceof ClientSessionExpiredError) {
@@ -209,7 +246,7 @@ export function watchCreativeAgentRun(runId: string, handlers: CreativeRunHandle
             handlers.onProgress("暂时无法确认实时状态，任务仍会在后台继续运行");
         }
     };
-    const listen = (type: string, callback: (payload: { data?: Record<string, unknown>; status?: string }) => void) =>
+    const listen = (type: string, callback: (payload: { data?: Record<string, unknown>; status?: string } & Partial<Omit<CreativeAgentRunSnapshot, "status">>) => void) =>
         source.addEventListener(type, (event) => {
             const payload = read(event);
             if (payload) callback(payload);
@@ -219,6 +256,12 @@ export function watchCreativeAgentRun(runId: string, handlers: CreativeRunHandle
     listen("run.planning.context_ready", () => handlers.onProgress("需要的内容已经准备好，正在为你整理创作思路…"));
     listen("run.planning.model_connected", () => handlers.onProgress("创作思路已经理清，正在安排接下来的步骤…"));
     listen("run.planning.validating", () => handlers.onProgress("正在确认创作步骤，很快就可以开始…"));
+    listen("ecommerce.progress", ({ data }) => {
+        const stage = text(data?.stage);
+        if (stage === "identifying_product") handlers.onProgress("正在识别商品");
+        if (stage === "planning_scene") handlers.onProgress("正在规划场景");
+        if (stage === "generating_image") handlers.onProgress("正在生成图片");
+    });
     listen("skills.selected", () => handlers.onProgress("正在挑选更合适的创作方式…"));
     listen("run.planned", ({ data }) => {
         void refreshUserPointsIfSystem("system");
@@ -226,6 +269,11 @@ export function watchCreativeAgentRun(runId: string, handlers: CreativeRunHandle
     });
     listen("task.running", ({ data }) => handlers.onProgress(`正在处理「${text(data?.title) || "创作任务"}」`));
     listen("task.waiting", ({ data }) => handlers.onProgress(text(data?.error) || `「${text(data?.title) || "创作任务"}」仍在上游处理中，系统会继续恢复`));
+    listen("task.needs_review", ({ data }) => {
+        latestReviewReason = text(data?.error);
+        handlers.onStatus?.("paused");
+        handlers.onProgress(latestReviewReason || "任务需要你确认后才能继续");
+    });
     listen("task.child.completed", ({ data }) => {
         void refreshUserPointsIfSystem("system");
         const progress = taskProgress(data);
@@ -256,11 +304,14 @@ export function watchCreativeAgentRun(runId: string, handlers: CreativeRunHandle
     listen("run.failed", ({ data }) => finish("failed", text(data?.message) || "Agent 执行失败"));
     listen("run.cancelled", () => finish("cancelled", "任务已取消"));
     listen("run.snapshot", (payload) => {
+        if (payload.id === runId && payload.status && ["planning", "running", "paused", "completed", "failed", "cancelled"].includes(payload.status)) {
+            handlers.onSnapshot?.(publicRunSnapshot({ ...payload, id: payload.id, status: payload.status as CreativeAgentRun["status"] }));
+        }
         if (payload.status && ["planning", "running", "paused", "completed", "failed", "cancelled"].includes(payload.status)) handlers.onStatus?.(payload.status as CreativeAgentRun["status"]);
         if (payload.status === "completed") finish("completed");
         if (payload.status === "failed") finish("failed", "Agent 执行失败");
         if (payload.status === "cancelled") finish("cancelled", "任务已取消");
-        if (payload.status === "paused") handlers.onProgress("任务已暂停，当前进度已经为你保存");
+        if (payload.status === "paused") handlers.onProgress(latestReviewReason || "任务已暂停，当前进度已经为你保存");
     });
     source.onopen = () => {
         if (connectionInterrupted && !settled) handlers.onProgress("连接已恢复，任务继续运行");
@@ -277,6 +328,22 @@ export function watchCreativeAgentRun(runId: string, handlers: CreativeRunHandle
     return () => {
         settled = true;
         source.close();
+    };
+}
+
+function publicRunSnapshot(run: CreativeAgentRunSnapshot): CreativeAgentRunSnapshot {
+    return {
+        id: run.id,
+        status: run.status,
+        tasks: run.tasks,
+        assetIds: run.assetIds,
+        ecommerceQualityStatus: run.ecommerceQualityStatus,
+        ecommerceQualityReview: run.ecommerceQualityReview,
+        ecommerceSceneSelection: run.ecommerceSceneSelection,
+        ecommerceReferenceReview: run.ecommerceReferenceReview ?? null,
+        canCheckStatus: run.canCheckStatus,
+        cancellation: run.cancellation,
+        updatedAt: run.updatedAt,
     };
 }
 

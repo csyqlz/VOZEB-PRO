@@ -24,6 +24,11 @@ type CanvasImageTaskOptions = {
     outputMode?: "layers";
     layerBatch?: { grant: string; slotId: string };
     commitResult?: boolean;
+    preserveUnmaskedPixels?: {
+        source: ReferenceImage;
+        mask: ReferenceImage;
+        validationMask?: ReferenceImage;
+    };
 };
 
 export function useCanvasTaskRuntime({ state }: { state: CanvasPageState }) {
@@ -256,13 +261,23 @@ export function useCanvasTaskRuntime({ state }: { state: CanvasPageState }) {
         if (options?.outputBackground === "transparent" || target?.metadata?.imageOutputBackground === "transparent") {
             await Promise.all(uploaded.map((image) => validateCanvasTransparentLayer(image.serverUrl || image.url, target?.metadata?.layerName || target?.title || "图层")));
         }
-        if (target?.metadata?.preserveUnmaskedPixels) {
+        let preserveUnmaskedPixels = options?.preserveUnmaskedPixels;
+        if (!preserveUnmaskedPixels && target?.metadata?.preserveUnmaskedPixels) {
             const [references, mask, validationMask] = await Promise.all([resolveMetadataReferences(target.metadata), resolveMetadataImageEditMask(target.metadata), resolveMetadataImageEditValidationMask(target.metadata)]);
             const source = references?.[0];
             if (!source || !mask) throw new Error("背景补全缺少原图或蒙版，无法保护未选区域");
+            preserveUnmaskedPixels = { source, mask, validationMask: validationMask || undefined };
+        }
+        if (preserveUnmaskedPixels) {
             uploaded = await Promise.all(
                 uploaded.map(async (image) => {
-                    const composite = await compositeCanvasImageEditResult(source.dataUrl, image.serverUrl || image.url, mask.dataUrl, validationMask?.dataUrl);
+                    const composite = await compositeCanvasImageEditResult(
+                        preserveUnmaskedPixels.source.dataUrl,
+                        image.serverUrl || image.url,
+                        preserveUnmaskedPixels.mask.dataUrl,
+                        preserveUnmaskedPixels.validationMask?.dataUrl,
+                        Boolean(preserveUnmaskedPixels.validationMask),
+                    );
                     return uploadCanvasImage(composite);
                 }),
             );

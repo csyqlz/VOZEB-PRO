@@ -2,7 +2,16 @@ import { describe, expect, it } from "vitest";
 
 import type { CreativeAsset } from "@/lib/creative-runtime-contract";
 
-import { creativeAssetMentionAtCursor, creativeAssetMentionCandidates, creativeAssetMentionDeletionAtKey, creativeAssetMentionSegments, publicCreativeAssetPrompt, remapCreativeAssetReferences, replaceCreativeAssetMention } from "./creative-asset-mention";
+import {
+    creativeAssetMentionAtCursor,
+    creativeAssetMentionCandidates,
+    creativeAssetMentionDeletionAtKey,
+    creativeAssetMentionSegments,
+    mergeCreativeAssetMentionSources,
+    publicCreativeAssetPrompt,
+    remapCreativeAssetReferences,
+    replaceCreativeAssetMention,
+} from "./creative-asset-mention";
 
 describe("creative asset mentions", () => {
     it("finds a mention at the current caret without treating email text as a reference", () => {
@@ -32,6 +41,13 @@ describe("creative asset mentions", () => {
 
         expect(creativeAssetMentionCandidates(assets, "商品图")).toHaveLength(24);
         expect(creativeAssetMentionCandidates(assets, " 23").map((item) => item.id)).toEqual(["asset-23"]);
+    });
+
+    it("includes current draft attachments in the mention source catalog", () => {
+        const persisted = asset("persisted", "历史商品图");
+        const draft = { ...asset("draft", "本轮上传商品图"), userId: "draft", serverUrl: "blob:preview" };
+
+        expect(mergeCreativeAssetMentionSources([persisted], [draft, persisted]).map((item) => item.id)).toEqual(["persisted", "draft"]);
     });
 
     it("only renders tokens backed by the current stable references", () => {

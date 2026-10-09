@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { DEFAULT_OBJECT_STORAGE_CDN_BASE_URL } from "@/lib/object-storage-contract";
 
 const mocks = vi.hoisted(() => ({
     read: vi.fn(),
@@ -25,6 +26,7 @@ const storedSettings = {
     region: "cn-test-1",
     bucket: "media",
     prefix: "vozeb-pro",
+    cdnBaseUrl: DEFAULT_OBJECT_STORAGE_CDN_BASE_URL,
     accessKeyIdCiphertext: "encrypted:old-access",
     secretAccessKeyCiphertext: "encrypted:old-secret",
     forcePathStyle: false,
@@ -36,7 +38,10 @@ describe("object storage configuration", () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.read.mockResolvedValue(storedSettings);
-        mocks.write.mockImplementation(async (value) => value);
+        mocks.write.mockImplementation(async (value) => {
+            mocks.read.mockResolvedValue(value);
+            return value;
+        });
     });
 
     it("redacts stored credentials from administrator settings", async () => {
@@ -77,7 +82,46 @@ describe("object storage configuration", () => {
         await expect(saveObjectStorageAdminSettings({ enabled: true, endpoint: "", region: "auto", bucket: "media", prefix: "vozeb-pro", forcePathStyle: false })).rejects.toThrow("Access Key");
     });
 
+    it("saves, immediately rereads and clears the CDN prefix without stale cache values", async () => {
+        await getObjectStorageAdminSettings();
+        await expect(getObjectStorageRuntimeConfig()).resolves.toMatchObject({ cdnBaseUrl: DEFAULT_OBJECT_STORAGE_CDN_BASE_URL });
+
+        const saved = await saveObjectStorageAdminSettings({ ...storedSettings, cdnBaseUrl: " https://cdn.example.com/assets/// " });
+        expect(saved.cdnBaseUrl).toBe("https://cdn.example.com/assets");
+        expect(mocks.write).toHaveBeenLastCalledWith(expect.objectContaining({ cdnBaseUrl: saved.cdnBaseUrl }));
+        await expect(getObjectStorageRuntimeConfig()).resolves.toMatchObject({ cdnBaseUrl: saved.cdnBaseUrl });
+        await expect(getObjectStorageAdminSettings()).resolves.toMatchObject({ cdnBaseUrl: saved.cdnBaseUrl });
+
+        const cleared = await saveObjectStorageAdminSettings({ ...storedSettings, cdnBaseUrl: "" });
+        expect(cleared.cdnBaseUrl).toBe("");
+        await expect(getObjectStorageRuntimeConfig()).resolves.toMatchObject({ cdnBaseUrl: "" });
+        await expect(getObjectStorageAdminSettings()).resolves.toMatchObject({ cdnBaseUrl: "" });
+    });
+
+    it("uses the requested default CDN when no value was submitted", async () => {
+        const { cdnBaseUrl: _cdnBaseUrl, ...input } = storedSettings;
+        await expect(saveObjectStorageAdminSettings(input)).resolves.toMatchObject({ cdnBaseUrl: DEFAULT_OBJECT_STORAGE_CDN_BASE_URL });
+    });
+
+    it.each(["ftp://cdn.example.com", "//cdn.example.com", "https://user:secret@cdn.example.com", "https://cdn.example.com?token=secret", "https://cdn.example.com#preview", "https://cdn.example.com?", "https://cdn.example.com#"])(
+        "rejects invalid CDN prefix %s before persistence",
+        async (cdnBaseUrl) => {
+            await expect(saveObjectStorageAdminSettings({ ...storedSettings, cdnBaseUrl })).rejects.toThrow("CDN");
+            expect(mocks.write).not.toHaveBeenCalled();
+        },
+    );
+
+    it("refreshes runtime cache from a direct administrator read", async () => {
+        await getObjectStorageAdminSettings();
+        mocks.read.mockResolvedValue({ ...storedSettings, cdnBaseUrl: "https://changed.example.com" });
+        await expect(getObjectStorageAdminSettings()).resolves.toMatchObject({ cdnBaseUrl: "https://changed.example.com" });
+        await expect(getObjectStorageRuntimeConfig()).resolves.toMatchObject({ cdnBaseUrl: "https://changed.example.com" });
+        expect(mocks.read).toHaveBeenCalledTimes(2);
+    });
+
     it("does not let an old in-flight read overwrite the cache after a switch change", async () => {
+        vi.resetModules();
+        const { getObjectStorageRuntimeConfig, saveObjectStorageAdminSettings } = await import("./object-storage-config");
         let resolveOld!: (value: typeof storedSettings) => void;
         mocks.read.mockImplementationOnce(() => new Promise((resolve) => (resolveOld = resolve))).mockResolvedValue({ ...storedSettings, enabled: true });
         const oldRead = getObjectStorageRuntimeConfig();
@@ -95,6 +139,17 @@ describe("object storage configuration", () => {
         await oldRead;
 
         await expect(getObjectStorageRuntimeConfig()).resolves.toMatchObject({ enabled: true });
-        expect(mocks.read).toHaveBeenCalledTimes(4);
+        expect(mocks.read).toHaveBeenCalledTimes(3);
+    });
+
+    it("does not let an older administrator read replace saved CDN configuration", async () => {
+        let resolveOld!: (value: typeof storedSettings) => void;
+        mocks.read.mockImplementationOnce(() => new Promise((resolve) => (resolveOld = resolve)));
+        const oldRead = getObjectStorageAdminSettings();
+        await saveObjectStorageAdminSettings({ ...storedSettings, cdnBaseUrl: "https://current.example.com" });
+        resolveOld(storedSettings);
+        await oldRead;
+
+        await expect(getObjectStorageRuntimeConfig()).resolves.toMatchObject({ cdnBaseUrl: "https://current.example.com" });
     });
 });

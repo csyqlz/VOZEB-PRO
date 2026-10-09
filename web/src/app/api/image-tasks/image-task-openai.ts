@@ -2,6 +2,7 @@ import { after, NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/auth/session";
 import { getAuthSettings, refundUserPoints } from "@/lib/auth/store";
+import { normalizeImageEditRegion } from "@/lib/image-edit-region";
 import { buildImageReferencePromptText } from "@/lib/image-reference-prompt";
 import { configureServerProxyDispatcher } from "@/lib/server/proxy-dispatcher";
 import { fetchInternalApi, isInternalApiBaseUrl, resolveInternalOrigin } from "@/lib/server/internal-origin";
@@ -21,7 +22,10 @@ import { registerGenerationTaskAssetsForUser } from "@/lib/server/creative-runti
 import { createSignedReferenceAssetUrl, signReferenceAssetInputUrl } from "@/lib/server/reference-asset-access";
 import { assertCapabilityConstraints } from "@/lib/server/capability-constraints";
 import { GenerationSubmissionSafeFailure } from "@/lib/server/generation-submission-error";
+import { ecommerceCanvasSize } from "@/lib/server/ecommerce-edit-plan";
+import { EcommerceCanvasAdapterReview, recordEcommerceCanvasRequest, resolveCanvasRequestSize } from "./image-task-size";
 
+import { runNativeSub2ApiImageSubmission } from "./image-task-memory";
 import {
     type CreateImageTaskBody,
     type ImageApiResponse,
@@ -62,6 +66,7 @@ import {
     resolveConfiguredApiBaseUrl,
     readSystemChannelId,
     shouldUseSub2ApiImageEdit,
+    isNativeSub2ApiImageEdit,
     isCode2AlitaApiBase,
     matchesApiHost,
     taskUrl,
@@ -101,11 +106,13 @@ import {
     shouldRetryJsonImageEditPayload,
     shouldFallbackToResponsesImage,
     allowsImageProtocolFallback,
+    assertStrictProductProviderTask,
     stringField,
     delay,
     parseGeminiImagePayload,
     toGeminiImagePart,
     buildImageEditFormData,
+    imageReferenceToDataUrl,
     imageReferenceToFile,
     dataUrlToFile,
     readFetchError,
@@ -126,16 +133,17 @@ import {
 } from "./image-task-support";
 
 export async function runOpenAiImageTask(task: ImageTask, origin: string, publicOrigin: string, cookie: string, singleStep = false): Promise<ImageTaskRunResult> {
+    assertStrictProductProviderTask(task, "openai");
     const config = task.config;
     const quality = normalizeQuality(config.quality || "");
-    const requestSize = resolveRequestSize(quality, config.size || "auto");
+    const requestSize = resolveCanvasRequestSize(task, quality);
     const globalPreset = globalAiOpcImagePreset(config);
     if (globalPreset) return runGlobalAiOpcImageTask(task, origin, publicOrigin, cookie, quality, requestSize, singleStep);
     const path = await openAiImageTaskPath(config, task.kind);
     const url = taskUrl(config, path, origin);
     const headers = taskHeaders(config, cookie, imagePointsIdempotencyKey(task));
     const responseFormat = await preferredImageResponseFormat(config);
-    const allowProtocolFallback = allowsImageProtocolFallback(config);
+    const allowProtocolFallback = !task.productProtection && !task.sceneProtection && !task.ecommerceExecution?.canvas && allowsImageProtocolFallback(config);
     const useJsonImageEdit = task.kind === "edit" && (await shouldUseJsonImageEdit(config));
     if (useJsonImageEdit) return runOpenAiJsonImageEditTask(task, url, origin, publicOrigin, quality, requestSize, cookie, responseFormat, singleStep);
     let response: Response;
@@ -147,6 +155,7 @@ export async function runOpenAiImageTask(task: ImageTask, origin: string, public
         } catch (error) {
             throw new GenerationSubmissionSafeFailure(error instanceof Error ? error.message : "参考图读取失败，请重新上传参考图");
         }
+        await recordEcommerceCanvasRequest(task, { size: String(formData.get("size") || "") }, "OpenAI multipart");
         response = await imageSubmissionFetch(config, url, { method: "POST", headers, body: formData, cache: "no-store" });
         if (!response.ok) {
             const message = await readFetchError(response, "图片生成失败");
@@ -156,6 +165,7 @@ export async function runOpenAiImageTask(task: ImageTask, origin: string, public
             throw imageSubmissionResponseError(response.status, message);
         }
     } else {
+        await recordEcommerceCanvasRequest(task, { size: requestSize }, "OpenAI JSON");
         headers.set("content-type", "application/json");
         response = await imageSubmissionFetch(config, url, {
             method: "POST",
@@ -199,22 +209,24 @@ async function runGlobalAiOpcImageTask(task: ImageTask, origin: string, publicOr
     headers.set("content-type", "application/json");
     const referenceContext = { ownerUserId: task.userId, taskId: task.id };
     const imageUrls = (await Promise.all(task.references.map((reference) => publicImageReferenceRequestUrl(reference, origin, publicOrigin, referenceContext)))).filter(Boolean);
-    const ratio = imageRequestAspectRatio(config.size || "");
+    const ratio = task.ecommerceExecution?.canvas ? ecommerceCanvasSize({ ...task.ecommerceExecution.canvas, mode: "ratio" }) : imageRequestAspectRatio(config.size || "");
+    const body: Record<string, unknown> = {
+        ...buildGlobalAiOpcImageRequest(preset, {
+            model: config.model,
+            prompt: withSystemPrompt(config, withImageOutputInstructions(config, buildImageReferencePromptText(task.prompt, task.references))),
+            quality,
+            size: requestSize,
+            ratio,
+            resolution: quality === "high" ? "4k" : quality === "medium" ? "2k" : quality === "low" ? "1k" : undefined,
+            imageUrls,
+        }),
+        ...(config.outputBackground === "transparent" ? { background: "transparent", output_format: IMAGE_OUTPUT_FORMAT } : {}),
+    };
+    await recordEcommerceCanvasRequest(task, { size: body.size as string | undefined, aspectRatio: body.ratio as string | undefined }, "GlobalAiOpc");
     const response = await imageSubmissionFetch(config, url, {
         method: "POST",
         headers,
-        body: JSON.stringify({
-            ...buildGlobalAiOpcImageRequest(preset, {
-                model: config.model,
-                prompt: withSystemPrompt(config, withImageOutputInstructions(config, buildImageReferencePromptText(task.prompt, task.references))),
-                quality,
-                size: requestSize,
-                ratio,
-                resolution: quality === "high" ? "4k" : quality === "medium" ? "2k" : quality === "low" ? "1k" : undefined,
-                imageUrls,
-            }),
-            ...(config.outputBackground === "transparent" ? { background: "transparent", output_format: IMAGE_OUTPUT_FORMAT } : {}),
-        }),
+        body: JSON.stringify(body),
         cache: "no-store",
     });
     if (!response.ok) throw imageSubmissionResponseError(response.status, await readFetchError(response, "图片生成失败"));
@@ -235,16 +247,33 @@ export async function runOpenAiJsonImageEditTask(
     singleStep = false,
     billingVariant = "primary",
 ): Promise<ImageTaskRunResult> {
+    const run = () => runOpenAiJsonImageEditTaskUnlocked(task, url, origin, publicOrigin, quality, requestSize, cookie, responseFormat, singleStep, billingVariant);
+    return isNativeSub2ApiImageEdit(task.config) ? runNativeSub2ApiImageSubmission(task, run) : run();
+}
+
+async function runOpenAiJsonImageEditTaskUnlocked(
+    task: ImageTask,
+    url: string,
+    origin: string,
+    publicOrigin: string,
+    quality: string | undefined,
+    requestSize: string | undefined,
+    cookie: string,
+    responseFormat: (typeof IMAGE_RESPONSE_FORMATS)[number],
+    singleStep: boolean,
+    billingVariant: string,
+): Promise<ImageTaskRunResult> {
     const config = task.config;
     let lastMessage = "";
     const apiBase = await resolveConfiguredApiBaseUrl(task.config.baseUrl).catch(() => task.config.baseUrl);
     const referenceMode = configuredImageEditReferenceMode(config);
     const imageUrlObjectOnlyMode = shouldUseSub2ApiImageEdit(config, apiBase);
-    const allowProtocolFallback = allowsImageProtocolFallback(config);
+    const allowProtocolFallback = !task.sceneProtection && !task.ecommerceExecution?.canvas && allowsImageProtocolFallback(config);
     const publicUrlReferenceMode = imageUrlObjectOnlyMode || referenceMode === "public-url";
-    for (const [index, body] of (await buildJsonImageEditBodies(task, quality, requestSize, responseFormat, origin, publicOrigin, publicUrlReferenceMode, imageUrlObjectOnlyMode, allowProtocolFallback)).entries()) {
+    for (const [index, body] of (await buildJsonImageEditBodies(task, quality, requestSize, responseFormat, origin, publicOrigin, cookie, publicUrlReferenceMode, imageUrlObjectOnlyMode, allowProtocolFallback)).entries()) {
         const headers = taskHeaders(config, cookie, imagePointsIdempotencyKey(task, index === 0 ? billingVariant : `${billingVariant}-${index + 1}`));
         headers.set("content-type", "application/json");
+        await recordEcommerceCanvasRequest(task, { size: body.size as string | undefined }, "OpenAI JSON edit");
         const response = await imageSubmissionFetch(config, url, { method: "POST", headers, body: JSON.stringify(body), cache: "no-store" });
         if (!response.ok) {
             const message = await readFetchError(response, "图片生成失败");
@@ -252,7 +281,7 @@ export async function runOpenAiJsonImageEditTask(
             if (imageUrlObjectOnlyMode) throw imageSubmissionResponseError(response.status, message);
             if (allowProtocolFallback && shouldRetryJsonImageEditPayload(response.status, message)) continue;
             if (allowProtocolFallback && shouldTryNextImageResponseFormat(responseFormat, response.status, message)) {
-                if (responseFormat === "url") return runOpenAiJsonImageEditTask(task, url, origin, publicOrigin, quality, requestSize, cookie, "b64_json", singleStep, "base64");
+                if (responseFormat === "url") return runOpenAiJsonImageEditTaskUnlocked(task, url, origin, publicOrigin, quality, requestSize, cookie, "b64_json", singleStep, "base64");
                 return runOpenAiResponsesImageTask(task, origin, cookie, singleStep, "responses");
             }
             if (allowProtocolFallback && shouldFallbackToResponsesImage(response.status, message)) return runOpenAiResponsesImageTask(task, origin, cookie, singleStep, "responses");
@@ -263,12 +292,12 @@ export async function runOpenAiJsonImageEditTask(
         const result = await parseChargedImageResponse(task, response, () => parseImagePayloadOrPoll(config, payload, resultBaseUrl, cookie, url, singleStep));
         if (allowProtocolFallback && responseFormat === "url" && shouldRetryInternalImageUrlAsBase64(result)) {
             await refundChargedImageResponse(task, response.headers);
-            return runOpenAiJsonImageEditTask(task, url, origin, publicOrigin, quality, requestSize, cookie, "b64_json", singleStep, "base64");
+            return runOpenAiJsonImageEditTaskUnlocked(task, url, origin, publicOrigin, quality, requestSize, cookie, "b64_json", singleStep, "base64");
         }
         return result;
     }
     if (allowProtocolFallback && shouldTryNextImageResponseFormat(responseFormat, 400, lastMessage)) {
-        if (responseFormat === "url") return runOpenAiJsonImageEditTask(task, url, origin, publicOrigin, quality, requestSize, cookie, "b64_json", singleStep, "base64");
+        if (responseFormat === "url") return runOpenAiJsonImageEditTaskUnlocked(task, url, origin, publicOrigin, quality, requestSize, cookie, "b64_json", singleStep, "base64");
         return runOpenAiResponsesImageTask(task, origin, cookie, singleStep, "responses");
     }
     throw new GenerationSubmissionSafeFailure(lastMessage || "图片生成失败");
@@ -277,10 +306,10 @@ export async function runOpenAiJsonImageEditTask(
 export async function runOpenAiImageTaskWithBase64Response(task: ImageTask, origin: string, publicOrigin: string, cookie: string, singleStep = false, billingVariant = "base64"): Promise<ImageTaskRunResult> {
     const config = task.config;
     const quality = normalizeQuality(config.quality || "");
-    const requestSize = resolveRequestSize(quality, config.size || "auto");
+    const requestSize = resolveCanvasRequestSize(task, quality);
     const path = await openAiImageTaskPath(config, task.kind);
     const url = taskUrl(config, path, origin);
-    const allowProtocolFallback = allowsImageProtocolFallback(config);
+    const allowProtocolFallback = !task.sceneProtection && !task.ecommerceExecution?.canvas && allowsImageProtocolFallback(config);
     const headers = taskHeaders(config, cookie, imagePointsIdempotencyKey(task, billingVariant));
 
     if (task.kind === "edit") {
@@ -290,6 +319,7 @@ export async function runOpenAiImageTaskWithBase64Response(task: ImageTask, orig
         } catch (error) {
             throw new GenerationSubmissionSafeFailure(error instanceof Error ? error.message : "参考图读取失败，请重新上传参考图");
         }
+        await recordEcommerceCanvasRequest(task, { size: String(formData.get("size") || "") }, "OpenAI multipart");
         const response = await imageSubmissionFetch(config, url, { method: "POST", headers, body: formData, cache: "no-store" });
         if (!response.ok) {
             const message = await readFetchError(response, "图片生成失败");
@@ -303,6 +333,7 @@ export async function runOpenAiImageTaskWithBase64Response(task: ImageTask, orig
     }
 
     headers.set("content-type", "application/json");
+    await recordEcommerceCanvasRequest(task, { size: requestSize }, "OpenAI JSON");
     const response = await imageSubmissionFetch(config, url, {
         method: "POST",
         headers,
@@ -328,6 +359,7 @@ export async function runOpenAiImageTaskWithBase64Response(task: ImageTask, orig
 }
 
 export async function runOpenAiResponsesImageTask(task: ImageTask, origin: string, cookie: string, singleStep = false, billingVariant = "responses"): Promise<ImageTaskRunResult> {
+    if (task.ecommerceExecution?.canvas) throw new EcommerceCanvasAdapterReview("OpenAI Responses");
     const config = task.config;
     const url = taskUrl(config, "/responses", origin);
     let lastError = "";
@@ -383,16 +415,32 @@ export async function buildJsonImageEditBodies(
     responseFormat: (typeof IMAGE_RESPONSE_FORMATS)[number],
     origin: string,
     publicOrigin: string,
+    cookie = "",
     publicUrlReferenceMode = false,
     imageUrlObjectOnlyMode = false,
     includeCompatibilityFields = true,
 ) {
     const referenceContext = { ownerUserId: task.userId, taskId: task.id };
+    const nativeSub2Api = isNativeSub2ApiImageEdit(task.config);
     const images = (
-        await Promise.all(task.references.map((reference) => (publicUrlReferenceMode ? publicImageReferenceRequestUrl(reference, origin, publicOrigin, referenceContext) : Promise.resolve(jsonImageReferenceRequestUrl(reference, origin)))))
+        await Promise.all(
+            task.references.map((reference, index) =>
+                nativeSub2Api
+                    ? imageReferenceToDataUrl(reference, reference.name || `reference-${index + 1}.png`, origin, cookie)
+                    : publicUrlReferenceMode
+                      ? publicImageReferenceRequestUrl(reference, origin, publicOrigin, referenceContext)
+                      : Promise.resolve(jsonImageReferenceRequestUrl(reference, origin)),
+            ),
+        )
     ).filter(Boolean);
-    const mask = task.mask ? (publicUrlReferenceMode ? await publicImageReferenceRequestUrl(task.mask, origin, publicOrigin, referenceContext) : jsonImageReferenceRequestUrl(task.mask, origin)) : "";
-    const prompt = withImageOutputInstructions(task.config, imageUrlObjectOnlyMode ? buildSub2ApiImageEditPrompt(task.prompt, task.references) : buildImageReferencePromptText(task.prompt, task.references));
+    const mask = task.mask
+        ? nativeSub2Api
+            ? await imageReferenceToDataUrl(task.mask, task.mask.name || "mask.png", origin, cookie)
+            : publicUrlReferenceMode
+              ? await publicImageReferenceRequestUrl(task.mask, origin, publicOrigin, referenceContext)
+              : jsonImageReferenceRequestUrl(task.mask, origin)
+        : "";
+    const prompt = withImageOutputInstructions(task.config, imageUrlObjectOnlyMode || nativeSub2Api ? buildSub2ApiImageEditPrompt(task.prompt, task.references, task.mask, nativeSub2Api) : buildImageReferencePromptText(task.prompt, task.references));
     const base = {
         model: task.config.model,
         prompt: withSystemPrompt(task.config, prompt),
@@ -403,11 +451,13 @@ export async function buildJsonImageEditBodies(
         ...(task.config.outputBackground === "transparent" ? { background: "transparent" } : {}),
         ...(mask ? { mask } : {}),
     };
+    if (nativeSub2Api) return [{ ...base, images: images.map((image_url) => ({ image_url })), ...(mask ? { mask: { image_url: mask } } : {}), input_fidelity: "high" }];
     if (!images.length) return [base];
     const first = images[0];
     const imageUrlObjects = images.map((item) => ({ image_url: item }));
     const imageObjects = images.map((item) => ({ url: item }));
     if (imageUrlObjectOnlyMode) {
+        const imageUrls = mask ? [...images, mask] : images;
         return [
             {
                 model: task.config.model,
@@ -417,7 +467,7 @@ export async function buildJsonImageEditBodies(
                 ...(requestSize ? { size: requestSize } : {}),
                 ...(task.config.outputBackground === "transparent" ? { background: "transparent", output_format: IMAGE_OUTPUT_FORMAT } : {}),
                 ...(mask ? { mask } : {}),
-                image_urls: images,
+                image_urls: imageUrls,
             },
         ];
     }
@@ -431,9 +481,38 @@ export async function buildJsonImageEditBodies(
     ];
 }
 
-export function buildSub2ApiImageEditPrompt(prompt: string, references: readonly unknown[]) {
+export function buildSub2ApiImageEditPrompt(prompt: string, references: readonly unknown[], mask?: Pick<ImageTaskReference, "editRegion">, nativeSub2Api = false) {
     const text = prompt.trim();
     if (!references.length) return text;
+    if (mask) {
+        const region = normalizeImageEditRegion(mask.editRegion);
+        const location = region
+            ? [
+                  `Editable region normalized bounds (0 to 1): left=${region.left.toFixed(4)}, top=${region.top.toFixed(4)}, right=${region.right.toFixed(4)}, bottom=${region.bottom.toFixed(4)}.`,
+                  `Editable region normalized center (0 to 1): centerX=${region.centerX.toFixed(4)}, centerY=${region.centerY.toFixed(4)}.`,
+              ]
+            : [];
+        return [
+            nativeSub2Api ? "Use the first source image in images as the source scene that must be edited in place." : "Use image_urls[0] as the source scene that must be edited in place.",
+            nativeSub2Api ? "The separate mask field is a binary edit mask, not a scene reference." : `The final image_urls item is a binary edit mask (image_urls[${references.length}]).`,
+            "Edit only the selected region of the source scene; preserve everything outside that region.",
+            ...location,
+            "Apply the user request only inside the editable region and place the complete requested object inside the editable region.",
+            "Preserve the source scene, composition, subjects, lighting, and perspective. Do not replace or redesign the whole scene.",
+            "Match the source image's artistic style, color palette, materials, texture, and realism for all edited content.",
+            "Match the source light direction, warmth, exposure, shadows, scale, and perspective so the edit belongs naturally in the original scene.",
+            "Do not introduce unrelated people, animals, furniture, or objects. Generate only content required by the user request.",
+            "",
+            `User request: ${text}`,
+        ].join("\n");
+    }
+    if (nativeSub2Api)
+        return [
+            "Edit the first source image in place, using any additional images only as references for the requested edit.",
+            "Preserve the source scene, composition, subjects, artistic style, color palette, materials, lighting, and perspective unless the user explicitly requests a change.",
+            "",
+            `User request: ${text}`,
+        ].join("\n");
     const fieldHint = references.length === 1 ? "image_urls[0]" : "image_urls";
     return [
         `Use the actual reference image supplied in the JSON field ${fieldHint} as visual input, not as a text-only hint.`,

@@ -1,0 +1,29 @@
+diff --git a/dist/utils/get-root-dirs.js b/dist/utils/get-root-dirs.js
+--- a/dist/utils/get-root-dirs.js
++++ b/dist/utils/get-root-dirs.js
+@@ -8,12 +8,21 @@ Object.defineProperty(exports, "getRootDirs", {
+         return getRootDirs;
+     }
+ });
+-var _fastglob = require("fast-glob");
++var _glob = require("glob/raw");
++var _minimatch = require("minimatch");
+ /**
+  * Process a Next.js root directory glob.
+  */ var processRootDir = function(rootDir) {
+-    return (0, _fastglob.globSync)(rootDir.replace(/\\/g, '/'), {
+-        onlyDirectories: true
+-    });
++    var patterns = (0, _minimatch.braceExpand)(rootDir.replace(/\\/g, '/'));
++    return Array.from(new Set(patterns.flatMap(function(pattern) {
++        return (0, _glob.globSync)(pattern.replace(/\/?$/, '/'), {
++            follow: true,
++            nocase: false,
++            dotRelative: pattern.startsWith('./')
++        }).map(function(dir) {
++            dir = dir.replace(/\\/g, '/');
++            return pattern.endsWith('/') ? dir.replace(/\/?$/, '/') : dir;
++        }).sort();
++    })));
+ };
+ var getRootDirs = function(context) {

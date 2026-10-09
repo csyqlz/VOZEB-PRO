@@ -28,11 +28,26 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (!requestedTaskIds || requestedTaskIds[0] !== taskId) return NextResponse.json({ code: 400, data: null, msg: "失败任务标识无效" }, { status: 400 });
     const requestedTaskIdSet = new Set(requestedTaskIds);
     const requestedTasks = run.tasks.filter((item) => requestedTaskIdSet.has(item.id));
-    if (requestedTasks.length !== requestedTaskIds.length || requestedTasks.some((task) => task.status !== "failed")) return NextResponse.json({ code: 409, data: null, msg: "只有失败任务可以重试" }, { status: 409 });
+    const qualityRetry = run.status === "paused" && run.ecommerceSnapshot?.qualityCheck?.publicStatus === "needs_review" && requestedTasks.length > 0 && requestedTasks.every((task) => task.status === "needs_review");
+    const failedRetry = requestedTasks.length > 0 && requestedTasks.every((task) => task.status === "failed");
+    if (requestedTasks.length !== requestedTaskIds.length || (!failedRetry && !qualityRetry)) return NextResponse.json({ code: 409, data: null, msg: "只有失败任务或商品质检未通过的任务可以重新生成" }, { status: 409 });
     const settings = await getAuthSettings();
     const limit = settings.generationConcurrency.agent;
     const tasks = run.tasks.map((item) => {
         if (!requestedTaskIdSet.has(item.id)) return item;
+        if (qualityRetry) {
+            return {
+                ...item,
+                status: "ready" as const,
+                attempts: Math.max(1, item.attempts || 0),
+                taskId: undefined,
+                taskIds: undefined,
+                childTasks: undefined,
+                assetIds: undefined,
+                result: undefined,
+                error: undefined,
+            };
+        }
         const completedChildren = item.childTasks?.filter((child) => child.status === "completed") || [];
         return prepareFailedAgentTaskRetry(
             run,
@@ -50,18 +65,19 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         );
     });
     const retriedTasks = tasks.filter((item) => requestedTaskIdSet.has(item.id));
+    const nextEcommerceSnapshot = qualityRetry && run.ecommerceSnapshot ? { ...run.ecommerceSnapshot, qualityCheck: undefined } : run.ecommerceSnapshot;
+    const retryEvent = qualityRetry
+        ? { type: "task.quality_retry.requested", data: { taskId, taskIds: requestedTaskIds } }
+        : { type: "task.retry.requested", data: { taskId, taskIds: requestedTaskIds, ops: retriedTasks.flatMap((task) => failedAgentTaskRetryOps(run, task)) } };
+    const runPatch = { status: "running" as const, tasks, failure: undefined, failureStage: undefined, candidateFailures: undefined, ...(qualityRetry ? { ecommerceSnapshot: nextEcommerceSnapshot } : {}) };
+
     const result = await withGenerationConcurrencyLimit(
         run.userId,
         "agent",
         10 * 60 * 1000,
         limit,
         async () => ({
-            updated: await updateAgentRunById(
-                run.id,
-                { status: "running", tasks, failure: undefined, failureStage: undefined, candidateFailures: undefined },
-                { type: "task.retry.requested", data: { taskId, taskIds: requestedTaskIds, ops: retriedTasks.flatMap((task) => failedAgentTaskRetryOps(run, task)) } },
-                [run.status],
-            ),
+            updated: await updateAgentRunById(run.id, runPatch, retryEvent, [run.status]),
         }),
         run.id,
     );
@@ -70,7 +86,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (!updated) return NextResponse.json({ code: 404, data: null, msg: "Agent 任务不存在" }, { status: 404 });
     const origin = resolveInternalOrigin(new URL(request.url).origin);
     const cookie = request.headers.get("cookie") || "";
-    await scheduleGenerationTask("agent", updated.id, { executionPhase: "created", nextPollAt: Date.now(), lastUpstreamStatus: "task_retry" });
+    await scheduleGenerationTask("agent", updated.id, { executionPhase: "created", nextPollAt: Date.now(), lastUpstreamStatus: qualityRetry ? "quality_retry" : "task_retry" });
     after(() => runGenerationTaskRecoveryBatch({ origin, cookie, limit: 1, taskIds: [updated.id] }));
     return NextResponse.json({ code: 0, data: { run: publicAgentRun(updated) }, msg: "OK" });
 }

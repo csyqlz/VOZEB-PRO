@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Client, Pool, type QueryResult, type QueryResultRow } from "pg";
 
 import { POSTGRESQL_SCHEMA_SQL } from "@/lib/server/database/schema";
@@ -397,7 +398,16 @@ export async function initializePostgresSchema() {
     if (!globalForPostgres.__vozebProPostgresSchemaReady) {
         globalForPostgres.__vozebProPostgresSchemaReady = withPostgresTransaction(async (client) => {
             await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [POSTGRES_SCHEMA_LOCK_KEY]);
+            // Fingerprint the complete applied DDL, including additive updates.
+            // Another process with this schema must not repeat bootstrap locks.
+            const version = `bootstrap-sha256:${createHash("sha256").update(prefixPostgresSql(POSTGRESQL_SCHEMA_SQL)).digest("hex")}`;
+            const registry = await client.query<{ table_name: string | null }>("SELECT to_regclass('public.vozeb_pro_schema_migrations')::text AS table_name");
+            if (registry.rows[0]?.table_name) {
+                const applied = await client.query<{ version: string }>("SELECT version FROM schema_migrations WHERE version = $1", [version]);
+                if (applied.rows.some((row) => row.version === version)) return;
+            }
             await client.query(POSTGRESQL_SCHEMA_SQL);
+            await client.query("INSERT INTO schema_migrations (version) VALUES ($1) ON CONFLICT (version) DO NOTHING", [version]);
         })
             .then(() => undefined)
             .catch((error) => {

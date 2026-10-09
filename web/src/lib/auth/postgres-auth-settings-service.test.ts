@@ -51,6 +51,39 @@ describe("updatePostgresAuthSettings", () => {
         expect(mocks.deleteSystemModelChannelsNotIn).not.toHaveBeenCalled();
     });
 
+    it("persists ecommerce model role priorities in the settings row", async () => {
+        const ecommerceModelRoles = {
+            vision_analysis: ["vision-fast", "vision-safe"],
+            edit_planning: ["planner-pro"],
+            image_generation: ["gpt-image-2.5-flare", "nano-banana-2"],
+            quality_check: ["quality-pro"],
+        };
+        const routedModels = [
+            ["vision-fast", "Vision Fast", "text"],
+            ["vision-safe", "Vision Safe", "text"],
+            ["planner-pro", "Planner Pro", "text"],
+            ["gpt-image-2.5-flare", "GPT Image 2.5 Flare", "image"],
+            ["nano-banana-2", "Nano Banana 2", "image"],
+            ["quality-pro", "Quality Pro", "text"],
+        ] as const;
+        mocks.readSettings.mockResolvedValue({
+            ...structuredClone(DEFAULT_SETTINGS),
+            systemChannels: [{ id: "models", name: "Models", baseUrl: "https://api.example.com/v1", apiKey: "", apiFormat: "openai", models: routedModels.map(([id]) => id), enabled: true }],
+            logicalModels: routedModels.map(([id, name, capability]) => ({
+                id,
+                name,
+                capability,
+                enabled: true,
+                bindings: [{ id: `models:${id}`, channelId: "models", upstreamModel: id, enabled: true, priority: 0 }],
+            })),
+        });
+
+        const settings = await updatePostgresAuthSettings({ ecommerceModelRoles });
+
+        expect(mocks.updateSettings).toHaveBeenCalledWith({ ecommerceModelRoles });
+        expect(settings.ecommerceModelRoles).toEqual(ecommerceModelRoles);
+    });
+
     it("rewrites only entitlement rows when entitlements change", async () => {
         const entitlements = structuredClone(DEFAULT_SETTINGS.entitlements);
 

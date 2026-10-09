@@ -24,7 +24,19 @@ import { fitNodeSize } from "../utils/canvas-node-size";
 
 import { IMAGE_PROMPT_REVERSE_PRESET, NODE_STATUS_ERROR, NODE_STATUS_LOADING, NODE_STATUS_SUCCESS, createCanvasNode } from "./canvas-page-elements";
 import { pauseCanvasGenerationReview } from "./canvas-generation-review";
-import { applyNodeConfigPatch, buildAngleLabel, buildAnglePrompt, buildGenerationConfig, buildImageGenerationMetadata, canvasNodeReferenceImage, imageMetadata, isGenerationCanceled, uploadCanvasImage } from "./canvas-page-utils";
+import {
+    applyNodeConfigPatch,
+    buildAngleLabel,
+    buildAnglePrompt,
+    buildGenerationConfig,
+    buildImageGenerationMetadata,
+    canvasNodeReferenceImage,
+    imageMetadata,
+    isGenerationCanceled,
+    resolveCanvasMaskEditSize,
+    shouldCompositeCanvasMaskEdit,
+    uploadCanvasImage,
+} from "./canvas-page-utils";
 
 import type { CanvasInteractions } from "./use-canvas-interactions";
 import type { CanvasPageState } from "./use-canvas-page-state";
@@ -366,16 +378,46 @@ export function useCanvasNodeMediaActions({ state, tasks, interactions }: { stat
     const maskEditImageNode = useCallback(
         async (node: CanvasNodeData, payload: CanvasImageMaskEditPayload) => {
             if (!node.metadata?.content) return;
-            const generationConfig = { ...buildGenerationConfig(effectiveConfig, node, "image"), count: "1", size: node.metadata?.size || "auto" };
+            const source = canvasNodeReferenceImage(node);
+            const generationConfig = {
+                ...buildGenerationConfig(effectiveConfig, node, "image"),
+                count: "1",
+                size: resolveCanvasMaskEditSize(source, node.metadata?.size || "auto"),
+            };
             if (!isAiConfigReady(generationConfig, generationConfig.model)) {
                 openConfigDialog(true);
                 return;
             }
             const userPrompt = payload.prompt.trim();
-            const prompt = `只修改蒙版透明区域，其他区域保持不变。${userPrompt}`;
+            const prompt = `只修改选定区域，其他区域保持不变。${userPrompt}`;
+            const preserveUnmaskedPixels = shouldCompositeCanvasMaskEdit(generationConfig);
             const childId = nanoid();
-            const source = canvasNodeReferenceImage(node);
-            const generationMetadata = buildImageGenerationMetadata("edit", generationConfig, 1, [source]);
+            const storedMask = await uploadCanvasImage(payload.maskDataUrl);
+            const maskUrl = storedMask.serverUrl || storedMask.url;
+            const mask = {
+                id: `${node.id}-mask`,
+                name: "mask.png",
+                type: storedMask.mimeType || "image/png",
+                dataUrl: maskUrl,
+                url: maskUrl,
+                serverUrl: maskUrl,
+                storageKey: storedMask.storageKey,
+                width: storedMask.width,
+                height: storedMask.height,
+                editRegion: payload.editRegion,
+            };
+            const generationMetadata = {
+                ...buildImageGenerationMetadata("edit", generationConfig, 1, [source]),
+                imageEditMask: {
+                    storageKey: storedMask.storageKey,
+                    serverUrl: maskUrl,
+                    mimeType: storedMask.mimeType,
+                    width: storedMask.width,
+                    height: storedMask.height,
+                    editRegion: payload.editRegion,
+                },
+                preserveUnmaskedPixels: preserveUnmaskedPixels || undefined,
+            };
             setMaskEditNodeId(null);
             setRunningNodeId(childId);
             setNodes((prev) => [
@@ -396,7 +438,9 @@ export function useCanvasNodeMediaActions({ state, tasks, interactions }: { stat
             setDialogNodeId(childId);
             const controller = startGenerationRequest(childId, node.id, childId);
             try {
-                await startAndCompleteImageTask(childId, generationConfig, prompt, [source], { id: `${node.id}-mask`, name: "mask.png", type: "image/png", dataUrl: payload.maskDataUrl }, controller);
+                await startAndCompleteImageTask(childId, generationConfig, prompt, [source], mask, controller, {
+                    ...(preserveUnmaskedPixels ? { preserveUnmaskedPixels: { source, mask } } : {}),
+                });
             } catch (error) {
                 if (isGenerationCanceled(error)) return;
                 const errorDetails = error instanceof Error ? error.message : "局部修改失败";

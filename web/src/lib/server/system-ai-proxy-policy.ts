@@ -1,4 +1,5 @@
 import type { LogicalModel, LogicalModelCapability, PointUsageKind } from "@/lib/auth/store";
+import { customGeminiImageModelParts } from "./custom-gemini-image-model";
 
 type ProxyPathSet = {
     create?: Array<string | undefined>;
@@ -121,19 +122,34 @@ function requestPathCandidates(path: string[], search: string) {
 function pathMatchesAny(candidates: string[], template: string | undefined, model: string) {
     if (!template?.trim()) return false;
     const pattern = pathTemplatePattern(template, model);
-    return candidates.some((candidate) => pattern.test(candidate));
+    return matchingPathCandidates(candidates, model).some((candidate) => pattern.test(candidate));
 }
 
 function firstPathMatch(candidates: string[], templates: Array<string | undefined>, model: string) {
     for (const template of templates) {
         if (!template?.trim()) continue;
         const pattern = pathTemplatePattern(template, model, true);
-        for (const candidate of candidates) {
+        for (const candidate of matchingPathCandidates(candidates, model)) {
             const match = candidate.match(pattern);
             if (match) return { taskId: decodeTaskId(match[1] || "") };
         }
     }
     return null;
+}
+
+function matchingPathCandidates(candidates: string[], model: string) {
+    const normalized = candidates.map((candidate) => normalizeCustomGeminiImagePath(candidate, model));
+    return [...new Set([...candidates, ...normalized])];
+}
+
+function normalizeCustomGeminiImagePath(candidate: string, model: string) {
+    const baseModel = customGeminiImageModelParts(model)?.baseModel;
+    if (!baseModel) return candidate;
+
+    return candidate.replace(/(\/models\/)([^/:?#]+)(:generateContent(?:$|[/?#]))/i, (match, prefix: string, requestedModel: string, suffix: string) => {
+        const requested = customGeminiImageModelParts(requestedModel);
+        return requested?.baseModel?.toLowerCase() === baseModel.toLowerCase() ? `${prefix}${baseModel}${suffix}` : match;
+    });
 }
 
 function pathTemplatePattern(template: string, model: string, captureTaskId = false) {

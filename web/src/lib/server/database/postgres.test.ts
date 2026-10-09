@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -96,11 +97,13 @@ describe("PostgreSQL schema lifecycle", () => {
     it("executes schema DDL only through explicit initialization", async () => {
         await initializePostgresSchema();
 
-        expect(mocks.query).toHaveBeenCalledTimes(4);
+        expect(mocks.query).toHaveBeenCalledTimes(6);
         expect(mocks.query.mock.calls[0]?.[0]).toBe("BEGIN");
         expect(mocks.query.mock.calls[1]).toEqual(["SELECT pg_advisory_xact_lock(hashtext($1))", ["vozeb-pro:schema"]]);
-        const ddl = String(mocks.query.mock.calls[2]?.[0]);
-        expect(mocks.query.mock.calls[3]?.[0]).toBe("COMMIT");
+        expect(mocks.query.mock.calls[2]?.[0]).toContain("to_regclass('public.vozeb_pro_schema_migrations')");
+        const ddl = String(mocks.query.mock.calls[3]?.[0]);
+        expect(mocks.query.mock.calls[4]).toEqual(["INSERT INTO vozeb_pro_schema_migrations (version) VALUES ($1) ON CONFLICT (version) DO NOTHING", [`bootstrap-sha256:${createHash("sha256").update(ddl).digest("hex")}`]]);
+        expect(mocks.query.mock.calls[5]?.[0]).toBe("COMMIT");
         expect(ddl).toContain("CREATE TABLE IF NOT EXISTS vozeb_pro_schema_migrations");
         expect(ddl).toContain("CREATE TABLE IF NOT EXISTS vozeb_pro_generation_worker_heartbeats");
         expect(ddl).toContain("CREATE SEQUENCE IF NOT EXISTS vozeb_pro_user_account_id_seq");
@@ -151,9 +154,63 @@ describe("PostgreSQL schema lifecycle", () => {
 
         await ensurePostgresSchema();
 
-        expect(mocks.query).toHaveBeenCalledTimes(5);
+        expect(mocks.query).toHaveBeenCalledTimes(7);
         expect(mocks.query.mock.calls[0]?.[0]).toContain("to_regclass");
         expect(mocks.query.mock.calls[2]).toEqual(["SELECT pg_advisory_xact_lock(hashtext($1))", ["vozeb-pro:schema"]]);
-        expect(mocks.query.mock.calls[3]?.[0]).toContain("CREATE TABLE IF NOT EXISTS vozeb_pro_schema_migrations");
+        expect(mocks.query.mock.calls[4]?.[0]).toContain("CREATE TABLE IF NOT EXISTS vozeb_pro_schema_migrations");
+    });
+
+    function schemaRegistry(applied: string[] = [], failDdl = false) {
+        const versions = new Set(applied);
+        mocks.query.mockImplementation(async (statement: string, values?: unknown[]) => {
+            if (statement.startsWith("SELECT to_regclass")) return { rows: [{ table_name: statement.includes("schema_migrations") ? "vozeb_pro_schema_migrations" : "vozeb_pro_users" }], rowCount: 1 };
+            if (statement.startsWith("SELECT version FROM vozeb_pro_schema_migrations")) {
+                const rows = [...versions].filter((version) => !values?.length || version === values[0]).map((version) => ({ version }));
+                return { rows, rowCount: rows.length };
+            }
+            if (statement.includes("CREATE TABLE IF NOT EXISTS vozeb_pro_schema_migrations") && failDdl) {
+                failDdl = false;
+                throw new Error("fixture bootstrap DDL failed");
+            }
+            if (statement.startsWith("INSERT INTO vozeb_pro_schema_migrations (version) VALUES ($1)")) versions.add(String(values?.[0]));
+            return { rows: [], rowCount: 0 };
+        });
+        return versions;
+    }
+
+    it("skips full bootstrap DDL in another cold process only after the exact applied schema fingerprint", async () => {
+        const versions = schemaRegistry();
+        await initializePostgresSchema();
+        const ddl = String(mocks.query.mock.calls.find(([statement]) => String(statement).includes("CREATE TABLE IF NOT EXISTS vozeb_pro_schema_migrations"))?.[0]);
+        expect([...versions]).toEqual([`bootstrap-sha256:${createHash("sha256").update(ddl).digest("hex")}`]);
+
+        delete (globalThis as Record<string, unknown>).__vozebProPostgresSchemaReady;
+        await ensurePostgresSchema();
+
+        expect(mocks.query.mock.calls.filter(([statement]) => String(statement).includes("CREATE TABLE IF NOT EXISTS vozeb_pro_schema_migrations"))).toHaveLength(1);
+        expect(mocks.query.mock.calls.filter(([statement]) => statement === "SELECT pg_advisory_xact_lock(hashtext($1))")).toHaveLength(2);
+    });
+
+    it.each(["legacy-business-stamp", `bootstrap-sha256:${"0".repeat(64)}`])("applies full current schema when the registry contains only %s", async (previous) => {
+        const versions = schemaRegistry([previous]);
+        await ensurePostgresSchema();
+
+        const ddl = String(mocks.query.mock.calls.find(([statement]) => String(statement).includes("CREATE TABLE IF NOT EXISTS vozeb_pro_schema_migrations"))?.[0]);
+        const current = `bootstrap-sha256:${createHash("sha256").update(ddl).digest("hex")}`;
+        expect(versions.has(previous)).toBe(true);
+        expect(versions.has(current)).toBe(true);
+        expect(mocks.query.mock.calls.filter(([statement]) => String(statement).includes("CREATE TABLE IF NOT EXISTS vozeb_pro_schema_migrations"))).toHaveLength(1);
+    });
+
+    it("does not register a failed full bootstrap and clears process readiness for a later explicit initialization", async () => {
+        const versions = schemaRegistry([], true);
+        await expect(initializePostgresSchema()).rejects.toThrow("fixture bootstrap DDL failed");
+        expect(versions.size).toBe(0);
+        expect((globalThis as Record<string, unknown>).__vozebProPostgresSchemaReady).toBeUndefined();
+        expect(mocks.query.mock.calls.some(([statement]) => statement === "ROLLBACK")).toBe(true);
+
+        await initializePostgresSchema();
+        expect(versions.size).toBe(1);
+        expect(mocks.query.mock.calls.filter(([statement]) => String(statement).includes("CREATE TABLE IF NOT EXISTS vozeb_pro_schema_migrations"))).toHaveLength(2);
     });
 });

@@ -355,10 +355,16 @@ export const CanvasNode = React.memo(function CanvasNode({
         const nextOffsetX = (desiredCenter - centeredPanelCenter) / renderedScale;
         const spaceAbove = Math.max(0, nodeRect.top - usableTop - 16);
         const spaceBelow = Math.max(0, usableBottom - nodeRect.bottom);
-        const nextPlacement = panelRect.bottom > usableBottom && spaceAbove >= 96 ? "top" : "bottom";
+        // Measure the content, not the already constrained/moved panel, so choosing
+        // a side cannot reverse the next ResizeObserver placement decision.
+        const panelContent = panelElement.firstElementChild as HTMLElement | null;
+        const panelStyle = window.getComputedStyle(panelElement);
+        const naturalPanelHeight = ((panelContent?.offsetHeight ?? 0) + parseFloat(panelStyle.paddingTop) + parseFloat(panelStyle.paddingBottom)) * renderedScale;
+        const nextPlacement = naturalPanelHeight > spaceBelow && spaceAbove > spaceBelow ? "top" : "bottom";
         const availableSpace = nextPlacement === "top" ? spaceAbove : spaceBelow;
+        const nextMaxHeight = availableSpace > 0 ? availableSpace / renderedScale : undefined;
         setPanelPlacement((current) => (current === nextPlacement ? current : nextPlacement));
-        if (availableSpace > 0) setPanelMaxHeight((current) => (current === availableSpace ? current : availableSpace));
+        if (nextMaxHeight !== undefined) setPanelMaxHeight((current) => (current !== undefined && Math.abs(current - nextMaxHeight) < 0.1 ? current : nextMaxHeight));
         if (nextMaxWidth) setPanelMaxWidth((current) => (current !== undefined && Math.abs(current - nextMaxWidth) < 0.1 ? current : nextMaxWidth));
         panelOffsetXRef.current = nextOffsetX;
         setPanelOffsetX((current) => (Math.abs(current - nextOffsetX) < 0.1 ? current : nextOffsetX));
@@ -369,6 +375,7 @@ export const CanvasNode = React.memo(function CanvasNode({
         updatePanelPlacement();
         const observer = new ResizeObserver(updatePanelPlacement);
         observer.observe(panelRef.current);
+        if (panelRef.current.firstElementChild) observer.observe(panelRef.current.firstElementChild);
         const surfaceElement = nodeRef.current?.closest<HTMLElement>("[data-canvas-surface]");
         if (surfaceElement) observer.observe(surfaceElement);
         const visualViewport = window.visualViewport;

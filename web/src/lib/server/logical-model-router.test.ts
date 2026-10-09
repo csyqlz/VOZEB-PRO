@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveLogicalBillingModel, resolveLogicalModel, resolveLogicalModelCandidates } from "./logical-model-router";
+import { resolveLogicalBillingModel, resolveLogicalModel, resolveLogicalModelCandidates, resolveLogicalModelSnapshot } from "./logical-model-router";
 
 const channel = (id: string, models: string[], enabled = true) => ({ id, name: id, baseUrl: `https://${id}.example.com`, apiKey: "secret", apiFormat: "openai" as const, models, enabled });
 
@@ -118,5 +118,26 @@ describe("resolveLogicalModel", () => {
 
         expect(resolveLogicalBillingModel(logicalModels, "text", "primary", "vendor/shared", "writer-pro")).toBe("writer-pro");
         expect(resolveLogicalBillingModel(logicalModels, "text", "primary", "vendor/shared", "forged-model")).toBe("writer-basic");
+    });
+
+    it("resolves only the exact channel and upstream model saved in a task snapshot", () => {
+        const settings = {
+            systemChannels: [channel("primary", ["writer-v2"]), channel("backup", ["writer-v1"])],
+            logicalModels: [
+                {
+                    id: "writer",
+                    name: "Writer",
+                    capability: "text" as const,
+                    enabled: true,
+                    bindings: [
+                        { id: "new", channelId: "primary", upstreamModel: "writer-v2", enabled: true, priority: 1 },
+                        { id: "old", channelId: "backup", upstreamModel: "writer-v1", enabled: true, priority: 2 },
+                    ],
+                },
+            ],
+        };
+
+        expect(resolveLogicalModelSnapshot(settings, "text", { logicalModelId: "writer", channelId: "backup", upstreamModel: "writer-v1" })).toMatchObject({ channelId: "backup", upstreamModel: "writer-v1" });
+        expect(resolveLogicalModelSnapshot(settings, "text", { logicalModelId: "writer", channelId: "backup", upstreamModel: "missing" })).toBeNull();
     });
 });

@@ -245,6 +245,7 @@ async function referenceToTaskInput(reference: ReferenceImage) {
         url: remoteUrl,
         remoteUrl: isRemoteReferenceUrl(reference.remoteUrl) ? reference.remoteUrl : remoteUrl,
         serverUrl: reference.serverUrl,
+        editRegion: reference.editRegion,
     };
 }
 

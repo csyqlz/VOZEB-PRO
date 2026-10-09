@@ -54,28 +54,7 @@ describe("Canvas Agent current-turn references", () => {
         expect(messageSource.indexOf("<AgentUserAvatar")).toBeGreaterThan(messageSource.indexOf("item.text"));
     });
 
-    it("places compact composer thumbnails above the editable prompt", async () => {
-        const source = await readFile(resolve(process.cwd(), "src/app/(user)/canvas/components/canvas-agent-chat-ui.tsx"), "utf8");
-        const composer = source.slice(source.indexOf("data-canvas-agent-composer"), source.indexOf("export function AgentPanelTabs"));
-
-        expect(composer).toContain("relative size-10");
-        expect(composer).toContain("max-w-[44%]");
-        expect(composer).toContain('className="relative min-w-0 flex-1"');
-        expect(composer.indexOf('aria-label="本轮参考素材"')).toBeLessThan(composer.indexOf("<Popover"));
-        expect(composer.indexOf("<Popover")).toBeLessThan(composer.indexOf("<textarea"));
-    });
-
-    it("keeps typed @ asset mentions without rendering a dedicated mention button", async () => {
-        const source = await readFile(resolve(process.cwd(), "src/app/(user)/canvas/components/canvas-agent-chat-ui.tsx"), "utf8");
-        const composer = source.slice(source.indexOf("data-canvas-agent-composer"), source.indexOf("export function AgentPanelTabs"));
-
-        expect(composer).not.toContain('aria-label="引用画布图片或视频"');
-        expect(source).toContain("canvasAgentMentionAtCursor");
-        expect(composer).toContain("<CanvasAgentMentionPicker");
-        expect(source).toContain("onSelectReference?.(asset.id)");
-    });
-
-    it("keeps reference upload in the input row and orders Skill, planning, model, parameters before send", async () => {
+    it("keeps reference upload in the toolbar and orders Skill, planning, model, parameters before send", async () => {
         const chatSource = await readFile(resolve(process.cwd(), "src/app/(user)/canvas/components/canvas-agent-chat-ui.tsx"), "utf8");
         const controlsSource = await readFile(resolve(process.cwd(), "src/components/agent/creative-agent-controls.tsx"), "utf8");
         const assistantSource = await readFile(resolve(process.cwd(), "src/app/(user)/canvas/components/canvas-assistant-panel.tsx"), "utf8");
@@ -84,11 +63,10 @@ describe("Canvas Agent current-turn references", () => {
         const toolbar = chatSource.slice(chatSource.indexOf('className="mt-2 flex min-w-0'), chatSource.indexOf("export function AgentPanelTabs"));
         const controls = controlsSource.slice(controlsSource.indexOf("const mutedStyle"), controlsSource.indexOf("function capabilityLabel"));
 
-        expect(inputRow).toContain('aria-label={uploading ? "正在上传图片" : attachments.length ? "继续添加参考素材" : "添加参考素材"}');
-        expect(inputRow.indexOf('aria-label="本轮参考素材"')).toBeLessThan(inputRow.indexOf("<textarea"));
+        expect(toolbar).toContain('aria-label={uploading ? "正在上传图片" : attachments.length ? "继续添加参考素材" : "添加参考素材"}');
         expect(toolbar).toContain("data-canvas-agent-toolbar");
-        expect(toolbar).not.toContain("添加参考素材");
-        expect(inputRow).toContain("min-h-20");
+        expect(toolbar).toContain("添加参考素材");
+        expect(inputRow).toContain("<CanvasAgentPromptEditor");
         expect(controls).toContain('compact ? "flex w-full min-w-0 items-center gap-1"');
         expect(controls).toContain('compact && "pl-1"');
         expect(controls).not.toContain('compact && "ml-auto pl-1"');

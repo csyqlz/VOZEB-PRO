@@ -26,16 +26,21 @@ export default defineConfig({
     },
     projects: [
         { name: "setup", testMatch: /installation\.spec\.ts/ },
-        { name: "chromium", testMatch: [/(?:all-pages|canvas(?:-tools)?|commerce|core|creative-video-result|home|responsive(?:-workspaces)?)\.spec\.ts/], dependencies: ["setup"], use: { ...devices["Desktop Chrome"], storageState } },
+        {
+            name: "chromium",
+            testMatch: [/(?:all-pages|canvas(?:-tools)?|commerce|core|creative-video-result|ecommerce-product-generation|home|object-storage|responsive(?:-workspaces)?)\.spec\.ts/],
+            dependencies: ["setup"],
+            use: { ...devices["Desktop Chrome"], storageState },
+        },
         {
             name: "mobile-390",
-            testMatch: /(?:all-pages|commerce|creative-video-result|home|responsive(?:-workspaces)?)\.spec\.ts/,
+            testMatch: /(?:all-pages|commerce|creative-video-result|ecommerce-product-generation|home|object-storage|responsive(?:-workspaces)?)\.spec\.ts/,
             dependencies: ["setup"],
             use: { ...devices["iPhone 13"], browserName: "chromium", viewport: { width: 390, height: 844 }, storageState },
         },
         {
             name: "mobile-430",
-            testMatch: /(?:all-pages|commerce|creative-video-result|home|responsive(?:-workspaces)?)\.spec\.ts/,
+            testMatch: /(?:all-pages|commerce|creative-video-result|ecommerce-product-generation|home|object-storage|responsive(?:-workspaces)?)\.spec\.ts/,
             dependencies: ["setup"],
             use: { ...devices["iPhone 14 Pro Max"], browserName: "chromium", viewport: { width: 430, height: 932 }, storageState },
         },
@@ -62,6 +67,7 @@ export default defineConfig({
             reuseExistingServer: false,
             env: {
                 ...process.env,
+                HOSTNAME: "127.0.0.1",
                 PORT: String(port),
                 NEXT_PUBLIC_SITE_URL: baseURL,
                 VOZEB_PRO_DATABASE_PROVIDER: databaseUrl ? "postgres" : "file",
@@ -72,6 +78,7 @@ export default defineConfig({
                 VOZEB_PRO_WORKER_TOKEN: "vozeb-pro-e2e-worker-token-separate-32chars",
                 VOZEB_PRO_ALLOW_PRIVATE_UPSTREAMS: "1",
                 VOZEB_PRO_PRIVATE_UPSTREAM_HOSTS: "127.0.0.1",
+                ECOMMERCE_GENERATION_ROLLOUT: "internal",
                 ...(databaseUrl ? { DATABASE_URL: databaseUrl } : {}),
                 VOZEB_PRO_PAYPLY_API_KEY: "vozeb-pro-e2e-payply-production-key",
                 VOZEB_PRO_PAYPLY_CHECKOUT_URL: `http://127.0.0.1:${paymentFixturePort}/payply/checkout`,

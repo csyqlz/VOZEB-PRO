@@ -1,12 +1,35 @@
-import type { AuthSettings } from "@/lib/auth/store";
+import type { AuthSettings, EcommerceLogicalModelRole } from "@/lib/auth/store";
 import type { CreativeAsset, CreativeConversationContext, CreativeSurface } from "@/lib/creative-runtime-contract";
 import { creativeAssetReferenceAliases, orderCreativeAssetsByIds } from "@/lib/creative-asset-references";
 import { resolveSiteTitle } from "@/lib/site-brand";
 import type { AgentRun, AgentRunPlannerContextSummary, AgentRunTask } from "@/lib/server/agent-run-store";
 import type { AgentPlan } from "@/lib/server/agent-run-validation";
 import { resolveAgentPlanningProfile } from "@/lib/server/agent-run-planning-profile";
+import { resolveLogicalModelCandidates } from "@/lib/server/logical-model-router";
+import type { TextPlanningCandidate } from "@/lib/server/text-planning-runtime";
 import { canvasSnapshotPlannerView, selectedCanvasNodeIds } from "./agent-run-canvas-snapshot";
 import { resolveDramaPlannerSnapshot } from "./agent-context-resolver";
+
+export type { EcommerceLogicalModelRole } from "@/lib/auth/store";
+export type EcommerceResolvedModelRole = {
+    logicalRole: EcommerceLogicalModelRole;
+    logicalModelId: string;
+    candidates: TextPlanningCandidate[];
+};
+
+export function resolveEcommerceModelRole(
+    settings: Pick<AuthSettings, "defaultModels" | "logicalModels" | "systemChannels">,
+    logicalRole: EcommerceLogicalModelRole,
+    configuredRoles: Partial<Record<EcommerceLogicalModelRole, string>> = {},
+): EcommerceResolvedModelRole {
+    const capability = logicalRole === "image_generation" ? "image" : "text";
+    const logicalModelId = configuredRoles[logicalRole]?.trim() || (capability === "image" ? settings.defaultModels.imageModel : settings.defaultModels.textModel);
+    return {
+        logicalRole,
+        logicalModelId,
+        candidates: logicalModelId ? resolveLogicalModelCandidates(settings, capability, logicalModelId) : [],
+    };
+}
 
 export function availableAgentSkills(settings: AuthSettings, surface: CreativeSurface) {
     const workspaces = surface === "canvas" ? new Set(["canvas"]) : surface === "drama" ? new Set(["drama"]) : new Set(["image", "video", "drama"]);
@@ -44,7 +67,7 @@ export function agentPlannerSystemPrompt(surface: CreativeSurface, fallbackExamp
         surface === "chat"
             ? "只有用户原文明确要求创建、建立或整理成画布/短剧项目时才填写 projectHandoff；生成短视频、短片、图片或系列媒体不等于创建项目，必须省略 projectHandoff。只做明确项目交接且无需新产物时允许 deliverables=[]。projectHandoff.assetIds 只能引用 referencedAssets，当前 Run 新生成的资产会由服务端自动合并。"
             : "当前入口不得填写 projectHandoff。";
-    return `${identity}先结合 conversationContext 的长期摘要和近期消息理解用户的自然语言、指代和连续创作关系，再判断 intent：问候、闲聊、能力咨询、使用说明和知识问答为 conversation；${surfaceRules}conversation 必须 deliverables=[]、decisions=[]，直接在 reply 回答。generationPreferences.mode 非空时代表用户本轮明确选择的产物类型，必须按该类型执行 generation，deliverables 只能使用该媒体类型；generationPreferences 中该类型的尺寸、画质、时长、音色和格式是用户本轮明确参数，不得改选。视频 generationPreferences.referenceMode、firstFrameAssetId 和 lastFrameAssetId 是用户显式指定的首尾帧角色，必须规划视频任务且不得猜测、交换、删除或改成普通参考图；服务端会强制注入对应资产。generation 必须先形成 foundation：brief 说明目标、受众、使用场景、核心信息、约束和参考素材策略；direction 给出一个明确推荐的风格、构图/镜头、色彩、光线、视觉关键词和避免事项。${projectRule}${handoffRule}requestedSkillIds 非空时必须使用且只使用这些技能；requestedSkillIds 为空时 skillIds 必须为空，不得自动选择任何普通 Skill。没有 Skill 时仍需执行提示词优化、视觉方向、模型选择和参数规划。referenceContext.source=current-turn-explicit 表示 referencedAssets 是本轮用户明确附件，必须优先且排他；其中 alias 是用户正文中的通用引用名，必须严格按 alias 对应的真实 id 理解“@图片1 做什么、@图片2 做什么”等逐素材指令，不得按标题、数组偶然顺序或文本相似度猜测。source=conversation-memory-candidates 表示它们只是同会话最近成功媒体候选，只有自然语义明确延续、修改、变体或保持上一轮主体/场景时，才把确需使用的资产 ID 写入 deliverable.assetIds，新主题、独立创作或无法确认时不得引用。随后规划整套 deliverables 和依赖顺序，并主动从 availableModels 中为每个产物选择能力匹配的逻辑模型，决定画幅、质量、数量、时长、音色或格式。只能引用 referencedAssets 中存在的资产 ID；需要使用一个或多个资产时，将它们写入对应 deliverable.assetIds。每个 deliverable 的 prompt 必须执行同一 foundation，保持主体、信息、色彩和视觉语言一致。不要盲目照抄默认值，默认值只在没有更明确判断时作为兜底。reply 用自然中文概括推荐方向；decisions 用 2–6 项说明“选择了什么、为什么”；每个 deliverable 必须填写 model。优先调用 create_agent_plan；若渠道不支持工具调用，必须直接返回与函数参数完全一致的单个 JSON 对象，不要 Markdown 或额外文本，严格仿照这个完整结构：${fallbackExample}。不得暴露隐藏思维链，只输出可验证的决策摘要。`;
+    return `${identity}先结合 conversationContext 的长期摘要和近期消息理解用户的自然语言、指代和连续创作关系，再判断 intent：问候、闲聊、能力咨询、使用说明和知识问答为 conversation；${surfaceRules}conversation 必须 deliverables=[]、decisions=[]，直接在 reply 回答。generationPreferences.mode 非空时代表用户本轮明确选择的产物类型，必须按该类型执行 generation，deliverables 只能使用该媒体类型；generationPreferences 中该类型的尺寸、画质、时长、音色和格式是用户本轮明确参数，不得改选。视频 generationPreferences.referenceMode、firstFrameAssetId 和 lastFrameAssetId 是用户显式指定的首尾帧角色，必须规划视频任务且不得猜测、交换、删除或改成普通参考图；服务端会强制注入对应资产。generation 必须先形成 foundation：brief 说明目标、受众、使用场景、核心信息、约束和参考素材策略；direction 给出一个明确推荐的风格、构图/镜头、色彩、光线、视觉关键词和避免事项。${projectRule}${handoffRule}requestedSkillIds 非空时必须使用且只使用这些技能；requestedSkillIds 为空时 skillIds 必须为空，不得自动选择任何普通 Skill。requestedModelIds 非空时表示用户已经锁定底层生成模型，每个 deliverable.model 只能使用 requestedModelIds，并且必须覆盖其中每个模型，不得改选、遗漏或增加其他模型。没有 Skill 时仍需执行提示词优化、视觉方向、模型选择和参数规划。referenceContext.source=current-turn-explicit 表示 referencedAssets 是本轮用户明确附件，必须优先且排他；其中 alias 是用户正文中的通用引用名，必须严格按 alias 对应的真实 id 理解“@图片1 做什么、@图片2 做什么”等逐素材指令，不得按标题、数组偶然顺序或文本相似度猜测。source=conversation-memory-candidates 表示它们只是同会话最近成功媒体候选，只有自然语义明确延续、修改、变体或保持上一轮主体/场景时，才把确需使用的资产 ID 写入 deliverable.assetIds，新主题、独立创作或无法确认时不得引用。随后规划整套 deliverables 和依赖顺序，并主动从 availableModels 中为每个产物选择能力匹配的逻辑模型，决定画幅、质量、数量、时长、音色或格式。只能引用 referencedAssets 中存在的资产 ID；需要使用一个或多个资产时，将它们写入对应 deliverable.assetIds。每个 deliverable 的 prompt 必须执行同一 foundation，保持主体、信息、色彩和视觉语言一致。不要盲目照抄默认值，默认值只在没有更明确判断时作为兜底。reply 用自然中文概括推荐方向；decisions 用 2–6 项说明“选择了什么、为什么”；每个 deliverable 必须填写 model。优先调用 create_agent_plan；若渠道不支持工具调用，必须直接返回与函数参数完全一致的单个 JSON 对象，不要 Markdown 或额外文本，严格仿照这个完整结构：${fallbackExample}。不得暴露隐藏思维链，只输出可验证的决策摘要。`;
 }
 
 export function agentPlannerInput(
@@ -85,6 +108,7 @@ export function buildAgentPlannerInput(
         referenceContext: { source: referenceSource },
         referencedAssets: orderedAssets.map((asset) => plannerAssetSummary(asset, referenceAliases.get(asset.id))),
         requestedSkillIds: run.selectedSkillIds || [],
+        ...(run.requestedModelIds?.length ? { requestedModelIds: run.requestedModelIds } : {}),
         ...(run.generationPreferences ? { generationPreferences: run.generationPreferences } : {}),
         availableSkills: availableSkills.map(plannerSkillSummary),
         availableModels: prioritizedModels,

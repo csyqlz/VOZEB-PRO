@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -75,7 +75,16 @@ describe("release type-check and build contract", () => {
                 writeFile(path.join(fixtureRoot, "node_modules", ".pnpm", "@img+sharp-libvips-linux-x64@1.3.2", "node_modules", "@img", "sharp-libvips-linux-x64", "lib", "libvips.so"), "libvips"),
             ]);
 
+            if (process.platform !== "win32") {
+                await symlink(
+                    "../../../@img+sharp-libvips-linux-x64@1.3.2/node_modules/@img/sharp-libvips-linux-x64",
+                    path.join(fixtureRoot, "node_modules", ".pnpm", "@img+sharp-linux-x64@0.35.3", "node_modules", "@img", "sharp-libvips-linux-x64"),
+                    "dir",
+                );
+            }
+
             const result = await prepareStandaloneAssets({ webRoot: fixtureRoot, distDir });
+            await prepareStandaloneAssets({ webRoot: fixtureRoot, distDir });
 
             expect(result.staticFiles).toBe(1);
             expect(result.publicFiles).toBe(3);
@@ -85,6 +94,13 @@ describe("release type-check and build contract", () => {
             expect(existsSync(path.join(fixtureRoot, distDir, "standalone", "public", "icons", "icon-192.png"))).toBe(true);
             expect(existsSync(path.join(fixtureRoot, distDir, "standalone", "node_modules", ".pnpm", "@img+sharp-linux-x64@0.35.3", "node_modules", "@img", "sharp-linux-x64", "sharp.node"))).toBe(true);
             expect(existsSync(path.join(fixtureRoot, distDir, "standalone", "node_modules", ".pnpm", "@img+sharp-libvips-linux-x64@1.3.2", "node_modules", "@img", "sharp-libvips-linux-x64", "lib", "libvips.so"))).toBe(true);
+
+            const isolatedStandalone = path.join(fixtureRoot, "isolated-standalone");
+            await rename(path.join(fixtureRoot, distDir, "standalone"), isolatedStandalone);
+            await rm(path.join(fixtureRoot, "node_modules"), { recursive: true, force: true });
+            if (process.platform !== "win32") {
+                expect(await readFile(path.join(isolatedStandalone, "node_modules", ".pnpm", "@img+sharp-linux-x64@0.35.3", "node_modules", "@img", "sharp-libvips-linux-x64", "lib", "libvips.so"), "utf8")).toBe("libvips");
+            }
         } finally {
             await rm(fixtureRoot, { recursive: true, force: true });
         }

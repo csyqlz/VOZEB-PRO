@@ -54,6 +54,14 @@ describe("serializePublicSettings", () => {
                     supportsReferenceVideo: false,
                     supportsReferenceAudio: false,
                     modelCatalogPaths: ["/private/models"],
+                    modelConfigs: {
+                        "vendor-image": {
+                            capability: "image",
+                            protocol: "sub2api",
+                            createPath: "/private/model-create",
+                            requestTemplate: '{"modelSecret":true}',
+                        },
+                    },
                 },
             },
         ];
@@ -96,6 +104,8 @@ describe("serializePublicSettings", () => {
                 models: ["vendor-image"],
                 enabled: true,
                 hasApiKey: true,
+                protocol: "custom",
+                modelProtocols: { "vendor-image": "sub2api" },
             },
         ]);
         expect(result.logicalModels[0]?.bindings[0]).toEqual({ id: "binding-one", channelId: "channel-one", upstreamModel: "vendor-image", enabled: true, priority: 1 });
@@ -104,6 +114,8 @@ describe("serializePublicSettings", () => {
         expect(serialized).not.toContain("smtp.internal");
         expect(serialized).not.toContain("mail-secret");
         expect(serialized).not.toContain("private/create");
+        expect(serialized).not.toContain("private/model-create");
+        expect(serialized).not.toContain("modelSecret");
         expect(serialized).not.toContain("完整指令");
         expect(result).not.toHaveProperty("mail");
         expect(result).not.toHaveProperty("agentSkills");

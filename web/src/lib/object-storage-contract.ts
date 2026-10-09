@@ -1,11 +1,14 @@
 import type { ManagedMediaType } from "@/lib/local-media-storage-contract";
 
+export const DEFAULT_OBJECT_STORAGE_CDN_BASE_URL = "";
+
 export type ObjectStorageSettings = {
     enabled: boolean;
     endpoint: string;
     region: string;
     bucket: string;
     prefix: string;
+    cdnBaseUrl: string;
     forcePathStyle: boolean;
     hasAccessKeyId: boolean;
     hasSecretAccessKey: boolean;
@@ -18,6 +21,7 @@ export type ObjectStorageSettingsUpdate = {
     region: string;
     bucket: string;
     prefix: string;
+    cdnBaseUrl?: string;
     forcePathStyle: boolean;
     accessKeyId?: string;
     secretAccessKey?: string;

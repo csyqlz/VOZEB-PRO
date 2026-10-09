@@ -424,7 +424,20 @@ export function ImageContent({
     const theme = canvasThemes[colorTheme];
     const isBatchChild = Boolean(node.metadata?.batchRootId);
     const imageRef = useRef<HTMLImageElement>(null);
-    const previewWidth = canvasImagePreviewWidth(node.width, scale, node.metadata?.naturalWidth);
+    const previewSource = node.metadata?.content || "";
+    const previewVariantRef = useRef<{
+        source: string;
+        width: number;
+    } | null>(null);
+    const previewVariant =
+        previewVariantRef.current?.source === previewSource
+            ? previewVariantRef.current
+            : {
+                  source: previewSource,
+                  width: canvasImagePreviewWidth(node.width, scale, node.metadata?.naturalWidth),
+              };
+    previewVariantRef.current = previewVariant;
+    const previewWidth = previewVariant.width;
     const reportDimensions = useCallback(
         (image: HTMLImageElement) => {
             if (node.metadata?.naturalWidth && node.metadata?.naturalHeight) return;

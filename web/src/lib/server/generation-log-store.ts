@@ -32,6 +32,10 @@ import {
     stableAssetUrl,
 } from "./generation-log-repository";
 import type { GenerationAssetStats, GenerationLogInput, GenerationLogListOptions, StoredGenerationLog } from "./generation-log-types";
+import { buildEcommerceGenerationTrace, normalizeEcommerceGenerationTrace, type EcommerceGenerationTrace } from "./ecommerce-generation-trace";
+import { getImageTask } from "./image-task-store";
+import { getStoredGenerationTask } from "./generation-task-store";
+import type { AgentRun } from "./agent-run-store";
 
 export type { GenerationAssetStats, GenerationLogAsset, GenerationLogInput, GenerationLogSource, StoredGenerationLog } from "./generation-log-types";
 export { isGenerationSource } from "./generation-log-repository";
@@ -52,7 +56,8 @@ export async function listGenerationLogs(options: GenerationLogListOptions = {})
             startAt: dateFilterValue(options.start),
             endAt: dateFilterValue(options.end, true),
         });
-        return { ...result, items: result.items.map(toStoredGenerationLog) };
+        const items = result.items.map((item) => toStoredGenerationLog(item, options.includeEcommerceTrace));
+        return { ...result, items: options.includeEcommerceTrace ? await hydrateEcommerceTracesFromImageTasks(items) : items };
     }
     const db = await readGenerationLogDb();
     const page = Math.max(1, Math.floor(Number(options.page) || 1));
@@ -80,7 +85,90 @@ export async function listGenerationLogs(options: GenerationLogListOptions = {})
 
     const total = filtered.length;
     const startIndex = (page - 1) * pageSize;
-    return { items: filtered.slice(startIndex, startIndex + pageSize), total, page, pageSize };
+    const items = filtered.slice(startIndex, startIndex + pageSize).map((item) => (options.includeEcommerceTrace ? item : withoutEcommerceTrace(item)));
+    return { items: options.includeEcommerceTrace ? await hydrateEcommerceTracesFromImageTasks(items) : items, total, page, pageSize };
+}
+
+function pendingAdvisoryTrace(trace: EcommerceGenerationTrace | undefined) {
+    const stage = trace?.stages.find((entry) => entry.key === "quality_check");
+    const output = stage?.output;
+    return stage?.status === "not_run" && output && typeof output === "object" && !Array.isArray(output) && output.policy === "advisory";
+}
+
+function sameTraceIdentity(left: EcommerceGenerationTrace, right: EcommerceGenerationTrace) {
+    return left.runId === right.runId && left.agentTaskId === right.agentTaskId && JSON.stringify(left.imageTaskIds) === JSON.stringify(right.imageTaskIds);
+}
+
+export async function hydrateEcommerceTracesFromImageTasks(
+    logs: StoredGenerationLog[],
+    persist: (taskIds: string[], trace: EcommerceGenerationTrace, expectedTrace?: EcommerceGenerationTrace | null) => Promise<{ updated: number }> = attachEcommerceTraceToGenerationLogs,
+) {
+    return Promise.all(
+        logs.map(async (log) => {
+            if (!log.taskId || (log.ecommerceTrace && !pendingAdvisoryTrace(log.ecommerceTrace))) return log;
+            const task = await getImageTask(log.taskId);
+            if (!task || task.id !== log.taskId || task.userId !== log.userId) return log;
+            let trace = normalizeEcommerceGenerationTrace(task.ecommerceTrace);
+            if (log.ecommerceTrace && trace && !sameTraceIdentity(log.ecommerceTrace, trace)) return log;
+            if ((!trace || pendingAdvisoryTrace(trace)) && task.runId && task.parentTaskId) {
+                const run = await getStoredGenerationTask<AgentRun>("agent", task.runId);
+                const snapshot = run?.ecommerceSnapshot;
+                const parent = run?.tasks.find((entry) => entry.id === task.parentTaskId);
+                const ids = parent?.taskIds || (parent?.taskId ? [parent.taskId] : []);
+                if (
+                    run?.id === task.runId &&
+                    run.userId === task.userId &&
+                    run.status === "completed" &&
+                    run.reviewed &&
+                    snapshot?.qualityPolicy === "advisory" &&
+                    snapshot.technicalCheck?.status === "passed" &&
+                    snapshot.qualityCheck &&
+                    parent?.status === "completed" &&
+                    parent.ecommerceExecution &&
+                    ids.includes(task.id)
+                ) {
+                    const rebuilt = buildEcommerceGenerationTrace({
+                        runId: run.id,
+                        task: parent,
+                        snapshot,
+                        imageTaskIds: ids,
+                        generationStatus: "completed",
+                        finalStatus: "completed",
+                        recordedAt: run.timings?.reviewCompletedAt || snapshot.qualityCheck.checkedAt,
+                    });
+                    if (!log.ecommerceTrace || sameTraceIdentity(log.ecommerceTrace, rebuilt)) trace = rebuilt;
+                }
+            }
+            if (!trace || (log.ecommerceTrace && pendingAdvisoryTrace(trace))) return log;
+            try {
+                await persist([log.taskId], trace, log.ecommerceTrace || null);
+            } catch (error) {
+                console.error("[ecommerce-generation-trace] pending trace reconciliation failed", error instanceof Error ? error.message : "unknown error");
+            }
+            return { ...log, ecommerceTrace: trace };
+        }),
+    );
+}
+
+export async function attachEcommerceTraceToGenerationLogs(taskIds: string[], trace: EcommerceGenerationTrace, expectedTrace?: EcommerceGenerationTrace | null) {
+    const ids = Array.from(new Set(taskIds.map((id) => id.trim()).filter(Boolean)));
+    const normalized = normalizeEcommerceGenerationTrace(trace);
+    if (!ids.length || !normalized) return { updated: 0 };
+    if (isPostgresDatabaseEnabled()) {
+        await ensurePostgresSchema();
+        return { updated: await createPostgresRepositories().generationLogs.updateEcommerceTraceByTaskIds(ids, normalized, expectedTrace) };
+    }
+    return mutateGenerationLogDb(async (db) => {
+        const idSet = new Set(ids);
+        let updated = 0;
+        db.logs = db.logs.map((log) => {
+            if (!log.taskId || !idSet.has(log.taskId)) return log;
+            if (expectedTrace !== undefined && JSON.stringify(log.ecommerceTrace || null) !== JSON.stringify(expectedTrace)) return log;
+            updated += 1;
+            return { ...log, ecommerceTrace: normalized, updatedAt: new Date().toISOString() };
+        });
+        return { updated };
+    });
 }
 
 export async function listUserGenerationLogsForDelete(userId: string, ids: string[]) {
@@ -94,7 +182,7 @@ export async function listUserGenerationLogsForDelete(userId: string, ids: strin
         const requestedLogs = await repository.getByIds(Array.from(idSet), targetUserId);
         const assetUrls = Array.from(new Set(requestedLogs.flatMap((log) => log.assets.map(stableAssetUrl).filter(Boolean))));
         const sharedLogs = await repository.listByUserAndAssetUrls(targetUserId, assetUrls);
-        return uniqueGenerationLogs([...requestedLogs, ...sharedLogs]).map(toStoredGenerationLog);
+        return uniqueGenerationLogs([...requestedLogs, ...sharedLogs]).map((log) => toStoredGenerationLog(log));
     }
     const db = await readGenerationLogDb();
     const userLogs = db.logs.filter((log) => log.userId === targetUserId);
@@ -156,7 +244,7 @@ export async function deleteGenerationLogs(ids: string[], options: { cascadeUser
             const repository = createPostgresRepositories(client).generationLogs;
             const logs = await repository.getByIds(normalizedIds, undefined, true);
             await repository.delete(logs.map((log) => log.id));
-            return logs.map(toStoredGenerationLog);
+            return logs.map((log) => toStoredGenerationLog(log));
         });
         await deleteRemovedLogMedia(removed, options.cascadeUserMedia);
         return { deleted: removed.length };
@@ -185,7 +273,7 @@ export async function deleteGenerationLogsByUserId(userId: string) {
                 const logs = await repository.listByUserIdBatch(targetUserId, dataLifecycle.maintenanceBatchSize, true);
                 if (!logs.length) return [];
                 await repository.delete(logs.map((log) => log.id));
-                return logs.map(toStoredGenerationLog);
+                return logs.map((log) => toStoredGenerationLog(log));
             });
             if (!removed.length) break;
             await deleteRemovedLogMedia(removed);
@@ -279,6 +367,7 @@ function buildGenerationLog(
         failCount: normalizeNonNegativeInteger(input.failCount, existing?.failCount || (input.status === "failed" ? 1 : 0)),
         assets: assets.length ? assets : existing?.assets || [],
         requestSnapshot: normalizeGenerationLogRequestSnapshot(input.requestSnapshot) || existing?.requestSnapshot,
+        ecommerceTrace: existing?.ecommerceTrace,
         taskId: normalizeOptionalText(input.taskId, existing?.taskId, 160),
         error: normalizeOptionalText(input.error, existing?.error, 1000),
         createdAt: normalizeTime(input.createdAt, existing?.createdAt || now),
@@ -287,12 +376,20 @@ function buildGenerationLog(
     };
 }
 
-function toStoredGenerationLog(log: { source: string; requestSnapshot?: unknown } & Omit<StoredGenerationLog, "source" | "requestSnapshot">): StoredGenerationLog {
-    return {
+function toStoredGenerationLog(log: { source: string; requestSnapshot?: unknown; ecommerceTrace?: unknown } & Omit<StoredGenerationLog, "source" | "requestSnapshot" | "ecommerceTrace">, includeEcommerceTrace = true): StoredGenerationLog {
+    const stored = {
         ...log,
         source: isGenerationSource(log.source) ? log.source : "unknown",
         requestSnapshot: normalizeGenerationLogRequestSnapshot(log.requestSnapshot),
+        ecommerceTrace: normalizeEcommerceGenerationTrace(log.ecommerceTrace),
     };
+    return includeEcommerceTrace ? stored : withoutEcommerceTrace(stored);
+}
+
+export function withoutEcommerceTrace(log: StoredGenerationLog): StoredGenerationLog {
+    const publicLog = { ...log };
+    delete publicLog.ecommerceTrace;
+    return publicLog;
 }
 
 function uniqueGenerationLogs<T extends { id: string }>(logs: T[]) {

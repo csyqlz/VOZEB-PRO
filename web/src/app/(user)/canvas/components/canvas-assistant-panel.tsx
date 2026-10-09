@@ -462,18 +462,17 @@ export function CanvasAssistantPanel({ nodes, selectedNodeIds, snapshot, session
         setSmartPlanning(true);
     };
 
-    const selectMentionReference = (id: string) => {
-        const nextReferenceIds = selectedMediaReferenceIds.includes(id) ? selectedMediaReferenceIds : [...selectedMediaReferenceIds, id];
-        previousMediaReferenceIdsRef.current = nextReferenceIds;
+    const changeComposerReferences = (ids: string[]) => {
+        previousMediaReferenceIdsRef.current = ids;
         setRemovedReferenceIds((current) => {
-            if (!current.has(id)) return current;
             const next = new Set(current);
-            next.delete(id);
+            selectedMediaReferenceIds.filter((id) => !ids.includes(id)).forEach((id) => next.add(id));
+            ids.forEach((id) => next.delete(id));
             return next;
         });
-        if (!selectedNodeIds.has(id)) onSelectNodeIds(new Set([...selectedNodeIds, id]));
+        const mediaIds = new Set(mentionAssets.map((asset) => asset.id));
+        onSelectNodeIds(new Set([...Array.from(selectedNodeIds).filter((id) => !mediaIds.has(id)), ...ids]));
     };
-
     const removeMediaReference = (id: string) => {
         const nextReferenceIds = selectedMediaReferenceIds.filter((nodeId) => nodeId !== id);
         setPrompt((current) => remapCanvasAgentReferences(current, mentionAssets, selectedMediaReferenceIds, nextReferenceIds));
@@ -688,8 +687,7 @@ export function CanvasAssistantPanel({ nodes, selectedNodeIds, snapshot, session
                             if (!reference) return removeUpload(id);
                             removeMediaReference(id);
                         }}
-                        onSelectReference={selectMentionReference}
-                        onRemoveReference={removeMediaReference}
+                        onReferenceIdsChange={changeComposerReferences}
                         beforeInput={selectedSkill ? <CreativeAgentSkillCard skill={selectedSkill} onRemove={() => setSelectedSkillId(undefined)} theme={controlTheme} className="pb-1" /> : null}
                         left={
                             <CreativeAgentControls

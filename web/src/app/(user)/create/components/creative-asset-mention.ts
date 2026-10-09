@@ -63,6 +63,10 @@ export function creativeAssetMentionCandidates(assets: CreativeAsset[], query: s
     });
 }
 
+export function mergeCreativeAssetMentionSources(referenceAssets: CreativeAsset[], attachments: CreativeAsset[]) {
+    return Array.from(new Map([...referenceAssets, ...attachments].map((asset) => [asset.id, asset])).values());
+}
+
 export function creativeAssetMentionSegments(value: string, aliases: ReadonlyMap<string, string>): CreativeAssetMentionSegment[] {
     const assetIdsByToken = new Map(Array.from(aliases, ([assetId, alias]) => [`@${alias}`, assetId]));
     if (!value || !assetIdsByToken.size) return value ? [{ text: value, referenced: false }] : [];

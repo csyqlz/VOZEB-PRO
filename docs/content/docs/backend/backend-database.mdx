@@ -38,8 +38,8 @@ VOZEB PRO 的 PostgreSQL 真实表名统一使用项目名前缀 `vozeb_pro_`。
 ## 核心表
 
 - `vozeb_pro_schema_migrations`：已应用的数据库结构版本。
-- `vozeb_pro_app_settings`：站点、注册、邮箱、积分、生成、支付配置、逻辑模型目录、渠道绑定和默认模型等全局设置；`logical_models` JSONB 保存用户可见模型及其能力、上游模型、渠道、启用状态和优先级，`generation_cost_control` JSONB 保存管理员配置的单任务、单用户每日和全站每日积分成本上限，三个值为 `0` 时均表示不限制；`data_lifecycle` JSONB 保存四类技术到期清理开关和单类批次大小，不承载对话、支付、审计等长期业务数据的法律保留期限。
-- `vozeb_pro_object_storage_settings`：S3 兼容外部存储单例配置，保存启用状态、Endpoint、Region、Bucket、对象前缀、path-style 模式及加密后的 Access Key/Secret Key；管理接口只返回密钥是否已配置，不回传明文。
+- `vozeb_pro_app_settings`：站点、注册、邮箱、积分、生成、支付配置、逻辑模型目录、渠道绑定和默认模型等全局设置；`logical_models` JSONB 保存用户可见模型及其能力、上游模型、渠道、启用状态和优先级，`ecommerce_generation_enabled` 保存管理员控制的正式电商生图编排开关且默认关闭，关闭时部署侧正式模式不能绕过门禁，影子模式只记录观测快照；`generation_cost_control` JSONB 保存管理员配置的单任务、单用户每日和全站每日积分成本上限，三个值为 `0` 时均表示不限制；`data_lifecycle` JSONB 保存四类技术到期清理开关和单类批次大小，不承载对话、支付、审计等长期业务数据的法律保留期限。
+- `vozeb_pro_object_storage_settings`：S3 兼容外部存储单例配置，保存启用状态、Endpoint、Region、Bucket、对象前缀、CDN 地址前缀 `cdn_base_url`、path-style 模式及加密后的 Access Key/Secret Key；CDN 地址前缀显式留空时使用源站签名地址。管理接口只返回密钥是否已配置，不回传明文。
 - `vozeb_pro_system_model_channels`：系统模型渠道、分别加密保存的 API Key 与渠道生成回调密钥、模型列表和高级配置；后台不保存渠道验证记录。
 - `vozeb_pro_entitlement_plans`：商业套餐权益、每日额度、调用限制和功能标记；新用户不再通过套餐获得注册初始积分。
 - `vozeb_pro_users`：用户账号、角色、状态、头像存储键、最多 160 字的个人简介、当前套餐、积分余额和密码哈希；`admin_permissions` JSONB 保存管理员的显式职责列表，并由 CHECK 约束保证为数组，普通用户保持空数组。管理员 TOTP MFA 使用 `mfa_secret_ciphertext` 保存 AES-GCM 密文，`mfa_enabled_at` 表示已完成验证并启用，CHECK 约束禁止启用时间存在但密文缺失。公开注册还原子保存当时的服务条款版本/链接、隐私政策版本/链接和同意时间，五个留痕字段必须同时为空或同时存在。管理员代建账号不伪造用户同意记录。公开创作者接口只按用户名返回允许公开的资料字段，不暴露邮箱、内部用户 ID、职责、MFA 密文或协议留痕。
@@ -68,7 +68,7 @@ VOZEB PRO 的 PostgreSQL 真实表名统一使用项目名前缀 `vozeb_pro_`。
 - `vozeb_pro_cdk_codes` / `vozeb_pro_cdk_redemptions`：CDK 和兑换记录。新 CDK 使用同一条记录的完整 UUID 生成稳定密钥，不再预查并执行固定次数的随机碰撞重试；PostgreSQL 后台列表使用数据库侧的关键词、状态筛选、聚合统计和分页，只读取当前页兑换明细，文件 Provider 保持相同业务结果。
 - `vozeb_pro_announcements`：站内公告。
 - `vozeb_pro_prompts` / `vozeb_pro_prompt_seed_sources`：公共提示词、用户提示词和种子来源。
-- `vozeb_pro_generation_logs` / `vozeb_pro_generation_log_assets`：图片/视频生成日志和结果资源地址；工作台日志通过 `conversation_id` 关联可恢复的 Agent 对话，`created_at` 独立索引用于后台近 7 日运营聚合，避免读取日志正文和媒体资产。
+- `vozeb_pro_generation_logs` / `vozeb_pro_generation_log_assets`：图片/视频生成日志和结果资源地址；工作台日志通过 `conversation_id` 关联可恢复的 Agent 对话，`created_at` 独立索引用于后台近 7 日运营聚合，避免读取日志正文和媒体资产。`ecommerce_trace jsonb` 仅为管理员保存电商任务的“视觉分析 -> 编辑规划 -> 图片生成 -> 结果验收”实际执行流水，包括模型路由快照、编译器版本、执行提示词、参考图角色、商品保护区摘要、图片任务 ID、质检项和最终门禁状态；普通生成日志接口会剥离该字段。流水不得保存 API Key、认证头、Cookie、Data URL、原始图片字节或模型隐藏推理。
 - `vozeb_pro_generation_tasks`：文本、图片、视频、音频、Agent 和短剧整集合成（`render`）异步任务状态，用于跨请求、重启和多实例查询；数据库状态统一为 `pending/running/success/error/paused/cancelled`，各上游或 Agent 的 `planning/completed/failed` 等状态会在写入索引列时归一化，原始状态仍保留在 JSON payload 中。`execution_phase` 独立保存 `created/submitting/submitted/polling/result_ready/persisting/needs_review/review_pending/reviewing/review_unavailable/completed`，并通过 `upstream_task_id/channel_id/provider/query_path`、提交/轮询时间、上游状态、结果载荷、Worker 和租约字段恢复原任务。Agent 普通生成完成后以成功任务进入持久复盘阶段；复盘调用失败会直接记录为不可用，不使用未配置的固定次数重复计费，也不回滚已成功生成结果。表内同时保存 `conversation_id/run_id/surface/project_id/parent_task_id/attempt_no/client_request_id`，用于后台任务中心追踪会话、运行、项目、父任务、尝试次数和幂等请求；到期恢复索引只覆盖非终态且可自动推进的执行阶段。非空 `(channel_id, upstream_task_id)` 唯一，保证可信回调只能精确匹配一条本地任务。
 - `vozeb_pro_generation_concurrency_reservations`：PostgreSQL 多实例生成并发预约。事务只负责按用户和任务类型加 advisory lock、清理过期预约、计算活动任务与尚未物化的预约并写入稳定请求 ID；上游提交和任务创建在事务结束后执行，完成或异常时删除预约。已落库且 `client_request_id` 相同的活动任务不会和预约重复计数。
 - `vozeb_pro_generation_worker_heartbeats`：生成 Worker 的稳定 ID 与最近心跳时间；就绪检查按最近心跳和部署配置的失联窗口判断后台恢复是否可用。
@@ -103,6 +103,12 @@ Agent Run 的状态与任务数组继续保存在 `generation_tasks.payload`，�
 
 ## Repository 边界
 
+局部编辑结果在已有 `generation_tasks.payload.result` 保存 `sceneProtectionEvidence`，包括真实 `nativeSize`、`normalization=none|uniform_scale|pixel_grid_scale`、源图/原生/蒙版/合成摘要与稳定媒体地址。同比或共同整数取整适配使用源坐标的 `mappedOutsideChangedPixels`，`nativeOutsideChangedPixels` 仅同尺寸保留；`canvasEvidence` 分别保存原生与最终尺寸和实际适配方式。技术交付与管理员 `ecommerce_trace` 保留 `nativeMatches` 的真实值，使用独立 `mappingVerified` 记录源/native/mask/composite 重建验证结果；不同原生分辨率不伪装为原生 exact 通过。沿用现有 JSONB 字段和媒体登记，不新增表或独立尺寸迁移。
+
+管理员设置新增 `ecommerce_visual_quality_check_enabled BOOLEAN NOT NULL DEFAULT false`，由 `ecommerceVisualQualityCheckEnabled` 开关管理，定向更新和完整设置 upsert 均保留。每轮快照冻结 `qualityPolicy=disabled|advisory`；旧无策略任务保留恢复语义。新任务技术通过先交付，advisory 复用持久 `review_pending` 队列，报告只补建议。
+
+流水总状态记录交付 completed，真实视觉状态独立保留在 quality_check；关闭记 not_run、无模型。reviewAttempts 与任务集合 CAS 防迟到报告覆盖，日志补偿读取同归属 child/冻结 Run，旧 trace CAS 防止补偿降级；不重复调用模型。
+
 `createPostgresRepositories()` 暴露表级 Repository：
 
 - `settings`
@@ -130,7 +136,7 @@ Agent Run 的状态与任务数组继续保存在 `generation_tasks.payload`，�
 
 `web/src/lib/auth/` 通过用户、Session、设置、积分、CDK、邮箱验证码和公告 Repository 读写对应关系表；文件 Provider 保留相同业务接口和进程内串行 mutation。PostgreSQL 在线路径不再把完整 `AuthDatabase` 删除重写。管理员后台业务操作按 `admin_permissions` 与当前 Session 授权，不进行逐次密码/TOTP 复核；系统渠道 API Key 与管理员 MFA Secret 在数据库中只保存密文。MFA 启用或关闭会保留当前 Session 并撤销该管理员的其他 Session，服务器恢复命令会清除 MFA 并撤销全部 Session。常规业务备份不导出 MFA Secret，导入也不能覆盖服务器当前 MFA 状态。
 
-`web/src/lib/prompts/store.ts` 以及 `web/src/lib/server/` 下的生成日志、统一创作运行时、Canvas 项目、素材库、短剧项目和审计日志 Store 已接入 PostgreSQL。对应 JSON Provider 保留为单机文件部署方式。媒体业务记录始终保存稳定站内路径；读取时按每条媒体登记的 `storage_provider` 选择本地文件或短期对象签名地址，不受当前外部存储开关影响。
+`web/src/lib/prompts/store.ts` 以及 `web/src/lib/server/` 下的生成日志、统一创作运行时、Canvas 项目、素材库、短剧项目和审计日志 Store 已接入 PostgreSQL。对应 JSON Provider 保留为单机文件部署方式。媒体业务记录始终保存稳定站内相对路径，不保存 OSS 源站、CDN 域名或临时签名；读取时按每条媒体登记的 `storage_provider` 选择本地文件，或根据当前 CDN 地址前缀与登记的对象路径动态生成读取地址，CDN 留空时使用短期对象签名地址，不受当前外部存储开关影响。
 
 按用户删除生成日志时，PostgreSQL 使用后台 `data_lifecycle.maintenanceBatchSize` 读取稳定排序批次，在事务内锁定并删除日志，每批提交后再按真实 `storageKey` 重新统计全站引用并清理媒体。管理员永久删除用户前会在同一用户行锁事务内分页锁定并快照该用户媒体登记，避免用户外键级联先删除对象存储定位信息；提交后才使用快照清理本地文件或 S3 对象。订单、邀请奖励、作品发布与治理等受保护商业记录仍遵循各自外键和运营留存规则，不能由媒体快照流程绕过。
 

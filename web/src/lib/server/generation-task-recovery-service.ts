@@ -245,6 +245,11 @@ async function processAgentLease(lease: GenerationTaskLease, workerId: string, o
     const run = await getAgentRun(lease.id);
     if (run?.status === "completed" && !run.reviewed && (lease.executionPhase === "review_pending" || lease.executionPhase === "reviewing")) {
         const result = await processAgentRunReview(run, origin, cookie || maintenanceWorkerContext(run.userId));
+        const latest = await getAgentRun(run.id);
+        if (latest?.status === "completed" && !latest.reviewed) {
+            await releaseGenerationTaskLease("agent", run.id, workerId, { executionPhase: "review_pending", nextPollAt: generationTaskNextPollAt({ submittedAt: lease.submittedAt || run.createdAt }), lastUpstreamStatus: "review_pending" });
+            return "completed";
+        }
         await releaseGenerationTaskLease("agent", run.id, workerId, {
             executionPhase: result.status === "unavailable" ? "review_unavailable" : "completed",
             nextPollAt: undefined,
@@ -273,6 +278,10 @@ async function processAgentLease(lease: GenerationTaskLease, workerId: string, o
         }
         await executeAgentRun(run, origin, cookie || maintenanceWorkerContext(run.userId));
         const latest = await getAgentRun(run.id);
+        if (latest?.status === "completed" && !latest.reviewed && latest.reviewStatus === "review_pending") {
+            await releaseGenerationTaskLease("agent", run.id, workerId, { executionPhase: "review_pending", nextPollAt: Date.now(), lastUpstreamStatus: "review_pending" });
+            return "completed";
+        }
         if (!latest || latest.status === "completed" || latest.status === "failed" || latest.status === "cancelled" || latest.status === "paused") {
             await releaseGenerationTaskLease("agent", run.id, workerId, { executionPhase: "completed", nextPollAt: undefined, lastUpstreamStatus: latest?.status || "missing" });
             return latest?.status === "completed" ? "completed" : "failed";

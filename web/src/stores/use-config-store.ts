@@ -9,16 +9,17 @@ import type { GlobalAiOpcPresetId } from "@/lib/globalaiopc-catalog";
 import { resolveChannelModelAdvancedConfig } from "@/lib/channel-protocol-registry";
 import { inferModelCapability, normalizeModelId } from "@/lib/model-capability";
 import { materializeLogicalModelPointCosts } from "@/lib/model-point-cost";
-import type { LogicalModelCapabilityProfile } from "@/lib/auth/store-types";
+import type { LogicalModelCapabilityProfile, SystemChannelProtocol } from "@/lib/auth/store-types";
 
 type ApiCallFormat = "openai" | "gemini";
-type SystemChannelProtocol = "auto" | "openai" | "yumeng" | "gemini" | "sub2api" | "newapi" | "vozeb-recommended" | "globalaiopc" | "seedance" | "stable-diffusion" | "volcengine-video" | "seedance-special" | "custom" | "compatible";
 
 type SystemChannelAdvancedConfig = {
     protocol: SystemChannelProtocol;
-    authMode?: "none" | "bearer" | "x-api-key" | "custom-header";
+    authMode?: "none" | "bearer" | "x-api-key" | "custom-header" | "google-adc";
     authHeader?: string;
     authPrefix?: string;
+    gcpProjectId?: string;
+    gcpLocation?: string;
     documentationUrl?: string;
     globalAiOpcPreset?: GlobalAiOpcPresetId;
     globalAiOpcPresets?: GlobalAiOpcPresetId[];
@@ -65,6 +66,8 @@ type ModelChannel = {
     apiKey: string;
     apiFormat: ApiCallFormat;
     models: string[];
+    protocol?: SystemChannelProtocol;
+    modelProtocols?: Record<string, SystemChannelProtocol>;
     advancedConfig?: SystemChannelAdvancedConfig;
 };
 
@@ -241,6 +244,8 @@ export function applyPublicSystemSettings(config: AiConfig, settings?: PublicSys
             apiKey: "system",
             apiFormat: channel.apiFormat === "gemini" ? ("gemini" as const) : ("openai" as const),
             models: uniqueRawModels(channel.models || []),
+            ...(channel.protocol ? { protocol: channel.protocol } : {}),
+            ...(channel.modelProtocols ? { modelProtocols: channel.modelProtocols } : {}),
             ...(channel.advancedConfig ? { advancedConfig: channel.advancedConfig } : {}),
         }));
     const logicalModels = (settings?.logicalModels || []).filter(
@@ -376,6 +381,8 @@ function createModelChannel(channel?: Partial<ModelChannel>): ModelChannel {
         apiKey: channel?.apiKey || "",
         apiFormat: channel?.apiFormat === "gemini" ? "gemini" : "openai",
         models: uniqueRawModels(channel?.models || []),
+        ...(channel?.protocol ? { protocol: channel.protocol } : {}),
+        ...(channel?.modelProtocols ? { modelProtocols: channel.modelProtocols } : {}),
         ...(channel?.advancedConfig ? { advancedConfig: channel.advancedConfig } : {}),
     };
 }
@@ -478,6 +485,18 @@ export function resolveModelRequestConfig(config: AiConfig, value: string) {
         ...(advancedConfig ? { advancedConfig } : {}),
         systemPrompt: "",
     };
+}
+
+export function resolveModelProtocol(config: AiConfig, value: string) {
+    const model = modelOptionName(value || config.model);
+    const channel = resolveModelChannel(config, value);
+    const logical = config.logicalModels.find((item) => item.id === model && item.enabled);
+    const binding = logical?.bindings.filter((item) => item.enabled && item.channelId === channel.id).sort((a, b) => a.priority - b.priority)[0];
+    const upstreamModel = binding?.upstreamModel || model;
+    const publicModelProtocol = channel.modelProtocols?.[normalizeModelId(upstreamModel)];
+    if (publicModelProtocol) return publicModelProtocol;
+    if (channel.advancedConfig) return resolveChannelModelAdvancedConfig(channel.advancedConfig, upstreamModel)?.protocol || channel.protocol;
+    return channel.protocol;
 }
 
 function normalizeChannels(config: AiConfig) {

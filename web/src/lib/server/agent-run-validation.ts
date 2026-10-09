@@ -76,6 +76,15 @@ export function validateAgentPlanGenerationMode(plan: AgentPlan, mode?: Creative
     if (plan.intent === "conversation" || plan.projectHandoff || !plan.deliverables.length || plan.deliverables.some((item) => item.type !== mode)) throw new Error("模型返回的创作类型与用户选择不一致");
 }
 
+export function validateAgentPlanRequestedModels(plan: AgentPlan, requestedModelIds: readonly string[]) {
+    if (!requestedModelIds.length || plan.intent === "conversation") return;
+    const requested = new Set(requestedModelIds);
+    const planned = new Set(plan.deliverables.map((item) => item.model?.trim()).filter((id): id is string => Boolean(id)));
+    if (planned.size !== requested.size || plan.deliverables.some((item) => !item.model?.trim() || !requested.has(item.model.trim())) || requestedModelIds.some((id) => !planned.has(id))) {
+        throw new Error("模型返回的任务模型与用户选择不一致");
+    }
+}
+
 export function validateAgentTaskResult(type: AgentPlan["deliverables"][number]["type"], value: unknown) {
     if (!value || typeof value !== "object") throw new Error("生成任务完成但没有返回有效产物");
     const items = agentTaskResultItems(value);

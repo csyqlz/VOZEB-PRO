@@ -29,8 +29,58 @@ import {
     resolveMetadataImageEditMask,
     resolveMetadataImageEditValidationMask,
     resolveMetadataReferences,
+    resolveCanvasMaskEditSize,
+    shouldCompositeCanvasMaskEdit,
     uploadGeneratedCanvasImage,
 } from "./canvas-page-utils";
+
+describe("Canvas native mask edit output", () => {
+    it("inherits the source image ratio instead of a stale generation ratio", () => {
+        expect(resolveCanvasMaskEditSize({ width: 1692, height: 3008 }, "16:9")).toBe("9:16");
+        expect(resolveCanvasMaskEditSize({}, "16:9")).toBe("16:9");
+    });
+
+    it("uses the complete native sub2api edit with the public session channel shape", () => {
+        const config = {
+            model: "sunburst-image",
+            imageModel: "sunburst-image",
+            channels: [
+                {
+                    id: "sub2api",
+                    name: "sub2api",
+                    baseUrl: "/api/ai/system/sub2api",
+                    apiKey: "system",
+                    apiFormat: "openai",
+                    models: ["gpt-image-2.5-sunburst"],
+                    protocol: "sub2api",
+                    modelProtocols: { "gpt-image-2.5-sunburst": "sub2api" },
+                },
+            ],
+            logicalModels: [
+                {
+                    id: "sunburst-image",
+                    name: "GPT-Image-2.5 Sunburst",
+                    capability: "image",
+                    enabled: true,
+                    bindings: [{ id: "sunburst-binding", channelId: "sub2api", upstreamModel: "gpt-image-2.5-sunburst", enabled: true, priority: 1 }],
+                },
+            ],
+        } as never;
+
+        expect(shouldCompositeCanvasMaskEdit(config)).toBe(false);
+    });
+
+    it("keeps local pixel protection for non-native image edit protocols", () => {
+        const config = {
+            model: "legacy-image",
+            imageModel: "legacy-image",
+            channels: [{ id: "legacy", name: "legacy", baseUrl: "/api/ai/system/legacy", apiKey: "system", apiFormat: "openai", models: ["legacy-image"], advancedConfig: { protocol: "auto" } }],
+            logicalModels: [],
+        } as never;
+
+        expect(shouldCompositeCanvasMaskEdit(config)).toBe(true);
+    });
+});
 
 describe("Canvas project hydration", () => {
     beforeEach(() => {
@@ -205,12 +255,18 @@ describe("Canvas media replacement", () => {
     });
 
     it("restores a persisted image edit mask for stable retries", async () => {
-        await expect(resolveMetadataImageEditMask({ imageEditMask: { storageKey: "mask.png", serverUrl: "/api/reference-assets/mask.png", mimeType: "image/png", width: 512, height: 512 } })).resolves.toMatchObject({
+        const editRegion = { left: 0.2, top: 0.3, right: 0.6, bottom: 0.7, centerX: 0.4, centerY: 0.5 };
+        await expect(
+            resolveMetadataImageEditMask({
+                imageEditMask: { storageKey: "mask.png", serverUrl: "/api/reference-assets/mask.png", mimeType: "image/png", width: 512, height: 512, editRegion },
+            }),
+        ).resolves.toMatchObject({
             id: "mask-mask.png",
             dataUrl: "/api/reference-assets/mask.png",
             storageKey: "mask.png",
             width: 512,
             height: 512,
+            editRegion,
         });
     });
 

@@ -27,27 +27,81 @@ describe("release workflow contract", () => {
         expect(source).not.toMatch(/uses:\s+[^\s]+@(v\d|main|master)\b/);
     });
 
-    it("runs lint, tests, type-check, build and browser E2E in the main quality workflow", () => {
+    it("runs static, unit, and sharded Chromium quality jobs in parallel", () => {
         const source = workflow("quality.yml");
+        const jobs = parseDocument(source).toJS().jobs;
 
         expect(parseDocument(source).errors).toEqual([]);
         for (const command of ["pnpm run lint", "pnpm run typecheck", "pnpm test", "pnpm run build", "pnpm run e2e"]) expect(source).toContain(command);
         expect(source).toContain("pnpm exec playwright install --with-deps chromium");
+        expect(jobs["web-chromium"].strategy).toEqual({ "fail-fast": false, matrix: { shard: [1, 2] } });
+        expect(jobs.web.needs).toEqual(["web-checks", "web-unit", "web-chromium"]);
+        expect(jobs["web-checks"].services).toBeUndefined();
+        expect(jobs["web-unit"].services).toBeUndefined();
+        expect(jobs["web-chromium"].steps.find((item) => item.name === "Browser E2E").run).toBe('pnpm run e2e --project=chromium --shard="${{ matrix.shard }}/2"');
+        expect(jobs["web-chromium"].steps.find((item) => item.name === "Upload browser artifacts").with.name).toBe("web-playwright-report-chromium-${{ matrix.shard }}");
+        expect(source).not.toContain("mobile-390");
+        expect(source).not.toContain("mobile-430");
         expect(source).toContain("version: 11.9.0");
         expect(source).toContain("gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7");
         expect(source).toContain("github/codeql-action/analyze@47be0dbd5113ab1b79fe2dd3f68bdf7e426cdc87");
         expect(source).not.toMatch(/uses:\s+[^\s]+@(v\d|main|master)\b/);
     });
 
+    it("does not repeat standalone Quality for release tags", () => {
+        const document = parseDocument(workflow("quality.yml"));
+        expect(document.errors).toEqual([]);
+
+        const trigger = document.toJS().on;
+        expect(trigger.push).toEqual({ branches: ["main"] });
+        expect(trigger.pull_request).toBeNull();
+        expect(trigger.workflow_dispatch).toBeNull();
+    });
+
+    it("parallelizes Docker release quality before preserving the build gate", () => {
+        const document = parseDocument(workflow("docker-image.yml"));
+        expect(document.errors).toEqual([]);
+
+        const jobs = document.toJS().jobs;
+        expect(jobs["quality-chromium"].strategy).toEqual({ "fail-fast": false, matrix: { shard: [1, 2] } });
+        expect(jobs.quality.needs).toEqual(["quality-checks", "quality-unit", "quality-chromium"]);
+        expect(jobs["quality-checks"].services).toBeUndefined();
+        expect(jobs["quality-unit"].services).toBeUndefined();
+        expect(jobs.build.needs).toContain("quality");
+        expect(jobs["quality-chromium"].steps.find((item) => item.name === "Browser E2E").run).toBe('pnpm run e2e --project=chromium --shard="${{ matrix.shard }}/2"');
+        expect(jobs["quality-chromium"].steps.find((item) => item.name === "Upload browser artifacts").with.name).toBe("web-playwright-report-chromium-${{ matrix.shard }}");
+        expect(document.toString()).not.toContain("mobile-390");
+        expect(document.toString()).not.toContain("mobile-430");
+    });
+
     it.each([
-        ["quality.yml", "web"],
-        ["docker-image.yml", "quality"],
+        ["quality.yml", "web-chromium"],
+        ["docker-image.yml", "quality-chromium"],
     ])("serializes shared PostgreSQL integration tests in %s", (file, job) => {
         const document = parseDocument(workflow(file));
         expect(document.errors).toEqual([]);
 
         const step = document.toJS().jobs[job].steps.find((item) => item.name === "PostgreSQL integration tests");
+        expect(step?.if).toBe("${{ matrix.shard == 1 }}");
         expect(step?.run).toContain("pnpm exec vitest run --no-file-parallelism");
+    });
+
+    it("includes ecommerce isolated PostgreSQL process regressions without dropping existing gates", () => {
+        const step = parseDocument(workflow("quality.yml"))
+            .toJS()
+            .jobs["web-chromium"].steps.find((item) => item.name === "PostgreSQL integration tests");
+        for (const file of [
+            "database/auth-entity-concurrency.postgres.test.ts",
+            "admin-backup-store.postgres.test.ts",
+            "points-wallet-idempotency.postgres.test.ts",
+            "database/work-community-postgres.test.ts",
+            "database/create-overview-quality.postgres.test.ts",
+            "ecommerce-selection-recovery.postgres.test.ts",
+        ])
+            expect(step.run).toContain(`src/lib/server/${file}`);
+        expect(step.env.VOZEB_PRO_RUN_ECOMMERCE_POSTGRES_INTEGRATION).toBe("1");
+        expect(step.env.VOZEB_PRO_ECOMMERCE_ISOLATED_DATABASE).toBe("1");
+        expect(step.run).toContain("--no-file-parallelism");
     });
 
     it("declares one pnpm version for the repository and both Docker builds", () => {

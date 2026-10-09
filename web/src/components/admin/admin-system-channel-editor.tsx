@@ -13,6 +13,7 @@ import { normalizeModelId } from "@/lib/model-capability";
 import { revealAdminChannelApiKey } from "@/services/api/admin-settings";
 import { AdminChannelProtocolSetup } from "@/components/admin/admin-channel-protocol-setup";
 import { applyModelProtocol, channelProtocolDefinition, channelProtocolOptions, channelRequiresApiKey, channelSupportsModelCatalog, emptyAdvancedConfig } from "@/lib/channel-protocol-registry";
+import { GcpAgentPlatformFields } from "@/components/admin/channels/gcp-agent-platform-fields";
 
 const protocolOptions = channelProtocolOptions().map(({ value, label }) => ({ value, label }));
 const ALL_GLOBAL_AIOPC_PRESETS = "__all_globalaiopc_presets__";
@@ -116,6 +117,7 @@ export function SystemChannelEditor({ channel, fetching, onChange, onDelete, onF
     };
     const displayedApiKey = channel.apiKey || revealedApiKey;
     const requiresApiKey = channelRequiresApiKey(channel);
+    const gcpAgentPlatform = channel.advancedConfig?.protocol === "gcp-agent-platform";
     return (
         <>
             <div className="rounded-lg border border-stone-200 bg-white p-3 shadow-sm shadow-stone-200/40 sm:p-4 dark:border-stone-800 dark:bg-stone-950 dark:shadow-black/20">
@@ -155,9 +157,13 @@ export function SystemChannelEditor({ channel, fetching, onChange, onDelete, onF
                     <LabeledControl label="渠道名称">
                         <Input value={channel.name} placeholder="青岩智影、123NHH、自建接口" onChange={(event) => onChange({ name: event.target.value })} />
                     </LabeledControl>
-                    <LabeledControl label="Base URL">
-                        <Input value={channel.baseUrl} placeholder="https://api.example.com/v1" onChange={(event) => onChange({ baseUrl: event.target.value })} />
-                    </LabeledControl>
+                    {gcpAgentPlatform ? (
+                        <GcpAgentPlatformFields channel={channel} onChange={onChange} />
+                    ) : (
+                        <LabeledControl label="Base URL">
+                            <Input value={channel.baseUrl} placeholder="https://api.example.com/v1" onChange={(event) => onChange({ baseUrl: event.target.value })} />
+                        </LabeledControl>
+                    )}
                     {requiresApiKey ? (
                         <LabeledControl label="API Key">
                             <div className="flex min-w-0 items-center gap-2">
@@ -196,7 +202,7 @@ export function SystemChannelEditor({ channel, fetching, onChange, onDelete, onF
                         </LabeledControl>
                     ) : (
                         <LabeledControl label="鉴权">
-                            <Input value="无需 API Key" disabled />
+                            <Input value={gcpAgentPlatform ? "Application Default Credentials (ADC)" : "无需 API Key"} disabled />
                         </LabeledControl>
                     )}
                 </div>

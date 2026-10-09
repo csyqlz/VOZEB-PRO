@@ -1,5 +1,5 @@
 name: Docs Docker image
-run-name: 文档站多架构镜像 · ${{ github.ref_name }}
+run-name: 文档站amd64 镜像 · ${{ github.ref_name }}
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 env:
-  IMAGE_NAME: ghcr.io/csyqlz/vozeb-pro-docs
+  IMAGE_NAME: ghcr.io/zpitq/vozeb-pro-docs
 
 jobs:
   quality:
@@ -74,20 +74,10 @@ jobs:
       - quality
       - security
       - meta
-    runs-on: ${{ matrix.runner }}
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: linux/amd64
-            arch: amd64
-            runner: ubuntu-latest
-          - platform: linux/arm64
-            arch: arm64
-            runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -104,11 +94,11 @@ jobs:
         with:
           context: .
           file: ./docs/Dockerfile
-          platforms: ${{ matrix.platform }}
+          platforms: linux/amd64
           labels: ${{ needs.meta.outputs.labels }}
           outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
-          cache-from: type=gha,scope=docs-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=docs-${{ matrix.arch }}
+          cache-from: type=gha,scope=docs-amd64
+          cache-to: type=gha,mode=max,scope=docs-amd64
 
       - name: Export digest
         shell: bash
@@ -119,7 +109,7 @@ jobs:
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: docs-digests-${{ matrix.arch }}
+          name: docs-digests-amd64
           path: ${{ runner.temp }}/digests/*
           if-no-files-found: error
           retention-days: 1
@@ -149,7 +139,7 @@ jobs:
           pattern: docs-digests-*
           merge-multiple: true
 
-      - name: Create multi-arch manifest
+      - name: Publish amd64 manifest
         id: manifest
         shell: bash
         env:

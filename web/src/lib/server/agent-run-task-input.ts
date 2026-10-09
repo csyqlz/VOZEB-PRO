@@ -108,7 +108,7 @@ export function resolveAgentTaskRatio(input: {
     const planned = normalizeImageSizeValue(input.plannedRatio);
     const requestedOrientation = extractImageOrientationFromPrompt(input.requestPrompt || "");
     if (requestedOrientation) {
-        const directed = [planned, configured, reference].find((value) => value && !isCreativeAutoValue(value) && imageSizeMatchesOrientation(value, requestedOrientation));
+        const directed = [custom, planned, configured, reference].find((value) => value && !isCreativeAutoValue(value) && imageSizeMatchesOrientation(value, requestedOrientation));
         return explicit || directed || "auto";
     }
     const fallback = smart ? "auto" : normalizeImageSizeValue(input.defaultSize) || normalizeImageSizeValue(input.globalSize) || "auto";

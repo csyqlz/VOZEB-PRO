@@ -26,6 +26,7 @@ export async function GET(request: NextRequest) {
         userId: params.get("userId") || "",
         start: params.get("start") || "",
         end: params.get("end") || "",
+        includeEcommerceTrace: true,
     });
 
     const users = await getPublicUsersByIds(result.items.map((item) => item.userId));

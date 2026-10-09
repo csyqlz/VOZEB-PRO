@@ -32,6 +32,7 @@ import {
     summarizeStoredAgentPerformance,
     summarizeStoredGenerationTaskCosts,
     withGenerationConcurrencyLimit,
+    linkStoredGenerationTask,
 } from "./generation-task-store";
 
 type TestTask = {
@@ -61,6 +62,81 @@ describe("mutateStoredGenerationTask", () => {
                 expiresAt: now + 60_000,
             },
         ];
+    });
+
+    it.each(["execution", "input", "decision", "stage", "task", "attempt", "copy", "request", "paused"])("rejects a stale reference dispatch %s inside the file insertion lock", async (stale) => {
+        const now = Date.now();
+        const parent = {
+            id: "agent-one",
+            userId: "user",
+            conversationId: "conversation",
+            status: "running",
+            executionId: "execution-one",
+            clientRequestId: "request-one",
+            tasks: [{ id: "plan-one", type: "image", status: "running", attempts: 1, count: 1 }],
+            ecommerceSnapshot: { referenceCheckpoint: { version: "ecommerce-reference-checkpoint.v1", state: "resolved", inputId: "input-one", decisionId: "decision-one", analysisStage: { requestId: "stage-one", state: "completed" } } },
+        };
+        mocks.records[0].payload = parent;
+        const fence = { executionId: "execution-one", inputId: "input-one", decisionId: "decision-one", analysisRequestId: "stage-one", copy: 1 };
+        const task = { id: "new-child", userId: "user", conversationId: "conversation", runId: "agent-one", parentTaskId: "plan-one", clientRequestId: "request-one:plan-one:1:1", attemptNo: 1, status: "pending", createdAt: now, updatedAt: now };
+        if (stale === "execution") fence.executionId = "old-execution";
+        if (stale === "input") fence.inputId = "old-input";
+        if (stale === "decision") fence.decisionId = "old-decision";
+        if (stale === "stage") fence.analysisRequestId = "old-stage";
+        if (stale === "task") task.parentTaskId = "old-plan";
+        if (stale === "attempt") task.attemptNo = 2;
+        if (stale === "copy") fence.copy = 2;
+        if (stale === "request") task.clientRequestId = "old-request";
+        if (stale === "paused") parent.status = "paused";
+        await expect(createStoredGenerationTask("image", task, 60_000, { referenceDispatch: fence })).rejects.toThrow("参考任务派发身份已失效");
+        expect(mocks.records).toHaveLength(1);
+    });
+
+    it("returns the original submitted child on an exact replay even after the reference execution fence expires", async () => {
+        const now = Date.now();
+        mocks.records[0].payload = { id: "agent-one", userId: "user", status: "paused", ecommerceSnapshot: { referenceCheckpoint: { version: "ecommerce-reference-checkpoint.v1" } } };
+        const original = {
+            id: "original-child",
+            userId: "user",
+            runId: "agent-one",
+            parentTaskId: "plan-one",
+            clientRequestId: "request-one:plan-one:1:1",
+            attemptNo: 1,
+            status: "running",
+            upstream: { id: "original-upstream" },
+            createdAt: now,
+            updatedAt: now,
+        };
+        mocks.records.push({
+            id: original.id,
+            userId: "user",
+            type: "image",
+            runId: "agent-one",
+            parentTaskId: "plan-one",
+            clientRequestId: original.clientRequestId,
+            attemptNo: 1,
+            status: "running",
+            payload: original,
+            createdAt: now,
+            updatedAt: now,
+            expiresAt: now - 1,
+            executionPhase: "needs_review",
+            lastUpstreamStatus: "submission_unknown",
+        });
+        const replay = await createStoredGenerationTask("image", { ...original, id: "duplicate-child" }, 60_000, { referenceDispatch: { executionId: "old", inputId: "old", decisionId: "old", analysisRequestId: "old", copy: 1 } });
+        expect(replay).toMatchObject({ id: "original-child", upstream: { id: "original-upstream" }, executionPhase: "needs_review", lastUpstreamStatus: "submission_unknown" });
+        expect(mocks.records).toHaveLength(2);
+    });
+
+    it("preserves the immutable image request identity when a parent link omits it", async () => {
+        const now = Date.now();
+        const child = { id: "linked-child", userId: "user", runId: "agent-one", parentTaskId: "plan-one", clientRequestId: "request-one:plan-one:1:1", attemptNo: 1, status: "running", createdAt: now, updatedAt: now };
+        mocks.records.push({ ...child, type: "image", payload: child, expiresAt: now - 1, executionPhase: "submitted" });
+        await linkStoredGenerationTask("image", child.id, { runId: "agent-one", parentTaskId: "agent-one", attemptNo: 1 });
+        const original = mocks.records.find((record) => record.id === child.id)!;
+        expect(original.clientRequestId).toBe(child.clientRequestId);
+        expect(await createStoredGenerationTask("image", { ...child, id: "duplicate-linked-child" }, 60_000)).toMatchObject({ id: "linked-child", executionPhase: "submitted" });
+        expect(mocks.records).toHaveLength(2);
     });
 
     it("serializes file mutations so concurrent events are not lost", async () => {

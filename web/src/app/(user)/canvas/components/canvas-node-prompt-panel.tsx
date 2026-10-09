@@ -12,7 +12,7 @@ import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasImageSettingsPopover } from "./canvas-image-settings-popover";
 import { CanvasPromptLibrary } from "./canvas-prompt-library";
 import { CanvasAudioSettingsPopover } from "./canvas-audio-settings-popover";
-import { CanvasResourceMentionTextarea } from "./canvas-resource-mention-textarea";
+import { CanvasReferenceEditor, type CanvasReferenceEditorHandle } from "./canvas-reference-editor";
 import { CanvasVideoSettingsPopover } from "./canvas-video-settings-popover";
 import { CanvasCameraControl } from "./canvas-camera-control";
 import { CanvasNodeType, isCanvasImageNodeType, type CanvasGenerationMode, type CanvasNodeData } from "../types";
@@ -46,9 +46,9 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
     const hasImageContent = isCanvasImageNodeType(node.type) && Boolean(node.metadata?.content);
     const isPanorama = node.type === CanvasNodeType.Panorama;
     const isEditingExistingContent = hasTextContent || hasImageContent;
-    const [prompt, setPrompt] = useState(isEditingExistingContent ? "" : node.metadata?.prompt || "");
+    const [prompt, setPrompt] = useState(isEditingExistingContent ? node.metadata?.editPromptDraft || "" : node.metadata?.prompt || "");
     const [expanded, setExpanded] = useState(false);
-    const expandedEditorRef = useRef<HTMLTextAreaElement | null>(null);
+    const expandedEditorRef = useRef<CanvasReferenceEditorHandle | null>(null);
     const credits = requestCreditCost({
         apiSource: config.apiSource,
         modelPointCosts: config.modelPointCosts,
@@ -62,12 +62,13 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
     });
 
     useEffect(() => {
-        setPrompt(isEditingExistingContent ? "" : node.metadata?.prompt || "");
+        setPrompt(isEditingExistingContent ? node.metadata?.editPromptDraft || "" : node.metadata?.prompt || "");
     }, [isEditingExistingContent, node.id]);
 
     const updatePrompt = (value: string) => {
         setPrompt(value);
-        if (!isEditingExistingContent) onPromptChange(node.id, value);
+        if (isEditingExistingContent) onConfigChange(node.id, { editPromptDraft: value });
+        else onPromptChange(node.id, value);
     };
 
     const submit = () => {
@@ -75,6 +76,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
         if (!text || isRunning) return false;
         onGenerate(node.id, mode, text);
         setPrompt("");
+        if (isEditingExistingContent) onConfigChange(node.id, { editPromptDraft: "" });
         return true;
     };
 
@@ -91,7 +93,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
             onWheel={(event) => event.stopPropagation()}
         >
             <div className="relative">
-                <CanvasResourceMentionTextarea
+                <CanvasReferenceEditor
                     autoFocus
                     value={prompt}
                     references={mentionReferences}
@@ -231,7 +233,6 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                         requestAnimationFrame(() => {
                             const textarea = expandedEditorRef.current;
                             textarea?.focus();
-                            textarea?.setSelectionRange(textarea.value.length, textarea.value.length);
                         });
                     }}
                     styles={{
@@ -243,7 +244,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                     footer={null}
                 >
                     <div data-canvas-prompt-editor="expanded" className="min-w-0 overflow-hidden rounded-xl border" style={{ borderColor: theme.node.stroke }}>
-                        <CanvasResourceMentionTextarea
+                        <CanvasReferenceEditor
                             ref={expandedEditorRef}
                             autoFocus={expanded}
                             value={prompt}

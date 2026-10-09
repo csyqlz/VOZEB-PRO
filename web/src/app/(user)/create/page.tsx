@@ -6,12 +6,11 @@ import { ChevronsDown, Clapperboard, FolderOpen, History, Play, Plus, ScanFace, 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { CREATIVE_UPLOAD_ACCEPT, CREATIVE_UPLOAD_MAX_BYTES, isCreativeUploadMimeType } from "@/lib/creative-upload";
+import { CREATIVE_UPLOAD_MAX_BYTES, isCreativeUploadMimeType } from "@/lib/creative-upload";
 import type { CreateOverviewAsset } from "@/lib/create-workbench-overview";
-import type { CreativeAsset, CreativeGenerationMode, CreativeGenerationPreferences, CreativeMessage } from "@/lib/creative-runtime-contract";
+import type { CreativeAsset, CreativeGenerationPreferences, CreativeMessage } from "@/lib/creative-runtime-contract";
 import { reconcileCreativeGenerationPreferences } from "@/lib/creative-model-capabilities";
 import { cn } from "@/lib/utils";
-import type { VideoReferenceRole } from "@/lib/video-reference-contract";
 import { useCreativeAgentModels } from "@/hooks/use-creative-agent-options";
 import { listAgentSkills, type AgentSkillSummary } from "@/services/api/agent-skills";
 import type { CreativeAgentRun } from "@/services/api/creative";
@@ -23,7 +22,6 @@ import { resolveSiteTitle } from "@/lib/site-brand";
 
 import { CreativeComposer } from "./components/creative-composer";
 import { CreativeAssetsPanel } from "./components/creative-assets-panel";
-import { applyAgentGenerationCapability, shouldShowVideoFrameControls } from "./components/creative-composer-video-mode";
 import { CreativeConversationList } from "./components/creative-conversation-list";
 import { CreateInspirationGallery } from "./components/create-inspiration-gallery";
 import { CreativeMessages } from "./components/creative-messages";
@@ -46,8 +44,6 @@ export default function CreatePage() {
     const screens = Grid.useBreakpoint();
     const inputRef = useRef<TextAreaRef>(null);
     const attachmentInputRef = useRef<HTMLInputElement>(null);
-    const frameInputRef = useRef<HTMLInputElement>(null);
-    const frameUploadRoleRef = useRef<FrameRole | undefined>(undefined);
     const initialConversationRestoredRef = useRef(false);
     const initialPromptRestoredRef = useRef(false);
     const conversationScrollRef = useRef<HTMLElement>(null);
@@ -68,8 +64,8 @@ export default function CreatePage() {
     const [selectedSkillId, setSelectedSkillId] = useState<string>();
     const [selectedModelIds, setSelectedModelIds] = useState<string[]>([]);
     const [smartPlanning, setSmartPlanning] = useState(true);
-    const [creationMode, setCreationMode] = useState<"agent" | CreativeGenerationMode>("agent");
-    const [generationPreferences, setGenerationPreferences] = useState<CreativeGenerationPreferences>({});
+    const creationMode = "image" as const;
+    const [generationPreferences, setGenerationPreferences] = useState<CreativeGenerationPreferences>({ mode: "image" });
     const [historyOpen, setHistoryOpen] = useState(false);
     const [assetsOpen, setAssetsOpen] = useState(false);
     const [awayFromLatest, setAwayFromLatest] = useState(false);
@@ -92,7 +88,7 @@ export default function CreatePage() {
 
     useEffect(() => {
         let active = true;
-        void listAgentSkills("all")
+        void listAgentSkills("image")
             .then((items) => {
                 if (active) setSkills(items);
             })
@@ -122,15 +118,11 @@ export default function CreatePage() {
         if (initialPromptRestoredRef.current) return;
         initialPromptRestoredRef.current = true;
         const incomingDraft = createAgentDraftFromHash(window.location.hash);
-        if (!incomingDraft || (!incomingDraft.prompt && !incomingDraft.mode)) return;
+        if (!incomingDraft?.prompt) return;
         if (incomingDraft.prompt) updatePrompt(incomingDraft.prompt);
-        if (incomingDraft.mode) {
-            setCreationMode(incomingDraft.mode);
-            setGenerationPreferences(incomingDraft.mode === "agent" ? {} : { mode: incomingDraft.mode });
-        }
         router.replace("/create");
         window.requestAnimationFrame(() => inputRef.current?.focus());
-        message.success(incomingDraft.prompt ? "已填入创作需求" : "已选择创作类型");
+        message.success("已填入创作需求");
     }, [message, router, updatePrompt]);
 
     useEffect(() => {
@@ -196,22 +188,14 @@ export default function CreatePage() {
             message.warning("请选择至少一个模型，或重新开启智能规划");
             return;
         }
-        const videoPreference = generationPreferences.video;
-        const videoFrameModeActive = shouldShowVideoFrameControls(creationMode, generationPreferences);
-        if (videoFrameModeActive && videoPreference?.referenceMode === "first_frame" && !videoPreference.firstFrameAssetId) {
-            message.warning("请先选择视频首帧图片");
-            return;
-        }
-        if (videoFrameModeActive && videoPreference?.referenceMode === "first_last" && (!videoPreference.firstFrameAssetId || !videoPreference.lastFrameAssetId)) {
-            message.warning("请先同时选择视频首帧和尾帧图片");
-            return;
-        }
         promptRevisionRef.current += 1;
         try {
-            const preferences = { ...generationPreferences, ...(creationMode !== "agent" ? { mode: creationMode } : {}) };
+            const preferences = { ...generationPreferences, mode: "image" as const };
+            const assetIds = agent.selectedAssets.filter((asset) => asset.type === "image").map((asset) => asset.id);
             if (
                 await agent.submit(prompt, {
                     publicPrompt: publicCreativeAssetPrompt(prompt),
+                    assetIds,
                     skillIds: selectedSkillId ? [selectedSkillId] : [],
                     ...(!smartPlanning && selectedModelIds.length ? { modelIds: selectedModelIds } : {}),
                     ...(Object.keys(preferences).length ? { preferences } : {}),
@@ -219,7 +203,6 @@ export default function CreatePage() {
             ) {
                 updatePrompt("");
                 setSelectedSkillId(undefined);
-                setGenerationPreferences((current) => (current.video ? { ...current, video: { ...current.video, firstFrameAssetId: undefined, lastFrameAssetId: undefined } } : current));
             }
         } catch (error) {
             message.error(error instanceof Error ? error.message : "素材上传失败");
@@ -229,11 +212,11 @@ export default function CreatePage() {
     const retryRound = async (assistantMessage: CreativeMessage, run?: CreativeAgentRun) => {
         try {
             if (!run) return await agent.retrySubmission(assistantMessage.id);
-            const failedTasks = run.tasks.filter((task) => task.status === "failed");
-            if (failedTasks.length) {
+            const retryableTasks = run.tasks.filter((task) => task.status === "failed" || task.status === "needs_review");
+            if (retryableTasks.length) {
                 await agent.retryTasks(
                     run.id,
-                    failedTasks.map((task) => task.id),
+                    retryableTasks.map((task) => task.id),
                 );
                 return true;
             }
@@ -245,10 +228,17 @@ export default function CreatePage() {
         }
     };
 
+    const adjustQualityReview = (userMessage: CreativeMessage, run?: CreativeAgentRun) => {
+        updatePrompt(run?.prompt?.trim() || userMessage.content);
+        agent.restoreAttachments((run?.referencedAssetIds || []).filter((id) => agent.assets.some((asset) => asset.id === id && asset.type === "image")));
+        window.requestAnimationFrame(() => inputRef.current?.focus());
+        message.info("已恢复原要求和参考图片，请调整后重新生成");
+    };
+
     const uploadAttachments = async (files: File[], successMessage?: string) => {
-        const unsupported = files.find((file) => !isCreativeUploadMimeType(file.type));
+        const unsupported = files.find((file) => !file.type.startsWith("image/") || !isCreativeUploadMimeType(file.type));
         if (unsupported) {
-            message.error(`${unsupported.name} 不是支持的图片、视频或音频格式`);
+            message.error(`${unsupported.name} 不是支持的图片格式`);
             return [] as CreativeAsset[];
         }
         const oversized = files.find((file) => file.size > CREATIVE_UPLOAD_MAX_BYTES);
@@ -301,7 +291,7 @@ export default function CreatePage() {
             if (!response.ok) throw new Error("读取参考素材失败");
             const blob = await response.blob();
             const mimeType = blob.type || input.mimeType || "";
-            if (!isCreativeUploadMimeType(mimeType)) throw new Error("该媒体格式暂不支持作为参考素材");
+            if (!mimeType.startsWith("image/") || !isCreativeUploadMimeType(mimeType)) throw new Error("该文件不是支持的参考图片");
             const extension = mimeType.split("/")[1]?.replace("jpeg", "jpg") || "png";
             const referenced = await uploadAttachments([new File([blob], `${input.fileStem}.${extension}`, { type: mimeType })], "已引用到 Agent 输入框");
             if (referenced.length) window.requestAnimationFrame(() => inputRef.current?.focus());
@@ -317,6 +307,10 @@ export default function CreatePage() {
     };
 
     const useRecentAsset = async (asset: CreateOverviewAsset) => {
+        if (asset.kind !== "image") {
+            message.warning("图片创作入口只支持引用图片");
+            return;
+        }
         await importReferenceMedia({ url: asset.url, fileStem: asset.id });
     };
 
@@ -340,74 +334,8 @@ export default function CreatePage() {
         window.requestAnimationFrame(() => inputRef.current?.focus());
     };
 
-    const changeCreationMode = (mode: "agent" | CreativeGenerationMode) => {
-        setCreationMode(mode);
-        setGenerationPreferences((current) => {
-            const automaticPreferences = { ...current };
-            delete automaticPreferences.mode;
-            const next: CreativeGenerationPreferences = mode === "agent" ? automaticPreferences : { ...current, mode };
-            if (mode === "video" || !next.video) return next;
-            return { ...next, video: { ...next.video, referenceMode: "reference", firstFrameAssetId: undefined, lastFrameAssetId: undefined } };
-        });
-        if (mode === "agent") {
-            setSelectedModelIds([]);
-            setSmartPlanning(true);
-            return;
-        }
-        setSelectedModelIds([]);
-        setSmartPlanning(true);
-    };
-
-    const changeGenerationCapability = (capability: CreativeGenerationMode) => {
-        setGenerationPreferences((current) => {
-            const next = { ...current, mode: capability };
-            if (capability === "video" || !current.video) return next;
-            return { ...next, video: { ...current.video, referenceMode: "reference", firstFrameAssetId: undefined, lastFrameAssetId: undefined } };
-        });
-    };
-
-    const changeGenerationPreference = (capability: "image" | "video" | "audio", patch: Record<string, string | number | boolean>) => {
-        setGenerationPreferences((current) => {
-            const activePreferences = applyAgentGenerationCapability(creationMode, capability, current);
-            if (capability !== "video") return { ...activePreferences, [capability]: { ...activePreferences[capability], ...patch } };
-            const nextVideo = { ...activePreferences.video, ...patch };
-            if (patch.referenceMode === "reference") return { ...activePreferences, video: { ...nextVideo, firstFrameAssetId: undefined, lastFrameAssetId: undefined } };
-            if (patch.referenceMode === "first_frame") return { ...activePreferences, video: { ...nextVideo, lastFrameAssetId: undefined } };
-            return { ...activePreferences, video: nextVideo };
-        });
-    };
-
-    const selectVideoFrame = (role: FrameRole, assetId: string) => {
-        const otherId = role === "first_frame" ? generationPreferences.video?.lastFrameAssetId : generationPreferences.video?.firstFrameAssetId;
-        if (otherId === assetId) {
-            message.warning("首帧和尾帧不能使用同一张图片");
-            return;
-        }
-        setGenerationPreferences((current) => {
-            const video = current.video || {};
-            return {
-                ...current,
-                video: {
-                    ...video,
-                    referenceMode: role === "last_frame" ? "first_last" : video.referenceMode === "first_last" ? "first_last" : "first_frame",
-                    ...(role === "first_frame" ? { firstFrameAssetId: assetId } : { lastFrameAssetId: assetId }),
-                },
-            };
-        });
-    };
-
-    const removeVideoFrame = (role: FrameRole) => {
-        setGenerationPreferences((current) =>
-            current.video
-                ? {
-                      ...current,
-                      video: {
-                          ...current.video,
-                          ...(role === "first_frame" ? { firstFrameAssetId: undefined } : { lastFrameAssetId: undefined }),
-                      },
-                  }
-                : current,
-        );
+    const changeGenerationPreference = (_capability: "image" | "video" | "audio", patch: Record<string, string | number | boolean>) => {
+        setGenerationPreferences((current) => ({ ...current, mode: "image", image: { ...current.image, ...patch } }));
     };
 
     const removeAttachment = (id: string) => {
@@ -416,21 +344,13 @@ export default function CreatePage() {
         const nextPrompt = remapCreativeAssetReferences(promptValueRef.current, [...agent.assets, ...agent.selectedAssets], currentAssetIds, nextAssetIds);
         agent.removeAttachment(id);
         if (nextPrompt !== promptValueRef.current) updatePrompt(nextPrompt);
-        setGenerationPreferences((current) =>
-            current.video
-                ? {
-                      ...current,
-                      video: {
-                          ...current.video,
-                          ...(current.video.firstFrameAssetId === id ? { firstFrameAssetId: undefined } : {}),
-                          ...(current.video.lastFrameAssetId === id ? { lastFrameAssetId: undefined } : {}),
-                      },
-                  }
-                : current,
-        );
     };
 
     const toggleReferencedAsset = (id: string) => {
+        if (!agent.assets.some((asset) => asset.id === id && asset.type === "image")) {
+            message.warning("图片创作入口只支持引用图片");
+            return;
+        }
         const currentAssetIds = agent.selectedAssetIds;
         const nextAssetIds = currentAssetIds.includes(id) ? currentAssetIds.filter((assetId) => assetId !== id) : [...currentAssetIds, id];
         const nextPrompt = remapCreativeAssetReferences(promptValueRef.current, [...agent.assets, ...agent.selectedAssets], currentAssetIds, nextAssetIds);
@@ -497,6 +417,9 @@ export default function CreatePage() {
         }
         composerLayoutRef.current = next;
     }, [showConversation]);
+    const imageAssets = agent.assets.filter((asset) => asset.type === "image");
+    const selectedImageAssets = agent.selectedAssets.filter((asset) => asset.type === "image");
+    const selectedImageAssetIds = selectedImageAssets.map((asset) => asset.id);
     const composer = (
         <CreativeComposer
             inputRef={inputRef}
@@ -508,14 +431,13 @@ export default function CreatePage() {
             onOptimize={() => void optimizeCurrentPrompt()}
             onSubmit={() => void submit()}
             onCancel={() => void agent.cancel().catch((error) => message.error(error instanceof Error ? error.message : "停止任务失败"))}
-            attachments={agent.selectedAssets}
+            attachments={selectedImageAssets}
             skills={skills}
             skillsLoading={skillsLoading}
             selectedSkill={selectedSkill}
             models={modelOptions}
             selectedModels={selectedModels}
             smartPlanning={smartPlanning}
-            creationMode={creationMode}
             generationPreferences={generationPreferences}
             uploading={agent.uploading}
             compact={composerCompact}
@@ -537,19 +459,11 @@ export default function CreatePage() {
                     return !enabled;
                 });
             }}
-            onChangeCreationMode={changeCreationMode}
-            onChangeGenerationCapability={changeGenerationCapability}
             onChangeGenerationPreference={changeGenerationPreference}
-            onSelectVideoFrame={selectVideoFrame}
-            onUploadVideoFrame={(role) => {
-                frameUploadRoleRef.current = role;
-                frameInputRef.current?.click();
-            }}
-            onRemoveVideoFrame={removeVideoFrame}
             onAttachment={() => attachmentInputRef.current?.click()}
             onPasteImages={(files) => void uploadAttachments(files)}
-            referenceAssets={agent.assets}
-            selectedAssetIds={agent.selectedAssetIds}
+            referenceAssets={imageAssets}
+            selectedAssetIds={selectedImageAssetIds}
             onReferenceAsset={agent.selectAsset}
         />
     );
@@ -684,7 +598,7 @@ export default function CreatePage() {
                         {showConversation ? (
                             <CreativeMessages
                                 messages={agent.messages}
-                                assets={agent.assets}
+                                assets={imageAssets}
                                 loading={agent.conversationLoading}
                                 projectLinks={agent.projectLinks}
                                 projectErrors={agent.projectErrors}
@@ -692,7 +606,11 @@ export default function CreatePage() {
                                 materializingProjectId={agent.materializingProjectId}
                                 onMaterializeProject={agent.materializeProject}
                                 onRetryMessage={retryRound}
-                                selectedAssetIds={agent.selectedAssetIds}
+                                onAdjustRequest={adjustQualityReview}
+                                onConfirmSceneSelection={agent.confirmSceneSelection}
+                                onRecoverReference={agent.recoverReference}
+                                onCheckStatus={agent.checkStatus}
+                                selectedAssetIds={selectedImageAssetIds}
                                 onToggleAsset={toggleReferencedAsset}
                                 hasOlder={agent.hasOlderMessages}
                                 olderLoading={agent.olderMessagesLoading}
@@ -702,8 +620,8 @@ export default function CreatePage() {
                         ) : (
                             <div className="mx-auto flex min-h-full w-full min-w-0 max-w-[1240px] flex-col items-center px-2.5 pb-3 pt-5 sm:px-8 sm:pb-8 sm:pt-14 lg:pt-[10vh]">
                                 <div className="text-center">
-                                    <h1 className="text-[23px] font-semibold leading-tight sm:text-[31px]">{siteTitle} 创作 Agent</h1>
-                                    <p className="mt-2 text-sm text-[#8b949f] dark:text-[#7f8996]">从一个想法开始</p>
+                                    <h1 className="text-[23px] font-semibold leading-tight sm:text-[31px]">{siteTitle} 图片创作</h1>
+                                    <p className="mt-2 text-sm text-[#8b949f] dark:text-[#7f8996]">描述想生成或修改的图片</p>
                                 </div>
                                 <div ref={composerHostRef} data-testid="creative-composer-dock" data-compact="false" className="mt-5 w-full sm:mt-8">
                                     {composer}
@@ -758,8 +676,8 @@ export default function CreatePage() {
                 <CreativeAssetsPanel
                     open={assetsOpen}
                     conversationId={agent.conversationId}
-                    assets={agent.assets}
-                    selectedAssetIds={agent.selectedAssetIds}
+                    assets={imageAssets}
+                    selectedAssetIds={selectedImageAssetIds}
                     onToggleAsset={toggleReferencedAsset}
                     onUsePrompt={(value) => {
                         updatePrompt(value);
@@ -773,7 +691,7 @@ export default function CreatePage() {
                 ref={attachmentInputRef}
                 type="file"
                 multiple
-                accept={CREATIVE_UPLOAD_ACCEPT}
+                accept="image/*"
                 className="hidden"
                 onChange={(event) => {
                     const files = Array.from(event.target.files || []);
@@ -781,23 +699,6 @@ export default function CreatePage() {
                     void uploadAttachments(files);
                 }}
             />
-            <input
-                ref={frameInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(event) => {
-                    const role = frameUploadRoleRef.current;
-                    const file = event.target.files?.[0];
-                    event.target.value = "";
-                    if (!role || !file) return;
-                    void uploadAttachments([file]).then((items) => {
-                        const image = items.find((item) => item.type === "image");
-                        if (image) selectVideoFrame(role, image.id);
-                    });
-                }}
-            />
-
             <Drawer title="创作历史" placement="right" size="min(92vw, 380px)" open={historyOpen && screens.lg !== true} onClose={() => setHistoryOpen(false)} styles={{ body: { padding: 0, overflow: "hidden" } }}>
                 {screens.lg !== true ? historyPanel : null}
             </Drawer>
@@ -812,5 +713,3 @@ function skillVisual(skill: AgentSkillSummary, index: number) {
     if (skill.id === "drama-planning") return SKILL_VISUALS[3];
     return { ...SKILL_VISUALS[index % SKILL_VISUALS.length], icon: Sparkles };
 }
-
-type FrameRole = Extract<VideoReferenceRole, "first_frame" | "last_frame">;

@@ -7,8 +7,9 @@ import type { RegistrationPolicyConsent } from "@/lib/registration-consent";
 import { VOZEB_QQ_GROUP_URL } from "@/constant/community";
 
 export type ApiCallFormat = "openai" | "gemini";
-export type SystemChannelProtocol = "auto" | "openai" | "yumeng" | "gemini" | "sub2api" | "newapi" | "vozeb-recommended" | "globalaiopc" | "seedance" | "stable-diffusion" | "volcengine-video" | "seedance-special" | "custom" | "compatible";
-export type SystemChannelAuthMode = "none" | "bearer" | "x-api-key" | "custom-header";
+export type SystemChannelProtocol =
+    "auto" | "openai" | "yumeng" | "gemini" | "gcp-agent-platform" | "sub2api" | "newapi" | "vozeb-recommended" | "globalaiopc" | "seedance" | "stable-diffusion" | "volcengine-video" | "seedance-special" | "custom" | "compatible";
+export type SystemChannelAuthMode = "none" | "bearer" | "x-api-key" | "custom-header" | "google-adc";
 
 export type SystemChannelModelConfig = {
     capability: LogicalModelCapability;
@@ -43,6 +44,8 @@ export type SystemChannelAdvancedConfig = {
     authMode?: SystemChannelAuthMode;
     authHeader?: string;
     authPrefix?: string;
+    gcpProjectId?: string;
+    gcpLocation?: string;
     documentationUrl?: string;
     globalAiOpcPreset?: GlobalAiOpcPresetId;
     globalAiOpcPresets?: GlobalAiOpcPresetId[];
@@ -143,6 +146,10 @@ export type SystemDefaultModels = {
     textModel: string;
     audioModel: string;
 };
+
+export type EcommerceLogicalModelRole = "vision_analysis" | "edit_planning" | "image_generation" | "quality_check";
+
+export type EcommerceModelRoles = Record<EcommerceLogicalModelRole, string[]>;
 
 export type AgentSkillWorkspace = "image" | "video" | "canvas" | "drama";
 
@@ -477,6 +484,9 @@ export type AuthSettings = {
     systemChannels: SystemModelChannel[];
     logicalModels: LogicalModel[];
     defaultModels: SystemDefaultModels;
+    ecommerceGenerationEnabled: boolean;
+    ecommerceVisualQualityCheckEnabled: boolean;
+    ecommerceModelRoles: EcommerceModelRoles;
     agentSkills: AgentSkill[];
 };
 

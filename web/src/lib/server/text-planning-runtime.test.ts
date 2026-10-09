@@ -1,8 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createServer } from "node:http";
+import { once } from "node:events";
 
 import type { SystemChannelAdvancedConfig, SystemModelChannel } from "@/lib/auth/store";
 import { fetchInternalApi } from "@/lib/server/internal-origin";
+import { SYSTEM_PROXY_JSON_BODY_MAX_BYTES } from "./system-proxy-request-limits";
 import { getTextPlanningRuntime, isStructuredTextFailure, rankTextPlanningCandidates, requestStructuredText, resetTextPlanningRuntime, type TextPlanningCandidate } from "./text-planning-runtime";
+import { authorizedWorkerUserId, maintenanceWorkerContext } from "./maintenance-auth";
 
 vi.mock("@/lib/server/internal-origin", () => ({ fetchInternalApi: vi.fn() }));
 vi.mock("@/lib/server/channel-runtime-health", () => ({ recordChannelRuntimeFailure: vi.fn(), recordChannelRuntimeSuccess: vi.fn() }));
@@ -11,6 +15,50 @@ const mockedFetch = vi.mocked(fetchInternalApi);
 const tool = { name: "make_plan", description: "创建计划", parameters: { type: "object", properties: { result: { type: "string" } } } };
 
 describe("text planning runtime protocol matrix", () => {
+    it.each(["worker", "cookie"] as const)("requests protected structured text with %s credentials", async (credentialKind) => {
+        const server = createServer((request, response) => {
+            request.resume();
+            const worker = authorizedWorkerUserId(new Request("http://127.0.0.1", { headers: { authorization: request.headers.authorization || "", "x-vozeb-pro-worker-user-id": String(request.headers["x-vozeb-pro-worker-user-id"] || "") } }));
+            if (worker !== "worker-user" && request.headers.cookie !== "session=test") {
+                response.writeHead(401).end();
+                return;
+            }
+            response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ choices: [{ message: { tool_calls: [{ type: "function", function: { name: tool.name, arguments: '{"result":"ok"}' } }] } }] }));
+        });
+        server.listen(0, "127.0.0.1");
+        await once(server, "listening");
+        vi.stubEnv("VOZEB_PRO_WORKER_TOKEN", "structured-worker-test-token-32-characters");
+        vi.stubEnv("VOZEB_PRO_MAINTENANCE_TOKEN", "structured-maintenance-test-token-32-characters");
+        try {
+            const address = server.address();
+            if (!address || typeof address === "string") throw new Error("Structured text fixture is unavailable");
+            const actual = await vi.importActual<typeof import("./internal-origin")>("./internal-origin");
+            mockedFetch.mockImplementation(actual.fetchInternalApi);
+            const input = requestInput(candidate("newapi"));
+            const result = await requestStructuredText({ ...input, origin: `http://127.0.0.1:${address.port}`, cookie: credentialKind === "worker" ? maintenanceWorkerContext("worker-user") : input.cookie, preferNativeTools: true, allowRepair: false });
+            expect(JSON.parse(result.arguments)).toEqual({ result: "ok" });
+            expect(mockedFetch).toHaveBeenCalledOnce();
+        } finally {
+            mockedFetch.mockReset();
+            vi.unstubAllEnvs();
+            server.closeAllConnections();
+            await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+        }
+    });
+
+    it("measures the exact serialized multimodal body and stops oversized aggregate requests before transport", async () => {
+        const measured = vi.fn();
+        mockedFetch.mockResolvedValue(chatJsonResponse());
+        await requestStructuredText({ ...requestInput(candidate("newapi")), messages: multimodalMessages(), requestBodyBudget: { maxBytes: SYSTEM_PROXY_JSON_BODY_MAX_BYTES, onMeasured: measured } });
+        expect(measured).toHaveBeenCalledWith({ protocol: "chat", bodyBytes: Buffer.byteLength(String(mockedFetch.mock.calls[0][1]?.body), "utf8"), maxBytes: SYSTEM_PROXY_JSON_BODY_MAX_BYTES });
+        mockedFetch.mockClear();
+        const image = "data:image/png;base64," + "a".repeat((4 * 1024 * 1024 * 4) / 3);
+        const imageCount = Math.ceil(SYSTEM_PROXY_JSON_BODY_MAX_BYTES / Buffer.byteLength(image)) + 1;
+        const messages = [{ role: "user", content: Array.from({ length: imageCount }, () => ({ type: "image_url" as const, image_url: { url: image } })) }];
+        await expect(requestStructuredText({ ...requestInput(candidate("newapi")), messages, requestBodyBudget: { maxBytes: SYSTEM_PROXY_JSON_BODY_MAX_BYTES, onMeasured: measured } })).rejects.toThrow("正文超过");
+        expect(mockedFetch).not.toHaveBeenCalled();
+        expect(getTextPlanningRuntime(candidate("newapi"))?.failureCount).toBe(0);
+    });
     beforeEach(() => {
         resetTextPlanningRuntime();
         mockedFetch.mockReset();
@@ -68,6 +116,76 @@ describe("text planning runtime protocol matrix", () => {
         });
     });
 
+    it("converts canonical image content for Chat without changing text-only messages", async () => {
+        mockedFetch.mockResolvedValue(chatJsonResponse());
+
+        await requestStructuredText({ ...requestInput(candidate("newapi")), messages: multimodalMessages() });
+
+        expect(requestBody()).toMatchObject({
+            messages: expect.arrayContaining([
+                {
+                    role: "user",
+                    content: [
+                        { type: "text", text: "analyze references" },
+                        { type: "image_url", image_url: { url: "data:image/png;base64,aW1hZ2U=" } },
+                    ],
+                },
+            ]),
+        });
+    });
+
+    it("converts canonical image content for Responses", async () => {
+        mockedFetch.mockResolvedValue(Response.json({ output_text: "{}" }));
+
+        await requestStructuredText({ ...requestInput(candidate("compatible", { createPath: "/responses" })), messages: multimodalMessages() });
+
+        expect(requestBody()).toMatchObject({
+            input: expect.arrayContaining([
+                {
+                    role: "user",
+                    content: [
+                        { type: "input_text", text: "analyze references" },
+                        { type: "input_image", image_url: "data:image/png;base64,aW1hZ2U=" },
+                    ],
+                },
+            ]),
+        });
+    });
+
+    it("converts canonical image content for Gemini", async () => {
+        mockedFetch.mockResolvedValue(Response.json({ candidates: [{ content: { parts: [{ text: "{}" }] } }] }));
+
+        await requestStructuredText({
+            ...requestInput(candidate("compatible", { apiFormat: "gemini", createPath: "/models/:model:generateContent" })),
+            messages: multimodalMessages(),
+        });
+
+        expect(requestBody()).toMatchObject({
+            contents: [
+                {
+                    role: "user",
+                    parts: [{ text: "analyze references" }, { inlineData: { mimeType: "image/png", data: "aW1hZ2U=" } }],
+                },
+            ],
+        });
+    });
+
+    it("rejects multimodal input for custom templates instead of flattening it to text", async () => {
+        await expect(
+            requestStructuredText({
+                ...requestInput(
+                    candidate("custom", {
+                        createPath: "/custom",
+                        requestTemplate: '{"prompt":"{{prompt}}"}',
+                        resultField: "data.result",
+                    }),
+                ),
+                messages: multimodalMessages(),
+            }),
+        ).rejects.toThrow("不支持图片理解");
+        expect(mockedFetch).not.toHaveBeenCalled();
+    });
+
     it("原生工具被代理忽略时退款无效响应并降级到严格 JSON 提示词", async () => {
         const onInvalidResponse = vi.fn();
         mockedFetch.mockResolvedValueOnce(Response.json({ choices: [{ message: { content: '{"script":"输入回显"}' } }] })).mockResolvedValueOnce(chatJsonResponse());
@@ -90,6 +208,37 @@ describe("text planning runtime protocol matrix", () => {
         expect(new Headers(mockedFetch.mock.calls[0]?.[1]?.headers).get("x-vozeb-pro-points-idempotency-key")).toBe("billing-tool");
         expect(new Headers(mockedFetch.mock.calls[1]?.[1]?.headers).get("x-vozeb-pro-points-idempotency-key")).toBe("billing-json");
         expect(onInvalidResponse).toHaveBeenCalledOnce();
+    });
+
+    it("没有显式 fallback headers 时也为原生工具回退分配独立的计费幂等键", async () => {
+        mockedFetch.mockResolvedValueOnce(Response.json({ choices: [{ message: { content: '{"script":"输入回显"}' } }] })).mockResolvedValueOnce(chatJsonResponse());
+
+        await expect(
+            requestStructuredText({
+                ...requestInput(candidate("newapi")),
+                headers: { "x-vozeb-pro-logical-model": "planner", "x-vozeb-pro-points-idempotency-key": "billing-base" },
+                preferNativeTools: true,
+                validateArguments: (argumentsText) => !("script" in JSON.parse(argumentsText)),
+            }),
+        ).resolves.toMatchObject({ arguments: "{}" });
+
+        expect(new Headers(mockedFetch.mock.calls[0]?.[1]?.headers).get("x-vozeb-pro-points-idempotency-key")).toBe("billing-base");
+        expect(new Headers(mockedFetch.mock.calls[1]?.[1]?.headers).get("x-vozeb-pro-points-idempotency-key")).toBe("billing-base:json");
+    });
+
+    it("流式请求降级为非流式时使用不同的计费幂等键", async () => {
+        mockedFetch.mockResolvedValueOnce(Response.json({ error: "stream unsupported" }, { status: 400 })).mockResolvedValueOnce(chatJsonResponse());
+
+        await expect(
+            requestStructuredText({
+                ...requestInput(candidate("newapi")),
+                headers: { "x-vozeb-pro-logical-model": "planner", "x-vozeb-pro-points-idempotency-key": "billing-stream" },
+                stream: true,
+            }),
+        ).resolves.toMatchObject({ arguments: "{}" });
+
+        expect(new Headers(mockedFetch.mock.calls[0]?.[1]?.headers).get("x-vozeb-pro-points-idempotency-key")).toBe("billing-stream:json:stream");
+        expect(new Headers(mockedFetch.mock.calls[1]?.[1]?.headers).get("x-vozeb-pro-points-idempotency-key")).toBe("billing-stream:json");
     });
 
     it("工具和普通 JSON 都失败时只执行一次结构修复请求", async () => {
@@ -492,6 +641,18 @@ function requestInput(configured: TextPlanningCandidate) {
         messages: [{ role: "user", content: "test" }],
         tool,
     };
+}
+
+function multimodalMessages() {
+    return [
+        {
+            role: "user" as const,
+            content: [
+                { type: "text" as const, text: "analyze references" },
+                { type: "image_url" as const, image_url: { url: "data:image/png;base64,aW1hZ2U=" } },
+            ],
+        },
+    ];
 }
 
 function candidate(protocol: NonNullable<SystemChannelAdvancedConfig>["protocol"], options: Partial<SystemChannelAdvancedConfig> & { id?: string; apiFormat?: "openai" | "gemini" } = {}): TextPlanningCandidate {

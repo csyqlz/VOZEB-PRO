@@ -11,6 +11,20 @@ export type CreativeMessageStatus = "running" | "completed" | "failed" | "cancel
 export type CreativeAssetType = "text" | "image" | "video" | "audio";
 export type CreativeAssetStatus = "ready" | "failed" | "deleted";
 
+export const ECOMMERCE_REFERENCE_PURPOSES = ["edit_target", "product_identity", "style", "lighting", "composition"] as const;
+export type EcommerceReferencePurpose = (typeof ECOMMERCE_REFERENCE_PURPOSES)[number];
+export type CreativeReferenceReview = {
+    version: "ecommerce-reference-review.v1";
+    reviewId: string;
+    kind: "confirm_purposes" | "retry_analysis" | "retry_source";
+    question: string;
+    inheritedEditTarget?: { assetId: string; previewUrl: string };
+    assets: Array<{ assetId: string; assetVersion: string; alias: string; previewUrl: string; purposes: EcommerceReferencePurpose[]; allowedPurposes: EcommerceReferencePurpose[] }>;
+};
+export type CreativeReferenceRecovery =
+    | { reviewId: string; action: "retry_analysis" | "retry_source" }
+    | { reviewId: string; action: "confirm_purposes"; decisionVersion: "ecommerce-reference-decision.v1"; bindings: Array<{ assetId: string; assetVersion: string; purposes: EcommerceReferencePurpose[] }> };
+
 export type CreativeConversation = {
     id: string;
     userId: string;
@@ -165,7 +179,7 @@ const MAX_ID = 160;
 const MAX_PROMPT = 4000;
 export const CREATIVE_RUN_SKILL_LIMIT = 6;
 export const CREATIVE_RUN_MODEL_LIMIT = 6;
-const MAX_SNAPSHOT_BYTES = 512 * 1024;
+export const MAX_SNAPSHOT_BYTES = 512 * 1024;
 
 export function normalizeCreativeRunRequest(value: unknown): CreativeRunRequest {
     const input = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
@@ -188,7 +202,8 @@ export function normalizeCreativeRunRequest(value: unknown): CreativeRunRequest 
     if (videoFrameAssetIds(preferences?.video).some((id) => !assetIds.includes(id))) throw new CreativeRuntimeInputError("视频首尾帧必须来自本轮已选择的图片素材");
     if (surface === "chat" && (projectId || snapshot !== undefined)) throw new CreativeRuntimeInputError("普通对话不接受项目或快照");
     if (surface !== "chat" && !projectId) throw new CreativeRuntimeInputError(surface === "canvas" ? "画布标识不能为空" : "短剧项目标识不能为空");
-    if (snapshot !== undefined && !(surface === "drama" && projectId) && new TextEncoder().encode(JSON.stringify(snapshot)).length > MAX_SNAPSHOT_BYTES) throw new CreativeRuntimeInputError("当前项目快照过大", 413);
+    const canHydrateProjectSnapshot = Boolean(projectId) && (surface === "canvas" || surface === "drama");
+    if (snapshot !== undefined && !canHydrateProjectSnapshot && new TextEncoder().encode(JSON.stringify(snapshot)).length > MAX_SNAPSHOT_BYTES) throw new CreativeRuntimeInputError("当前项目快照过大", 413);
 
     return { clientRequestId, surface, conversationId, projectId, prompt, ...(publicPrompt && publicPrompt !== prompt ? { publicPrompt } : {}), snapshot, assetIds, skillIds, modelIds, ...(preferences ? { preferences } : {}) };
 }

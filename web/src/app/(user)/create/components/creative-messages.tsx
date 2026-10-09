@@ -1,7 +1,7 @@
 "use client";
 
 import { App, Button, Dropdown, Popover, Tooltip } from "antd";
-import { Check, Clapperboard, Clock3, Copy, Download, ExternalLink, FileAudio2, Film, Info, Link2, MoreHorizontal, PanelsTopLeft, RotateCw } from "lucide-react";
+import { AlertTriangle, Check, Clapperboard, Clock3, Copy, Download, ExternalLink, FileAudio2, Film, Info, Link2, MoreHorizontal, PanelsTopLeft, PencilLine, RotateCw } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -13,14 +13,14 @@ import { AgentMediaPreview } from "@/components/agent/agent-media-preview";
 import { SiteLogo } from "@/components/layout/site-logo";
 import { useCopyText } from "@/hooks/use-copy-text";
 import { useCreativeAgentModels } from "@/hooks/use-creative-agent-options";
-import { isCreativeProjectHandoff, type CreativeAsset, type CreativeMessage, type CreativeProjectHandoff } from "@/lib/creative-runtime-contract";
+import { isCreativeProjectHandoff, type CreativeAsset, type CreativeMessage, type CreativeProjectHandoff, type CreativeReferenceRecovery } from "@/lib/creative-runtime-contract";
 import { imageReferenceLabel } from "@/lib/image-reference-prompt";
 import { imagePreviewUrl } from "@/lib/media-image-url";
 import { cn } from "@/lib/utils";
 import { userAvatarFallback } from "@/lib/user-avatar";
 import { DEFAULT_SITE_TITLE } from "@/lib/site-brand";
 import type { MaterializedCreativeProject } from "@/services/creative-project-handoff";
-import { getCreativeAgentRun, type CreativeAgentRun } from "@/services/api/creative";
+import { getCreativeAgentRun, type CreativeAgentRun, type CreativeSceneSelection } from "@/services/api/creative";
 import { usePublicSessionStore } from "@/stores/use-public-session-store";
 
 import { creativeAssetLayout } from "./creative-asset-layout";
@@ -41,6 +41,10 @@ export function CreativeMessages({
     materializingProjectId,
     onMaterializeProject,
     onRetryMessage,
+    onAdjustRequest,
+    onConfirmSceneSelection,
+    onRecoverReference,
+    onCheckStatus,
     selectedAssetIds,
     onToggleAsset,
     hasOlder,
@@ -57,6 +61,10 @@ export function CreativeMessages({
     materializingProjectId?: string;
     onMaterializeProject: (handoff: CreativeProjectHandoff) => Promise<MaterializedCreativeProject>;
     onRetryMessage: (message: CreativeMessage, run?: CreativeAgentRun) => Promise<boolean | void>;
+    onAdjustRequest?: (message: CreativeMessage, run?: CreativeAgentRun) => void;
+    onConfirmSceneSelection?: (runId: string, selection: CreativeSceneSelection) => Promise<void>;
+    onRecoverReference?: (runId: string, recovery: CreativeReferenceRecovery) => Promise<void>;
+    onCheckStatus?: (runId: string) => Promise<void>;
     selectedAssetIds: string[];
     onToggleAsset: (id: string) => void;
     hasOlder?: boolean;
@@ -96,7 +104,7 @@ export function CreativeMessages({
         const assistantMessageIds = new Set<string>();
         for (const entry of entries) {
             if (entry.type !== "round") continue;
-            const outputAssets = assetsForAssistant(entry.assistant, assetsByMessage);
+            const outputAssets = assetsForAssistant(entry.assistant, assetsByMessage, entry.run);
             if (!isMediaCreativeRound(entry.run, outputAssets)) continue;
             byUserMessage.set(entry.user.id, entry);
             assistantMessageIds.add(entry.assistant.id);
@@ -123,7 +131,7 @@ export function CreativeMessages({
                 const mediaRound = mediaRounds.byUserMessage.get(item.id);
                 if (mediaRound) {
                     const referencedAssets = messageAssetIds(mediaRound.user).flatMap((id) => assetById.get(id) || []);
-                    const outputAssets = assetsForAssistant(mediaRound.assistant, assetsByMessage);
+                    const outputAssets = assetsForAssistant(mediaRound.assistant, assetsByMessage, mediaRound.run);
                     return (
                         <CreativeMediaRound
                             key={mediaRound.id}
@@ -138,6 +146,10 @@ export function CreativeMessages({
                             materializingProjectId={materializingProjectId}
                             onMaterializeProject={onMaterializeProject}
                             onRetryMessage={onRetryMessage}
+                            onAdjustRequest={onAdjustRequest}
+                            onConfirmSceneSelection={onConfirmSceneSelection}
+                            onRecoverReference={onRecoverReference}
+                            onCheckStatus={onCheckStatus}
                             selectedAssetIds={selectedAssetIds}
                             onToggleAsset={onToggleAsset}
                         />
@@ -161,8 +173,8 @@ export function CreativeMessages({
                         {item.role === "assistant" ? <CreativeAssistantAvatar className="mt-0" logoUrl={site.logoUrl} /> : null}
                         <div className={cn("min-w-0", item.role === "user" ? "max-w-[520px] text-right" : "min-w-0 flex-1")}>
                             {item.role === "user" && itemAssets.length ? <CreativeRoundReferenceStrip assets={itemAssets} /> : null}
-                            {item.role === "assistant" && item.status === "running" ? (
-                                <CreativeGenerationWaiting run={run} message={item} />
+                            {item.role === "assistant" && (item.status === "running" || (run?.status === "paused" && Boolean(run.ecommerceReferenceReview || run.canCheckStatus))) ? (
+                                <CreativeGenerationWaiting run={run} message={item} onConfirmSceneSelection={onConfirmSceneSelection} onRecoverReference={onRecoverReference} onCheckStatus={onCheckStatus} />
                             ) : textAssetContent && item.role === "assistant" && item.status === "completed" ? null : (
                                 <div
                                     className={cn(
@@ -211,6 +223,10 @@ function CreativeMediaRound({
     materializingProjectId,
     onMaterializeProject,
     onRetryMessage,
+    onAdjustRequest,
+    onConfirmSceneSelection,
+    onRecoverReference,
+    onCheckStatus,
     selectedAssetIds,
     onToggleAsset,
 }: {
@@ -225,6 +241,10 @@ function CreativeMediaRound({
     materializingProjectId?: string;
     onMaterializeProject: (handoff: CreativeProjectHandoff) => Promise<MaterializedCreativeProject>;
     onRetryMessage: (message: CreativeMessage, run?: CreativeAgentRun) => Promise<boolean | void>;
+    onAdjustRequest?: (message: CreativeMessage, run?: CreativeAgentRun) => void;
+    onConfirmSceneSelection?: (runId: string, selection: CreativeSceneSelection) => Promise<void>;
+    onRecoverReference?: (runId: string, recovery: CreativeReferenceRecovery) => Promise<void>;
+    onCheckStatus?: (runId: string) => Promise<void>;
     selectedAssetIds: string[];
     onToggleAsset: (id: string) => void;
 }) {
@@ -238,9 +258,31 @@ function CreativeMediaRound({
     const textOutputs = outputAssets.filter((asset) => asset.type === "text" && asset.status === "ready" && asset.textContent?.trim());
     const isFailedMediaRound = assistantMessage.status === "failed" && run?.status === "failed" && !mediaOutputs.length && !textOutputs.length;
     const showAssistantText = Boolean(displayContent.trim()) && !(assistantMessage.status === "completed" && (mediaOutputs.length || textOutputs.length));
+    const qualityReviewPending = run?.ecommerceQualityStatus === "needs_review" || run?.ecommerceQualityStatus === "needs_adjustment";
+    const sceneSelectionPending = run?.status === "paused" && Boolean(run.ecommerceSceneSelection);
+    const referenceReviewPending = run?.status === "paused" && Boolean(run.ecommerceReferenceReview);
     const mode = creativeRunMode(run);
     const taskTitle = run?.tasks.find((task) => task.type === mode)?.title.trim();
-    const resultTitle = taskTitle?.startsWith("生成") ? `已为你${taskTitle}` : mode === "video" ? "已为你生成视频" : mode === "audio" ? "已为你生成音频" : "已为你生成图片";
+    const resultTitle =
+        qualityReviewPending && !run?.ecommerceQualityReview?.advisory
+            ? run?.ecommerceQualityStatus === "needs_adjustment"
+                ? "需要调整"
+                : "待复核"
+            : referenceReviewPending
+              ? run?.ecommerceReferenceReview?.kind === "confirm_purposes"
+                  ? "确认参考用途"
+                  : run?.ecommerceReferenceReview?.kind === "retry_source"
+                    ? "参考图片待核对"
+                    : "参考图片待分析"
+              : sceneSelectionPending
+                ? "确认修改位置"
+                : taskTitle?.startsWith("生成")
+                  ? `已为你${taskTitle}`
+                  : mode === "video"
+                    ? "已为你生成视频"
+                    : mode === "audio"
+                      ? "已为你生成音频"
+                      : "已为你生成图片";
     const renderRoundActions = (activeAsset: CreativeAsset) =>
         activeAsset.status === "ready" ? <CreativeRoundActions outputAssets={outputAssets} activeAsset={activeAsset} run={run} selectedAssetIds={selectedAssetIds} onToggleAsset={onToggleAsset} /> : null;
 
@@ -263,7 +305,7 @@ function CreativeMediaRound({
                 <div className="flex min-w-0 items-start gap-4 sm:gap-5">
                     <CreativeAssistantAvatar logoUrl={siteLogoUrl} />
                     <div className="min-w-0 flex-1">
-                        {!isFailedMediaRound && assistantMessage.status !== "running" ? (
+                        {!isFailedMediaRound && (assistantMessage.status !== "running" || qualityReviewPending || mediaOutputs.length > 0) ? (
                             <>
                                 <div className="mb-2 flex w-fit max-w-full flex-wrap items-baseline gap-x-3 gap-y-0.5">
                                     <h2 className="truncate text-[17px] font-semibold leading-7 text-[#1f2937] dark:text-[#f3f5f7]">{resultTitle}</h2>
@@ -273,10 +315,12 @@ function CreativeMediaRound({
                             </>
                         ) : null}
                         <div data-testid="creative-result-group" className="mt-3 flex w-fit max-w-full flex-col items-start">
-                            {isFailedMediaRound ? (
+                            {qualityReviewPending ? (
+                                <CreativeQualityReview run={run!} message={displayContent} onAdjust={onAdjustRequest ? () => onAdjustRequest(userMessage, run) : undefined} />
+                            ) : isFailedMediaRound ? (
                                 <CreativeGenerationFailure message={failedTasks.length === 1 ? failedTasks[0]?.error || displayContent : displayContent} onRetry={() => onRetryMessage(assistantMessage, run)} />
-                            ) : assistantMessage.status === "running" ? (
-                                <CreativeGenerationWaiting run={run} message={assistantMessage} />
+                            ) : (!mediaOutputs.length && assistantMessage.status === "running") || sceneSelectionPending || referenceReviewPending || run?.canCheckStatus ? (
+                                <CreativeGenerationWaiting run={run} message={assistantMessage} onConfirmSceneSelection={onConfirmSceneSelection} onRecoverReference={onRecoverReference} onCheckStatus={onCheckStatus} />
                             ) : showAssistantText ? (
                                 <div
                                     className={cn(
@@ -324,6 +368,64 @@ function CreativeMediaRound({
                 </div>
             </div>
         </section>
+    );
+}
+
+const ECOMMERCE_QUALITY_LABELS: Record<NonNullable<CreativeAgentRun["ecommerceQualityReview"]>["failureKeys"][number], string> = {
+    product_identity: "商品外观与原图不一致",
+    product_silhouette: "商品轮廓与原图不一致",
+    product_color_material: "商品颜色或材质与原图不一致",
+    product_proportions_view: "商品比例或视角与原图不一致",
+    brand_logo: "品牌 Logo 与原图不一致",
+    packaging_text: "包装文字与原图不一致",
+    scene_intent: "场景没有完整实现本轮要求",
+    composition_lighting: "构图或光线需要调整",
+    canvas_geometry: "画幅与本轮尺寸要求不一致",
+    protected_structure: "受保护的结构与原图不一致",
+    protected_material: "受保护的材质与原图不一致",
+    unmodified_region: "编辑范围外的内容未保持",
+    stored_media: "保存的图片暂时无法读取",
+};
+
+function CreativeQualityReview({ run, message, onAdjust }: { run: CreativeAgentRun; message: string; onAdjust?: () => void }) {
+    const review = run.ecommerceQualityReview;
+    const failures = Array.from(new Set((review?.failureKeys || []).map((key) => ECOMMERCE_QUALITY_LABELS[key]).filter(Boolean)));
+    const reviewItems =
+        review?.kind === "check_unavailable"
+            ? [review.advisory ? "视觉质检暂时不可用，图片已交付" : "检查服务暂时不可用，结果未发布"]
+            : failures.length
+              ? failures.map((text) => (review?.advisory ? `建议核对：${text}` : text))
+              : [review?.advisory ? "可按需要核对商品细节与场景" : "商品关键细节未达到发布标准"];
+
+    return (
+        <div data-testid="creative-quality-review" className="w-full max-w-[620px] rounded-md border border-amber-200 bg-amber-50/70 p-4 text-left dark:border-amber-800/70 dark:bg-amber-950/20">
+            <div className="flex items-start gap-3">
+                <AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden />
+                <div className="min-w-0 flex-1">
+                    <h3 className="text-sm font-semibold leading-6 text-[#3b3321] dark:text-amber-100">{review?.advisory ? "参考建议" : run.ecommerceQualityStatus === "needs_adjustment" ? "需要调整" : "待复核"}</h3>
+                    {review?.message || message ? <p className="mt-1 break-words text-sm leading-6 text-[#6f6248] dark:text-amber-200/80">{review?.message || message}</p> : null}
+                    <ul className="mt-2 space-y-1 text-sm leading-5 text-[#5d5139] dark:text-amber-100/90" aria-label="未通过项">
+                        {reviewItems.map((item) => (
+                            <li key={item}>• {item}</li>
+                        ))}
+                    </ul>
+                    <p className="mt-2 text-xs leading-5 text-[#7c6f54] dark:text-amber-200/70">
+                        {review?.advisory
+                            ? "图片已交付，可下载、引用或继续编辑；以上建议由模型提供，供参考。"
+                            : run.ecommerceQualityStatus === "needs_adjustment"
+                              ? "此预览需要调整。请明确修改要求后发送新的创作需求。"
+                              : "该结果未作为合格作品发布。可修改要求后发送新的创作需求，或等待复核。"}
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                        {onAdjust ? (
+                            <Button icon={<PencilLine className="size-4" />} onClick={onAdjust} aria-label="调整本轮创作要求">
+                                调整要求
+                            </Button>
+                        ) : null}
+                    </div>
+                </div>
+            </div>
+        </div>
     );
 }
 
@@ -561,8 +663,11 @@ export function creativeResultPrompt(activeAsset: CreativeAsset | undefined, out
     return task?.optimizedPrompt?.trim() || "";
 }
 
-function assetsForAssistant(message: CreativeMessage, assetsByMessage: Map<string, CreativeAsset[]>) {
-    return [...(assetsByMessage.get(message.id) || []), ...(message.runId ? assetsByMessage.get(message.runId) || [] : [])].filter((asset, index, list) => list.findIndex((current) => current.id === asset.id) === index);
+function assetsForAssistant(message: CreativeMessage, assetsByMessage: Map<string, CreativeAsset[]>, run?: CreativeAgentRun) {
+    const assets = [...(assetsByMessage.get(message.id) || []), ...(message.runId ? assetsByMessage.get(message.runId) || [] : [])].filter((asset, index, list) => list.findIndex((current) => current.id === asset.id) === index);
+    if (!run || (run.status !== "paused" && run.ecommerceQualityStatus !== "needs_review")) return assets;
+    const publishedAssetIds = new Set(run.assetIds);
+    return assets.filter((asset) => publishedAssetIds.has(asset.id));
 }
 
 function CreativeGenerationFailure({ message, onRetry }: { message: string; onRetry: () => Promise<boolean | void> }) {

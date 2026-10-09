@@ -252,6 +252,7 @@ export function mapGenerationLog(row: Record<string, unknown>): GenerationLogRec
         failCount: numberValue(row.fail_count),
         assets: [],
         requestSnapshot: jsonValue(row.request_snapshot),
+        ecommerceTrace: jsonValue(row.ecommerce_trace),
         taskId: optionalString(row.task_id),
         error: optionalString(row.error),
         createdAt: isoValue(row.created_at),

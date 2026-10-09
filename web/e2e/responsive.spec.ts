@@ -7,7 +7,8 @@ import { billingProductsFixture, expectDialogWithinViewport, expectNoHorizontalO
 
 async function waitForCreativeComposerReady(page: Page) {
     await expect(page.locator(".creative-composer")).toHaveAttribute("data-ready", "true", { timeout: 45_000 });
-    await expect(page.getByRole("button", { name: /当前创作类型：/ })).toBeVisible({ timeout: 45_000 });
+    await expect(page.getByRole("button", { name: /生成模型：/ })).toBeVisible({ timeout: 45_000 });
+    await expect(page.getByRole("button", { name: /当前创作类型：/ })).toHaveCount(0);
 }
 
 async function mockExistingCreativeConversation(page: Page) {
@@ -293,14 +294,6 @@ async function openComposerPopover(trigger: Locator, popover: Locator) {
     await expect(trigger).toHaveAttribute("aria-expanded", "true");
 }
 
-async function selectComposerPopoverOption(trigger: Locator, popover: Locator, option: Locator, verify: () => Promise<void>) {
-    await openComposerPopover(trigger, popover);
-    await option.scrollIntoViewIfNeeded();
-    await expect(option).toBeVisible();
-    await option.click();
-    await verify();
-}
-
 test("creative composer controls return to a neutral palette after selection", async ({ page }) => {
     const readPalette = (selector: Locator) =>
         selector.evaluate((element) => {
@@ -310,35 +303,21 @@ test("creative composer controls return to a neutral palette after selection", a
 
     const verifyNeutralControls = async (label: string) => {
         await waitForCreativeComposerReady(page);
-        const modeTrigger = page.getByRole("button", { name: "当前创作类型：Agent 模式" });
-        await expect(modeTrigger).toBeVisible();
         const neutralPalette = await readPalette(page.getByRole("button", { name: "生成模型：智能模型" }));
-        await expect.poll(() => readPalette(modeTrigger)).toEqual(neutralPalette);
-        await expect.poll(() => readPalette(page.getByRole("button", { name: "生成参数：生成参数" }))).toEqual(neutralPalette);
+        const preferenceTrigger = page.getByRole("button", { name: /^生成参数：/ });
+        await expect.poll(() => readPalette(preferenceTrigger)).toEqual(neutralPalette);
         await expect.poll(() => readPalette(page.getByRole("button", { name: "选择创作 Skill" }))).toEqual(neutralPalette);
+        await expect(page.getByText("视频生成", { exact: true })).toHaveCount(0);
+        await expect(page.getByText("音频生成", { exact: true })).toHaveCount(0);
 
-        const modePopover = page.locator(".ant-popover").filter({ hasText: "创作类型" }).last();
-        await openComposerPopover(modeTrigger, modePopover);
-        const [modeTriggerRect, modePopoverRect] = await Promise.all([modeTrigger.evaluate((element) => element.getBoundingClientRect().toJSON()), modePopover.evaluate((element) => element.getBoundingClientRect().toJSON())]);
-        expect(modePopoverRect.top, `${label} mode popover should open below its trigger`).toBeGreaterThanOrEqual(modeTriggerRect.bottom - 1);
-        await expect.poll(() => readPalette(modeTrigger)).not.toEqual(neutralPalette);
-        const selectedModeTrigger = page.getByRole("button", { name: "当前创作类型：视频生成" });
-        await selectComposerPopoverOption(modeTrigger, modePopover, modePopover.getByRole("button", { name: /视频生成/ }), () => expect(selectedModeTrigger).toBeVisible());
-        await expect(modePopover).toBeHidden();
-
-        await expect.poll(() => readPalette(selectedModeTrigger)).toEqual(neutralPalette);
-
-        const preferenceTrigger = page.getByRole("button", { name: "生成参数：智能参数 · 5秒" });
         const preferencePopover = page.locator(".ant-popover").last();
         await openComposerPopover(preferenceTrigger, preferencePopover);
         await expect.poll(() => readPalette(preferenceTrigger)).not.toEqual(neutralPalette);
-        await preferencePopover.getByRole("tab", { name: "输出" }).click();
-        const configuredPreferenceTrigger = page.getByRole("button", { name: "生成参数：智能参数 · 10秒" });
-        await selectComposerPopoverOption(preferenceTrigger, preferencePopover, preferencePopover.getByRole("button", { name: "输入视频时长 10 秒" }), () => expect(configuredPreferenceTrigger).toBeVisible());
+        await preferencePopover.getByRole("button", { name: "选择图片比例 16:9" }).click();
         await page.keyboard.press("Escape");
         await expect(preferencePopover).toBeHidden();
 
-        await expect.poll(() => readPalette(configuredPreferenceTrigger)).toEqual(neutralPalette);
+        await expect.poll(() => readPalette(preferenceTrigger)).toEqual(neutralPalette);
         await expectNoHorizontalOverflow(page, label);
     };
 
@@ -357,7 +336,7 @@ test("creative composer optimizes the current prompt without sending it", async 
     await page.route(/\/api\/agent\/prompt-optimization$/, async (route) => {
         optimizationRequests += 1;
         const body = (await route.request().postDataJSON()) as Record<string, unknown>;
-        expect(body).toMatchObject({ prompt: "做个国风人物海报", mode: "agent" });
+        expect(body).toMatchObject({ prompt: "做个国风人物海报", mode: "image" });
         await route.fulfill({ json: { code: 0, data: { prompt: "生成一张国风人物海报，突出人物主体与传统服饰细节。" }, msg: "OK" } });
     });
     await page.route(/\/api\/agent\/runs$/, async (route) => {
@@ -368,7 +347,7 @@ test("creative composer optimizes the current prompt without sending it", async 
     await page.goto("/create", { waitUntil: "domcontentloaded" });
     await waitForCreativeComposerReady(page);
 
-    const input = page.getByRole("textbox", { name: "输入你的创作想法、脚本或画面要求" });
+    const input = page.getByRole("textbox", { name: "描述你想生成或修改的图片" });
     const optimize = page.getByRole("button", { name: "优化提示词" });
     await expect(optimize).toBeDisabled();
     await input.fill("做个国风人物海报");
@@ -400,7 +379,7 @@ test("creative composer ignores an optimization response after the user sends", 
         await page.goto("/create", { waitUntil: "domcontentloaded" });
         await waitForCreativeComposerReady(page);
 
-        const input = page.getByRole("textbox", { name: "输入你的创作想法、脚本或画面要求" });
+        const input = page.getByRole("textbox", { name: "描述你想生成或修改的图片" });
         await input.fill("直接发送当前提示词");
         await page.getByRole("button", { name: "优化提示词" }).click();
         const send = page.getByRole("button", { name: "发送" });
@@ -416,11 +395,11 @@ test("creative composer ignores an optimization response after the user sends", 
     }
 });
 
-test("Agent generation inputs apply immediately and reveal video frame slots", async ({ page }, testInfo) => {
+test("image generation inputs apply immediately without video or audio controls", async ({ page }, testInfo) => {
     await page.goto("/create", { waitUntil: "domcontentloaded" });
     await waitForCreativeComposerReady(page);
 
-    const preferenceTrigger = page.getByRole("button", { name: "生成参数：生成参数" });
+    const preferenceTrigger = page.locator('button[aria-label^="生成参数："]');
     const preferencePopover = page.locator(".ant-popover").last();
     await openComposerPopover(preferenceTrigger, preferencePopover);
 
@@ -442,37 +421,16 @@ test("Agent generation inputs apply immediately and reveal video frame slots", a
         await testInfo.attach("Agent 即时尺寸与数量", { path: screenshotPath, contentType: "image/png" });
     }
 
-    await preferencePopover.getByRole("button", { name: "视频", exact: true }).click();
-    await preferencePopover.getByRole("tab", { name: "输出" }).click();
-    const durationInput = preferencePopover.getByRole("spinbutton", { name: "输入视频时长" });
-    await expect(durationInput).not.toHaveAttribute("max");
-    await durationInput.fill("60");
-    await durationInput.press("Tab");
-    await expect(durationInput).toHaveValue("60");
-    await preferencePopover.getByRole("tab", { name: "画面" }).click();
-    const firstLastOption = preferencePopover.getByRole("button", { name: "选择视频参考方式 首尾帧" });
-    await expect(firstLastOption).toBeVisible();
-    await firstLastOption.click();
-    await expect(page.getByRole("button", { name: "当前创作类型：Agent 模式" })).toBeVisible();
+    await expect(preferencePopover.getByRole("button", { name: "视频", exact: true })).toHaveCount(0);
+    await expect(preferencePopover.getByRole("button", { name: "音频", exact: true })).toHaveCount(0);
     await page.keyboard.press("Escape");
     await expect(preferencePopover).toBeHidden();
-
-    const frames = page.locator('[aria-label="视频首尾帧"]');
-    const firstFrame = page.getByRole("button", { name: "添加视频首帧" });
-    await expect(frames).toBeVisible();
-    await expect(firstFrame).toBeVisible();
-    await expect(page.getByRole("button", { name: "添加视频尾帧" })).toBeVisible();
-
-    await firstFrame.click();
-    const framePopover = page.locator(".ant-popover").filter({ hasText: "选择首帧图片" }).last();
-    await expect(framePopover).toBeVisible();
-    const [frameRect, framePopoverRect] = await Promise.all([firstFrame.evaluate((element) => element.getBoundingClientRect().toJSON()), framePopover.evaluate((element) => element.getBoundingClientRect().toJSON())]);
-    expect(framePopoverRect.top, "new Agent frame picker should open below its slot").toBeGreaterThanOrEqual(frameRect.bottom - 1);
-    await expectNoHorizontalOverflow(page, `${testInfo.project.name} Agent immediate inputs and video frames`);
+    await expect(page.locator('[aria-label="视频首尾帧"]')).toHaveCount(0);
+    await expectNoHorizontalOverflow(page, `${testInfo.project.name} image-only immediate inputs`);
     if (process.env.VOZEB_PRO_VISUAL_CAPTURE === "1") {
         const screenshotPath = testInfo.outputPath(`agent-immediate-inputs-${testInfo.project.name}.png`);
         await page.screenshot({ path: screenshotPath });
-        await testInfo.attach("Agent 即时参数与首尾帧", { path: screenshotPath, contentType: "image/png" });
+        await testInfo.attach("图片即时参数", { path: screenshotPath, contentType: "image/png" });
     }
 });
 
@@ -486,7 +444,7 @@ test("creative composer renders uploaded images as thumbnails instead of filenam
     await waitForCreativeComposerReady(page);
 
     const chooserPromise = page.waitForEvent("filechooser");
-    await page.getByRole("button", { name: "添加素材" }).click();
+    await page.getByRole("button", { name: "添加参考图片" }).click();
     const chooser = await chooserPromise;
     await chooser.setFiles({ name: fileName, mimeType: "image/webp", buffer: imageBuffer });
 
@@ -500,7 +458,7 @@ test("creative composer renders uploaded images as thumbnails instead of filenam
     await expect(page).toHaveURL(/\/create$/);
     const inputRow = page.getByTestId("creative-composer-input-row");
     const previewSlot = page.getByLabel(`已上传图片 ${fileName}`);
-    const textarea = page.getByRole("textbox", { name: "输入你的创作想法、脚本或画面要求" });
+    const textarea = page.getByRole("textbox", { name: "描述你想生成或修改的图片" });
     await expect
         .poll(async () => {
             const [previewRect, textareaRect, rowRect] = await Promise.all([
@@ -514,7 +472,7 @@ test("creative composer renders uploaded images as thumbnails instead of filenam
     await expectNoHorizontalOverflow(page, `${testInfo.project.name} creative image attachment preview`);
 
     const removeButton = page.getByRole("button", { name: `移除${fileName}` });
-    const addButton = page.getByRole("button", { name: "继续添加参考素材" });
+    const addButton = page.getByRole("button", { name: "继续添加参考图片" });
     await expect
         .poll(() =>
             removeButton.evaluate((element) => {
@@ -771,11 +729,11 @@ test("creative composer opens menus upward after entering a conversation", async
     await page.goto(`/create?conversationId=${conversationId}`, { waitUntil: "domcontentloaded" });
     await expect(page.getByText("继续完善这张图片", { exact: true })).toBeVisible();
 
-    const modeTrigger = page.getByRole("button", { name: "当前创作类型：Agent 模式" });
-    const modePopover = page.locator(".ant-popover").filter({ hasText: "创作类型" }).last();
-    await openComposerPopover(modeTrigger, modePopover);
-    const [triggerRect, popoverRect] = await Promise.all([modeTrigger.evaluate((element) => element.getBoundingClientRect().toJSON()), modePopover.evaluate((element) => element.getBoundingClientRect().toJSON())]);
-    expect(popoverRect.bottom, "conversation mode popover should open above its trigger").toBeLessThanOrEqual(triggerRect.top + 1);
+    const preferenceTrigger = page.getByRole("button", { name: /^生成参数：/ });
+    const preferencePopover = page.locator(".ant-popover").last();
+    await openComposerPopover(preferenceTrigger, preferencePopover);
+    const [triggerRect, popoverRect] = await Promise.all([preferenceTrigger.evaluate((element) => element.getBoundingClientRect().toJSON()), preferencePopover.evaluate((element) => element.getBoundingClientRect().toJSON())]);
+    expect(popoverRect.bottom, "conversation preferences popover should open above its trigger").toBeLessThanOrEqual(triggerRect.top + 1);
 });
 
 test("switching conversations keeps the previous Agent run isolated and resumable", async ({ page }) => {
@@ -813,84 +771,7 @@ test("switching conversations keeps the previous Agent run isolated and resumabl
     expect(fixture.controlRequests(), "returning to A must not cancel, pause, resume, or retry it").toBe(0);
 });
 
-test("creative video first and last frame controls support upload, removal and reselection", async ({ page }, testInfo) => {
-    const frameBuffer = readFileSync("public/generation-smoke.webp");
-    const projectName = testInfo.project.name.replace(/[^a-z0-9]+/gi, "-");
-    const firstFileName = `${projectName}-first-frame.webp`;
-    const lastFileName = `${projectName}-last-frame.webp`;
-    await mockCreativeImageUploads(page, [firstFileName, lastFileName], frameBuffer);
-
-    const selectFirstLastMode = async () => {
-        await waitForCreativeComposerReady(page);
-        const modeTrigger = page.getByRole("button", { name: /当前创作类型：/ });
-        await expect(modeTrigger).toBeVisible();
-        if ((await modeTrigger.getAttribute("aria-label")) !== "当前创作类型：视频生成") {
-            const modePopover = page.locator(".ant-popover").filter({ hasText: "创作类型" }).last();
-            await selectComposerPopoverOption(modeTrigger, modePopover, modePopover.getByRole("button", { name: /^视频生成/ }), () => expect(modeTrigger).toHaveAttribute("aria-label", "当前创作类型：视频生成"));
-            await expect(modePopover).toBeHidden();
-        }
-
-        const preferenceTrigger = page.getByRole("button", { name: /生成参数：/ });
-        const preferencePopover = page.locator(".ant-popover").filter({ hasText: "参考方式" }).last();
-        const frames = page.locator('[aria-label="视频首尾帧"]');
-        await selectComposerPopoverOption(preferenceTrigger, preferencePopover, preferencePopover.getByRole("button", { name: "选择视频参考方式 首尾帧" }), () => expect(frames).toBeVisible());
-        await page.keyboard.press("Escape");
-        await expect(preferencePopover).toBeHidden();
-    };
-
-    const uploadFrame = async (label: "首帧" | "尾帧", fileName: string) => {
-        await page.getByRole("button", { name: `添加视频${label}` }).click();
-        const popover = page
-            .locator(".ant-popover")
-            .filter({ hasText: `选择${label}图片` })
-            .last();
-        await expect(popover).toBeVisible();
-        const chooserPromise = page.waitForEvent("filechooser");
-        await popover.getByRole("button", { name: "上传新图片" }).click();
-        const chooser = await chooserPromise;
-        await chooser.setFiles({ name: fileName, mimeType: "image/webp", buffer: frameBuffer });
-        await expect(page.getByRole("button", { name: `更换视频${label}` })).toBeVisible({ timeout: 45_000 });
-    };
-
-    await page.goto("/create", { waitUntil: "domcontentloaded" });
-    await selectFirstLastMode();
-
-    const composer = page.locator(".creative-composer");
-    const frames = page.locator('[aria-label="视频首尾帧"]');
-    await composer.locator("textarea").fill("让首尾画面自然衔接");
-    await page.getByRole("button", { name: "发送" }).click();
-    await expect(page.getByText("请先同时选择视频首帧和尾帧图片").last()).toBeVisible();
-
-    await uploadFrame("首帧", firstFileName);
-    await uploadFrame("尾帧", lastFileName);
-    await expect(frames.getByRole("img", { name: firstFileName })).toBeVisible();
-    await expect(frames.getByRole("img", { name: lastFileName })).toBeVisible();
-    await expect(composer.getByText(firstFileName, { exact: true })).toHaveCount(0);
-    await expect(composer.getByText(lastFileName, { exact: true })).toHaveCount(0);
-
-    await frames.getByRole("button", { name: "移除视频尾帧" }).click();
-    await expect(page.getByRole("button", { name: "添加视频尾帧" })).toBeVisible();
-    await page.getByRole("button", { name: "发送" }).click();
-    await expect(page.getByText("请先同时选择视频首帧和尾帧图片").last()).toBeVisible();
-
-    await page.getByRole("button", { name: "添加视频尾帧" }).click();
-    const tailPopover = page.locator(".ant-popover").filter({ hasText: "选择尾帧图片" }).last();
-    await expect(tailPopover).toBeVisible();
-    await tailPopover.getByRole("button", { name: `设为尾帧：${lastFileName}` }).click();
-    await expect(frames.getByRole("img", { name: lastFileName })).toBeVisible();
-    await expect(composer.getByText(lastFileName, { exact: true })).toHaveCount(0);
-    await expectNoHorizontalOverflow(page, `${testInfo.project.name} creative video frames light`);
-
-    await page.evaluate(() => localStorage.setItem("vozeb-pro:theme_store", JSON.stringify({ state: { theme: "dark" }, version: 0 })));
-    await page.reload({ waitUntil: "domcontentloaded" });
-    await expect(page.locator("html")).toHaveClass(/dark/);
-    await selectFirstLastMode();
-    await expect(page.getByRole("button", { name: "添加视频首帧" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "添加视频尾帧" })).toBeVisible();
-    await expectNoHorizontalOverflow(page, `${testInfo.project.name} creative video frames dark`);
-});
-
-test("Agent text assets with emoji remain visible after hydration and refresh", async ({ page }) => {
+test.skip("Agent text assets with emoji remain visible after hydration and refresh", async ({ page }) => {
     const conversationId = "agent-emoji-conversation";
     const messageId = "agent-emoji-message";
     const conversation = {

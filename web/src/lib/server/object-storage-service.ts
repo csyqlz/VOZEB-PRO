@@ -56,9 +56,13 @@ export async function createExternalMediaReadUrl(request: Request, registration:
     if (registration.expiresAt && Date.parse(registration.expiresAt) <= Date.now()) return null;
     const config = await getObjectStorageRuntimeConfig();
     assertRegistrationConfig(config, registration);
+    const params = new URL(request.url).searchParams;
+    const providerRead = params.get("purpose") === "provider-read";
     const variant = requestedImageVariant(request, registration.mimeType);
-    if (variant) return createObjectImagePreviewReadUrl(config, registration.externalObjectKey, variant.width, registration.storageKey);
-    const download = new URL(request.url).searchParams.get("download") === "original";
+    if (variant) return createObjectImagePreviewReadUrl(config, registration.externalObjectKey, variant.width, registration.storageKey, !providerRead);
+    const download = params.get("download") === "original";
+    const displayUrl = !download && !providerRead ? objectCdnUrl(config, registration.externalObjectKey) : null;
+    if (displayUrl) return displayUrl;
     return signObjectRead(config, {
         key: registration.externalObjectKey,
         contentType: registration.mimeType || undefined,
@@ -107,7 +111,7 @@ export async function listExternalStorageFiles(input: { prefix?: string; cursor?
                 const fileName = registration?.originalName || basename(item.key);
                 const itemMimeType = registration?.mimeType || mimeType(item.key);
                 const [signedPreviewUrl, downloadUrl] = await Promise.all([
-                    itemType === "image" ? Promise.resolve("") : signObjectRead(config, { key: item.key, contentType: itemMimeType, contentDisposition: mediaContentDisposition("inline", fileName, itemMimeType) }),
+                    itemType === "image" ? "" : objectCdnUrl(config, item.key) || signObjectRead(config, { key: item.key, contentType: itemMimeType, contentDisposition: mediaContentDisposition("inline", fileName, itemMimeType) }),
                     signObjectRead(config, { key: item.key, contentType: itemMimeType, contentDisposition: mediaContentDisposition("attachment", fileName, itemMimeType, registration?.storageKey || item.key) }),
                 ]);
                 return {
@@ -135,7 +139,7 @@ export async function listExternalStorageFiles(input: { prefix?: string; cursor?
     return { items, nextCursor, bucket: config.bucket, prefix: fullPrefix };
 }
 
-async function createObjectImagePreviewReadUrl(config: ObjectStorageRuntimeConfig, objectKey: string, width: number, fileName: string) {
+async function createObjectImagePreviewReadUrl(config: ObjectStorageRuntimeConfig, objectKey: string, width: number, fileName: string, useCdn = true) {
     const key = `${objectKey}${PREVIEW_MARKER}/webp-${width}.webp`;
     await runImageVariantTaskOnce(`object:${config.id}:${key}`, async () => {
         if (await objectExists(config, key)) return;
@@ -143,12 +147,19 @@ async function createObjectImagePreviewReadUrl(config: ObjectStorageRuntimeConfi
         const bytes = await sharp(source, { limitInputPixels: MAX_INPUT_PIXELS, failOn: "error" }).rotate().resize({ width, withoutEnlargement: true, fit: "inside" }).webp({ quality: 82, effort: 4 }).toBuffer();
         await putObjectBytes(config, { key, bytes, contentType: "image/webp" });
     });
+    const displayUrl = useCdn ? objectCdnUrl(config, key) : null;
+    if (displayUrl) return displayUrl;
     return signObjectRead(config, {
         key,
         contentType: "image/webp",
         contentDisposition: mediaContentDisposition("inline", `${basename(fileName).replace(/\.[^.]+$/, "")}.webp`),
         expiresIn: IMAGE_PREVIEW_READ_URL_TTL_SECONDS,
     });
+}
+
+function objectCdnUrl(config: ObjectStorageRuntimeConfig, key: string) {
+    if (!config.cdnBaseUrl) return null;
+    return new URL(key.split("/").map(encodeURIComponent).join("/"), `${config.cdnBaseUrl.replace(/\/+$/, "")}/`).href;
 }
 
 function adminObjectImagePreviewUrl(key: string) {

@@ -78,6 +78,7 @@ import {
 export { normalizeApiPath, normalizeSystemChannelAdvancedConfig, textOrEmpty } from "./store-normalizers-channel";
 import { currentQuotaDate, hashToken, normalizeEmail, normalizeUserBio } from "./store-auth-utils";
 import { normalizeRegistrationPolicyConsent } from "@/lib/registration-consent";
+import { normalizeEcommerceModelRoles } from "@/lib/ecommerce-model-role-config";
 import { ALL_ADMIN_PERMISSIONS, isFullAdminPermissions, normalizeAdminPermissions } from "@/lib/admin-permissions";
 
 export { currentQuotaDate, hashToken, normalizeDisplayName, normalizeEmail, normalizeUserBio, normalizeUsername, parseSessionCookie, randomNumericCode, validateEmail, validatePassword, validateUsername } from "./store-auth-utils";
@@ -256,6 +257,9 @@ export function normalizeSettings(settings: AuthSettings): AuthSettings {
         systemChannels,
         logicalModels,
         defaultModels: normalizeDefaultModelsConfig(settings.defaultModels, logicalModels, systemChannels),
+        ecommerceGenerationEnabled: settings.ecommerceGenerationEnabled === true,
+        ecommerceVisualQualityCheckEnabled: settings.ecommerceVisualQualityCheckEnabled === true,
+        ecommerceModelRoles: normalizeEcommerceModelRoles(settings.ecommerceModelRoles, logicalModels),
         agentSkills: normalizeAgentSkills(settings.agentSkills),
     };
 }

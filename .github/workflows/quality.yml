@@ -4,7 +4,6 @@ run-name: Web 与文档质量检查 · ${{ github.ref_name }}
 on:
   push:
     branches: ["main"]
-    tags: ["v*", "VOZEB-PRO-v*"]
   pull_request:
   workflow_dispatch:
 
@@ -12,7 +11,66 @@ permissions:
   contents: read
 
 jobs:
-  web:
+  web-checks:
+    name: web / checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Setup pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+        with:
+          version: 11.9.0
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Dependency audit
+        run: pnpm audit --audit-level moderate
+      - name: ESLint
+        run: pnpm run lint
+      - name: Type check
+        run: pnpm run typecheck
+      - name: Format check
+        run: pnpm run format:check
+
+  web-unit:
+    name: web / unit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Setup pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+        with:
+          version: 11.9.0
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Unit tests
+        run: pnpm test
+
+  web-chromium:
+    name: web / chromium-${{ matrix.shard }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -46,16 +104,6 @@ jobs:
           cache-dependency-path: web/pnpm-lock.yaml
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      - name: Dependency audit
-        run: pnpm audit --audit-level moderate
-      - name: ESLint
-        run: pnpm run lint
-      - name: Type check
-        run: pnpm run typecheck
-      - name: Unit tests
-        run: pnpm test
-      - name: Format check
-        run: pnpm run format:check
       - name: Production build
         run: pnpm run build
         env:
@@ -63,32 +111,53 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --with-deps chromium
       - name: Browser E2E
-        run: pnpm run e2e
+        run: pnpm run e2e --project=chromium --shard="${{ matrix.shard }}/2"
         env:
           VOZEB_PRO_E2E_DATABASE_URL: postgres://vozeb:vozeb-e2e-password@127.0.0.1:5432/vozeb_pro_e2e
       - name: PostgreSQL integration tests
+        if: ${{ matrix.shard == 1 }}
         run: >-
           pnpm exec vitest run --no-file-parallelism
           src/lib/server/database/auth-entity-concurrency.postgres.test.ts
           src/lib/server/admin-backup-store.postgres.test.ts
           src/lib/server/points-wallet-idempotency.postgres.test.ts
           src/lib/server/database/work-community-postgres.test.ts
+          src/lib/server/database/create-overview-quality.postgres.test.ts
+          src/lib/server/ecommerce-selection-recovery.postgres.test.ts
         env:
           VOZEB_PRO_DATABASE_PROVIDER: postgres
           DATABASE_URL: postgres://vozeb:vozeb-e2e-password@127.0.0.1:5432/vozeb_pro_e2e
           VOZEB_PRO_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
           VOZEB_PRO_RUN_POSTGRES_INTEGRATION: "1"
           RUN_WORK_COMMUNITY_POSTGRES_INTEGRATION: "1"
+          VOZEB_PRO_RUN_ECOMMERCE_POSTGRES_INTEGRATION: "1"
+          VOZEB_PRO_ECOMMERCE_ISOLATED_DATABASE: "1"
       - name: Upload browser artifacts
-        if: failure()
+        if: ${{ failure() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: web-playwright-report
+          name: web-playwright-report-chromium-${{ matrix.shard }}
           path: |
             web/playwright-report
             web/.e2e-artifacts
           if-no-files-found: ignore
           retention-days: 7
+
+  web:
+    name: web
+    if: always()
+    needs: [web-checks, web-unit, web-chromium]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify web quality matrix
+        env:
+          CHECKS_RESULT: ${{ needs.web-checks.result }}
+          UNIT_RESULT: ${{ needs.web-unit.result }}
+          CHROMIUM_RESULT: ${{ needs.web-chromium.result }}
+        run: |
+          test "$CHECKS_RESULT" = "success"
+          test "$UNIT_RESULT" = "success"
+          test "$CHROMIUM_RESULT" = "success"
 
   docs:
     runs-on: ubuntu-latest
@@ -137,3 +206,26 @@ jobs:
           languages: javascript-typescript
       - name: Analyze JavaScript and TypeScript
         uses: github/codeql-action/analyze@47be0dbd5113ab1b79fe2dd3f68bdf7e426cdc87 # v3
+        with:
+          category: .github/workflows/quality.yml:security/
+
+  codeql-release-baseline:
+    name: security / release CodeQL
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout complete history
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@47be0dbd5113ab1b79fe2dd3f68bdf7e426cdc87 # v3
+        with:
+          languages: javascript-typescript
+      - name: Analyze JavaScript and TypeScript
+        uses: github/codeql-action/analyze@47be0dbd5113ab1b79fe2dd3f68bdf7e426cdc87 # v3
+        with:
+          # Match the release baseline without replacing the quality baseline.
+          category: .github/workflows/docker-image.yml:security/

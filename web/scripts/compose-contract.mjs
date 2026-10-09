@@ -4,15 +4,15 @@ import path from "node:path";
 import { parse } from "yaml";
 
 export const composeProfiles = [
-    { file: "docker-compose.yml", embeddedPostgres: true, image: "${VOZEB_PRO_IMAGE:-ghcr.io/csyqlz/vozeb-pro:v0.0.7}", workerOrigin: "http://app:3000" },
+    { file: "docker-compose.yml", embeddedPostgres: true, image: "${VOZEB_PRO_IMAGE:-ghcr.io/zpitq/vozeb-pro:latest}", pullAlways: true, workerOrigin: "http://app:3000" },
     { file: "docker-compose.local.yml", embeddedPostgres: true, image: "vozeb-pro:local", workerOrigin: "http://app:3000" },
-    { file: "docker-compose.baota.yml", embeddedPostgres: false, hostNetwork: true, image: "${VOZEB_PRO_IMAGE:-ghcr.io/csyqlz/vozeb-pro:v0.0.7}", workerOrigin: "http://127.0.0.1:3000" },
-    { file: "docker-compose.external-db.yml", embeddedPostgres: false, image: "${VOZEB_PRO_IMAGE:-ghcr.io/csyqlz/vozeb-pro:v0.0.7}", workerOrigin: "http://app:3000" },
-    { file: "docker-compose.lowmem.yml", embeddedPostgres: false, image: "${VOZEB_PRO_IMAGE:-ghcr.io/csyqlz/vozeb-pro:v0.0.7}", workerOrigin: "http://app:3000" },
+    { file: "docker-compose.baota.yml", embeddedPostgres: false, hostNetwork: true, image: "${VOZEB_PRO_IMAGE:-ghcr.io/zpitq/vozeb-pro:latest}", pullAlways: true, workerOrigin: "http://127.0.0.1:3000" },
+    { file: "docker-compose.external-db.yml", embeddedPostgres: false, image: "${VOZEB_PRO_IMAGE:-ghcr.io/zpitq/vozeb-pro:latest}", pullAlways: true, workerOrigin: "http://app:3000" },
+    { file: "docker-compose.lowmem.yml", embeddedPostgres: false, image: "${VOZEB_PRO_IMAGE:-ghcr.io/zpitq/vozeb-pro:latest}", pullAlways: true, workerOrigin: "http://app:3000" },
 ];
 
 export const docsComposeProfiles = [
-    { file: "docs/docker-compose.yml", image: "ghcr.io/csyqlz/vozeb-pro-docs:v0.0.7" },
+    { file: "docs/docker-compose.yml", image: "ghcr.io/zpitq/vozeb-pro-docs:v0.0.7" },
     { file: "docs/docker-compose.local.yml", build: { context: "..", dockerfile: "docs/Dockerfile" } },
 ];
 
@@ -75,7 +75,10 @@ export function validateComposeContract(source, profile) {
     ensure(Boolean(services["generation-worker"]), "缺少 generation-worker 服务");
     ensure(app.image === profile.image, "app 必须使用当前发布版本的明确镜像");
     ensure(sameImage(app.image, worker.image), "app 与 generation-worker 必须使用同一镜像");
-    ensure(!String(app.image || "").endsWith(":latest"), "发布 Compose 禁止使用 latest 镜像");
+    if (profile.pullAlways) {
+        ensure(app.pull_policy === "always", "app must pull the latest image on startup");
+        ensure(worker.pull_policy === "always", "generation-worker must pull the latest image on startup");
+    }
     ensure(JSON.stringify(worker.command) === JSON.stringify(["node", "/app/web/scripts/generation-worker.mjs"]), "Worker 启动命令不正确");
     ensure(app.env_file?.includes(".env"), "app 必须读取 .env");
     ensure(!worker.env_file, "generation-worker 不得读取包含安装令牌和业务密钥的 .env");

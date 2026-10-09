@@ -65,6 +65,7 @@ const config = {
     region: "auto",
     bucket: "media",
     prefix: "vozeb-pro",
+    cdnBaseUrl: "",
     accessKeyId: "access",
     secretAccessKey: "secret",
     forcePathStyle: false,
@@ -136,6 +137,42 @@ describe("object storage media service", () => {
         expect(url).toBe("https://oss.example.com/signed");
         expect(mocks.signRead).toHaveBeenCalledWith(expect.objectContaining({ enabled: false }), expect.objectContaining({ key: objectRegistration.externalObjectKey, contentDisposition: expect.stringContaining("attachment"), expiresIn: 600 }));
         expect(mocks.signRead).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ contentDisposition: expect.stringContaining(".png") }));
+    });
+
+    it("resolves persisted relative keys against the current CDN prefix for originals and WebP previews", async () => {
+        mocks.config.mockResolvedValue({ ...config, cdnBaseUrl: "https://cdn-a.example.com" });
+        const saved = await persistExternalMediaIfEnabled({ registration, bytes: Buffer.from("data") });
+        if (!saved) throw new Error("Expected an object storage registration");
+        expect(saved).toMatchObject({ storageKey: registration.storageKey, externalObjectKey: `vozeb-pro/media/reference/${registration.storageKey}` });
+        expect(JSON.stringify(saved)).not.toMatch(/https?:|X-Amz-/);
+
+        const original = await createExternalMediaReadUrl(new Request("http://localhost/media"), saved);
+        expect(original).toBe(`https://cdn-a.example.com/${saved.externalObjectKey}`);
+        const preview = await createExternalMediaReadUrl(new Request("http://localhost/media?format=webp&width=500"), saved);
+        expect(preview).toBe(`https://cdn-a.example.com/${saved.externalObjectKey}.vozeb-preview/webp-640.webp`);
+
+        mocks.config.mockResolvedValue({ ...config, enabled: false, cdnBaseUrl: "https://cdn.example.com/assets/" });
+        expect(await createExternalMediaReadUrl(new Request("http://localhost/media"), saved)).toBe(`https://cdn.example.com/assets/${saved.externalObjectKey}`);
+        expect(mocks.signRead).not.toHaveBeenCalled();
+        expect(mocks.register).toHaveBeenCalledOnce();
+    });
+
+    it("encodes object path segments and uses the CDN for administrator previews and streaming display", async () => {
+        mocks.config.mockResolvedValue({ ...config, cdnBaseUrl: "https://cdn-a.example.com" });
+        const key = "vozeb-pro/media/reference/图片 #1%?.png";
+        expect(await createExternalStorageImagePreviewUrl(key, 320)).toBe(`https://cdn-a.example.com/vozeb-pro/media/reference/${encodeURIComponent("图片 #1%?.png")}.vozeb-preview/webp-320.webp`);
+        const video = { ...registration, type: "video" as const, mimeType: "video/mp4", storageProvider: "object" as const, externalObjectKey: "vozeb-pro/media/reference/video.mp4" };
+        expect(await createExternalMediaReadUrl(new Request("http://localhost/media"), video)).toBe("https://cdn-a.example.com/vozeb-pro/media/reference/video.mp4");
+        expect(mocks.signRead).not.toHaveBeenCalled();
+    });
+
+    it("keeps provider reference reads and original downloads signed when CDN display is configured", async () => {
+        mocks.config.mockResolvedValue({ ...config, cdnBaseUrl: "https://cdn-a.example.com" });
+        const objectRegistration = { ...registration, storageProvider: "object" as const, externalObjectKey: "vozeb-pro/media/reference/file.png" };
+        for (const query of ["purpose=provider-read&expires=123&signature=verified", "download=original"]) {
+            expect(await createExternalMediaReadUrl(new Request(`http://localhost/media?${query}`), objectRegistration)).toBe("https://oss.example.com/signed");
+        }
+        expect(mocks.signRead).toHaveBeenCalledTimes(2);
     });
 
     it("uses a bounded WebP object variant for image previews", async () => {

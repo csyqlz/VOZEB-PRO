@@ -10,6 +10,7 @@ import { auditActorFromRequest, safeRecordAuditLog } from "@/lib/server/audit-lo
 import { invalidatePublicSiteSettings } from "@/lib/server/site-metadata";
 import { channelProtocolValidationErrors } from "@/lib/channel-protocol-registry";
 import { hasAllAdminPermissions, hasAnyAdminPermission, type AdminPermission } from "@/lib/admin-permissions";
+import { ecommerceModelRoleValidationErrors, normalizeEcommerceModelRoles } from "@/lib/ecommerce-model-role-config";
 
 export const runtime = "nodejs";
 
@@ -47,6 +48,8 @@ export async function PATCH(request: Request) {
         if (body.entitlements && typeof body.entitlements === "object") patch.entitlements = body.entitlements;
         if (body.generationConcurrency && typeof body.generationConcurrency === "object") patch.generationConcurrency = body.generationConcurrency;
         if (body.generationDefaults && typeof body.generationDefaults === "object") patch.generationDefaults = body.generationDefaults;
+        if (typeof body.ecommerceGenerationEnabled === "boolean") patch.ecommerceGenerationEnabled = body.ecommerceGenerationEnabled;
+        if (typeof body.ecommerceVisualQualityCheckEnabled === "boolean") patch.ecommerceVisualQualityCheckEnabled = body.ecommerceVisualQualityCheckEnabled;
         if (Array.isArray(body.systemChannels)) {
             patch.systemChannels = mergeSystemChannelSecrets(body.systemChannels, currentSettings.systemChannels);
             const webhookSecretError = patch.systemChannels.map(systemChannelWebhookSecretValidationError).find(Boolean);
@@ -64,6 +67,12 @@ export async function PATCH(request: Request) {
             if (errors.length) throw new AuthInputError(errors[0]);
             patch.logicalModels = logicalModels;
             patch.defaultModels = normalizedDefaults;
+        }
+        if (body.ecommerceModelRoles && typeof body.ecommerceModelRoles === "object") {
+            const logicalModels = patch.logicalModels || currentSettings.logicalModels;
+            const errors = ecommerceModelRoleValidationErrors(body.ecommerceModelRoles, logicalModels);
+            if (errors.length) throw new AuthInputError(errors[0]);
+            patch.ecommerceModelRoles = normalizeEcommerceModelRoles(body.ecommerceModelRoles, logicalModels);
         }
         if (Array.isArray(body.agentSkills)) patch.agentSkills = body.agentSkills;
         if (!Object.keys(patch).length) return NextResponse.json({ error: "没有可更新的设置" }, { status: 400 });
@@ -108,6 +117,9 @@ const SETTINGS_PERMISSION_BY_FIELD = {
     systemChannels: "upstream.manage",
     logicalModels: "upstream.manage",
     defaultModels: "upstream.manage",
+    ecommerceGenerationEnabled: "upstream.manage",
+    ecommerceVisualQualityCheckEnabled: "upstream.manage",
+    ecommerceModelRoles: "upstream.manage",
     agentSkills: "upstream.manage",
 } as const satisfies Partial<Record<keyof AuthSettings, AdminPermission>>;
 

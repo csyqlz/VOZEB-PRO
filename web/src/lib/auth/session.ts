@@ -4,6 +4,7 @@ import type { NextResponse } from "next/server";
 import { deleteSession, getPublicUsersByIds, getUserBySession, sessionMaxAgeSeconds, type AuthSettings, type PublicUser } from "./store";
 import { authorizedWorkerUserId } from "@/lib/server/maintenance-auth";
 import { getTrustedProxyHops } from "@/lib/server/trusted-proxy";
+import { normalizeModelId } from "@/lib/model-capability";
 import { parseSessionCookie } from "./store-normalizers";
 
 const SESSION_COOKIE_NAME = "vozeb_pro_session";
@@ -162,16 +163,28 @@ export function serializePublicSettings(settings: AuthSettings) {
             })),
         systemChannels: settings.systemChannels
             .filter((channel) => channel.enabled)
-            .map((channel) => ({
-                id: channel.id,
-                name: channel.name,
-                baseUrl: `/api/ai/system/${channel.id}`,
-                apiKey: "system",
-                apiFormat: channel.apiFormat,
-                models: channel.models,
-                enabled: channel.enabled,
-                hasApiKey: Boolean(channel.apiKey),
-            })),
+            .map((channel) => {
+                const protocol = channel.advancedConfig?.protocol;
+                const modelProtocols = Object.fromEntries(
+                    channel.models.flatMap((model) => {
+                        const key = normalizeModelId(model);
+                        const modelProtocol = channel.advancedConfig?.modelConfigs?.[key]?.protocol || protocol;
+                        return key && modelProtocol ? [[key, modelProtocol] as const] : [];
+                    }),
+                );
+                return {
+                    id: channel.id,
+                    name: channel.name,
+                    baseUrl: `/api/ai/system/${channel.id}`,
+                    apiKey: "system",
+                    apiFormat: channel.apiFormat,
+                    models: channel.models,
+                    enabled: channel.enabled,
+                    hasApiKey: Boolean(channel.apiKey),
+                    ...(protocol ? { protocol } : {}),
+                    ...(Object.keys(modelProtocols).length ? { modelProtocols } : {}),
+                };
+            }),
     };
 }
 

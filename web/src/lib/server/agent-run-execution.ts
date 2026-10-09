@@ -1,6 +1,6 @@
 import { getAuthSettings, refundUserPoints, type LogicalModelCapability } from "@/lib/auth/store";
 import { withCreativeFoundation, type CreativeReview } from "@/lib/creative-agent-contract";
-import { isCreativeAutoValue, type CreativeAsset, type CreativeGenerationPreferences, type CreativeSurface } from "@/lib/creative-runtime-contract";
+import { isCreativeAutoValue, type CreativeAsset, type CreativeGenerationMode, type CreativeGenerationPreferences, type CreativeSurface } from "@/lib/creative-runtime-contract";
 import { creativeAssetReferenceAliases } from "@/lib/creative-asset-references";
 import { fetchInternalApi } from "@/lib/server/internal-origin";
 import { resolveLogicalModel, resolveLogicalModelCandidates } from "@/lib/server/logical-model-router";
@@ -10,6 +10,8 @@ import { requestStructuredText, type TextPlanningCandidate } from "@/lib/server/
 import { registerAgentTaskAssets } from "@/lib/server/agent-run-assets";
 import { buildAgentProjectHandoff } from "@/lib/server/agent-run-project-handoff";
 import { getAgentRun, updateAgentRunById, updateAgentRunTaskById, type AgentRun, type AgentRunChildTask, type AgentRunReference, type AgentRunTask } from "@/lib/server/agent-run-store";
+import { resolveEcommerceRoleCandidates, routeEcommerceRole, type EcommerceRoleCandidate } from "@/lib/server/ecommerce-model-routing";
+import { publicEcommerceProgress } from "@/lib/server/ecommerce-generation-service";
 import { assetAccessUrl, creativeAssetContext, resolveTaskReferences } from "@/lib/server/agent-run-surface-policy";
 import { selectedCanvasNodeIds } from "@/lib/server/agent-run-canvas-snapshot";
 import { agentChildTaskTerminal, agentTaskCopies, resolveAgentTaskCount, resolveAgentVideoSeconds, validateAgentTaskResult, type AgentPlan } from "@/lib/server/agent-run-validation";
@@ -17,13 +19,18 @@ import { agentRunCompletionReply, agentRunFailureMessage, resultSummary } from "
 import { getCreativeAssetsByIds } from "@/lib/server/creative-runtime-store";
 import { toSafeGenerationErrorMessage } from "@/lib/server/generation-errors";
 import { scheduleGenerationTask } from "@/lib/server/generation-task-scheduler";
-import { linkStoredGenerationTask } from "@/lib/server/generation-task-store";
+import { getStoredGenerationTaskRecord, linkStoredGenerationTask } from "@/lib/server/generation-task-store";
 import { maintenanceWorkerContextHeaders } from "@/lib/server/maintenance-auth";
+import { attachEcommerceTraceToGenerationLogs } from "@/lib/server/generation-log-store";
+import { getImageTask, updateImageTask } from "@/lib/server/image-task-store";
 import { videoFrameAssetIds, type VideoReferenceRole } from "@/lib/video-reference-contract";
 import type { AgentFunctionCallResult } from "./agent-function-call";
 import { agentSurfaceImageSize, canvasReferenceContext, canvasReferenceSupportsTask, canvasSnapshotNodes, isMediaReferenceType, resolveAgentTaskRatio, resolveCanvasTaskTargetNodeId, selectedCanvasReferenceNodes } from "./agent-run-task-input";
 import { hasSystemAiCharge, readSystemAiBilling, systemAiBillingHeaders } from "./system-ai-billing";
-import { acceptsMediaReference, mergeTaskReferences, taskImageUrls, taskReferences, textConstraintInstruction } from "./agent-run-execution-helpers";
+import { acceptsMediaReference, mergeTaskReferences, taskImageUrls, taskReferences, taskResultItems, textConstraintInstruction } from "./agent-run-execution-helpers";
+import { checkEcommerceResultWithFallback, checkEcommerceTechnicalResult, ecommerceQualityGate, ecommerceResultDeliveryGate, unavailableEcommerceQualityCheck } from "./ecommerce-quality-check";
+import { buildEcommerceGenerationTrace } from "./ecommerce-generation-trace";
+import { ecommerceCheckpointMessage, hasUnresolvedEcommerceCheckpoint } from "./agent-run-checkpoint";
 
 export { planToOps, taskResultOps } from "./agent-run-canvas-ops";
 export { acceptsMediaReference, mergeTaskReferences, requestedTextLimit, reviewCorrection, taskImageUrls, taskReferences, taskResultItems, textConstraintInstruction } from "./agent-run-execution-helpers";
@@ -151,6 +158,31 @@ export const agentPlanTool = {
     },
 };
 
+export function agentPlanToolForMode(mode?: CreativeGenerationMode) {
+    if (!mode) return agentPlanTool;
+    const deliverables = agentPlanTool.parameters.properties.deliverables;
+    const items = deliverables.items;
+    return {
+        ...agentPlanTool,
+        parameters: {
+            ...agentPlanTool.parameters,
+            properties: {
+                ...agentPlanTool.parameters.properties,
+                deliverables: {
+                    ...deliverables,
+                    items: {
+                        ...items,
+                        properties: {
+                            ...items.properties,
+                            type: { ...items.properties.type, enum: [mode] },
+                        },
+                    },
+                },
+            },
+        },
+    };
+}
+
 export function normalizeTasks(
     plan: AgentPlan,
     skills: Awaited<ReturnType<typeof getAuthSettings>>["agentSkills"],
@@ -206,7 +238,18 @@ export function normalizeTasks(
             ...selectedAssets.flatMap((asset) => {
                 const url = assetAccessUrl(asset);
                 const role = frameRoles.get(asset.id);
-                return url && asset.type !== "text" ? [{ assetId: asset.id, url, type: asset.type, ...(role ? { role } : {}) }] : [];
+                return url && asset.type !== "text"
+                    ? [
+                          {
+                              assetId: asset.id,
+                              url,
+                              type: asset.type,
+                              ...(role ? { role } : {}),
+                              ...(Number.isFinite(asset.width) ? { width: asset.width } : {}),
+                              ...(Number.isFinite(asset.height) ? { height: asset.height } : {}),
+                          },
+                      ]
+                    : [];
             }),
         ] satisfies AgentRunReference[];
         const primaryReference = references[0];
@@ -425,6 +468,23 @@ export async function executeTasks(runId: string, origin: string, cookie: string
     while (await canContinue(runId, executionId)) {
         const run = await getAgentRun(runId);
         if (!run) return;
+        const unresolvedCheckpoint = run.tasks.find((task) => hasUnresolvedEcommerceCheckpoint(run, task));
+        if (unresolvedCheckpoint) {
+            if (run.status === "running") {
+                await updateAgentRunById(
+                    runId,
+                    {
+                        status: "paused",
+                        executionId: undefined,
+                        tasks: run.tasks.map((task) => (task.id === unresolvedCheckpoint.id ? { ...task, status: "needs_review" as const, error: ecommerceCheckpointMessage(task) } : task)),
+                    },
+                    { type: "run.paused", data: { message: ecommerceCheckpointMessage(unresolvedCheckpoint) } },
+                    ["running"],
+                    executionId,
+                );
+            }
+            return;
+        }
         const completed = new Set(run.tasks.filter((task) => task.status === "completed").map((task) => task.id));
         const ready = run.tasks.filter((task) => (task.status === "ready" || task.status === "running" || task.status === "needs_review") && task.dependencies.every((id) => completed.has(id))).slice(0, settings.generationConcurrency.agent);
         if (!ready.length) {
@@ -448,7 +508,7 @@ export async function executeTasks(runId: string, origin: string, cookie: string
                 }
                 const reply = `${agentRunCompletionReply(completedRun)}${projectHandoff ? `\n\n已创建${projectHandoff.surface === "canvas" ? "画布" : "短剧"}项目「${projectHandoff.title}」，可以从当前对话直接打开。` : ""}`;
                 const backgroundReview = !shouldBlockOnReview(completedRun) && !completedRun.reviewed;
-                const finished = await updateAgentRunById(
+                await updateAgentRunById(
                     runId,
                     {
                         status: "completed",
@@ -460,7 +520,6 @@ export async function executeTasks(runId: string, origin: string, cookie: string
                     ["running"],
                     executionId,
                 );
-                if (finished && backgroundReview) await scheduleGenerationTask("agent", runId, { executionPhase: "review_pending", nextPollAt: Date.now(), lastUpstreamStatus: "review_pending" });
                 return;
             }
             const blocked = run.tasks.filter((task) => task.status === "ready");
@@ -489,7 +548,8 @@ export async function executeTasks(runId: string, origin: string, cookie: string
         if (results.some((result) => result === "needs_review")) {
             const latest = await getAgentRun(runId);
             if (latest?.status === "running") {
-                await updateAgentRunById(runId, { status: "paused", executionId: undefined }, { type: "run.paused", data: { message: "上游创建结果待确认，任务已暂停并保留原任务身份" } }, ["running"], executionId);
+                const message = toSafeGenerationErrorMessage(textDefault(latest.tasks.find((task) => task.status === "needs_review")?.error), "任务已暂停等待复核，并保留原任务身份");
+                await updateAgentRunById(runId, { status: "paused", executionId: undefined }, { type: "run.paused", data: { message } }, ["running"], executionId);
             }
             return;
         }
@@ -498,21 +558,41 @@ export async function executeTasks(runId: string, origin: string, cookie: string
 }
 
 function shouldBlockOnReview(run: AgentRun) {
+    if (run.ecommerceSnapshot?.qualityPolicy) return false;
     return run.tasks.length > 1 || run.surface === "drama" || /严格检查|高质量模式|完整复盘/u.test(run.prompt);
 }
 
 export async function processAgentRunReview(run: AgentRun, origin: string, cookie: string) {
     if (run.status !== "completed" || run.reviewed) return { status: "completed" as const, attempts: run.reviewAttempts || 0 };
     const attempts = (run.reviewAttempts || 0) + 1;
-    const started = await updateAgentRunById(run.id, { reviewStatus: "reviewing", reviewAttempts: attempts }, { type: "run.review.started", data: { attempt: attempts } }, ["completed"]);
+    const started = await updateAgentRunById(run.id, { reviewStatus: "reviewing", reviewAttempts: attempts }, { type: "run.review.started", data: { attempt: attempts } }, ["completed"], undefined, run.tasks, {
+        attempts: run.reviewAttempts || 0,
+        reviewed: false,
+    });
     if (!started || started.reviewed) return { status: "completed" as const, attempts };
     try {
+        if (started.ecommerceSnapshot?.qualityPolicy === "disabled") {
+            await updateAgentRunById(started.id, { reviewed: true, reviewStatus: "review_completed" }, { type: "run.review.background", data: { status: "not_run" } }, ["completed"], undefined, started.tasks, { attempts, reviewed: false });
+            return { status: "completed" as const, attempts };
+        }
+        if (started.ecommerceSnapshot?.qualityPolicy === "advisory") {
+            if (started.ecommerceSnapshot.technicalCheck?.status !== "passed") throw new Error("已交付图片的技术检查证据缺失");
+            const task = started.tasks.length === 1 ? started.tasks[0] : undefined;
+            if (!task?.ecommerceExecution || task.status !== "completed") throw new Error("已交付图片任务证据缺失");
+            await checkAndRecordEcommerceResult(started, task, task.result, task.taskIds || (task.taskId ? [task.taskId] : []), origin, cookie, await getAuthSettings(), "", "visual");
+            const latest = await getAgentRun(started.id);
+            const unavailable = latest?.ecommerceSnapshot?.qualityCheck?.status === "unavailable";
+            return { status: unavailable ? ("unavailable" as const) : ("completed" as const), attempts };
+        }
         const review = await reviewCompletedTasks(started, origin, cookie);
         await updateAgentRunById(
             started.id,
             { reviewed: true, review, reviewStatus: review.status === "unavailable" ? "review_unavailable" : "review_completed", timings: { ...(started.timings || { requestAcceptedAt: started.createdAt }), reviewCompletedAt: Date.now() } },
             { type: "run.review.background", data: { status: review.status, issueCount: review.issues.length } },
             ["completed"],
+            undefined,
+            started.tasks,
+            { attempts, reviewed: false },
         );
         return { status: review.status === "unavailable" ? ("unavailable" as const) : ("completed" as const), attempts };
     } catch (error) {
@@ -523,6 +603,9 @@ export async function processAgentRunReview(run: AgentRun, origin: string, cooki
             { reviewed: true, review, reviewStatus: "review_unavailable", timings: { ...(started.timings || { requestAcceptedAt: started.createdAt }), reviewCompletedAt: Date.now() } },
             { type: "run.review.background", data: { status: "unavailable", issueCount: 0 } },
             ["completed"],
+            undefined,
+            started.tasks,
+            { attempts, reviewed: false },
         );
         return { status: "unavailable" as const, attempts };
     }
@@ -617,6 +700,16 @@ export async function runTaskWithRetry(runId: string, task: AgentRunTask, origin
     const resumeExisting = task.childTasks?.some((child) => child.status === "pending" || child.status === "needs_review") || ((task.status === "running" || task.status === "needs_review") && task.taskId && !task.childTasks?.length);
     const attempt = resumeExisting ? Math.max(1, task.attempts) : task.attempts + 1;
     if (!(await canContinue(runId, executionId))) return;
+    const checkpointRun = await getAgentRun(runId);
+    const checkpointTask = checkpointRun?.tasks.find((item) => item.id === task.id) || task;
+    if (checkpointRun && hasUnresolvedEcommerceCheckpoint(checkpointRun, checkpointTask)) {
+        const message = ecommerceCheckpointMessage(checkpointTask);
+        if (checkpointRun.status === "running" && checkpointRun.executionId === executionId) {
+            await patchTask(runId, task.id, { status: "needs_review", error: message }, "task.needs_review", executionId);
+            await updateAgentRunById(runId, { status: "paused", executionId: undefined }, { type: "run.paused", data: { message } }, ["running"], executionId);
+        }
+        return "needs_review" as const;
+    }
     if (!resumeExisting && !(await patchTask(runId, task.id, { status: "running", attempts: attempt, error: undefined }, "task.running", executionId))) return;
     try {
         const activeRun = await getAgentRun(runId);
@@ -625,9 +718,36 @@ export async function runTaskWithRetry(runId: string, task: AgentRunTask, origin
         const executableTask = await withDependencyContext(runId, currentTask);
         const dispatched = await dispatchTask(executableTask, origin, cookie, settings || (await getAuthSettings()), activeRun, executionId, attempt);
         const result = dispatched.result;
+        const qualityGate = executableTask.ecommerceExecution
+            ? await checkAndRecordEcommerceResult(activeRun, executableTask, result, dispatched.sourceTaskIds, origin, cookie, settings || (await getAuthSettings()), executionId, activeRun.ecommerceSnapshot?.qualityPolicy ? "technical" : "legacy")
+            : null;
+        if (qualityGate?.action === "pause") {
+            await patchTask(
+                runId,
+                task.id,
+                {
+                    status: "needs_review",
+                    result,
+                    error: qualityGate.publicMessage,
+                    taskId: dispatched.sourceTaskIds.at(-1),
+                    taskIds: dispatched.sourceTaskIds,
+                    assetIds: [],
+                    referenceAssetId: executableTask.referenceAssetId,
+                    referenceUrl: executableTask.referenceUrl,
+                    referenceType: executableTask.referenceType,
+                    references: executableTask.references,
+                },
+                "task.needs_review",
+                executionId,
+            );
+            await updateAgentRunById(runId, { status: "paused", executionId: undefined }, { type: "run.paused", data: { message: qualityGate.publicMessage } }, ["running"], executionId);
+            return "needs_review" as const;
+        }
         validateAgentTaskResult(task.type, result);
         await patchTask(runId, task.id, {}, "task.validated", executionId);
-        const registeredAssetIds = dispatched.assetIds ?? (await registerAgentTaskAssets(activeRun, { ...executableTask, attempts: attempt, result }, result, dispatched.sourceTaskIds)).map((asset) => asset.id);
+        const publicationRun = qualityGate ? await getAgentRun(runId) : activeRun;
+        if (!publicationRun || publicationRun.status !== "running" || publicationRun.executionId !== executionId) return;
+        const registeredAssetIds = dispatched.assetIds ?? (await registerAgentTaskAssets(publicationRun, { ...executableTask, attempts: attempt, result }, result, dispatched.sourceTaskIds)).map((asset) => asset.id);
         await patchTask(
             runId,
             task.id,
@@ -664,10 +784,174 @@ export async function runTaskWithRetry(runId: string, task: AgentRunTask, origin
         const message = toSafeGenerationErrorMessage(error, "生成任务失败");
         if (await canContinue(runId, executionId)) {
             const latest = await getAgentRun(runId);
-            const childTasks = latest?.tasks.find((item) => item.id === task.id)?.childTasks?.map((child) => (child.status === "pending" ? { ...child, status: "failed" as const, error: message } : child));
+            const latestTask = latest?.tasks.find((item) => item.id === task.id);
+            const childTasks = latestTask?.childTasks?.map((child) => (child.status === "pending" ? { ...child, status: "failed" as const, error: message } : child));
+            const imageTaskIds = Array.from(new Set([...(latestTask?.taskIds || []), ...(latestTask?.childTasks || []).map((child) => child.id), latestTask?.taskId].filter((id): id is string => Boolean(id))));
+            if (latest?.ecommerceSnapshot && latestTask?.ecommerceExecution && imageTaskIds.length) {
+                await persistEcommerceGenerationTrace(
+                    imageTaskIds,
+                    buildEcommerceGenerationTrace({
+                        runId,
+                        task: latestTask,
+                        snapshot: latest.ecommerceSnapshot,
+                        imageTaskIds,
+                        generationStatus: "failed",
+                        finalStatus: "failed",
+                        error: message,
+                    }),
+                );
+            }
             await patchTask(runId, task.id, { status: "failed", error: message, ...(childTasks ? { childTasks } : {}) }, "task.failed", executionId);
         }
         return "failed" as const;
+    }
+}
+
+function uniqueEcommerceRoleCandidates(candidates: Array<EcommerceRoleCandidate | null>): EcommerceRoleCandidate[] {
+    const seen = new Set<string>();
+    return candidates.filter((candidate): candidate is EcommerceRoleCandidate => {
+        if (!candidate) return false;
+        const key = `${candidate.logicalModelId}\u0000${candidate.channelId}\u0000${candidate.upstreamModel}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+}
+async function checkAndRecordEcommerceResult(
+    run: AgentRun,
+    task: AgentRunTask,
+    result: unknown,
+    sourceTaskIds: string[],
+    origin: string,
+    cookie: string,
+    settings: Awaited<ReturnType<typeof getAuthSettings>>,
+    executionId: string,
+    phase: "technical" | "visual" | "legacy",
+) {
+    const allowedStatuses = phase === "visual" ? ["completed" as const] : ["running" as const];
+    const expectedExecutionId = phase === "visual" ? undefined : executionId;
+    const current =
+        phase === "visual" ? await getAgentRun(run.id) : await updateAgentRunById(run.id, {}, { type: "ecommerce.progress", data: { stage: "checking_result", text: publicEcommerceProgress("checking_result") } }, allowedStatuses, expectedExecutionId);
+    if (
+        !current ||
+        (phase === "visual" &&
+            (current.status !== "completed" ||
+                current.reviewed ||
+                current.reviewAttempts !== run.reviewAttempts ||
+                current.ecommerceSnapshot?.qualityPolicy !== "advisory" ||
+                current.ecommerceSnapshot.technicalCheck?.status !== "passed" ||
+                JSON.stringify(current.tasks) !== JSON.stringify(run.tasks)))
+    ) {
+        throw new Error("Agent Run 已暂停、取消或已由新执行器接管");
+    }
+    const snapshot = run.ecommerceSnapshot;
+    const routeSnapshot = snapshot?.modelRouteSnapshots?.quality_check;
+    const frozenCandidate = phase !== "technical" && routeSnapshot ? routeEcommerceRole(settings, "quality_check", routeSnapshot) : null;
+    const candidates = phase === "technical" ? [] : uniqueEcommerceRoleCandidates([frozenCandidate, ...resolveEcommerceRoleCandidates(settings, "quality_check", "text")]);
+    const baselineId = snapshot?.plan?.operation !== "product_to_scene" ? snapshot?.plan?.source.currentSceneBaselineId || snapshot?.plan?.source.productAnchorId : snapshot?.plan?.source.productAnchorId;
+    const baselineRole = baselineId === snapshot?.plan?.source.currentSceneBaselineId ? "scene" : "product";
+    const baselineReference = task.references?.find((item) => item.assetId === baselineId && item.url);
+    const productAnchorReference = task.references?.find((item) => item.ecommerceRole === "product" && item.assetId && item.assetId !== baselineId && item.url);
+    const imageUrls = snapshot?.plan?.canvas
+        ? taskResultItems(result)
+              .map((media) => [media.serverUrl, media.dataUrl, media.url, media.remoteUrl].find((url): url is string => typeof url === "string" && Boolean(url.trim())))
+              .filter((url): url is string => Boolean(url))
+        : taskImageUrls(result);
+    const mediaTasks = await Promise.all(sourceTaskIds.map((id) => getImageTask(id)));
+    const mediaResults = mediaTasks.flatMap((child) =>
+        (child?.result?.results?.length ? child.result.results : child?.result?.batchEvidence ? [] : child?.result ? [child.result] : []).map((media, index) => ({ media, resultId: media.resultId || `${child!.id}:${index + 1}` })),
+    );
+    const hasBatchEvidence = Boolean(snapshot?.plan?.canvas && mediaTasks.some((child) => child?.result?.batchEvidence));
+    const batchEvidence = mediaTasks.flatMap((child) => child?.result?.batchEvidence || []);
+    const resultImages =
+        snapshot?.plan?.canvas && (hasBatchEvidence || mediaResults.length)
+            ? mediaResults.map(({ media, resultId }) => ({
+                  resultId,
+                  url: media.serverUrl || media.dataUrl,
+                  ...(media.canvasEvidence ? { nativeUrl: media.canvasEvidence.nativeUrl, nativeSize: media.canvasEvidence.nativeSize } : {}),
+                  ...(media.sceneProtectionEvidence ? { sceneProtectionEvidence: structuredClone(media.sceneProtectionEvidence) } : {}),
+              }))
+            : imageUrls.map((url, index) => {
+                  const stored = mediaResults.find(({ media }) => [media.serverUrl, media.dataUrl, media.remoteUrl].includes(url));
+                  return {
+                      resultId: stored?.resultId || sourceTaskIds[index] || `${task.id}-${index + 1}`,
+                      url: stored ? stored.media.serverUrl || stored.media.dataUrl : url,
+                      ...(stored?.media.canvasEvidence ? { nativeUrl: stored.media.canvasEvidence.nativeUrl, nativeSize: stored.media.canvasEvidence.nativeSize } : {}),
+                      ...(stored?.media.sceneProtectionEvidence ? { sceneProtectionEvidence: structuredClone(stored.media.sceneProtectionEvidence) } : {}),
+                  };
+              });
+    const fallbackRole = routeSnapshot || candidates[0]?.snapshot || ({ logicalRole: "quality_check", capability: "text", logicalModelId: "", channelId: "", upstreamModel: "", apiFormat: "openai" } as const);
+    const checkInput = snapshot?.plan
+        ? {
+              origin,
+              cookie,
+              userId: run.userId,
+              requestId: `${run.id}:${task.id}:${sourceTaskIds.join(",")}`,
+              plan: snapshot.plan,
+              baselineReference: { assetId: baselineId || "", url: baselineReference?.url || "", role: baselineRole as "scene" | "product" },
+              ...(productAnchorReference ? { productAnchorReference: { assetId: productAnchorReference.assetId!, url: productAnchorReference.url } } : {}),
+              analysisVisibleStructure: snapshot.visualAnalysis?.references.find((reference) => reference.assetId === baselineId)?.visibleStructure,
+              resultImages,
+              ...(hasBatchEvidence ? { batchEvidence } : {}),
+          }
+        : undefined;
+    if (!checkInput) throw new Error("电商编辑计划缺失");
+    const technicalCheck = phase === "technical" ? await checkEcommerceTechnicalResult(checkInput) : snapshot?.technicalCheck;
+    const qualityCheck =
+        phase === "technical"
+            ? undefined
+            : snapshot?.plan && candidates.length && baselineReference
+              ? await checkEcommerceResultWithFallback(checkInput, candidates, technicalCheck)
+              : unavailableEcommerceQualityCheck(!snapshot?.plan ? "电商编辑计划缺失" : !candidates.length ? "结果验收模型快照不可用" : "验收基线图片不可用", fallbackRole);
+    const gate = phase === "legacy" ? ecommerceQualityGate(qualityCheck!) : ecommerceResultDeliveryGate(technicalCheck!, qualityCheck);
+    const ecommerceSnapshot = snapshot ? { ...snapshot, ...(technicalCheck ? { technicalCheck } : {}), ...(qualityCheck ? { qualityCheck } : {}) } : snapshot;
+    if (
+        !ecommerceSnapshot ||
+        !(await updateAgentRunById(
+            run.id,
+            {
+                ecommerceSnapshot,
+                ...(phase === "visual"
+                    ? {
+                          reviewed: true,
+                          reviewStatus: qualityCheck?.status === "unavailable" ? ("review_unavailable" as const) : ("review_completed" as const),
+                          timings: { ...(run.timings || { requestAcceptedAt: run.createdAt }), reviewCompletedAt: Date.now() },
+                      }
+                    : {}),
+            },
+            { type: "ecommerce.quality", data: { status: gate.publicStatus, text: gate.publicMessage } },
+            allowedStatuses,
+            expectedExecutionId,
+            phase === "visual" ? run.tasks : undefined,
+            phase === "visual" ? { attempts: run.reviewAttempts || 0, reviewed: false } : undefined,
+        ))
+    ) {
+        throw new Error("Agent Run 已暂停、取消或已由新执行器接管");
+    }
+    await persistEcommerceGenerationTrace(
+        sourceTaskIds,
+        buildEcommerceGenerationTrace({
+            runId: run.id,
+            task,
+            snapshot: ecommerceSnapshot,
+            imageTaskIds: sourceTaskIds,
+            generationStatus: "completed",
+            finalStatus: snapshot?.qualityPolicy && gate.action === "publish" ? "completed" : gate.publicStatus || "completed",
+        }),
+    );
+    return gate;
+}
+
+async function persistEcommerceGenerationTrace(taskIds: string[], trace: ReturnType<typeof buildEcommerceGenerationTrace>) {
+    try {
+        const stored = await Promise.all(taskIds.map((taskId) => updateImageTask(taskId, { ecommerceTrace: trace })));
+        if (stored.some((task) => !task)) throw new Error("one or more image tasks were unavailable while storing the trace");
+        const attached = await attachEcommerceTraceToGenerationLogs(taskIds, trace);
+        if (attached.updated < taskIds.length) {
+            console.warn(`[ecommerce-generation-trace] ${taskIds.length - attached.updated} trace(s) remain pending on image tasks`);
+        }
+    } catch (error) {
+        console.error("[ecommerce-generation-trace] persist failed", error instanceof Error ? error.message : "unknown error");
     }
 }
 
@@ -711,8 +995,10 @@ export function taskPath(type: AgentRunTask["type"]) {
 export async function dispatchTask(task: AgentRunTask, origin: string, cookie: string, settings: Awaited<ReturnType<typeof getAuthSettings>>, run: AgentRun, executionId: string, attempt: number) {
     const directTextContent = run.surface === "canvas" ? directCanvasTextContent(task) : null;
     if (directTextContent) return { result: { content: directTextContent }, sourceTaskIds: [`direct-${run.id}-${task.id}`] };
-    const model = resolvePlannedModel(settings, task.type, task.model);
-    const resolved = resolveLogicalModel(settings, task.type, model || "");
+    const ecommerceResolved = task.ecommerceExecution ? routeEcommerceRole(settings, "image_generation", task.ecommerceExecution.modelSnapshot) : null;
+    if (task.ecommerceExecution && !ecommerceResolved) throw new Error("电商生图执行快照已失效，请重新发起任务");
+    const model = task.ecommerceExecution?.modelSnapshot.logicalModelId || resolvePlannedModel(settings, task.type, task.model);
+    const resolved = ecommerceResolved || resolveLogicalModel(settings, task.type, model || "");
     const channel = resolved?.channel;
     if (!model || !channel || !resolved) throw new Error(`后台尚未配置可用的默认${task.type === "image" ? "图片" : task.type === "video" ? "视频" : task.type === "audio" ? "音频" : "文本"}模型`);
     const config = {
@@ -745,7 +1031,19 @@ export async function dispatchTask(task: AgentRunTask, origin: string, cookie: s
                   source,
                   title: task.title,
                   kind: references.length ? "edit" : "generation",
-                  references: references.filter((item) => item.type === "image").map((item) => ({ dataUrl: "", url: item.url })),
+                  references: references
+                      .filter((item) => item.type === "image")
+                      .map((item) => ({
+                          ...(item.ecommerceRole && item.assetId ? { id: item.assetId } : {}),
+                          dataUrl: "",
+                          url: item.url,
+                          ...(Number.isFinite(item.width) ? { width: item.width } : {}),
+                          ...(Number.isFinite(item.height) ? { height: item.height } : {}),
+                          ...(item.ecommerceRole ? { ecommerceRole: item.ecommerceRole } : {}),
+                      })),
+                  ...(task.productProtectionRegions ? { productProtectionRegions: task.productProtectionRegions } : {}),
+                  ...(task.sceneProtection ? { sceneProtection: task.sceneProtection } : {}),
+                  ...(task.ecommerceExecution ? { ecommerceExecution: task.ecommerceExecution } : {}),
                   context,
               }
             : task.type === "video"
@@ -762,7 +1060,21 @@ export async function dispatchTask(task: AgentRunTask, origin: string, cookie: s
         if (!taskId) {
             const bodyForCopy = {
                 ...body,
-                context: { ...context, clientRequestId: `${run.clientRequestId}:${task.id}:${attempt}:${index + 1}` },
+                context: {
+                    ...context,
+                    clientRequestId: `${run.clientRequestId}:${task.id}:${attempt}:${index + 1}`,
+                    ...(task.type === "image" && run.ecommerceSnapshot?.referenceCheckpoint
+                        ? {
+                              referenceDispatch: {
+                                  executionId,
+                                  inputId: run.ecommerceSnapshot.referenceCheckpoint.inputId,
+                                  decisionId: run.ecommerceSnapshot.referenceCheckpoint.decisionId,
+                                  analysisRequestId: run.ecommerceSnapshot.referenceCheckpoint.analysisStage.requestId,
+                                  copy: index + 1,
+                              },
+                          }
+                        : {}),
+                },
             };
             const response = await fetchInternalApi(`${origin}${path}`, { method: "POST", headers: runtimeRequestHeaders(cookie, { "Content-Type": "application/json" }), body: JSON.stringify(bodyForCopy), cache: "no-store" });
             if (!response.ok) throw new Error((await response.text()) || "生成任务创建失败");
@@ -776,16 +1088,26 @@ export async function dispatchTask(task: AgentRunTask, origin: string, cookie: s
         }
         try {
             if (child?.status === "completed") {
-                const registered = await registerAgentTaskAssets(run, { ...task, title: copies > 1 ? `${task.title} ${index + 1}` : task.title, count: 1, attempts: attempt, result: child.result }, child.result, [taskId]);
-                const assetIds = registered.map((asset) => asset.id);
-                await patchTask(run.id, task.id, { assetIds }, "task.child.restored", executionId);
+                const assetIds = task.ecommerceExecution
+                    ? undefined
+                    : (await registerAgentTaskAssets(run, { ...task, title: copies > 1 ? `${task.title} ${index + 1}` : task.title, count: 1, attempts: attempt, result: child.result }, child.result, [taskId])).map((asset) => asset.id);
+                await patchTask(run.id, task.id, { ...(assetIds ? { assetIds } : {}) }, "task.child.restored", executionId);
                 return { index, result: child.result, taskId, assetIds };
             }
-            const result = await pollTask(origin, task.type === "video" ? "/api/video-tasks" : path, taskId, cookie, run.id, task.type, executionId, child?.status === "needs_review");
-            const registered = await registerAgentTaskAssets(run, { ...task, title: copies > 1 ? `${task.title} ${index + 1}` : task.title, count: 1, attempts: attempt, result }, result, [taskId]);
-            const assetIds = registered.map((asset) => asset.id);
+            let recoverNeedsReview = child?.status === "needs_review";
+            if (recoverNeedsReview && task.type === "image") {
+                try {
+                    recoverNeedsReview = (await getStoredGenerationTaskRecord("image", taskId))?.executionPhase === "needs_review";
+                } catch {
+                    throw new AgentChildTaskDeferredError("生成任务查询暂时不可用");
+                }
+            }
+            const result = await pollTask(origin, task.type === "video" ? "/api/video-tasks" : path, taskId, cookie, run.id, task.type, executionId, recoverNeedsReview);
+            const assetIds = task.ecommerceExecution
+                ? undefined
+                : (await registerAgentTaskAssets(run, { ...task, title: copies > 1 ? `${task.title} ${index + 1}` : task.title, count: 1, attempts: attempt, result }, result, [taskId])).map((asset) => asset.id);
             const completedChild = { id: taskId, status: "completed" as const, attempt: child?.attempt || attempt, result };
-            if (!(await patchTask(run.id, task.id, { taskId, taskIds: [taskId], childTasks: [completedChild], assetIds }, "task.child.completed", executionId))) throw new Error("Agent Run 已由新执行器接管");
+            if (!(await patchTask(run.id, task.id, { taskId, taskIds: [taskId], childTasks: [completedChild], ...(assetIds ? { assetIds } : {}) }, "task.child.completed", executionId))) throw new Error("Agent Run 已由新执行器接管");
             return { index, result, taskId, assetIds };
         } catch (error) {
             if (error instanceof AgentChildTaskDeferredError) throw error;
@@ -794,14 +1116,14 @@ export async function dispatchTask(task: AgentRunTask, origin: string, cookie: s
             throw error;
         }
     });
-    const failed = outcomes.find((outcome) => outcome.status === "rejected");
+    const failed = outcomes.find((outcome) => outcome.status === "rejected" && outcome.reason instanceof AgentChildTaskDeferredError && outcome.reason.needsReview) || outcomes.find((outcome) => outcome.status === "rejected");
     if (failed?.status === "rejected") throw failed.reason;
     const completed = outcomes.flatMap((outcome) => (outcome.status === "fulfilled" ? [outcome.value] : [])).sort((left, right) => left.index - right.index);
     const results = completed.map((outcome) => outcome.result);
     return {
         result: results.length === 1 ? results[0] : { results },
         sourceTaskIds: Array.from(new Set([...(task.taskIds || []), ...completed.map((outcome) => outcome.taskId)])),
-        assetIds: Array.from(new Set([...(task.assetIds || []), ...completed.flatMap((outcome) => outcome.assetIds)])),
+        ...(task.ecommerceExecution ? {} : { assetIds: Array.from(new Set([...(task.assetIds || []), ...completed.flatMap((outcome) => outcome.assetIds || [])])) }),
     };
 }
 
@@ -868,13 +1190,13 @@ export async function pollTask(origin: string, path: string, taskId: string, coo
         if ([408, 425, 429].includes(response.status) || response.status >= 500) throw new AgentChildTaskDeferredError("生成任务查询暂时不可用");
         throw new AgentChildTaskTerminalError((await response.text()) || "生成任务查询失败");
     }
-    let payload: { task?: { status?: string; result?: unknown; error?: string; needsReview?: boolean } };
+    let payload: { task?: { status?: string; result?: unknown; error?: string; needsReview?: boolean; reviewReason?: unknown } };
     try {
         payload = (await response.json()) as typeof payload;
     } catch {
         throw new AgentChildTaskDeferredError("生成任务状态暂时无法解析");
     }
-    if (payload.task?.needsReview) throw new AgentChildTaskDeferredError("上游创建状态待确认", true);
+    if (payload.task?.needsReview) throw new AgentChildTaskDeferredError(toSafeGenerationErrorMessage(textDefault(payload.task.reviewReason), "上游创建状态待确认"), true);
     const terminal = agentChildTaskTerminal(payload.task?.status);
     if (terminal === "success") return payload.task?.result;
     if (terminal === "error") throw new AgentChildTaskTerminalError(payload.task?.error || "生成任务失败");

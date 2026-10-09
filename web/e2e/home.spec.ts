@@ -223,7 +223,7 @@ test("public homepage is functional for signed-out visitors", async ({ browser }
     await context.close();
 });
 
-test("signed-in homepage restores the selected creation mode and prompt", async ({ page }, testInfo) => {
+test("signed-in homepage restores the image prompt in the image-only create entry", async ({ page }, testInfo) => {
     await page.route("**/api/public/gallery?**", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(galleryResponse) }));
     await page.goto("/", { waitUntil: "domcontentloaded" });
     const createEntry = page.locator("header").getByRole("button", { name: "开始创作", exact: true });
@@ -234,7 +234,8 @@ test("signed-in homepage restores the selected creation mode and prompt", async 
     await page.getByLabel("描述你想创作的内容").fill("已登录首页图片提示词");
     await page.getByTestId("home-agent-card").getByRole("button", { name: "开始创作" }).click();
     await expect(page).toHaveURL(/\/create(?:#.*)?$/);
-    await expect(page.getByRole("button", { name: "当前创作类型：图片生成" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /当前创作类型：/ })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /生成模型：/ })).toBeVisible();
     await expect(page.locator("textarea").first()).toHaveValue("已登录首页图片提示词");
 });
 

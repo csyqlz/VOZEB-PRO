@@ -1,6 +1,7 @@
 "use client";
 
 import type { CanvasImageDecomposition, CanvasImageLayerBox, CanvasImageLayerCandidate } from "@/lib/canvas-image-decomposition";
+import { browserReadableMediaUrl } from "@/lib/browser-media-url";
 import { originalImageDownloadUrl } from "@/lib/media-image-url";
 import { renderCanvasPromptedSubjectLayers, renderCanvasSubjectLayers, type CanvasSubjectLayerResult, type CanvasSubjectMask } from "./canvas-subject-segmentation";
 
@@ -228,7 +229,7 @@ function hasVisibleTransparency(data: Uint8ClampedArray) {
     return visible && transparent;
 }
 
-export async function compositeCanvasImageEditResult(sourceUrl: string, generatedUrl: string, editMaskUrl: string, validationMaskUrl?: string) {
+export async function compositeCanvasImageEditResult(sourceUrl: string, generatedUrl: string, editMaskUrl: string, validationMaskUrl?: string, validateChange = true) {
     const [sourceImage, generatedImage, maskImage, validationMaskImage] = await Promise.all([loadImage(sourceUrl), loadImage(generatedUrl), loadImage(editMaskUrl), validationMaskUrl ? loadImage(validationMaskUrl) : undefined]);
     const width = sourceImage.width;
     const height = sourceImage.height;
@@ -236,7 +237,7 @@ export async function compositeCanvasImageEditResult(sourceUrl: string, generate
     const generated = drawImageData(generatedImage, width, height);
     const mask = drawImageData(maskImage, width, height);
     const validationMask = validationMaskImage ? drawImageData(validationMaskImage, width, height) : mask;
-    assertCanvasImageEditChanged(source, generated, validationMask);
+    if (validateChange) assertCanvasImageEditChanged(source, generated, validationMask);
     const composite = compositeImageDataWithinMask(source, generated, mask);
     return imageDataBlob(composite.data, width, height);
 }
@@ -492,7 +493,8 @@ function loadImage(dataUrl: string) {
         const image = new Image();
         image.onload = () => resolve(image);
         image.onerror = () => reject(new Error("图片读取失败，无法处理图像"));
-        image.src = dataUrl;
+        image.crossOrigin = "anonymous";
+        image.src = browserReadableMediaUrl(dataUrl);
     });
 }
 

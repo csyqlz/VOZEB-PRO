@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { directAgentPlan, directGenerationPreferences, normalizeTasks, planToOps, readFunctionCallResult, taskResultOps } from "./agent-run-execution";
+import { agentPlanToolForMode, directAgentPlan, directGenerationPreferences, normalizeTasks, planToOps, readFunctionCallResult, taskResultOps } from "./agent-run-execution";
 import { agentSurfaceImageSize, normalizeCanvasPlanForSelection, resolveAgentTaskRatio } from "./agent-run-task-input";
+
+describe("agentPlanToolForMode", () => {
+    it("将显式图片模式收紧到规划工具 schema", () => {
+        expect(agentPlanToolForMode("image").parameters.properties.deliverables.items.properties.type.enum).toEqual(["image"]);
+    });
+});
 
 describe("directAgentPlan", () => {
     it("使用用户指定的媒体模型创建单任务计划", () => {
@@ -167,6 +173,29 @@ describe("directAgentPlan", () => {
         const [task] = normalizeTasks(plan as never, [], generationSettings() as never, undefined, "产品海报", "chat", [], undefined, { mode: "image", image: { size: "16:9", quality: "high", count: 4 } });
 
         expect(task).toMatchObject({ type: "image", ratio: "16:9", quality: "high", count: 4 });
+    });
+
+    it("统一 Agent 的横版需求保留当前 4K 精确预设尺寸", () => {
+        const plan = {
+            intent: "generation",
+            objective: "生成一张蓝色横版图片",
+            reply: "开始生成",
+            decisions: [],
+            foundation: { complexity: "simple", brief: { objective: "生成蓝色图片" }, direction: { summary: "横版构图" } },
+            deliverables: [{ id: "blue", title: "蓝色图片", type: "image", model: "image-pro", prompt: "蓝色横版图片", count: 1, ratio: "16:9", dependencies: [] }],
+        };
+        const [task] = normalizeTasks(plan as never, [], generationSettings() as never, undefined, plan.objective, "chat", [], undefined, { mode: "image", image: { size: "3840x2160", quality: "auto" } });
+
+        expect(task.ratio).toBe("3840x2160");
+    });
+
+    it("方向要求只覆盖冲突的自定义尺寸并继续优先采用文字明确尺寸", () => {
+        const base = { type: "image" as const, requestPrompt: "生成竖版图片", configuredImageSize: "2160x3840", plannedRatio: "9:16" };
+
+        expect(resolveAgentTaskRatio(base)).toBe("2160x3840");
+        expect(resolveAgentTaskRatio({ ...base, requestedImageSize: "768x1024" })).toBe("768x1024");
+        expect(resolveAgentTaskRatio({ ...base, configuredImageSize: "3840x2160" })).toBe("9:16");
+        expect(resolveAgentTaskRatio({ ...base, configuredImageSize: "3:4" })).toBe("9:16");
     });
 
     it("统一 Agent 的智能参数使用规划结果且不回退全局 1:1", () => {

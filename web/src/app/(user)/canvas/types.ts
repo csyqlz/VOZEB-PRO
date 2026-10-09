@@ -1,4 +1,5 @@
 import type { CanvasImageLayerBox, CanvasImageLayerKind } from "@/lib/canvas-image-decomposition";
+import type { ImageEditRegion } from "@/lib/image-edit-region";
 import type { CreativeVideoReferenceMode, VideoReferenceRole } from "@/lib/video-reference-contract";
 
 export type Position = {
@@ -105,6 +106,7 @@ export type CanvasNodeMetadata = {
     };
     content?: string;
     composerContent?: string;
+    editPromptDraft?: string;
     prompt?: string;
     sourcePrompt?: string;
     status?: CanvasNodeStatus;
@@ -149,6 +151,7 @@ export type CanvasNodeMetadata = {
         mimeType?: string;
         width?: number;
         height?: number;
+        editRegion?: ImageEditRegion;
     };
     imageEditValidationMask?: {
         storageKey: string;

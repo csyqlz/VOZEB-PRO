@@ -1,5 +1,7 @@
 import { getDatabaseProvider, ensurePostgresSchema, postgresQuery, withPostgresTransaction } from "@/lib/server/database";
 import { listStoredGenerationTaskRecords, withGenerationTaskFileMutation, type GenerationTaskType, type StoredGenerationTaskRecord } from "@/lib/server/generation-task-store";
+import type { ImageTask } from "./image-task-store";
+import { resolveImageEditProtocol } from "./image-edit-protocol";
 
 export type GenerationTaskExecutionPhase = "created" | "submitting" | "submitted" | "polling" | "result_ready" | "persisting" | "cancel_requested" | "cancel_polling" | "needs_review" | "review_pending" | "reviewing" | "review_unavailable" | "completed";
 
@@ -26,7 +28,7 @@ export type GenerationTaskLease = Pick<
 >;
 
 export type GenerationTaskSchedulePatch = Partial<Pick<GenerationTaskLease, "executionPhase" | "upstreamTaskId" | "channelId" | "provider" | "queryPath" | "submittedAt" | "nextPollAt" | "lastPollAt" | "lastUpstreamStatus" | "resultPayload">>;
-type GenerationTaskScheduleOptions = { cancellation?: boolean; resetUpstreamIdentity?: boolean };
+type GenerationTaskScheduleOptions = { cancellation?: boolean; resetUpstreamIdentity?: boolean; unsubmittedReferenceRecovery?: boolean; unsubmittedMaskRecovery?: StoredGenerationTaskRecord };
 
 const SCHEDULABLE_TYPES = new Set<GenerationTaskType>(["image", "video", "audio", "text", "agent"]);
 const ACTIVE_PHASES = new Set<GenerationTaskExecutionPhase>(["created", "submitting", "submitted", "polling", "result_ready", "persisting"]);
@@ -35,6 +37,7 @@ const CANCELLATION_PHASES = new Set<GenerationTaskExecutionPhase>(["cancel_reque
 
 export async function scheduleGenerationTask(type: GenerationTaskType, id: string, patch: GenerationTaskSchedulePatch, options: GenerationTaskScheduleOptions = {}) {
     const normalized = normalizePatch(patch);
+    if (options.unsubmittedMaskRecovery && !canRecoverUnsubmittedImageMask(options.unsubmittedMaskRecovery)) return null;
     if (getDatabaseProvider() === "postgres") {
         await ensurePostgresSchema();
         const result = await postgresQuery<Record<string, unknown>>(
@@ -45,8 +48,23 @@ export async function scheduleGenerationTask(type: GenerationTaskType, id: strin
                  last_upstream_status = COALESCE($11, last_upstream_status), result_payload = COALESCE($12::jsonb, result_payload)
              WHERE id = $1 AND task_type = $2
                AND ($13::boolean OR status <> 'cancelled' OR execution_phase NOT IN ('cancel_requested', 'cancel_polling'))
+               AND (NOT $14::boolean OR (
+                   task_type = 'image' AND status = 'running' AND execution_phase = 'needs_review'
+                   AND worker_id IS NULL AND lease_until IS NULL AND submitted_at IS NULL AND upstream_task_id IS NULL
+                   AND split_part(last_upstream_status, ':', 1) IN ('reference_source_unavailable', 'reference_validation_unavailable')
+                   AND NULLIF(payload->>'runId', '') IS NOT NULL AND jsonb_typeof(payload->'referenceDispatch') = 'object'
+                   AND COALESCE(payload->'attempts', '[]'::jsonb) = '[]'::jsonb
+                   AND payload->>'billing' IS NULL AND payload->>'upstream' IS NULL AND payload->>'result' IS NULL
+                   AND COALESCE(result_payload, '{}'::jsonb) - 'reviewReason' = '{}'::jsonb
+               ))
+               AND ($15::jsonb IS NULL OR (
+                   task_type = 'image' AND status IN ('pending', 'running') AND execution_phase = 'needs_review'
+                   AND worker_id IS NULL AND lease_until IS NULL AND submitted_at IS NULL AND upstream_task_id IS NULL
+                   AND split_part(last_upstream_status, ':', 1) IN ('strict_product_mask_review_required', 'scene_mask_review_required')
+                   AND payload = $15::jsonb AND COALESCE(result_payload, '{}'::jsonb) - 'reviewReason' = '{}'::jsonb
+               ))
              RETURNING *`,
-            [...scheduleValues(id, type, normalized), options.cancellation === true],
+            [...scheduleValues(id, type, normalized), options.cancellation === true, options.unsubmittedReferenceRecovery === true, options.unsubmittedMaskRecovery ? JSON.stringify(options.unsubmittedMaskRecovery.payload) : null],
         );
         return result.rows[0] ? mapLease(result.rows[0]) : null;
     }
@@ -268,7 +286,72 @@ function isSchedulable(task: StoredGenerationTaskRecord, now: number) {
 }
 
 function canApplySchedulePatch(task: StoredGenerationTaskRecord, options: GenerationTaskScheduleOptions) {
+    if (options.unsubmittedReferenceRecovery && !canRecoverUnsubmittedImageReference(task)) return false;
+    if (options.unsubmittedMaskRecovery && (!canRecoverUnsubmittedImageMask(task) || JSON.stringify(task.payload) !== JSON.stringify(options.unsubmittedMaskRecovery.payload))) return false;
     return options.cancellation === true || task.status !== "cancelled" || !CANCELLATION_PHASES.has(task.executionPhase || "created");
+}
+
+export function canRecoverUnsubmittedImageReference(task: StoredGenerationTaskRecord | null | undefined) {
+    return Boolean(
+        task && task.status === "running" && task.executionPhase === "needs_review" && ["reference_source_unavailable", "reference_validation_unavailable"].includes((task.lastUpstreamStatus || "").split(":")[0]) && unsubmittedImageReference(task),
+    );
+}
+
+export function canRecoverUnsubmittedImageMask(task: StoredGenerationTaskRecord | null | undefined) {
+    return Boolean(
+        task &&
+        ["pending", "running"].includes(task.status) &&
+        task.executionPhase === "needs_review" &&
+        ["strict_product_mask_review_required", "scene_mask_review_required"].includes((task.lastUpstreamStatus || "").split(":")[0]) &&
+        unsubmittedSceneMask(task),
+    );
+}
+
+function unsubmittedSceneMask(task: StoredGenerationTaskRecord) {
+    const payload = task.payload as Partial<ImageTask>;
+    const protection = payload.sceneProtection;
+    return Boolean(
+        unsubmittedImageReference(task, false) &&
+        payload.kind === "edit" &&
+        payload.ecommerceExecution?.protection?.scope === "local" &&
+        payload.ecommerceExecution.mask?.required === true &&
+        protection?.selectionSource === "user_selection" &&
+        protection.sourceAssetId === payload.references?.[0]?.id &&
+        protection.sourceAssetId === payload.ecommerceExecution.referenceRoles?.[0]?.assetId &&
+        protection.mask?.dataUrl &&
+        protection.mask.dataUrl === payload.mask?.dataUrl &&
+        payload.config?.apiFormat === "openai" &&
+        payload.ecommerceExecution.modelSnapshot?.imageEdit?.supportsIndependentMask !== false &&
+        resolveImageEditProtocol(payload.config).supportsIndependentMask,
+    );
+}
+
+export function canContinueCreatedImageReference(task: StoredGenerationTaskRecord | null | undefined) {
+    return Boolean(
+        task &&
+        ["pending", "running"].includes(task.status) &&
+        task.executionPhase === "created" &&
+        !["reference_source_changed", "submission_outcome_unknown"].includes((task.lastUpstreamStatus || "").split(":")[0]) &&
+        (unsubmittedImageReference(task) || unsubmittedSceneMask(task)),
+    );
+}
+
+function unsubmittedImageReference(task: StoredGenerationTaskRecord, requireReferenceDispatch = true) {
+    const payload = task.payload;
+    return Boolean(
+        task.type === "image" &&
+        !task.workerId &&
+        !task.leaseUntil &&
+        !task.submittedAt &&
+        !task.upstreamTaskId &&
+        payload.runId &&
+        (!requireReferenceDispatch || record(payload.referenceDispatch)) &&
+        (payload.attempts === undefined || (Array.isArray(payload.attempts) && payload.attempts.length === 0)) &&
+        !payload.billing &&
+        !payload.upstream &&
+        !payload.result &&
+        Object.keys(task.resultPayload || {}).every((key) => key === "reviewReason"),
+    );
 }
 
 function mapLease(row: Record<string, unknown>): GenerationTaskLease {

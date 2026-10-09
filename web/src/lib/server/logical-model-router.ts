@@ -12,6 +12,8 @@ export type ResolvedLogicalModel = {
     capabilityProfile?: ReturnType<typeof resolveLogicalModelCapabilityProfile>;
 };
 
+export type LogicalModelRouteSnapshot = Pick<ResolvedLogicalModel, "logicalModelId" | "channelId" | "upstreamModel">;
+
 export function resolveLogicalModel(settings: Pick<AuthSettings, "logicalModels" | "systemChannels">, capability: LogicalModelCapability, requestedModelId: string, preferredChannelId = ""): ResolvedLogicalModel | null {
     return resolveLogicalModelCandidates(settings, capability, requestedModelId, preferredChannelId)[0] || null;
 }
@@ -39,6 +41,10 @@ export function resolveLogicalModelCandidates(settings: Pick<AuthSettings, "logi
         .filter((item) => item.enabled && channelConnectionReady(item) && channelSupportsModel(item.models, requested) && channelModelCapability(item, requested) === capability)
         .map((channel) => ({ logicalModelId: requested, upstreamModel: requested, channelId: channel.id, channel, capabilityProfile: resolveLogicalModelCapabilityProfile({}, capability, channel, requested) }));
     return capability === "text" ? resolved : filterHealthyRuntimeCandidates(resolved, capability);
+}
+
+export function resolveLogicalModelSnapshot(settings: Pick<AuthSettings, "logicalModels" | "systemChannels">, capability: LogicalModelCapability, snapshot: LogicalModelRouteSnapshot): ResolvedLogicalModel | null {
+    return resolveLogicalModelCandidates(settings, capability, snapshot.logicalModelId).find((candidate) => candidate.channelId === snapshot.channelId && channelSupportsModel([candidate.upstreamModel], snapshot.upstreamModel)) || null;
 }
 
 export function resolveLogicalBillingModel(logicalModels: AuthSettings["logicalModels"], capability: LogicalModelCapability, channelId: string, upstreamModel: string, preferredLogicalModelId = "") {

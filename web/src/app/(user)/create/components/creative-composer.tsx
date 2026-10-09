@@ -2,24 +2,28 @@
 
 import { Button, Input, Popover, Tooltip } from "antd";
 import type { TextAreaRef } from "antd/es/input/TextArea";
-import { ArrowUp, AtSign, Boxes, Check, ChevronDown, ChevronLeft, ChevronRight, FileAudio, FileVideo, ImageIcon, Plus, Sparkles, Square, WandSparkles, X } from "lucide-react";
+import { ArrowUp, AtSign, Boxes, Check, ChevronLeft, ChevronRight, FileAudio, FileVideo, ImageIcon, Plus, Sparkles, Square, WandSparkles, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type MouseEventHandler, type PointerEventHandler, type RefObject, type WheelEvent } from "react";
 
-import type { CreativeAsset, CreativeGenerationMode, CreativeGenerationPreferences } from "@/lib/creative-runtime-contract";
+import type { CreativeAsset, CreativeGenerationPreferences } from "@/lib/creative-runtime-contract";
 import { creativeAssetReferenceAliases } from "@/lib/creative-asset-references";
 import { clipboardImageFiles } from "@/lib/clipboard-image-files";
 import { imagePreviewUrl } from "@/lib/media-image-url";
-import type { VideoReferenceRole } from "@/lib/video-reference-contract";
 import { cn } from "@/lib/utils";
 
 import { creativeComposerPopoverOverflow, useCreativeComposerPopoverPlacement } from "@/components/creative-composer-popover";
 import { creativeComposerToolButtonClass } from "@/components/creative-composer-styles";
-import { shouldShowVideoFrameControls } from "./creative-composer-video-mode";
-import { creativeAssetMentionAtCursor, creativeAssetMentionCandidates, creativeAssetMentionDeletionAtKey, creativeAssetMentionSegments, replaceCreativeAssetMention, type CreativeAssetMentionSegment } from "./creative-asset-mention";
+import {
+    creativeAssetMentionAtCursor,
+    creativeAssetMentionCandidates,
+    creativeAssetMentionDeletionAtKey,
+    creativeAssetMentionSegments,
+    mergeCreativeAssetMentionSources,
+    replaceCreativeAssetMention,
+    type CreativeAssetMentionSegment,
+} from "./creative-asset-mention";
 import { CreativeAssetMentionPicker } from "./creative-asset-mention-picker";
 import { CreativeGenerationControls, type CreativeModelOption } from "./creative-generation-controls";
-import { CreativeModeIcon, creativeModeOptions } from "@/components/creative-generation-preferences";
-import { CreativeVideoFrameControls } from "./creative-video-frame-controls";
 
 type SkillOption = {
     id: string;
@@ -50,7 +54,6 @@ export function CreativeComposer({
     models,
     selectedModels,
     smartPlanning,
-    creationMode,
     generationPreferences,
     uploading,
     onRemoveAttachment,
@@ -60,12 +63,7 @@ export function CreativeComposer({
     onToggleModel,
     onClearModels,
     onToggleSmartPlanning,
-    onChangeCreationMode,
-    onChangeGenerationCapability,
     onChangeGenerationPreference,
-    onSelectVideoFrame,
-    onUploadVideoFrame,
-    onRemoveVideoFrame,
     centered = false,
     compact = false,
     onExpand,
@@ -89,7 +87,6 @@ export function CreativeComposer({
     models: CreativeModelOption[];
     selectedModels: CreativeModelOption[];
     smartPlanning: boolean;
-    creationMode: "agent" | CreativeGenerationMode;
     generationPreferences: CreativeGenerationPreferences;
     uploading: boolean;
     onRemoveAttachment: (id: string) => void;
@@ -99,19 +96,13 @@ export function CreativeComposer({
     onToggleModel: (model: CreativeModelOption) => void;
     onClearModels: () => void;
     onToggleSmartPlanning: () => void;
-    onChangeCreationMode: (mode: "agent" | CreativeGenerationMode) => void;
-    onChangeGenerationCapability: (capability: CreativeModelOption["capability"]) => void;
     onChangeGenerationPreference: (capability: CreativeModelOption["capability"], patch: Record<string, string | number | boolean>) => void;
-    onSelectVideoFrame: (role: Extract<VideoReferenceRole, "first_frame" | "last_frame">, assetId: string) => void;
-    onUploadVideoFrame: (role: Extract<VideoReferenceRole, "first_frame" | "last_frame">) => void;
-    onRemoveVideoFrame: (role: Extract<VideoReferenceRole, "first_frame" | "last_frame">) => void;
     centered?: boolean;
     compact?: boolean;
     onExpand?: () => void;
 }) {
     const [ready, setReady] = useState(false);
     const [skillPickerOpen, setSkillPickerOpen] = useState(false);
-    const [modePickerOpen, setModePickerOpen] = useState(false);
     const [mentionQuery, setMentionQuery] = useState<string | null>(null);
     const [skillCategory, setSkillCategory] = useState<SkillCategory>("all");
     const caretRef = useRef(0);
@@ -120,30 +111,23 @@ export function CreativeComposer({
 
     const skillCategories = skillCategoryOptions(skills);
     const visibleSkills = skills.filter((skill) => matchesSkillCategory(skill, skillCategory));
-    const currentMode = creativeModeOptions.find((option) => option.value === creationMode) || creativeModeOptions[0];
-    const videoPreference = generationPreferences.video;
-    const frameMode = videoPreference?.referenceMode || "reference";
-    const showVideoFrames = shouldShowVideoFrameControls(creationMode, generationPreferences);
-    const frameAssetIds = new Set([videoPreference?.firstFrameAssetId, videoPreference?.lastFrameAssetId].filter(Boolean));
     const popoverPlacement = centered ? "bottomLeft" : "topLeft";
     const composerPopoverPlacement = useCreativeComposerPopoverPlacement(popoverPlacement);
-    const mentionCandidates = useMemo(() => creativeAssetMentionCandidates(referenceAssets, mentionQuery || ""), [mentionQuery, referenceAssets]);
-    const referenceAliasAssets = useMemo(() => Array.from(new Map([...referenceAssets, ...attachments].map((asset) => [asset.id, asset])).values()), [attachments, referenceAssets]);
+    const referenceAliasAssets = useMemo(() => mergeCreativeAssetMentionSources(referenceAssets, attachments), [attachments, referenceAssets]);
+    const mentionCandidates = useMemo(() => creativeAssetMentionCandidates(referenceAliasAssets, mentionQuery || ""), [mentionQuery, referenceAliasAssets]);
     const referenceAssetsById = useMemo(() => new Map(referenceAliasAssets.map((asset) => [asset.id, asset])), [referenceAliasAssets]);
     const referenceAliases = useMemo(() => creativeAssetReferenceAliases(referenceAliasAssets, selectedAssetIds), [referenceAliasAssets, selectedAssetIds]);
     const mentionSegments = useMemo(() => creativeAssetMentionSegments(value, referenceAliases), [referenceAliases, value]);
     const hasMentionReferences = mentionSegments.some((segment) => segment.referenced);
-    const allMediaAttachments = attachments.filter((asset) => (asset.type === "image" || asset.type === "video") && Boolean(asset.serverUrl || asset.remoteUrl));
-    const visibleAttachments = attachments.filter((asset) => !showVideoFrames || !frameAssetIds.has(asset.id));
-    const mediaAttachments = visibleAttachments.filter((asset) => (asset.type === "image" || asset.type === "video") && Boolean(asset.serverUrl || asset.remoteUrl));
-    const inputMediaAttachments = compact ? allMediaAttachments.filter((asset) => !frameAssetIds.has(asset.id)) : mediaAttachments;
+    const mediaAttachments = attachments.filter((asset) => asset.type === "image" && Boolean(asset.serverUrl || asset.remoteUrl));
+    const inputMediaAttachments = mediaAttachments;
+    const visibleAttachments = attachments;
     const otherAttachments = visibleAttachments.filter((asset) => !mediaAttachments.some((media) => media.id === asset.id));
 
     useEffect(() => setReady(true), []);
 
     useEffect(() => {
         if (!compact) return;
-        setModePickerOpen(false);
         setSkillPickerOpen(false);
         setMentionQuery(null);
     }, [compact]);
@@ -213,7 +197,7 @@ export function CreativeComposer({
                         "creative-composer-input relative z-[1] min-w-0 !border-0 !bg-transparent !px-1 !py-1 !text-[15px] !leading-7 !shadow-none !outline-none sm:!px-2",
                         hasMentionReferences && "!text-transparent caret-[#20242a] dark:caret-[#f3f5f7]",
                     )}
-                    placeholder={compactMode ? "输入你的创作想法" : "输入你的创作想法、脚本或画面要求"}
+                    placeholder={compactMode ? "描述图片需求" : "描述你想生成或修改的图片"}
                     onFocus={() => {
                         if (compactMode) onExpand?.();
                     }}
@@ -320,44 +304,28 @@ export function CreativeComposer({
                 ) : null}
                 <div data-testid="creative-composer-input-row" className={cn("flex min-w-0 items-center gap-2 sm:gap-3", compact ? "h-11 min-h-11 max-h-11" : centered ? "min-h-[112px] items-start" : "min-h-[64px] items-start")}>
                     <div className={cn("hide-scrollbar flex shrink-0 gap-1.5 overflow-x-auto", compact ? "max-w-[42%] items-center overflow-y-hidden pl-1" : "max-w-[46%] items-start px-1 pb-1 pt-1 sm:max-w-[320px]")}>
-                        {showVideoFrames ? (
-                            <CreativeVideoFrameControls
-                                mode={frameMode}
-                                images={attachments.filter((asset) => asset.type === "image")}
-                                firstFrameAssetId={videoPreference?.firstFrameAssetId}
-                                lastFrameAssetId={videoPreference?.lastFrameAssetId}
-                                uploading={uploading}
-                                placement={popoverPlacement}
-                                onSelect={onSelectVideoFrame}
-                                onUpload={onUploadVideoFrame}
-                                onRemove={onRemoveVideoFrame}
+                        {inputMediaAttachments.map((asset) => {
+                            return <ComposerMediaThumbnail key={asset.id} asset={asset} compact={compact} onRemove={onRemoveAttachment} />;
+                        })}
+                        <Tooltip title={mediaAttachments.length ? "继续添加参考图片" : "添加参考图片"}>
+                            <Button
+                                type="text"
+                                className={cn(
+                                    "mt-0.5 shrink-0 !border !border-[#e5e9ed] !bg-[#f5f7f8] !text-[#87919d] hover:!border-[#d4dae0] hover:!bg-[#eef1f3] hover:!text-[#38424e] dark:!border-[#343a42] dark:!bg-[#24282e] dark:!text-[#9ca6b2] dark:hover:!border-[#49515b] dark:hover:!bg-[#2c3239] dark:hover:!text-white",
+                                    compact
+                                        ? "!size-11 !min-w-11 !rounded-xl"
+                                        : mediaAttachments.length
+                                          ? "!size-10 !min-w-10 !rounded-lg sm:!size-12 sm:!min-w-12"
+                                          : centered
+                                            ? "!size-12 !min-w-12 !rounded-xl sm:!size-14 sm:!min-w-14"
+                                            : "!size-11 !min-w-11 !rounded-xl",
+                                )}
+                                icon={<Plus className="size-5" />}
+                                onClick={onAttachment}
+                                loading={uploading}
+                                aria-label={mediaAttachments.length ? "继续添加参考图片" : "添加参考图片"}
                             />
-                        ) : (
-                            <>
-                                {inputMediaAttachments.map((asset) => {
-                                    return <ComposerMediaThumbnail key={asset.id} asset={asset} compact={compact} onRemove={onRemoveAttachment} />;
-                                })}
-                                <Tooltip title={mediaAttachments.length ? "继续添加参考素材" : "添加素材"}>
-                                    <Button
-                                        type="text"
-                                        className={cn(
-                                            "mt-0.5 shrink-0 !border !border-[#e5e9ed] !bg-[#f5f7f8] !text-[#87919d] hover:!border-[#d4dae0] hover:!bg-[#eef1f3] hover:!text-[#38424e] dark:!border-[#343a42] dark:!bg-[#24282e] dark:!text-[#9ca6b2] dark:hover:!border-[#49515b] dark:hover:!bg-[#2c3239] dark:hover:!text-white",
-                                            compact
-                                                ? "!size-11 !min-w-11 !rounded-xl"
-                                                : mediaAttachments.length
-                                                  ? "!size-10 !min-w-10 !rounded-lg sm:!size-12 sm:!min-w-12"
-                                                  : centered
-                                                    ? "!size-12 !min-w-12 !rounded-xl sm:!size-14 sm:!min-w-14"
-                                                    : "!size-11 !min-w-11 !rounded-xl",
-                                        )}
-                                        icon={<Plus className="size-5" />}
-                                        onClick={onAttachment}
-                                        loading={uploading}
-                                        aria-label={mediaAttachments.length ? "继续添加参考素材" : "添加素材"}
-                                    />
-                                </Tooltip>
-                            </>
-                        )}
+                        </Tooltip>
                     </div>
                     {composerInput(compact)}
                     {compact ? (
@@ -405,75 +373,15 @@ export function CreativeComposer({
                 </div>
                 <div className={cn("min-w-0 items-center gap-2 overflow-hidden px-0.5 pb-0.5 pt-2", compact ? "hidden" : "flex")}>
                     <div className="hide-scrollbar flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto sm:gap-2">
-                        <Popover
-                            trigger="click"
-                            placement={composerPopoverPlacement}
-                            autoAdjustOverflow={creativeComposerPopoverOverflow(composerPopoverPlacement)}
-                            arrow={false}
-                            open={modePickerOpen}
-                            onOpenChange={setModePickerOpen}
-                            content={
-                                <div className="hide-scrollbar max-h-[calc(100vh-160px)] w-[calc(100vw-56px)] max-w-[300px] overflow-y-auto py-1 sm:w-72 sm:max-w-none">
-                                    <p className="px-2 pb-2 text-sm font-semibold text-[#20242a] dark:text-[#f3f5f7]">创作类型</p>
-                                    <div className="space-y-1">
-                                        {creativeModeOptions.map((option) => {
-                                            const selected = option.value === creationMode;
-                                            return (
-                                                <button
-                                                    key={option.value}
-                                                    type="button"
-                                                    className={cn(
-                                                        "flex min-h-12 w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left transition hover:bg-[#eef3f6] dark:hover:bg-[#29323a]",
-                                                        selected ? "text-[#20242a] dark:text-white" : "text-[#4f5a67] dark:text-[#bec6cf]",
-                                                    )}
-                                                    onClick={() => {
-                                                        onChangeCreationMode(option.value);
-                                                        setModePickerOpen(false);
-                                                    }}
-                                                >
-                                                    <span
-                                                        className={cn(
-                                                            "grid size-8 shrink-0 place-items-center rounded-lg",
-                                                            selected ? "bg-white text-[#28738e] shadow-sm dark:bg-[#394550] dark:text-[#8ec7da]" : "bg-[#f2f4f6] text-[#7b8692] dark:bg-[#30363e] dark:text-[#a0aab5]",
-                                                        )}
-                                                    >
-                                                        <CreativeModeIcon mode={option.value} />
-                                                    </span>
-                                                    <span className="min-w-0 flex-1">
-                                                        <span className="block text-xs font-medium">{option.label}</span>
-                                                        <span className="mt-0.5 block truncate text-[11px] text-[#8b949f] dark:text-[#7f8996]">{option.description}</span>
-                                                    </span>
-                                                    {selected ? <Check className="size-4 shrink-0" /> : null}
-                                                </button>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
-                            }
-                        >
-                            <Button
-                                type="text"
-                                className={creativeComposerToolButtonClass(modePickerOpen)}
-                                icon={<CreativeModeIcon mode={creationMode} />}
-                                aria-label={`当前创作类型：${currentMode.label}`}
-                                aria-haspopup="menu"
-                                aria-expanded={modePickerOpen}
-                            >
-                                <span className="hidden text-xs font-medium sm:inline">{currentMode.label}</span>
-                                <ChevronDown className="hidden size-3.5 sm:block" />
-                            </Button>
-                        </Popover>
                         <CreativeGenerationControls
                             models={models}
                             selectedModels={selectedModels}
                             smartPlanning={smartPlanning}
-                            creationMode={creationMode}
                             generationPreferences={generationPreferences}
                             placement={composerPopoverPlacement}
                             onToggleModel={onToggleModel}
                             onClearModels={onClearModels}
                             onToggleSmartPlanning={onToggleSmartPlanning}
-                            onCapabilityChange={onChangeGenerationCapability}
                             onChangeGenerationPreference={onChangeGenerationPreference}
                         />
                         <Tooltip title="引用当前对话资产">

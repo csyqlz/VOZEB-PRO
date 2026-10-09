@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
     release: vi.fn(),
     mediaAccess: vi.fn(),
     taskAccess: vi.fn(),
+    gcpAuthHeaders: vi.fn(),
 }));
 
 vi.mock("@/lib/auth/session", () => ({ getCurrentUser: vi.fn(async () => ({ id: "user-one", role: "user", pointsBalance: 5 })) }));
@@ -26,6 +27,7 @@ vi.mock("@/lib/server/media-concurrency", () => ({ acquireMediaConcurrency: mock
 vi.mock("@/lib/server/safe-outbound-fetch", () => ({ fetchSafeOutbound: (url: string | URL, init?: RequestInit) => fetch(url, init) }));
 vi.mock("@/lib/server/generation-media-access", () => ({ authorizeGenerationMediaProxyRequest: mocks.mediaAccess }));
 vi.mock("@/lib/server/generation-task-authorization", () => ({ userOwnsGenerationUpstreamTask: mocks.taskAccess }));
+vi.mock("@/lib/server/gcp-agent-platform-auth", () => ({ gcpAgentPlatformAuthHeaders: mocks.gcpAuthHeaders }));
 vi.mock("@/lib/server/security", () => ({
     checkMediaProxyRateLimit: mocks.checkMediaProxyRateLimit,
     isSafeOutboundUrl: mocks.safeUrl,
@@ -480,6 +482,57 @@ describe("Agnes video polling proxy", () => {
     });
 });
 
+describe("Gemini native image alias proxy", () => {
+    beforeEach(() => {
+        vi.restoreAllMocks();
+        mocks.consumeUserPoints.mockReset().mockResolvedValue(undefined);
+        mocks.refundUserPoints.mockReset();
+        mocks.safeUrl.mockReset().mockResolvedValue(true);
+    });
+
+    it("authorizes a resolution alias without requiring it in the channel model list", async () => {
+        mocks.getAuthSettings.mockResolvedValue({
+            generationPointMultipliers: {},
+            logicalModels: [logicalModel("gemini-image", "image", "gemini-3.1-flash-image")],
+            systemChannels: [
+                {
+                    id: "channel-one",
+                    enabled: true,
+                    baseUrl: "https://gcli.example/antigravity",
+                    apiKey: "secret",
+                    apiFormat: "openai",
+                    models: ["gemini-3.1-flash-image"],
+                    advancedConfig: {
+                        protocol: "custom",
+                        modelConfigs: {
+                            "gemini-3.1-flash-image": {
+                                capability: "image",
+                                protocol: "custom",
+                                apiFormat: "gemini",
+                                createPath: "/v1/models/gemini-3.1-flash-image:generateContent",
+                                editPath: "/v1/models/gemini-3.1-flash-image:generateContent",
+                            },
+                        },
+                    },
+                },
+            ],
+        });
+        const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ candidates: [{ content: { parts: [{ text: "OK" }] } }] }));
+
+        const response = await POST(
+            new Request("http://localhost/api/ai/system/channel-one/v1/models/gemini-3.1-flash-image-4k-16x9:generateContent", {
+                method: "POST",
+                headers: { "content-type": "application/json", ...systemModelHeaders("gemini-image", "gemini-3.1-flash-image") },
+                body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: "test" }] }], generationConfig: { responseModalities: ["TEXT", "IMAGE"] } }),
+            }),
+            { params: Promise.resolve({ channelId: "channel-one", path: ["v1", "models", "gemini-3.1-flash-image-4k-16x9:generateContent"] }) },
+        );
+
+        expect(response.status).toBe(200);
+        expect(fetchMock.mock.calls[0]?.[0]).toBe("https://gcli.example/antigravity/v1/models/gemini-3.1-flash-image-4k-16x9:generateContent");
+    });
+});
+
 describe("Stable Diffusion proxy", () => {
     beforeEach(() => {
         vi.restoreAllMocks();
@@ -710,6 +763,64 @@ describe("Gemini Veo native video proxy", () => {
     });
 });
 
+describe("GCP Agent Platform proxy", () => {
+    beforeEach(() => {
+        vi.restoreAllMocks();
+        mocks.consumeUserPoints.mockReset().mockResolvedValue(undefined);
+        mocks.refundUserPoints.mockReset();
+        mocks.safeUrl.mockResolvedValue(true);
+        mocks.taskAccess.mockReset().mockResolvedValue(true);
+        mocks.gcpAuthHeaders.mockReset().mockImplementation(async (apiKey: string, authMode: string) => (authMode === "google-adc" ? { authorization: "Bearer adc-access-token" } : { "x-goog-api-key": apiKey }));
+    });
+
+    it("rewrites an ADC text request to the global Vertex project resource", async () => {
+        const model = "gemini-2.5-flash";
+        mocks.getAuthSettings.mockResolvedValue({
+            logicalModels: [logicalModel("gcp-text", "text", model)],
+            systemChannels: [gcpChannel(model, "text", "google-adc")],
+        });
+        const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ candidates: [{ content: { parts: [{ text: "ok" }] } }] }));
+
+        const response = await POST(
+            new Request(`http://localhost/api/ai/system/channel-one/models/${model}:generateContent`, {
+                method: "POST",
+                headers: { "content-type": "application/json", ...systemModelHeaders("gcp-text", model) },
+                body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: "hello" }] }] }),
+            }),
+            { params: Promise.resolve({ channelId: "channel-one", path: ["models", `${model}:generateContent`] }) },
+        );
+
+        expect(response.status).toBe(200);
+        expect(fetchMock.mock.calls[0]?.[0]).toBe(`https://aiplatform.googleapis.com/v1/projects/vozeb-prod-123/locations/global/publishers/google/models/${model}:generateContent`);
+        expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get("authorization")).toBe("Bearer adc-access-token");
+        expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get("x-goog-api-key")).toBeNull();
+        expect(mocks.gcpAuthHeaders).toHaveBeenCalledWith("", "google-adc");
+    });
+
+    it("rewrites an API key image request to the regional Vertex project resource", async () => {
+        const model = "gemini-3.1-flash-image";
+        mocks.getAuthSettings.mockResolvedValue({
+            logicalModels: [logicalModel("gcp-image", "image", model)],
+            systemChannels: [gcpChannel(model, "image", "custom-header")],
+        });
+        const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ candidates: [{ content: { parts: [{ inlineData: { mimeType: "image/png", data: "cG5n" } }] } }] }));
+
+        const response = await POST(
+            new Request(`http://localhost/api/ai/system/channel-one/models/${model}:generateContent`, {
+                method: "POST",
+                headers: { "content-type": "application/json", ...systemModelHeaders("gcp-image", model) },
+                body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: "draw" }] }], generationConfig: { responseModalities: ["TEXT", "IMAGE"] } }),
+            }),
+            { params: Promise.resolve({ channelId: "channel-one", path: ["models", `${model}:generateContent`] }) },
+        );
+
+        expect(response.status).toBe(200);
+        expect(fetchMock.mock.calls[0]?.[0]).toBe(`https://asia-east1-aiplatform.googleapis.com/v1/projects/vozeb-prod-123/locations/asia-east1/publishers/google/models/${model}:generateContent`);
+        expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get("x-goog-api-key")).toBe("gcp-api-key");
+        expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get("authorization")).toBeNull();
+    });
+});
+
 describe("Yumeng v2 model-center proxy", () => {
     beforeEach(() => {
         vi.restoreAllMocks();
@@ -879,6 +990,75 @@ describe("custom protocol model routing", () => {
     });
 });
 
+describe("custom Gemini image suffix authorization", () => {
+    const model = "gemini-3.1-flash-image";
+    const variant = `${model}-4k-16x9`;
+
+    beforeEach(() => {
+        vi.restoreAllMocks();
+        mocks.consumeUserPoints.mockReset().mockResolvedValue(undefined);
+        mocks.refundUserPoints.mockReset();
+        mocks.safeUrl.mockResolvedValue(true);
+    });
+
+    function settings(protocol = "custom", models = [model], boundModel = model, createPath = "/jobs/image") {
+        return {
+            generationPointMultipliers: { imageQuality: { high: 3 } },
+            logicalModels: [logicalModel("image-tool", "image", boundModel)],
+            systemChannels: [{ id: "channel-one", enabled: true, baseUrl: "https://provider.example", apiKey: "fixture-key", apiFormat: "openai", models, advancedConfig: { protocol, createPath } }],
+        };
+    }
+
+    function submit(requestedModel = variant, path = ["jobs", "image"], quality = "high") {
+        return POST(new Request(`http://localhost/api/ai/system/channel-one/${path.join("/")}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model: requestedModel, prompt: "image", quality }) }), {
+            params: Promise.resolve({ channelId: "channel-one", path }),
+        });
+    }
+
+    it("authorizes a derived suffix against its base binding and charges the requested quality", async () => {
+        mocks.getAuthSettings.mockResolvedValue(settings());
+        const upstream = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ data: [] }));
+        expect((await submit()).status).toBe(200);
+        expect(await new Response(upstream.mock.calls[0][1]?.body).json()).toMatchObject({ model: variant });
+        expect(mocks.consumeUserPoints).toHaveBeenCalledWith("user-one", "image-tool", 3, "image", expect.any(String), expect.any(String));
+    });
+
+    it("keeps automatic quality units aligned with existing refund semantics even for a 4K model suffix", async () => {
+        mocks.getAuthSettings.mockResolvedValue(settings());
+        vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ data: [] }));
+        expect((await submit(variant, ["jobs", "image"], "auto")).status).toBe(200);
+        expect(mocks.consumeUserPoints).toHaveBeenCalledWith("user-one", "image-tool", 1, "image", expect.any(String), expect.any(String));
+    });
+
+    it.each([
+        ["gemini", [model], model, variant],
+        ["openai", [model], model, variant],
+        ["custom", [], model, variant],
+        ["custom", [model], "unrelated-image", variant],
+        ["custom", [model], model, `${model}-8k`],
+        ["custom", [model], model, `${model}-4k-3x2`],
+    ])("rejects aliases without an enabled matching custom binding: %s %j %s %s", async (protocol, models, boundModel, requestedModel) => {
+        mocks.getAuthSettings.mockResolvedValue(settings(protocol, models, boundModel));
+        const upstream = vi.spyOn(globalThis, "fetch");
+        expect((await submit(requestedModel)).status).toBe(403);
+        expect(upstream).not.toHaveBeenCalled();
+        expect(mocks.consumeUserPoints).not.toHaveBeenCalled();
+    });
+
+    it("keeps an explicitly catalogued variant bound to its own logical model", async () => {
+        mocks.getAuthSettings.mockResolvedValue(settings("custom", [model, variant], variant));
+        vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ data: [] }));
+        expect((await submit()).status).toBe(200);
+    });
+
+    it("uses the declared image capability for custom Chat Completions image generation", async () => {
+        mocks.getAuthSettings.mockResolvedValue(settings("custom", [model], model, "/v1/chat/completions"));
+        vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ data: [] }));
+        expect((await submit(variant, ["v1", "chat", "completions"])).status).toBe(200);
+        expect(mocks.consumeUserPoints).toHaveBeenCalledWith("user-one", "image-tool", 3, "image", expect.any(String), expect.any(String));
+    });
+});
+
 describe("system proxy authorization", () => {
     beforeEach(() => {
         vi.restoreAllMocks();
@@ -945,6 +1125,32 @@ function logicalModel(id: string, capability: "text" | "image" | "video" | "audi
 
 function systemModelHeaders(logicalModelId: string, upstreamModel: string) {
     return { "x-vozeb-pro-logical-model": logicalModelId, "x-vozeb-pro-upstream-model": upstreamModel };
+}
+
+function gcpChannel(model: string, capability: "text" | "image", authMode: "google-adc" | "custom-header") {
+    return {
+        id: "channel-one",
+        enabled: true,
+        baseUrl: authMode === "google-adc" ? "https://aiplatform.googleapis.com" : "https://asia-east1-aiplatform.googleapis.com",
+        apiKey: authMode === "google-adc" ? "" : "gcp-api-key",
+        apiFormat: "gemini" as const,
+        models: [model],
+        advancedConfig: {
+            protocol: "gcp-agent-platform" as const,
+            authMode,
+            gcpProjectId: "vozeb-prod-123",
+            gcpLocation: authMode === "google-adc" ? "global" : "asia-east1",
+            modelConfigs: {
+                [model]: {
+                    capability,
+                    protocol: "gcp-agent-platform" as const,
+                    apiFormat: "gemini" as const,
+                    createPath: "/models/:model:generateContent",
+                    ...(capability === "image" ? { editPath: "/models/:model:generateContent", supportsReferenceImage: true } : {}),
+                },
+            },
+        },
+    };
 }
 
 function pngBytes() {

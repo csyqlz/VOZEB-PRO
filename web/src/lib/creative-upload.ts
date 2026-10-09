@@ -1,4 +1,5 @@
 export const CREATIVE_UPLOAD_MAX_BYTES = 20 * 1024 * 1024;
+export const CREATIVE_UPLOAD_JSON_BODY_MAX_BYTES = CREATIVE_UPLOAD_MAX_BYTES * 2;
 
 export const CREATIVE_UPLOAD_MIME_TYPES = [
     "image/png",

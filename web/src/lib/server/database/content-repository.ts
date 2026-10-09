@@ -287,8 +287,76 @@ export class GenerationLogsRepository {
                     asset.sort_order
                 FROM generation_logs log
                 JOIN generation_log_assets asset ON asset.generation_log_id = log.id
+                LEFT JOIN generation_tasks image_task ON image_task.id = log.task_id AND image_task.user_id = log.user_id AND image_task.task_type = 'image'
                 WHERE log.user_id = $1
                   AND log.status = 'success'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM generation_tasks foreign_task
+                      WHERE foreign_task.id = log.task_id AND foreign_task.task_type = 'image' AND foreign_task.user_id <> log.user_id
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM (VALUES (log.ecommerce_trace), (image_task.payload -> 'ecommerceTrace')) AS evidence(trace)
+                      WHERE trace IS NOT NULL AND trace <> '{}'::jsonb
+                        AND (
+                            jsonb_typeof(trace -> 'stages') IS DISTINCT FROM 'array'
+                            OR NOT COALESCE((
+                                (trace ->> 'mode' = 'active' AND trace ->> 'finalStatus' = 'completed'
+                                    AND EXISTS (
+                                        SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(trace -> 'stages') = 'array' THEN trace -> 'stages' ELSE '[]'::jsonb END) stage
+                                        WHERE stage ->> 'key' = 'quality_check' AND stage #>> '{output,policy}' IN ('disabled', 'advisory')
+                                    )
+                                    AND NOT EXISTS (
+                                        SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(trace -> 'stages') = 'array' THEN trace -> 'stages' ELSE '[]'::jsonb END) stage
+                                        WHERE stage ->> 'key' = 'quality_check' AND NOT COALESCE(stage #>> '{output,policy}' IN ('disabled', 'advisory'), false)
+                                    )
+                                    AND EXISTS (
+                                        SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(trace -> 'stages') = 'array' THEN trace -> 'stages' ELSE '[]'::jsonb END) stage
+                                        WHERE stage ->> 'key' = 'image_generation'
+                                    )
+                                    AND NOT EXISTS (
+                                        SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(trace -> 'stages') = 'array' THEN trace -> 'stages' ELSE '[]'::jsonb END) stage
+                                        WHERE stage ->> 'key' = 'image_generation'
+                                            AND (stage ->> 'status' IS DISTINCT FROM 'completed'
+                                                OR stage #>> '{output,technicalCheck,status}' IS DISTINCT FROM 'passed'
+                                                OR COALESCE(stage #> '{output,technicalCheck,hardFailures}', '[]'::jsonb) <> '[]'::jsonb)
+                                    ))
+                                OR (NOT EXISTS (
+                                        SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(trace -> 'stages') = 'array' THEN trace -> 'stages' ELSE '[]'::jsonb END) stage
+                                        WHERE stage ->> 'key' = 'quality_check' AND stage #> '{output,policy}' IS NOT NULL
+                                    )
+                                    AND (trace ->> 'finalStatus' = 'passed'
+                                        OR (trace ->> 'mode' = 'shadow'
+                                            AND trace ->> 'finalStatus' IN ('completed', 'passed')
+                                            AND NOT COALESCE(image_task.payload ? 'ecommerceExecution', false)))
+                                    AND EXISTS (
+                                        SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(trace -> 'stages') = 'array' THEN trace -> 'stages' ELSE '[]'::jsonb END) stage
+                                        WHERE stage ->> 'key' = 'quality_check'
+                                    )
+                                    AND NOT EXISTS (
+                                        SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(trace -> 'stages') = 'array' THEN trace -> 'stages' ELSE '[]'::jsonb END) stage
+                                        WHERE stage ->> 'key' = 'quality_check'
+                                            AND ((stage ->> 'status' IS DISTINCT FROM 'passed'
+                                                    AND NOT COALESCE((trace ->> 'mode' = 'shadow'
+                                                        AND NOT COALESCE(image_task.payload ? 'ecommerceExecution', false)
+                                                        AND stage ->> 'status' = 'not_run'), false))
+                                                OR (stage #> '{output,status}' IS NOT NULL AND stage #> '{output,status}' <> '"passed"'::jsonb)
+                                                OR (stage #> '{output,publicStatus}' IS NOT NULL AND stage #> '{output,publicStatus}' <> '"passed"'::jsonb)
+                                                OR COALESCE(stage #> '{output,hardFailures}', '[]'::jsonb) <> '[]'::jsonb)
+                                    ))
+                            ), false)
+                        )
+                  )
+                  AND (
+                      SELECT COUNT(DISTINCT stage #> '{output,policy}')
+                      FROM (VALUES (log.ecommerce_trace), (image_task.payload -> 'ecommerceTrace')) AS evidence(trace)
+                      CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(trace -> 'stages') = 'array' THEN trace -> 'stages' ELSE '[]'::jsonb END) stage
+                      WHERE stage ->> 'key' = 'quality_check' AND stage #> '{output,policy}' IS NOT NULL
+                  ) <= 1
+                  AND (
+                      NOT COALESCE(image_task.payload ? 'ecommerceExecution', false)
+                      OR log.ecommerce_trace ->> 'finalStatus' IN ('passed', 'completed')
+                      OR image_task.payload #>> '{ecommerceTrace,finalStatus}' IN ('passed', 'completed')
+                  )
                   AND COALESCE(NULLIF(asset.server_url, ''), NULLIF(asset.url, ''), NULLIF(asset.remote_url, '')) IS NOT NULL
                   AND COALESCE(NULLIF(asset.server_url, ''), NULLIF(asset.url, ''), NULLIF(asset.remote_url, '')) !~* '^(data|blob):'
             ),
@@ -351,6 +419,18 @@ export class GenerationLogsRepository {
         if (!ids.length) return [];
         const result = await this.db.query(`SELECT * FROM generation_logs WHERE id = ANY($1::text[]) AND ($2::text IS NULL OR user_id = $2) ORDER BY created_at DESC, id ASC${forUpdate ? " FOR UPDATE" : ""}`, [ids, userId || null]);
         return this.attachAssets(result.rows.map(mapGenerationLog));
+    }
+
+    async updateEcommerceTraceByTaskIds(taskIds: string[], trace: unknown, expectedTrace?: unknown) {
+        const ids = Array.from(new Set(taskIds.map((id) => id.trim()).filter(Boolean)));
+        if (!ids.length) return 0;
+        const result = await this.db.query(
+            `UPDATE generation_logs
+             SET ecommerce_trace = $2::jsonb, updated_at = now()
+             WHERE task_id = ANY($1::text[])${expectedTrace !== undefined ? " AND ecommerce_trace IS NOT DISTINCT FROM $3::jsonb" : ""}`,
+            [ids, JSON.stringify(trace || {}), ...(expectedTrace !== undefined ? [expectedTrace === null ? null : JSON.stringify(expectedTrace)] : [])],
+        );
+        return result.rowCount || 0;
     }
 
     async listByUserIdBatch(userId: string, batchSize: number, forUpdate = false) {

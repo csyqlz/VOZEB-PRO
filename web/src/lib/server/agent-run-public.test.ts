@@ -1,9 +1,97 @@
 import { describe, expect, it } from "vitest";
 
-import { publicAgentRun, publicAgentRunEvent } from "./agent-run-public";
+import { publicAgentRun, publicAgentRunEvent, publicAgentRunSnapshot } from "./agent-run-public";
 import { AGENT_PLAN_SCHEMA_VERSION } from "./agent-run-audit";
+import type { AgentRun } from "./agent-run-store";
 
 describe("publicAgentRun", () => {
+    it("delivers advisory visual failures without hiding saved results", () => {
+        const run = {
+            id: "advisory-result",
+            status: "completed",
+            tasks: [],
+            assetIds: ["saved-result"],
+            ecommerceSnapshot: {
+                qualityPolicy: "advisory",
+                technicalCheck: { status: "passed", checks: [], hardFailures: [], internalReason: "saved" },
+                qualityCheck: {
+                    status: "blocked",
+                    publicStatus: "needs_review",
+                    checks: [{ key: "protected_structure", status: "failed", reason: "private-count-error" }],
+                    hardFailures: [{ key: "protected_structure", status: "failed", reason: "private-count-error" }],
+                },
+            },
+        } as unknown as AgentRun;
+        expect(publicAgentRun(run)).toMatchObject({ status: "completed", assetIds: ["saved-result"], ecommerceQualityStatus: "needs_adjustment" });
+        expect(JSON.stringify(publicAgentRunSnapshot(run))).not.toContain("private-count-error");
+    });
+
+    it("delivers disabled quality without inventing a passed visual check", () => {
+        const run = { id: "no-qa", status: "completed", tasks: [], assetIds: ["saved-result"], ecommerceSnapshot: { qualityPolicy: "disabled", technicalCheck: { status: "passed", checks: [], hardFailures: [] } } } as unknown as AgentRun;
+        expect(publicAgentRun(run).assetIds).toEqual(["saved-result"]);
+        expect(publicAgentRun(run)).not.toHaveProperty("ecommerceQualityStatus");
+    });
+
+    it("keeps unreadable technical results blocked when visual quality is disabled", () => {
+        const run = {
+            id: "technical-failure",
+            status: "paused",
+            tasks: [],
+            assetIds: ["unreadable"],
+            ecommerceSnapshot: { qualityPolicy: "disabled", technicalCheck: { status: "unavailable", checks: [], hardFailures: [], internalReason: "stored media unavailable" } },
+        } as unknown as AgentRun;
+        expect(publicAgentRun(run)).toMatchObject({ assetIds: [], ecommerceQualityStatus: "needs_review" });
+    });
+
+    it("keeps known hard failure keys readable when their evidence was not applicable", () => {
+        const run = {
+            id: "run",
+            tasks: [],
+            assetIds: ["private-result"],
+            ecommerceSnapshot: { qualityCheck: { status: "blocked", publicStatus: "needs_review", hardFailures: [{ key: "product_silhouette", status: "not_applicable", reason: "private evidence unavailable" }] } },
+        } as unknown as AgentRun;
+        expect(publicAgentRun(run)).toMatchObject({ assetIds: [], ecommerceQualityReview: { failureKeys: ["product_silhouette"] } });
+    });
+    it("keeps soft acceptance and readable canvas failures in public snapshots without private evidence", () => {
+        const run = {
+            id: "quality",
+            status: "completed",
+            tasks: [],
+            assetIds: ["preview"],
+            ecommerceSnapshot: {
+                qualityCheck: {
+                    status: "needs_adjustment",
+                    publicStatus: "needs_adjustment",
+                    checks: [{ key: "scene_intent", status: "failed", reason: "private-textureDirection" }],
+                    hardFailures: [],
+                    internalReason: "compiledPrompt-private",
+                },
+            },
+        } as unknown as AgentRun;
+        expect(publicAgentRun(run)).toMatchObject({ ecommerceQualityStatus: "needs_adjustment", ecommerceQualityReview: { kind: "needs_adjustment", failureKeys: ["scene_intent"] } });
+        expect(publicAgentRunSnapshot(run)).toMatchObject({ ecommerceQualityStatus: "needs_adjustment" });
+        run.ecommerceSnapshot!.qualityCheck = {
+            ...run.ecommerceSnapshot!.qualityCheck!,
+            status: "blocked",
+            publicStatus: "needs_review",
+            hardFailures: [{ resultId: "result", key: "canvas_geometry", status: "failed", reason: "private" }],
+            canvasEvidence: [
+                {
+                    resultId: "result",
+                    constraint: { mode: "exact", size: { width: 1024, height: 1024 }, source: "user_text", allowReframe: false },
+                    nativeSize: { width: 1254, height: 1254 },
+                    nativeStatus: "readable",
+                    storedStatus: "unavailable",
+                    nativeMatches: false,
+                    storedMatches: null,
+                    storedUrl: "/private-result",
+                    hardFailures: ["canvas_geometry"],
+                },
+            ],
+        };
+        expect(publicAgentRun(run)).toMatchObject({ assetIds: [], ecommerceQualityReview: { failureKeys: ["canvas_geometry"], message: "画幅与要求不一致：要求 1024×1024，上游原图 1254×1254。" } });
+        expect(JSON.stringify(publicAgentRunSnapshot(run))).not.toMatch(/private|textureDirection|compiledPrompt|canvasEvidence|storedStatus/);
+    });
     it("exposes only user-facing Run and task fields", () => {
         const publicRun = publicAgentRun({
             id: "run",
@@ -125,5 +213,68 @@ describe("publicAgentRun", () => {
 
     it("removes internal planning payloads from public SSE events", () => {
         expect(publicAgentRunEvent({ id: "event-one", runId: "run-one", type: "run.planning.context_ready", data: { promptJson: "secret" }, createdAt: 1 })).toMatchObject({ type: "run.planning.context_ready", data: undefined });
+    });
+
+    it("exposes safe ecommerce review items and hides blocked assets and internal reasons", () => {
+        const run = {
+            id: "run-quality",
+            userId: "user-secret",
+            conversationId: "conversation",
+            clientRequestId: "request-secret",
+            surface: "chat",
+            inputMessageId: "input",
+            assistantMessageId: "assistant",
+            prompt: "生成场景图",
+            referencedAssetIds: ["product"],
+            assetIds: ["blocked-result"],
+            status: "paused",
+            tasks: [],
+            reviewed: true,
+            ecommerceSnapshot: {
+                version: "ecommerce-generation.v1",
+                mode: "active",
+                input: { userRequest: "生成场景图", assetIds: ["product"], conversationId: "conversation", surface: "chat" },
+                qualityCheck: {
+                    version: "ecommerce-quality.v1",
+                    status: "blocked",
+                    publicStatus: "needs_review",
+                    modelRole: {
+                        logicalRole: "quality_check",
+                        capability: "text",
+                        logicalModelId: "quality-model",
+                        channelId: "quality-channel",
+                        upstreamModel: "gpt-5.6-sol",
+                        apiFormat: "openai",
+                    },
+                    checks: [{ resultId: "result-1", key: "product_silhouette", status: "failed", reason: "internal-secret" }],
+                    hardFailures: [{ resultId: "result-1", key: "product_silhouette", status: "failed", reason: "internal-secret" }],
+                    internalReason: "internal-secret",
+                    checkedAt: 1,
+                },
+                createdAt: 1,
+                runId: "run-quality",
+                userId: "user-secret",
+            },
+            createdAt: 1,
+            updatedAt: 2,
+        } as AgentRun;
+
+        const publicRun = publicAgentRun(run);
+        const event = publicAgentRunEvent({
+            id: "event-quality",
+            runId: run.id,
+            type: "ecommerce.quality",
+            data: { status: "needs_review", text: "商品一致性检查未通过，需要复核。", internalReason: "internal-secret", checks: ["secret"] },
+            createdAt: 2,
+        });
+
+        expect(publicRun).toMatchObject({
+            ecommerceQualityStatus: "needs_review",
+            ecommerceQualityReview: { kind: "hard_failure", failureKeys: ["product_silhouette"] },
+            assetIds: [],
+        });
+        expect(event.data).toEqual({ status: "needs_review", text: "商品一致性检查未通过，需要复核。" });
+        expect(JSON.stringify({ publicRun, event })).not.toContain("internal-secret");
+        expect(JSON.stringify({ publicRun, event })).not.toContain("blocked-result");
     });
 });

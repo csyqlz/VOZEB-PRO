@@ -5,6 +5,28 @@ import type { CreativeAgentRun } from "@/services/api/creative";
 import { creativeRunDuration, creativeRunPresentation } from "./creative-run-presentation";
 
 describe("creativeRunPresentation", () => {
+    it.each(["hard_failure", "check_unavailable", "needs_adjustment"] as const)("keeps completed delivery status with advisory %s", (kind) => {
+        const run: CreativeAgentRun = {
+            id: "run-advisory",
+            conversationId: "conversation",
+            inputMessageId: "input",
+            assistantMessageId: "assistant",
+            status: "completed",
+            assetIds: ["result"],
+            tasks: [],
+            ecommerceQualityStatus: "needs_adjustment",
+            ecommerceQualityReview: { kind, advisory: true, failureKeys: [] },
+        };
+        expect(creativeRunPresentation(run, new Map())).toContainEqual({ key: "status", label: "状态", value: "已完成" });
+    });
+    it.each([
+        ["needs_adjustment", "需要调整"],
+        ["needs_review", "待复核"],
+        ["passed", "已完成"],
+    ] as const)("uses %s acceptance before the completed generation state", (ecommerceQualityStatus, value) => {
+        const run = { status: "completed", ecommerceQualityStatus, tasks: [] } as unknown as CreativeAgentRun;
+        expect(creativeRunPresentation(run, new Map()).find((item) => item.key === "status")?.value).toBe(value);
+    });
     it("shows public final video parameters without internal planning fields", () => {
         const run: CreativeAgentRun = {
             id: "run-one",

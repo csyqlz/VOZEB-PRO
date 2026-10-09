@@ -24,6 +24,16 @@ describe("generated image normalization", () => {
         await expect(sharp(result.bytes).metadata()).resolves.toMatchObject({ format: "png", width: 400, height: 600 });
     });
 
+    it("keeps full chroma detail when resizing a generated JPEG", async () => {
+        const source = await sharp({ create: { width: 1600, height: 900, channels: 3, background: "#9a6b4f" } })
+            .jpeg({ quality: 95, chromaSubsampling: "4:4:4" })
+            .toBuffer();
+        const result = await normalizeGeneratedImageBytes(source, "image/jpeg", "1280x720");
+
+        expect(result).toMatchObject({ mimeType: "image/jpeg", width: 1280, height: 720 });
+        await expect(sharp(result.bytes).metadata()).resolves.toMatchObject({ format: "jpeg", width: 1280, height: 720, chromaSubsampling: "4:4:4" });
+    });
+
     it("keeps the upstream file unchanged when no exact target is configured", async () => {
         const source = await sharp({ create: { width: 1280, height: 720, channels: 3, background: "#506070" } })
             .jpeg({ quality: 92 })

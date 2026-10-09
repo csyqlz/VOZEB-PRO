@@ -134,6 +134,33 @@ ALL_PROXY=http://proxy-host:7890
 
 默认文本模型同时用于工作台 Agent、Canvas 规划和创作复盘。渠道 API Key 通过服务端保存，普通用户只看到逻辑模型名称。
 
+### GCP Agent Platform
+
+选择 `GCP Agent Platform` 协议后填写 Google Cloud Project ID、Location 和模型 ID。`global` 使用全局入口，区域值使用 Google Cloud 公布的 Agent Platform 区域，例如 `asia-east1`。该协议没有可靠的通用模型目录接口，后台只保留管理员手工填写的模型 ID，不会猜测 `/v1/models`。
+
+鉴权可选择 ADC 或 Google Cloud API Key。API Key 由服务端加密保存并通过 `x-goog-api-key` 发送；ADC 由应用进程使用 `google-auth-library` 读取并自动刷新访问令牌，不会把令牌写入后台配置。部署身份必须已启用对应 Google Cloud API，并具备调用所选 Agent Platform 模型的权限。
+
+ADC 不需要新增容器。模型请求由 `app` 发出，`generation-worker` 只调用 App 的内部维护接口，因此凭据只提供给 `app`。在 Google Cloud 运行时优先给计算资源绑定服务账号或使用 Workload Identity；在普通 Docker 主机上可新建一个不提交到 Git 的 Compose override：
+
+```yaml title="docker-compose.gcp-adc.yml"
+services:
+  app:
+    environment:
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/gcp/adc.json
+    volumes:
+      - ${GCP_ADC_CREDENTIALS_FILE:?请设置 GCP_ADC_CREDENTIALS_FILE}:/run/secrets/gcp/adc.json:ro
+```
+
+配合外部数据库 Compose 启动：
+
+```bash
+GCP_ADC_CREDENTIALS_FILE=/secure/path/adc.json docker compose \
+  -f docker-compose.external-db.yml \
+  -f docker-compose.gcp-adc.yml up -d
+```
+
+Workload Identity Federation 配置如果还引用其他文件，应把包含这些文件的专用目录整体只读挂载，并让 `GOOGLE_APPLICATION_CREDENTIALS` 指向容器内的 WIF 配置文件。不要把服务账号 JSON、WIF 文件或 `gcloud auth application-default login` 生成的本机用户凭据提交到仓库；生产环境优先使用绑定服务账号或 WIF。
+
 ## 生成任务 Worker 与回调
 
 页面读取只会低成本唤醒当前任务。生产环境还需要常驻 `generation-worker`，使用户关闭页面后仍能使用已保存的上游任务 ID 继续查询并登记结果。默认、宝塔、低内存、外部数据库和本地 Compose 均声明了独立 Worker 服务；源码开发和 `npm start` 由应用启动脚本监督 Worker，也可以单独运行：

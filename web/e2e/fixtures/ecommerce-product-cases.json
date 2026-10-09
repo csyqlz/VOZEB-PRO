@@ -1,0 +1,167 @@
+[
+    {
+        "id": "storage-cabinet",
+        "caseId": "white-product-scene",
+        "manualAcceptance": "pending",
+        "category": "收纳",
+        "productFileName": "storage-cabinet.webp",
+        "fixturePath": "./fixtures/ecommerce-products/storage-cabinet.webp",
+        "fixtureSha256": "452a17e70f177224ae19c78aaf8be70de4425d7ad564eb921e38bb4ec43dae89",
+        "userRequest": "把这个收纳柜自然放进明亮的现代简约客厅，保持商品外观不变。",
+        "expectedOperation": "product_to_scene",
+        "hardProtections": ["outline", "brand_text", "color", "material", "scale", "view"]
+    },
+    {
+        "id": "floor-lamp",
+        "category": "灯具",
+        "productFileName": "floor-lamp.webp",
+        "fixturePath": "./fixtures/ecommerce-products/floor-lamp.webp",
+        "fixtureSha256": "05f5aa76adf3382f97fbec4f0c69c17cb5edb6934b7f43d9717832ef56e2b5a3",
+        "userRequest": "把这盏落地灯放进温暖的欧美现代客厅，保持灯具结构和材质不变。",
+        "expectedOperation": "product_to_scene",
+        "hardProtections": ["outline", "brand_text", "color", "material", "scale", "view"]
+    },
+    {
+        "id": "dish-rack",
+        "category": "厨房",
+        "productFileName": "dish-rack.webp",
+        "fixturePath": "./fixtures/ecommerce-products/dish-rack.webp",
+        "fixtureSha256": "1a4937b9dc7941cf9660fba465ad11576cd32f51ec4147f366c3a2ebf59e42f8",
+        "userRequest": "把这个沥水架放在明亮整洁的欧美厨房台面上，保持商品细节不变。",
+        "expectedOperation": "product_to_scene",
+        "hardProtections": ["outline", "brand_text", "color", "material", "scale", "view"]
+    },
+    {
+        "id": "bathroom-vanity",
+        "category": "卫浴",
+        "productFileName": "bathroom-vanity.webp",
+        "fixturePath": "./fixtures/ecommerce-products/bathroom-vanity.webp",
+        "fixtureSha256": "2eee279276f8d13ab4615505cd70e3dd222e8f81967230a77e1c9ebe1b1e5d39",
+        "userRequest": "把这个浴室柜放进通透明亮的现代欧美浴室，保持柜体比例和材质不变。",
+        "expectedOperation": "product_to_scene",
+        "hardProtections": ["outline", "brand_text", "color", "material", "scale", "view"]
+    },
+    {
+        "id": "cushion",
+        "category": "软装",
+        "productFileName": "cushion.webp",
+        "fixturePath": "./fixtures/ecommerce-products/cushion.webp",
+        "fixtureSha256": "f224019e65341ef84310fd2048b04b352bb2d4b90a5d05aeabef2ecb96ffa7b6",
+        "userRequest": "把这个抱枕放在自然温暖的现代简约沙发上，保持颜色和织物纹理不变。",
+        "expectedOperation": "product_to_scene",
+        "hardProtections": ["outline", "brand_text", "color", "material", "scale", "view"]
+    },
+    {
+        "id": "bed-frame",
+        "caseId": "white-product-style-reference",
+        "manualAcceptance": "pending",
+        "category": "家具",
+        "productFileName": "bed-frame.webp",
+        "fixturePath": "./fixtures/ecommerce-products/bed-frame.webp",
+        "fixtureSha256": "f53dee10d22f6572ff3158f89a06e85d078242c2984689ec315239700012430c",
+        "sceneFixturePath": "./fixtures/ecommerce-products/modern-living-room-scene.webp",
+        "sceneFixtureSha256": "24393351e2a68c2f89fe966074268f917fe440731efc1e5f5fd3bfc52ad1486c",
+        "userRequest": "把这张木床放进明亮舒适的现代欧美卧室，保持床架结构和木纹不变。",
+        "expectedOperation": "product_to_scene",
+        "hardProtections": ["outline", "brand_text", "color", "material", "scale", "view"]
+    },
+    {
+        "id": "toaster",
+        "category": "小家电",
+        "productFileName": "toaster.webp",
+        "fixturePath": "./fixtures/ecommerce-products/toaster.webp",
+        "fixtureSha256": "e21dade9ca3f8a270f6dfaad7288c4a52cf5d4d497c748c4bfc7a3a60f603846",
+        "userRequest": "把这个烤面包机放在干净明亮的欧美厨房台面上，保持机身结构和颜色不变。",
+        "expectedOperation": "product_to_scene",
+        "hardProtections": ["outline", "brand_text", "color", "material", "scale", "view"]
+    },
+    {
+        "caseId": "landscape-prop-add",
+        "scenario": "selection",
+        "userRequest": "保持原尺寸和构图，三层抽屉柜场景只加柜面花瓶。",
+        "source": { "kind": "deterministic_scene", "width": 3840, "height": 2160 },
+        "expectedOperation": "scene_edit",
+        "hardProtections": ["protected_structure", "protected_material", "unmodified_region", "canvas_geometry"],
+        "expectedQuality": "passed",
+        "manualAcceptance": "pending"
+    },
+    {
+        "caseId": "three-drawer-preservation",
+        "scenario": "hard_structure",
+        "userRequest": "把三层抽屉柜放进客厅，结果故意变成四层。",
+        "expectedOperation": "product_to_scene",
+        "hardProtections": ["protected_structure"],
+        "expectedQuality": "needs_review",
+        "expectedStructure": { "baseline": 3, "result": 4 },
+        "manualAcceptance": "pending"
+    },
+    {
+        "caseId": "scene-no-product-continuity",
+        "scenario": "continuity",
+        "userRequest": "无商品锚点场景，改成午后阳光。",
+        "followupRequest": "无商品锚点场景，再生成。",
+        "expectedOperation": "scene_edit",
+        "hardProtections": ["protected_structure", "protected_material"],
+        "expectedQuality": "passed",
+        "manualAcceptance": "pending"
+    },
+    {
+        "caseId": "historical-branch",
+        "scenario": "existing_branch",
+        "userRequest": "从这张较早结果把背景改成现代厨房。",
+        "expectedOperation": "local_edit",
+        "hardProtections": ["product_identity", "protected_structure"],
+        "expectedQuality": "passed",
+        "manualAcceptance": "pending"
+    },
+    {
+        "caseId": "conflicting-canvas",
+        "scenario": "selection",
+        "userRequest": "保持原尺寸和构图，三层抽屉柜场景只加柜面花瓶。",
+        "source": { "kind": "deterministic_scene", "width": 3840, "height": 2160 },
+        "residualSize": "3:2",
+        "expectedOperation": "scene_edit",
+        "hardProtections": ["canvas_geometry", "unmodified_region"],
+        "expectedQuality": "passed",
+        "manualAcceptance": "pending"
+    },
+    {
+        "caseId": "unsupported-mask",
+        "scenario": "server_gate",
+        "userRequest": "保持构图，三层抽屉柜场景只加花瓶，只加柜面花瓶。",
+        "source": { "kind": "deterministic_scene", "width": 3840, "height": 2160 },
+        "expectedOperation": "scene_edit",
+        "hardProtections": ["unmodified_region"],
+        "expectedQuality": "needs_review",
+        "automatedEvidence": ["ecommerce-image-compiler.test.ts / unsupported independent mask", "ecommerce-product-generation.spec.ts / unsupported-mask real backend protocol gate"],
+        "manualAcceptance": "pending"
+    },
+    {
+        "caseId": "quality-unavailable",
+        "scenario": "quality_unavailable",
+        "userRequest": "把三层抽屉柜放进客厅，验收解析失败。",
+        "expectedOperation": "product_to_scene",
+        "hardProtections": ["protected_structure", "canvas_geometry"],
+        "expectedQuality": "needs_review",
+        "manualAcceptance": "pending"
+    },
+    {
+        "caseId": "soft-quality-failure",
+        "scenario": "soft_quality",
+        "userRequest": "把三层抽屉柜放进客厅，光线不达标。",
+        "expectedOperation": "product_to_scene",
+        "hardProtections": ["protected_structure", "protected_material"],
+        "expectedQuality": "needs_adjustment",
+        "manualAcceptance": "pending"
+    },
+    {
+        "caseId": "local-no-relight",
+        "scenario": "selection",
+        "userRequest": "保持原尺寸和现有光照，三层抽屉柜场景只加花瓶，只加柜面花瓶。",
+        "source": { "kind": "deterministic_scene", "width": 3840, "height": 2160 },
+        "expectedOperation": "scene_edit",
+        "hardProtections": ["protected_material", "unmodified_region"],
+        "expectedQuality": "passed",
+        "manualAcceptance": "pending"
+    }
+]

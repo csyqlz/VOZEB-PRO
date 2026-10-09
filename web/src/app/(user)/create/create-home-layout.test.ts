@@ -3,6 +3,24 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("create Agent home layout", () => {
+    it("keeps the unified create entry image-only without a creation-type selector", async () => {
+        const [page, composer] = await Promise.all([readFile(resolve(process.cwd(), "src/app/(user)/create/page.tsx"), "utf8"), readFile(resolve(process.cwd(), "src/app/(user)/create/components/creative-composer.tsx"), "utf8")]);
+
+        expect(page).toContain('const creationMode = "image" as const;');
+        expect(page).toContain('mode: "image" as const');
+        expect(page).not.toContain("setCreationMode");
+        expect(page).not.toContain("CREATIVE_UPLOAD_ACCEPT");
+        expect(page).not.toContain("frameInputRef");
+        expect(page).not.toContain("onSelectVideoFrame");
+        expect(page).toContain('void listAgentSkills("image")');
+        expect(page).toContain('!file.type.startsWith("image/")');
+        expect(page).toContain('agent.selectedAssets.filter((asset) => asset.type === "image")');
+        expect(composer).not.toContain("creativeModeOptions");
+        expect(composer).not.toContain("CreativeVideoFrameControls");
+        expect(composer).not.toContain("shouldShowVideoFrameControls");
+        expect(composer).not.toContain("当前创作类型");
+    });
+
     it("keeps Agent input, recent work and reusable public inspiration in one flow", async () => {
         const [page, composer, messages, conversationList, generationControls, preferences, overview, inspiration, previewModal] = await Promise.all([
             readFile(resolve(process.cwd(), "src/app/(user)/create/page.tsx"), "utf8"),
@@ -16,9 +34,9 @@ describe("create Agent home layout", () => {
             readFile(resolve(process.cwd(), "src/components/works/public-work-preview-modal.tsx"), "utf8"),
         ]);
 
-        expect(page).toContain("创作 Agent");
+        expect(page).toContain("图片创作");
         expect(page).toContain("createAgentDraftFromHash");
-        expect(page).toContain("setCreationMode(incomingDraft.mode)");
+        expect(page).not.toContain("setCreationMode");
         expect(page).toContain('data-testid="creative-conversation-scroll"');
         expect(page).toContain("updateConversationScrollState");
         expect(page).toContain("onWheelCapture");
@@ -55,7 +73,7 @@ describe("create Agent home layout", () => {
         expect(page).toContain("usePublicImage");
         expect(composer).toContain('centered ? "max-w-[1080px]"');
         expect(composer).toContain('data-compact={compact ? "true" : "false"}');
-        expect(composer).toContain("const inputMediaAttachments = compact ? allMediaAttachments");
+        expect(composer).toContain("const inputMediaAttachments = mediaAttachments");
         expect(composer).toContain("<ComposerMediaThumbnail key={asset.id} asset={asset} compact={compact}");
         expect(composer).toContain("autoSize={compactMode ? { minRows: 1, maxRows: 1 }");
         expect(composer).toContain("<CreativeGenerationControls");
@@ -64,13 +82,9 @@ describe("create Agent home layout", () => {
         expect(composer).toContain("disabled:!bg-none");
         expect(page).toContain("optimizePrompt");
         expect(page).toContain("mode: creationMode");
-        expect(composer).toContain('aria-label={mediaAttachments.length ? "继续添加参考素材" : "添加素材"}');
-        expect(composer).toContain("创作类型");
-        expect(composer).toContain("transition hover:bg-[#eef3f6] dark:hover:bg-[#29323a]");
-        expect(composer).toContain('selected ? "text-[#20242a] dark:text-white"');
-        expect(composer).not.toContain('selected ? "bg-[#eef3f6]');
+        expect(composer).toContain('aria-label={mediaAttachments.length ? "继续添加参考图片" : "添加参考图片"}');
+        expect(composer).not.toContain("创作类型");
         expect(composer).toContain('const popoverPlacement = centered ? "bottomLeft" : "topLeft"');
-        expect(composer).toContain("placement={popoverPlacement}");
         expect(composer).not.toContain("上传中");
         expect(composer).toContain("data-delete-indicator");
         expect(composer).toContain("size-[22px]");
@@ -118,7 +132,8 @@ describe("create Agent home layout", () => {
         expect(inspiration).not.toContain("href={`/share/");
         expect(overview).toContain('aria-label="引用到 Agent"');
         expect(overview.indexOf('aria-labelledby="create-assets-heading"')).toBeLessThan(overview.indexOf('aria-labelledby="create-projects-heading"'));
-        expect(overview).toContain("recentAssets.slice(0, recentAssetVisibilityClasses.length)");
+        expect(overview).toContain('recentAssets.filter((asset) => asset.kind === "image")');
+        expect(overview).toContain("recentImages.slice(0, recentAssetVisibilityClasses.length)");
         expect(overview).toContain("grid-cols-2");
         expect(overview).toContain("2xl:grid-cols-6");
         expect(overview).toContain('"hidden sm:block"');

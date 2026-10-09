@@ -27,11 +27,11 @@ describe("Docker Compose contracts", () => {
         expect(() => validateComposeContract(source, profile)).toThrow("generation-worker 不应直接持有数据库连接串");
     });
 
-    it("rejects mutable latest release images", () => {
+    it("requires released latest images to be pulled on startup", () => {
         const profile = composeProfiles.find(({ file }) => file === "docker-compose.yml");
-        const source = readFileSync(path.join(repoRoot, profile.file), "utf8").replaceAll("ghcr.io/csyqlz/vozeb-pro:v0.0.7", "ghcr.io/csyqlz/vozeb-pro:latest");
+        const source = readFileSync(path.join(repoRoot, profile.file), "utf8").replace("    pull_policy: always\n", "");
 
-        expect(() => validateComposeContract(source, profile)).toThrow("app 必须使用当前发布版本的明确镜像");
+        expect(() => validateComposeContract(source, profile)).toThrow("app must pull the latest image on startup");
     });
 
     it("rejects a Worker that imports the application secret environment", () => {

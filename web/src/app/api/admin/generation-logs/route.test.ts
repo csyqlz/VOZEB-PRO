@@ -33,7 +33,7 @@ describe("GET /api/admin/generation-logs", () => {
         const payload = await response.json();
 
         expect(response.status).toBe(200);
-        expect(mocks.listGenerationLogs).toHaveBeenCalledWith(expect.objectContaining({ userId: "user-one", keyword: "poster" }));
+        expect(mocks.listGenerationLogs).toHaveBeenCalledWith(expect.objectContaining({ userId: "user-one", keyword: "poster", includeEcommerceTrace: true }));
         expect(payload.logs[0]).toMatchObject({ userId: "user-one", accountId: "0001" });
     });
 });

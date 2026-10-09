@@ -133,6 +133,9 @@ export type AppSettingsRecord = {
     paymentConfig: JsonValue;
     logicalModels: JsonValue;
     defaultModels: JsonValue;
+    ecommerceGenerationEnabled: boolean;
+    ecommerceVisualQualityCheckEnabled: boolean;
+    ecommerceModelRoles: JsonValue;
     agentSkills: JsonValue;
     createdAt: string;
     updatedAt: string;
@@ -305,6 +308,7 @@ export type GenerationLogRecord = {
     failCount: number;
     assets: GenerationLogAssetRecord[];
     requestSnapshot?: JsonValue;
+    ecommerceTrace?: JsonValue;
     taskId?: string;
     error?: string;
     createdAt: string;

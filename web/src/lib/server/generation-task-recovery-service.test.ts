@@ -102,6 +102,14 @@ describe("generation task recovery service", () => {
         expect(result).toMatchObject({ claimed: 1, completed: 1 });
     });
 
+    it("preserves a newly scheduled background review when releasing the generation lease", async () => {
+        const run = { id: "agent-one", userId: "user-one", status: "planning", tasks: [], createdAt: 1_000 };
+        mocks.claim.mockResolvedValue([lease()]);
+        mocks.getAgentRun.mockResolvedValueOnce(run).mockResolvedValueOnce({ ...run, status: "completed", reviewed: false, reviewStatus: "review_pending" });
+        await runGenerationTaskRecoveryBatch({ origin: "http://internal", workerId: "worker-one" });
+        expect(mocks.release).toHaveBeenCalledWith("agent", "agent-one", "worker-one", expect.objectContaining({ executionPhase: "review_pending", nextPollAt: expect.any(Number), lastUpstreamStatus: "review_pending" }));
+    });
+
     it("does not restart a paused Agent", async () => {
         mocks.claim.mockResolvedValue([lease()]);
         mocks.getAgentRun.mockResolvedValue({ id: "agent-one", userId: "user-one", status: "paused", tasks: [], createdAt: 1_000 });
@@ -116,7 +124,7 @@ describe("generation task recovery service", () => {
     it("runs a completed Agent review from its persistent review lease", async () => {
         const run = { id: "agent-one", userId: "user-one", status: "completed", reviewed: false, reviewStatus: "review_pending", tasks: [], createdAt: 1_000 };
         mocks.claim.mockResolvedValue([{ ...lease(), status: "success", executionPhase: "review_pending" }]);
-        mocks.getAgentRun.mockResolvedValue(run);
+        mocks.getAgentRun.mockResolvedValueOnce(run).mockResolvedValue({ ...run, reviewed: true });
         mocks.processAgentRunReview.mockResolvedValue({ status: "completed", attempts: 1 });
 
         const result = await runGenerationTaskRecoveryBatch({ origin: "http://internal", workerId: "worker-one" });
@@ -125,6 +133,15 @@ describe("generation task recovery service", () => {
         expect(mocks.processAgentRunReview).toHaveBeenCalledWith(run, "http://internal", "worker-context:user-one");
         expect(mocks.release).toHaveBeenCalledWith("agent", "agent-one", "worker-one", { executionPhase: "completed", nextPollAt: undefined, lastUpstreamStatus: "review_completed" });
         expect(result).toMatchObject({ claimed: 1, completed: 1 });
+    });
+
+    it("retains the review queue when a review start loses CAS and remains unreviewed", async () => {
+        const run = { id: "agent-one", userId: "user-one", status: "completed", reviewed: false, reviewStatus: "reviewing", reviewAttempts: 1, tasks: [], createdAt: 1_000 };
+        mocks.claim.mockResolvedValue([{ ...lease(), status: "success", executionPhase: "review_pending" }]);
+        mocks.getAgentRun.mockResolvedValue(run);
+        mocks.processAgentRunReview.mockResolvedValue({ status: "completed", attempts: 1 });
+        await runGenerationTaskRecoveryBatch({ origin: "http://internal", workerId: "worker-one" });
+        expect(mocks.release).toHaveBeenCalledWith("agent", "agent-one", "worker-one", expect.objectContaining({ executionPhase: "review_pending", nextPollAt: expect.any(Number), lastUpstreamStatus: "review_pending" }));
     });
 
     it("advances an existing child task before resuming its parent Agent", async () => {

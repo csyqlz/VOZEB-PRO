@@ -1,6 +1,8 @@
 import { getDatabaseProvider, ensurePostgresSchema, postgresQuery, withPostgresTransaction } from "@/lib/server/database";
 import { resolveGenerationReviewReason } from "@/lib/server/generation-task-review-reason";
 import { readJsonDataFile, withJsonDataFileLock, writeJsonDataFile } from "@/lib/server/data-adapter";
+import type { AgentRun } from "./agent-run-store";
+import { assertEcommerceReferenceDispatch, type EcommerceReferenceDispatchFence } from "./ecommerce-reference-dispatch";
 import type {
     GenerationTaskContext,
     GenerationTaskCostAggregate,
@@ -25,8 +27,13 @@ const ACTIVE_CONCURRENCY_PHASES = ["created", "submitting", "submitted", "pollin
 let fileMutationQueue = Promise.resolve();
 const concurrencyQueues = new Map<string, Promise<void>>();
 
-export async function createStoredGenerationTask<T extends { id: string; userId: string; status: string; createdAt: number; updatedAt: number }>(type: GenerationTaskType, task: T, ttlMs: number) {
-    return insertTask(type, task, ttlMs);
+export async function createStoredGenerationTask<T extends { id: string; userId: string; status: string; createdAt: number; updatedAt: number }>(
+    type: GenerationTaskType,
+    task: T,
+    ttlMs: number,
+    options?: { referenceDispatch?: EcommerceReferenceDispatchFence },
+) {
+    return insertTask(type, task, ttlMs, options);
 }
 
 export async function cleanupExpiredStoredGenerationTasks(input: { limit: number; now?: Date }) {
@@ -680,7 +687,13 @@ export async function linkStoredGenerationTask(type: GenerationTaskType, id: str
         );
         return;
     }
-    await mutateFileTasks((tasks) => tasks.map((task) => (task.id === id && task.type === type ? { ...task, ...normalized, payload: { ...task.payload, ...normalized } } : task)));
+    await mutateFileTasks((tasks) =>
+        tasks.map((task) => {
+            if (task.id !== id || task.type !== type) return task;
+            const preserved = preserveTaskContext(task, normalized);
+            return { ...task, ...preserved, payload: { ...task.payload, ...preserved } };
+        }),
+    );
 }
 
 export async function countActiveStoredGenerationTasks(userId: string, type: GenerationTaskType, staleMs: number, excludeTaskId?: string) {
@@ -861,12 +874,32 @@ async function upsertTask<T extends { id: string; userId: string; status: string
     });
 }
 
-async function insertTask<T extends { id: string; userId: string; status: string; createdAt: number; updatedAt: number }>(type: GenerationTaskType, task: T, ttlMs: number): Promise<T> {
+async function insertTask<T extends { id: string; userId: string; status: string; createdAt: number; updatedAt: number }>(type: GenerationTaskType, task: T, ttlMs: number, options?: { referenceDispatch?: EcommerceReferenceDispatchFence }): Promise<T> {
     const status = normalizeGenerationTaskStatus(task.status);
     const context = normalizeGenerationTaskContext(task as GenerationTaskContext);
     if (getDatabaseProvider() === "postgres") {
         await ensurePostgresSchema();
         const values = taskValues(type, task, ttlMs, status, context);
+        if (type === "image" && context.runId)
+            return withPostgresTransaction(async (client) => {
+                const parent = await client.query<{ payload: AgentRun }>("SELECT payload FROM generation_tasks WHERE id = $1 AND task_type = 'agent' FOR UPDATE", [context.runId]);
+                // Durable request identity wins over a now-stale execution fence.
+                // Include expired records: retention must never cause a replay POST.
+                const duplicate = await client.query<{ payload: T; execution_phase: unknown; last_upstream_status: unknown; result_payload: unknown }>(
+                    "SELECT payload, execution_phase, last_upstream_status, result_payload FROM generation_tasks WHERE user_id = $1 AND task_type = $2 AND client_request_id = $3 AND COALESCE(attempt_no, 0) = $4 AND run_id = $5 LIMIT 1",
+                    [task.userId, type, context.clientRequestId, normalizedAttemptNo(context.attemptNo), context.runId],
+                );
+                const existing = duplicate.rows[0];
+                if (existing) return withExecutionState(existing.payload, existing.execution_phase, existing.last_upstream_status, existing.result_payload);
+                assertEcommerceReferenceDispatch(parent.rows[0]?.payload, task.userId, context, options?.referenceDispatch || context.referenceDispatch);
+                const inserted = await client.query<{ payload: T }>(
+                    `INSERT INTO generation_tasks (id, user_id, task_type, status, payload, created_at, updated_at, expires_at, conversation_id, run_id, surface, project_id, parent_task_id, attempt_no, client_request_id)
+                VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) ON CONFLICT DO NOTHING RETURNING payload`,
+                    values,
+                );
+                if (inserted.rows[0]?.payload) return inserted.rows[0].payload;
+                throw new Error("生成任务写入冲突，请重试");
+            });
         const inserted = await postgresQuery<{ payload: T }>(
             `INSERT INTO generation_tasks (
                 id, user_id, task_type, status, payload, created_at, updated_at, expires_at,
@@ -883,8 +916,14 @@ async function insertTask<T extends { id: string; userId: string; status: string
         throw new Error("生成任务写入冲突，请重试");
     }
     return withGenerationTaskFileMutation(async (tasks) => {
-        const duplicate = tasks.find((item) => item.id === task.id || (context.clientRequestId && sameTaskRequest(item, type, task.userId, context.clientRequestId, normalizedAttemptNo(context.attemptNo))));
-        if (duplicate) return { tasks, result: duplicate.payload as T };
+        const duplicate = tasks.find(
+            (item) =>
+                (item.id === task.id && item.userId === task.userId && item.type === type) ||
+                (context.clientRequestId && sameTaskRequest(item, type, task.userId, context.clientRequestId, normalizedAttemptNo(context.attemptNo)) && (!context.runId || item.runId === context.runId)),
+        );
+        if (duplicate) return { tasks, result: type === "image" && context.runId ? withExecutionState(duplicate.payload as T, duplicate.executionPhase, duplicate.lastUpstreamStatus, duplicate.resultPayload) : (duplicate.payload as T) };
+        if (type === "image" && context.runId)
+            assertEcommerceReferenceDispatch(tasks.find((item) => item.id === context.runId && item.type === "agent")?.payload as AgentRun | undefined, task.userId, context, options?.referenceDispatch || context.referenceDispatch);
         const record: StoredGenerationTaskRecord = {
             id: task.id,
             userId: task.userId,
@@ -960,6 +999,7 @@ function normalizeGenerationTaskContext(context: GenerationTaskContext): Generat
         generationLogId: cleanContextText(context.generationLogId),
         generationSlotId: cleanContextText(context.generationSlotId),
         concurrencyClass: context.concurrencyClass === "canvas-layer" ? "canvas-layer" : undefined,
+        referenceDispatch: context.referenceDispatch,
     };
 }
 
@@ -978,6 +1018,7 @@ function preserveTaskContext(previous: StoredGenerationTaskRecord | undefined, n
         generationLogId: next.generationLogId || previous?.generationLogId,
         generationSlotId: next.generationSlotId || previous?.generationSlotId,
         concurrencyClass: next.concurrencyClass || previous?.concurrencyClass,
+        referenceDispatch: next.referenceDispatch || previous?.referenceDispatch,
     };
 }
 

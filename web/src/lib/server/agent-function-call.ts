@@ -5,6 +5,17 @@ import { validateAgentPlan, validateAgentPlanGenerationMode, type AgentPlan } fr
 
 export type AgentFunctionCallResult = { arguments: string; protocol?: TextPlanningProtocol; elapsedMs?: number; pointsCost?: number; pointsRemaining?: number; pointsRecordId?: string; transport?: "stream" | "complete"; fallbackReason?: string };
 
+export async function parseValidatedAgentFunctionCall<T>(call: Pick<AgentFunctionCallResult, "arguments">, normalize: (value: unknown) => T | null, onInvalid: () => Promise<unknown>, invalidMessage: string): Promise<T> {
+    try {
+        const value = normalize(JSON.parse(call.arguments));
+        if (!value) throw new Error(invalidMessage);
+        return value;
+    } catch (error) {
+        await onInvalid();
+        throw error instanceof Error ? error : new Error(invalidMessage);
+    }
+}
+
 export async function parseAgentPlanCall(
     call: AgentFunctionCallResult,
     onInvalid: () => Promise<unknown>,

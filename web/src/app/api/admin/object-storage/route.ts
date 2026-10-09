@@ -32,6 +32,7 @@ export async function PATCH(request: Request) {
             region: stringValue(body.region),
             bucket: stringValue(body.bucket),
             prefix: stringValue(body.prefix),
+            cdnBaseUrl: body.cdnBaseUrl,
             forcePathStyle: body.forcePathStyle === true,
             accessKeyId: stringValue(body.accessKeyId),
             secretAccessKey: stringValue(body.secretAccessKey),

@@ -66,6 +66,7 @@ export function AdminExternalStorage() {
                     region: value.region,
                     bucket: value.bucket,
                     prefix: value.prefix,
+                    cdnBaseUrl: value.cdnBaseUrl,
                     forcePathStyle: value.forcePathStyle,
                     accessKeyId: "",
                     secretAccessKey: "",
@@ -88,6 +89,7 @@ export function AdminExternalStorage() {
         try {
             const next = await saveObjectStorageSettings(values);
             setSettings(next);
+            if (form.getFieldValue("cdnBaseUrl") === values.cdnBaseUrl) form.setFieldValue("cdnBaseUrl", next.cdnBaseUrl);
             form.setFieldsValue({ accessKeyId: "", secretAccessKey: "" });
             message.success("外部存储配置已保存");
             setCursor("");
@@ -285,10 +287,13 @@ export function AdminExternalStorage() {
                                 <Form.Item label="Bucket" name="bucket" className="!mb-5 xl:col-span-2" rules={[{ required: enabled, message: "请输入 Bucket" }]}>
                                     <Input placeholder="media-bucket" />
                                 </Form.Item>
-                                <Form.Item label="对象路径前缀" name="prefix" className="!mb-5 xl:col-span-3" rules={[{ required: true, message: "请输入路径前缀" }]}>
+                                <Form.Item label="对象路径前缀" name="prefix" className="!mb-5 xl:col-span-2" rules={[{ required: true, message: "请输入路径前缀" }]}>
                                     <Input placeholder="vozeb-pro" />
                                 </Form.Item>
-                                <Form.Item label="Path-style 模式" name="forcePathStyle" valuePropName="checked" className="!mb-5 xl:col-span-3">
+                                <Form.Item label="CDN 地址前缀" name="cdnBaseUrl" className="!mb-5 xl:col-span-2" extra="留空使用源站签名地址。">
+                                    <Input placeholder="请输入 CDN 地址前缀" allowClear />
+                                </Form.Item>
+                                <Form.Item label="Path-style 模式" name="forcePathStyle" valuePropName="checked" className="!mb-5 xl:col-span-2">
                                     <Switch size="small" aria-label="切换 Path-style 模式" />
                                 </Form.Item>
                                 <Form.Item label="Access Key" name="accessKeyId" className="!mb-0 xl:col-span-3" extra={settings?.hasAccessKeyId ? "已安全保存；留空不会修改。" : undefined}>

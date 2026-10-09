@@ -1,6 +1,7 @@
 import { ECOMMERCE_IMAGE_SKILL } from "@/lib/server/agent-skills/ecommerce-image";
 import { YANAI_BEAUTY_SKILL } from "@/lib/server/agent-skills/yanai-beauty";
 import { DEFAULT_CREATIVE_SHORTCUT_SKILLS } from "@/lib/server/agent-skills/creative-shortcuts";
+import { EMPTY_ECOMMERCE_MODEL_ROLES } from "@/lib/ecommerce-model-role-config";
 import {
     type UserRole,
     type UserStatus,
@@ -173,6 +174,9 @@ export const DEFAULT_SETTINGS: AuthSettings = {
     systemChannels: [],
     logicalModels: [],
     defaultModels: { imageModel: "", videoModel: "", textModel: "", audioModel: "" },
+    ecommerceGenerationEnabled: false,
+    ecommerceVisualQualityCheckEnabled: false,
+    ecommerceModelRoles: structuredClone(EMPTY_ECOMMERCE_MODEL_ROLES),
     agentSkills: [
         { ...ECOMMERCE_IMAGE_SKILL, keywords: [...ECOMMERCE_IMAGE_SKILL.keywords], workspaces: [...ECOMMERCE_IMAGE_SKILL.workspaces] },
         { ...YANAI_BEAUTY_SKILL, keywords: [...YANAI_BEAUTY_SKILL.keywords], workspaces: [...YANAI_BEAUTY_SKILL.workspaces] },

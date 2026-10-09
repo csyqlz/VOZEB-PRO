@@ -1,4 +1,6 @@
 import { runCustomImageTask, pollCustomImageTask } from "@/app/api/image-tasks/image-task-custom";
+import { customGeminiImageTaskPath } from "@/app/api/image-tasks/image-task-gemini-config";
+import { EcommerceCanvasAdapterReview } from "@/app/api/image-tasks/image-task-size";
 import { runGeminiImageTask } from "@/app/api/image-tasks/image-task-gemini";
 import { runOpenAiImageTask } from "@/app/api/image-tasks/image-task-openai";
 import { imageUnits, ImageQueryContractError, ImageUpstreamTerminalError, pollOpenAiImageTask } from "@/app/api/image-tasks/image-task-support";
@@ -15,6 +17,12 @@ import { GenerationSubmissionSafeFailure, generationSubmissionUncertainError } f
 import { getImageTask, transitionImageTask, updateImageTask, type ImageTask, type StoredImageTaskMediaResult } from "@/lib/server/image-task-store";
 import { maintenanceWorkerContext } from "@/lib/server/maintenance-auth";
 import { resolveModelRequestTimeoutMs } from "@/lib/server/model-request-policy";
+import { imageReferenceToDataUrl, resolveImageTaskEditProtocol } from "@/app/api/image-tasks/image-task-support";
+import { validateSceneEditProtection } from "./ecommerce-product-regions";
+import { assertEcommerceImageExecutionSnapshot, ecommerceSceneProtectionReferencesMatch } from "./ecommerce-image-task-orchestration";
+import { getAgentRun } from "./agent-run-store";
+import { assertEcommerceReferenceContent, EcommerceReferenceSourceChangedError, EcommerceReferenceSourceReadError, referenceAssetVersion } from "./ecommerce-reference-recovery";
+import { originalImageSourceUrl } from "@/lib/media-image-url";
 
 export type ImageUpstreamStep =
     | { state: "pending"; upstream: NonNullable<ImageTask["upstream"]>; status: string }
@@ -29,10 +37,47 @@ export async function createImageTaskUpstreamStep(task: ImageTask, origin: strin
     const running = current.status === "pending" ? await transitionImageTask(current, ["pending"], { status: "running" }) : current;
     if (!running) return { state: "failed", error: "图片任务状态已变化", status: "conflict" };
     const prepared = persistedImageTaskResults(running);
-    if (prepared.length) return readyImageStep(running, prepared[0].serverUrl || prepared[0].dataUrl);
+    if (prepared.length || running.result?.batchEvidence) return readyImageStep(running, prepared[0]?.serverUrl || prepared[0]?.dataUrl || "");
     if (running.upstream?.id) return queryImageTaskUpstreamStep(running, origin, cookie, workerUserId);
+    if (running.ecommerceExecution?.canvas && (customGeminiImageTaskPath(running.config, running.kind) || (!usesDeclarativeImageProtocol(running.config.advancedConfig?.protocol) && running.config.apiFormat === "gemini"))) {
+        return { state: "needs_review", reason: new EcommerceCanvasAdapterReview("Gemini generateContent").message, status: "canvas_adapter_unsupported" };
+    }
 
     const authContext = cookie || maintenanceWorkerContext(workerUserId || task.userId);
+    let submissionReferences: ImageTask["references"];
+    try {
+        submissionReferences = await frozenImageSubmissionReferences(running, origin, authContext);
+    } catch (error) {
+        if (error instanceof EcommerceReferenceSourceChangedError) return { state: "needs_review", reason: error.message, status: "reference_source_changed" };
+        const infrastructure = error instanceof EcommerceReferenceValidationUnavailableError;
+        return {
+            state: "needs_review",
+            reason: infrastructure ? "参考任务暂时无法核对，请稍后点击“检查状态”继续原任务。" : "参考图片暂时无法读取，请稍后点击“检查状态”继续原任务。",
+            status: infrastructure ? "reference_validation_unavailable" : "reference_source_unavailable",
+        };
+    }
+    if (running.config.apiSource === "system" && running.ecommerceExecution) {
+        try {
+            assertEcommerceImageExecutionSnapshot(await getAuthSettings(), running.ecommerceExecution, running.config);
+        } catch (error) {
+            return { state: "needs_review", reason: error instanceof Error ? error.message : "电商生图执行配置已变化", status: "ecommerce_execution_snapshot_changed" };
+        }
+    }
+    const localSceneEdit = running.sceneProtection || (running.ecommerceExecution?.protection?.scope === "local" && !running.productProtection);
+    if (running.productProtection || localSceneEdit) {
+        try {
+            if (!running.mask) throw new Error("局部编辑缺少可信独立蒙版");
+            if (!(await resolveImageTaskEditProtocol(running.config)).supportsIndependentMask) throw new Error("当前渠道尚未配置可用的独立蒙版编辑方式，请联系管理员。");
+            if (localSceneEdit) {
+                if (!running.sceneProtection || !ecommerceSceneProtectionReferencesMatch(running.sceneProtection.sourceAssetId, running.references, running.ecommerceExecution) || running.mask.dataUrl !== running.sceneProtection.mask.dataUrl)
+                    throw new Error("局部场景编辑缺少完整原图与可信独立蒙版");
+                const source = await imageReferenceToDataUrl(submissionReferences[0], "scene.png", origin, authContext);
+                await validateSceneEditProtection(Buffer.from(source.split(",")[1], "base64"), running.sceneProtection);
+            }
+        } catch (error) {
+            return { state: "needs_review", reason: error instanceof Error ? error.message : "局部编辑蒙版无法验证", status: running.productProtection ? "product_mask_review_required" : "scene_mask_review_required" };
+        }
+    }
     const config = running.config;
     let attempts = running.attempts || [];
     const started = startGenerationAttempt(attempts, { channelId: config.channelId, model: generationModelId(config), capability: "image" });
@@ -49,13 +94,19 @@ export async function createImageTaskUpstreamStep(task: ImageTask, origin: strin
         lastUpstreamStatus: "submitting",
     });
     try {
-        const result = usesDeclarativeImageProtocol(config.advancedConfig?.protocol)
-            ? await runCustomImageTask(candidate, origin, publicOrigin, authContext, true)
-            : config.apiFormat === "gemini"
-              ? await runGeminiImageTask(candidate, origin, authContext)
-              : await runOpenAiImageTask(candidate, origin, publicOrigin, authContext, true);
+        // Verified source bytes are used only for this submission. Persisted task
+        // references and result/log processing retain the stable owned URLs.
+        const submission = { ...candidate, references: submissionReferences };
+        const result = customGeminiImageTaskPath(config, candidate.kind)
+            ? await runGeminiImageTask(submission, origin, authContext)
+            : usesDeclarativeImageProtocol(config.advancedConfig?.protocol)
+              ? await runCustomImageTask(submission, origin, publicOrigin, authContext, true)
+              : config.apiFormat === "gemini"
+                ? await runGeminiImageTask(submission, origin, authContext)
+                : await runOpenAiImageTask(submission, origin, publicOrigin, authContext, true);
         return await handleImageProviderResult(candidate, result, origin, authContext);
     } catch (error) {
+        if (error instanceof EcommerceCanvasAdapterReview) return { state: "needs_review", reason: error.message, status: "canvas_adapter_unsupported" };
         if (error instanceof ImageUpstreamTerminalError) return { state: "failed", error: error.message || "图片生成失败", status: "failed", retryReason: "upstream_failed" };
         if (!(error instanceof GenerationSubmissionSafeFailure)) throw generationSubmissionUncertainError(error, "图片任务创建结果未知");
         attempts = finishGenerationAttempt(attempts, candidate.attemptNo, { status: "failed", error: error.message });
@@ -65,9 +116,64 @@ export async function createImageTaskUpstreamStep(task: ImageTask, origin: strin
     }
 }
 
+class EcommerceReferenceValidationUnavailableError extends Error {}
+
+async function frozenImageSubmissionReferences(task: ImageTask, origin: string, authContext: string): Promise<ImageTask["references"]> {
+    if (!task.runId) return task.references;
+    let parent;
+    try {
+        parent = await getAgentRun(task.runId);
+    } catch {
+        throw new EcommerceReferenceValidationUnavailableError();
+    }
+    const checkpoint = parent?.ecommerceSnapshot?.referenceCheckpoint;
+    if (!checkpoint && !task.referenceDispatch) return task.references;
+    const fence = task.referenceDispatch;
+    if (
+        !parent ||
+        parent.id !== task.runId ||
+        parent.userId !== task.userId ||
+        parent.conversationId !== task.conversationId ||
+        parent.cancellation ||
+        checkpoint?.version !== "ecommerce-reference-checkpoint.v1" ||
+        checkpoint.state !== "resolved" ||
+        checkpoint.analysisStage.state !== "completed" ||
+        checkpoint.planningInput.conversationId !== parent.conversationId ||
+        !fence ||
+        fence.inputId !== checkpoint.inputId ||
+        fence.decisionId !== checkpoint.decisionId ||
+        fence.analysisRequestId !== checkpoint.analysisStage.requestId ||
+        new Set(task.references.map((reference) => reference.id)).size !== task.references.length
+    )
+        throw new EcommerceReferenceSourceChangedError();
+    const references: ImageTask["references"] = [];
+    for (const [index, reference] of task.references.entries()) {
+        const item = checkpoint.assets.find((value) => value.asset.id === reference.id);
+        const source = checkpoint.planningInput.assetCandidates.find((value) => value.id === reference.id && value.type === "image")?.url;
+        if (
+            !item ||
+            !source ||
+            !item.contentSha256 ||
+            item.assetVersion !== referenceAssetVersion(item.asset, item.contentSha256) ||
+            item.asset.userId !== parent.userId ||
+            item.asset.conversationId !== parent.conversationId ||
+            item.asset.type !== "image" ||
+            item.asset.status !== "ready"
+        )
+            throw new EcommerceReferenceSourceChangedError();
+        const original = { ...reference, dataUrl: "", url: originalImageSourceUrl(source), serverUrl: undefined, remoteUrl: undefined };
+        const dataUrl = await imageReferenceToDataUrl(original, reference.name || `reference-${index + 1}.png`, origin, authContext);
+        const encoded = dataUrl.match(/^data:image\/[^;,]+;base64,(.+)$/i)?.[1];
+        if (!encoded) throw new EcommerceReferenceSourceReadError();
+        assertEcommerceReferenceContent(Buffer.from(encoded, "base64"), item.contentSha256);
+        references.push({ ...reference, dataUrl, url: undefined, remoteUrl: undefined, serverUrl: undefined });
+    }
+    return references;
+}
+
 export async function queryImageTaskUpstreamStep(task: ImageTask, origin: string, cookie = "", workerUserId = ""): Promise<ImageUpstreamStep> {
     const prepared = persistedImageTaskResults(task);
-    if (prepared.length) return readyImageStep(task, prepared[0].serverUrl || prepared[0].dataUrl);
+    if (prepared.length || task.result?.batchEvidence) return readyImageStep(task, prepared[0]?.serverUrl || prepared[0]?.dataUrl || "");
     const upstream = task.upstream;
     if (!upstream?.id) return { state: "failed", error: "图片任务缺少上游任务 ID", status: "missing_upstream_id" };
     const authContext = cookie || maintenanceWorkerContext(workerUserId || task.userId);
@@ -127,20 +233,22 @@ export async function persistImageTaskResult(task: ImageTask, origin: string, re
     const authContext = cookie || maintenanceWorkerContext(workerUserId || task.userId);
     const current = (await getImageTask(task.id)) || task;
     let results = persistedImageTaskResults(current);
-    if (results.length) return completeImageResult(current, results);
+    if (results.length || current.result?.batchEvidence) return completeImageResult(current, results);
 
     const inlineDataUrl = resultUrl === "inline://image-task-result" ? current.result?.dataUrl || "" : resultUrl;
     const remoteUrl = resultUrl === "inline://image-task-result" ? current.result?.remoteUrl : /^https?:\/\//i.test(resultUrl) ? resultUrl : undefined;
     if (!inlineDataUrl && !remoteUrl) throw new GenerationSubmissionSafeFailure("图片任务缺少可持久化结果");
     const legacyResults = current.result?.results?.length ? current.result.results : [{ dataUrl: inlineDataUrl, remoteUrl }];
     const normalizedResults = legacyResults.map((item, index) => (index === 0 ? { ...item, dataUrl: inlineDataUrl || item.dataUrl, remoteUrl: remoteUrl || item.remoteUrl } : item));
+    let prepared: Awaited<ReturnType<typeof prepareImageTaskResults>>;
     try {
-        results = await prepareImageTaskResults(current, { ...normalizedResults[0], results: normalizedResults }, origin, authContext);
+        prepared = await prepareImageTaskResults(current, { ...normalizedResults[0], results: normalizedResults }, origin, authContext);
+        results = prepared.results;
     } catch (error) {
         return markImageTaskFailed(current, error instanceof Error ? error.message : "上游返回的图片文件无效或保存失败");
     }
     try {
-        await updateImageTask(current.id, { result: { ...results[0], results } });
+        await updateImageTask(current.id, { result: { ...(results[0] || { dataUrl: "" }), ...prepared } });
     } catch (error) {
         await deletePreparedImageTaskResults(results);
         throw error;
@@ -203,42 +311,45 @@ async function handleImageProviderResult(task: ImageTask, result: ImageTaskRunRe
         });
         return { state: "pending", upstream: result.pending, status: "submitted" };
     }
-    let results: StoredImageTaskMediaResult[];
+    let prepared: Awaited<ReturnType<typeof prepareImageTaskResults>>;
     try {
-        results = await prepareImageTaskResults(task, result, origin, authContext);
+        prepared = await prepareImageTaskResults(task, result, origin, authContext);
     } catch (error) {
         return { state: "failed", error: error instanceof Error ? error.message : "上游返回的图片文件无效或保存失败", status: "failed" };
     }
+    const results = prepared.results;
     const first = results[0];
-    if (!first) return { state: "failed", error: "上游返回的图片文件无效或保存失败", status: "failed" };
+    if (!first && !prepared.batchEvidence) return { state: "failed", error: "上游返回的图片文件无效或保存失败", status: "failed" };
     const current = await getImageTask(task.id);
     if (!current || current.status === "cancelled") {
         await deletePreparedImageTaskResults(results);
         return { state: "failed", error: "任务已取消", status: "cancelled" };
     }
     try {
-        await updateImageTask(task.id, { result: { ...first, results } });
+        await updateImageTask(task.id, { result: { ...(first || { dataUrl: "" }), ...prepared } });
     } catch (error) {
         await deletePreparedImageTaskResults(results);
         return { state: "failed", error: error instanceof Error ? error.message : "上游返回的图片文件无效或保存失败", status: "failed" };
     }
-    return readyImageStep(task, first.serverUrl || first.dataUrl);
+    return readyImageStep({ ...task, result: { ...(first || { dataUrl: "" }), ...prepared } }, first?.serverUrl || first?.dataUrl || "");
 }
 
 async function readyImageStep(task: ImageTask, resultUrl: string): Promise<ImageUpstreamStep> {
+    if (!resultUrl && task.result?.batchEvidence) {
+        await completeImageResult(task, []);
+        return { state: "completed" };
+    }
     if (!stableMediaUrl(resultUrl)) return { state: "failed", error: "上游返回的图片文件无效或保存失败", status: "failed" };
     await persistReadyImageSchedule(task, resultUrl);
     return { state: "result_ready", resultUrl, status: "completed" };
 }
 
 function persistReadyImageSchedule(task: ImageTask, resultUrl: string) {
-    const submittedAt = Date.now();
     return scheduleGenerationTask("image", task.id, {
         executionPhase: "result_ready",
         channelId: task.config.channelId,
         provider: task.config.advancedConfig?.protocol || task.config.apiFormat,
-        submittedAt,
-        nextPollAt: submittedAt,
+        nextPollAt: Date.now(),
         lastUpstreamStatus: "completed",
         resultPayload: { url: resultUrl },
     });
@@ -274,7 +385,7 @@ async function completeImageResult(task: ImageTask, safeResults: StoredImageTask
     }
     const completed = await transitionImageTask(current, ["pending", "running"], {
         status: "success",
-        result: { ...safeResults[0], results: safeResults },
+        result: { ...(safeResults[0] || { dataUrl: "" }), results: safeResults, ...(task.result?.batchEvidence ? { batchEvidence: task.result.batchEvidence } : {}) },
         pointsRemaining: task.pointsRemaining,
         retryable: false,
     });
@@ -288,16 +399,24 @@ async function completeImageResult(task: ImageTask, safeResults: StoredImageTask
         return undefined;
     });
     const loggedAssets = logged?.assets?.length ? logged.assets : logged?.asset ? [logged.asset] : [];
-    const finalResults = loggedAssets.length
-        ? loggedAssets.map((asset) => ({ dataUrl: asset.serverUrl || asset.url, remoteUrl: asset.remoteUrl, serverUrl: asset.serverUrl, width: asset.width, height: asset.height, bytes: asset.bytes, mimeType: asset.mimeType }))
-        : safeResults;
+    const finalResults =
+        loggedAssets.length && !completed.ecommerceExecution?.canvas && !completed.sceneProtection
+            ? loggedAssets.map((asset) => ({ dataUrl: asset.serverUrl || asset.url, remoteUrl: asset.remoteUrl, serverUrl: asset.serverUrl, width: asset.width, height: asset.height, bytes: asset.bytes, mimeType: asset.mimeType }))
+            : safeResults;
     const finalResult = finalResults[0];
     const attempts = finishGenerationAttempt(completed.attempts || [], completed.attemptNo || completed.attempts?.at(-1)?.attemptNo || 1, {
         status: "succeeded",
         pointsCost: completed.billing?.pointsCost,
         pointsRecordId: completed.billing?.pointsRecordId,
     });
-    const finalized = (await updateImageTask(task.id, { result: { ...finalResult, results: finalResults }, config: { ...completed.config, apiKey: "system" }, candidateConfigs: [], attempts, attemptNo: attempts.at(-1)?.attemptNo })) || completed;
+    const finalized =
+        (await updateImageTask(task.id, {
+            result: { ...(finalResult || { dataUrl: "" }), results: finalResults, ...(completed.result?.batchEvidence ? { batchEvidence: completed.result.batchEvidence } : {}) },
+            config: { ...completed.config, apiKey: "system" },
+            candidateConfigs: [],
+            attempts,
+            attemptNo: attempts.at(-1)?.attemptNo,
+        })) || completed;
     const assets = (finalized.result?.results?.length ? finalized.result.results : finalized.result ? [finalized.result] : []).flatMap((item) => {
         const url = item.serverUrl || item.remoteUrl || stableMediaUrl(item.dataUrl);
         return url ? [{ type: "image" as const, url, mimeType: item.mimeType, width: item.width, height: item.height, bytes: item.bytes }] : [];

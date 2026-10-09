@@ -1,4 +1,5 @@
 import type { GenerationTaskExecutionPhase } from "@/lib/server/generation-task-scheduler";
+import type { EcommerceReferenceDispatchFence } from "./ecommerce-reference-dispatch";
 
 export type GenerationTaskType = "text" | "image" | "video" | "audio" | "agent" | "render";
 export type GenerationTaskStatus = "pending" | "running" | "success" | "error" | "paused" | "cancelled";
@@ -17,6 +18,7 @@ export type GenerationTaskContext = {
     generationLogId?: string;
     generationSlotId?: string;
     concurrencyClass?: "canvas-layer";
+    referenceDispatch?: EcommerceReferenceDispatchFence;
 };
 
 export type StoredGenerationTaskRecord = {

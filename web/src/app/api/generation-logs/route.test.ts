@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
     rename: vi.fn(),
     deleteResults: vi.fn(),
     deleteLogs: vi.fn(),
+    listLogs: vi.fn(),
     listForDelete: vi.fn(),
 }));
 
@@ -16,8 +17,13 @@ vi.mock("@/lib/auth/request", () => ({ readJsonBody: mocks.readJsonBody }));
 vi.mock("@/lib/auth/session", () => ({ getCurrentUser: mocks.currentUser }));
 vi.mock("@/lib/server/generation-log-store", () => ({
     deleteGenerationLogs: mocks.deleteLogs,
-    listGenerationLogs: vi.fn(),
+    listGenerationLogs: mocks.listLogs,
     listUserGenerationLogsForDelete: mocks.listForDelete,
+    withoutEcommerceTrace: (log: Record<string, unknown>) => {
+        const publicLog = { ...log };
+        delete publicLog.ecommerceTrace;
+        return publicLog;
+    },
 }));
 vi.mock("@/lib/server/generation-log-task-service", () => ({
     GenerationLogDraftValidationError: mocks.DraftError,
@@ -27,12 +33,27 @@ vi.mock("@/lib/server/generation-log-task-service", () => ({
     renameGenerationLogForUser: mocks.rename,
 }));
 
-import { DELETE, PATCH, POST } from "./route";
+import { DELETE, GET, PATCH, POST } from "./route";
 
 describe("generation log browser write boundary", () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.currentUser.mockResolvedValue({ id: "user-one", username: "user", displayName: "User" });
+    });
+
+    it("never returns the administrator-only ecommerce trace", async () => {
+        mocks.listLogs.mockResolvedValue({
+            items: [{ id: "log-one", userId: "user-one", ecommerceTrace: { version: "ecommerce-generation-trace.v1", runId: "private-run" } }],
+            total: 1,
+            page: 1,
+            pageSize: 100,
+        });
+
+        const response = await GET(new Request("http://localhost/api/generation-logs"));
+        const payload = await response.json();
+
+        expect(response.status).toBe(200);
+        expect(payload.items[0]).not.toHaveProperty("ecommerceTrace");
     });
 
     it("rejects browser-submitted terminal status and result URLs", async () => {

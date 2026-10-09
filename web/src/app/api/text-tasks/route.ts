@@ -2,6 +2,7 @@ import { after, NextResponse } from "next/server";
 
 import { readJsonBody } from "@/lib/auth/request";
 import { getCurrentUser } from "@/lib/auth/session";
+import { CREATIVE_UPLOAD_JSON_BODY_MAX_BYTES } from "@/lib/creative-upload";
 import { getAuthSettings, isAuthInputError } from "@/lib/auth/store";
 import { generationModelId, toSystemGenerationChannel } from "@/lib/server/generation-channel";
 import { runGenerationTaskRecoveryBatch } from "@/lib/server/generation-task-recovery-service";
@@ -31,7 +32,7 @@ export async function POST(request: Request) {
     const response = await withGenerationConcurrencyLimit(currentUser.id, "text", 5 * 60 * 1000, settings.generationConcurrency.text, async () => {
         let body: CreateTextTaskBody;
         try {
-            body = await readJsonBody(request);
+            body = await readJsonBody(request, CREATIVE_UPLOAD_JSON_BODY_MAX_BYTES);
         } catch (error) {
             if (isAuthInputError(error)) return NextResponse.json({ error: error.message }, { status: error.status });
             throw error;

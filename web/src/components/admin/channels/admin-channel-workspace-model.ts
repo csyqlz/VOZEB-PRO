@@ -1,11 +1,16 @@
 import type { LogicalModelCapability, SystemDefaultModels, SystemModelChannel } from "@/lib/auth/store";
 import { channelDetectedCapabilities, normalizeDefaultModelsConfig } from "@/lib/model-routing-config";
 import { channelProtocolDefinition } from "@/lib/channel-protocol-registry";
+import type { EcommerceModelRoles } from "@/lib/auth/store";
+import { normalizeEcommerceModelRoles } from "@/lib/ecommerce-model-role-config";
 
 export type ChannelWorkspaceSettings = {
     systemChannels: SystemModelChannel[];
     logicalModels: import("@/lib/auth/store").LogicalModel[];
     defaultModels: SystemDefaultModels;
+    ecommerceGenerationEnabled?: boolean;
+    ecommerceVisualQualityCheckEnabled?: boolean;
+    ecommerceModelRoles?: EcommerceModelRoles;
 };
 
 export type ChannelWorkspaceStatus = "enabled" | "draft" | "disabled";
@@ -41,6 +46,9 @@ export function removeChannelFromWorkspace(settings: ChannelWorkspaceSettings, c
         systemChannels,
         logicalModels,
         defaultModels: Object.fromEntries(Object.entries(settings.defaultModels).map(([key, value]) => [key, liveIds.has(value) ? value : ""])) as SystemDefaultModels,
+        ...(settings.ecommerceGenerationEnabled !== undefined ? { ecommerceGenerationEnabled: settings.ecommerceGenerationEnabled } : {}),
+        ...(settings.ecommerceVisualQualityCheckEnabled !== undefined ? { ecommerceVisualQualityCheckEnabled: settings.ecommerceVisualQualityCheckEnabled } : {}),
+        ...(settings.ecommerceModelRoles ? { ecommerceModelRoles: normalizeEcommerceModelRoles(settings.ecommerceModelRoles, logicalModels) } : {}),
     };
 }
 

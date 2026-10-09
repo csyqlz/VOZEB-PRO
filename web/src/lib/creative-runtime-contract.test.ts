@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { CreativeRuntimeInputError, isCreativeProjectHandoff, normalizeCreativeRunRequest } from "./creative-runtime-contract";
+import { isCreativeProjectHandoff, normalizeCreativeRunRequest } from "./creative-runtime-contract";
 
 describe("normalizeCreativeRunRequest", () => {
     it("normalizes a chat request and deduplicates assets", () => {
@@ -110,15 +110,15 @@ describe("normalizeCreativeRunRequest", () => {
         expect(() => normalizeCreativeRunRequest({ clientRequestId: "x", surface: "drama", prompt: "write" })).toThrow("短剧项目标识不能为空");
     });
 
-    it("rejects project state on chat and oversized snapshots", () => {
+    it("rejects project state on chat", () => {
         expect(() => normalizeCreativeRunRequest({ clientRequestId: "x", surface: "chat", projectId: "p", prompt: "hello" })).toThrow("普通对话不接受项目或快照");
-        try {
-            normalizeCreativeRunRequest({ clientRequestId: "x", surface: "canvas", projectId: "p", prompt: "draw", snapshot: { value: "x".repeat(513 * 1024) } });
-            throw new Error("expected validation error");
-        } catch (error) {
-            expect(error).toBeInstanceOf(CreativeRuntimeInputError);
-            expect((error as CreativeRuntimeInputError).status).toBe(413);
-        }
+    });
+
+    it("allows an oversized Canvas client snapshot when the server can hydrate by project ID", () => {
+        expect(normalizeCreativeRunRequest({ clientRequestId: "canvas-large", surface: "canvas", projectId: "canvas-project", prompt: "继续当前画布", snapshot: { value: "x".repeat(513 * 1024) } })).toMatchObject({
+            surface: "canvas",
+            projectId: "canvas-project",
+        });
     });
 
     it("allows an oversized drama client snapshot when the server can hydrate by project ID", () => {

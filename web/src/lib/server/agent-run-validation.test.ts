@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { agentChildTaskTerminal, agentTaskCopies, resolveAgentTaskCount, resolveAgentVideoSeconds, validateAgentPlan, validateAgentPlanGenerationMode, validateAgentTaskResult } from "./agent-run-validation";
+import {
+    agentChildTaskTerminal,
+    agentTaskCopies,
+    resolveAgentTaskCount,
+    resolveAgentVideoSeconds,
+    validateAgentPlan,
+    validateAgentPlanGenerationMode,
+    validateAgentPlanRequestedModels,
+    validateAgentTaskResult,
+    type AgentPlan,
+} from "./agent-run-validation";
 
 describe("validateAgentPlan", () => {
     it("accepts a bounded executable plan", () => {
@@ -123,5 +133,25 @@ describe("validateAgentPlan", () => {
         expect(resolveAgentVideoSeconds("video", undefined, 10, 5)).toBe(10);
         expect(resolveAgentVideoSeconds("video", undefined, undefined, 6)).toBe(6);
         expect(resolveAgentVideoSeconds("image", 10, 10, 10)).toBeUndefined();
+    });
+});
+
+describe("validateAgentPlanRequestedModels", () => {
+    const plan: AgentPlan = {
+        objective: "生成对比图",
+        foundation: { complexity: "simple", brief: { objective: "生成对比图" }, direction: { summary: "同一场景" } },
+        deliverables: [
+            { title: "版本 A", type: "image", model: "image-a", prompt: "生成版本 A" },
+            { title: "版本 B", type: "image", model: "image-b", prompt: "生成版本 B" },
+        ],
+    };
+
+    it("accepts a plan that uses every explicitly selected model", () => {
+        expect(() => validateAgentPlanRequestedModels(plan, ["image-a", "image-b"])).not.toThrow();
+    });
+
+    it("rejects unselected models and selected models omitted by the planner", () => {
+        expect(() => validateAgentPlanRequestedModels(plan, ["image-a"])).toThrow("模型与用户选择不一致");
+        expect(() => validateAgentPlanRequestedModels({ ...plan, deliverables: [plan.deliverables[0]] }, ["image-a", "image-b"])).toThrow("模型与用户选择不一致");
     });
 });

@@ -4,6 +4,7 @@ import { creativeConversationSourceForSurface, normalizeCreativeConversationSour
 import { readJsonDataFile, withJsonDataFileLock, writeJsonDataFile } from "@/lib/server/data-adapter";
 import { ensurePostgresSchema, withPostgresTransaction, type QueryExecutor } from "@/lib/server/database";
 import type { StoredGenerationTaskRecord } from "@/lib/server/generation-task-store";
+import type { GenerationTaskSchedulePatch } from "./generation-task-scheduler";
 
 export type RuntimeFileDatabase = {
     version: 1;
@@ -42,7 +43,10 @@ export type RunMutation<T extends AgentRunBase> = {
     run: T;
     event?: { type: string; data?: unknown };
     assistant?: { status: CreativeMessage["status"]; content?: string; metadata?: Record<string, unknown> };
+    schedule?: Pick<GenerationTaskSchedulePatch, "executionPhase" | "nextPollAt" | "lastUpstreamStatus">;
 };
+export type RunMutationContext = { persistedChildren: Array<{ id: string }> };
+export type RunMutationOptions = { referenceRecovery?: boolean };
 
 export type NewAsset = Omit<CreativeAsset, "id" | "createdAt" | "updatedAt" | "status" | "metadata"> & { id?: string; status?: CreativeAsset["status"]; metadata?: Record<string, unknown> };
 export type NewConversationExchange = {
@@ -97,17 +101,43 @@ export async function createPostgresRunBundle<T extends AgentRunBase>(userId: st
     });
 }
 
-export async function mutatePostgresRun<T extends AgentRunBase>(id: string, ttlMs: number, mutate: (current: T) => RunMutation<T> | null, allowedStatuses?: string[], expectedExecutionId?: string) {
+export async function mutatePostgresRun<T extends AgentRunBase>(
+    id: string,
+    ttlMs: number,
+    mutate: (current: T, context: RunMutationContext) => RunMutation<T> | null,
+    allowedStatuses?: string[],
+    expectedExecutionId?: string,
+    options?: RunMutationOptions,
+) {
     await ensurePostgresSchema();
     return withPostgresTransaction(async (client) => {
         const result = await client.query<{ payload: T & { executionId?: string } }>("SELECT payload FROM generation_tasks WHERE id = $1 AND task_type = 'agent' AND expires_at > now() FOR UPDATE", [id]);
         const current = result.rows[0]?.payload;
         if (!current || (allowedStatuses && !allowedStatuses.includes(current.status)) || (expectedExecutionId && current.executionId !== expectedExecutionId)) return null;
-        const mutation = mutate(current as T);
+        const children = options?.referenceRecovery ? await client.query<{ id: string }>("SELECT id FROM generation_tasks WHERE run_id = $1 AND user_id = $2 AND task_type <> 'agent'", [id, current.userId]) : { rows: [] };
+        const mutation = mutate(current as T, { persistedChildren: children.rows });
         if (!mutation) return null;
         const now = Date.now();
         const run = { ...mutation.run, id: current.id, userId: current.userId, createdAt: current.createdAt, updatedAt: now };
-        await client.query("UPDATE generation_tasks SET status = $2, payload = $3::jsonb, updated_at = $4, expires_at = $5 WHERE id = $1", [id, normalizeTaskStatus(run.status), JSON.stringify(run), new Date(now), new Date(now + ttlMs)]);
+        if (options?.referenceRecovery) {
+            await client.query(
+                "UPDATE generation_tasks SET status = $2, payload = $3::jsonb, updated_at = $4, expires_at = $5, execution_phase = 'created', next_poll_at = $4, last_upstream_status = 'created', worker_id = NULL, lease_until = NULL WHERE id = $1",
+                [id, normalizeTaskStatus(run.status), JSON.stringify(run), new Date(now), new Date(now + ttlMs)],
+            );
+        } else if (mutation.schedule) {
+            await client.query("UPDATE generation_tasks SET status = $2, payload = $3::jsonb, updated_at = $4, expires_at = $5, execution_phase = $6, next_poll_at = $7, last_upstream_status = $8 WHERE id = $1", [
+                id,
+                normalizeTaskStatus(run.status),
+                JSON.stringify(run),
+                new Date(now),
+                new Date(now + ttlMs),
+                mutation.schedule.executionPhase,
+                mutation.schedule.nextPollAt === undefined ? null : new Date(mutation.schedule.nextPollAt),
+                mutation.schedule.lastUpstreamStatus,
+            ]);
+        } else {
+            await client.query("UPDATE generation_tasks SET status = $2, payload = $3::jsonb, updated_at = $4, expires_at = $5 WHERE id = $1", [id, normalizeTaskStatus(run.status), JSON.stringify(run), new Date(now), new Date(now + ttlMs)]);
+        }
         if (mutation.event) {
             await client.query("INSERT INTO creative_run_events (run_id, type, data, created_at) VALUES ($1, $2, $3::jsonb, $4)", [id, mutation.event.type, mutation.event.data === undefined ? null : JSON.stringify(mutation.event.data), new Date(now)]);
             await client.query(`SELECT pg_notify('${CREATIVE_RUN_NOTIFY_CHANNEL}', $1)`, [id]);

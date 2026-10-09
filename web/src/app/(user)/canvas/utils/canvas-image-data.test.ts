@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
     applySubjectMaskToCropImageData,
     applySubjectMaskToImageData,
     assertCanvasImageEditChanged,
+    compositeCanvasImageEditResult,
     compositeImageDataWithinMask,
     expandLayerBox,
     expandLayerRemovalBox,
@@ -11,7 +12,27 @@ import {
     measureCanvasImageEditChange,
     resolveCanvasImageDecompositionSource,
     scaleLayerBox,
+    upscaleDataUrl,
 } from "./canvas-image-data";
+
+afterEach(() => vi.unstubAllGlobals());
+
+describe("Canvas 图片放大", () => {
+    it("以匿名 CORS 模式加载可能重定向到对象存储的站内图片", async () => {
+        const fixture = installUpscaleBrowserFixture({ rejectTaintedCanvas: true });
+
+        await expect(upscaleDataUrl("/api/generation-log-assets/permanent/result.jpg", { targetLongEdge: 4096, algorithm: "bilinear" })).resolves.toBe("data:image/png;base64,upscaled");
+        expect(fixture.crossOrigins).toEqual(["anonymous"]);
+    });
+
+    it("通过站内媒体代理加载外域图片", async () => {
+        const fixture = installUpscaleBrowserFixture();
+
+        await upscaleDataUrl("https://cdn.example.com/result.jpg", { targetLongEdge: 4096, algorithm: "bilinear" });
+
+        expect(fixture.sources).toEqual(["/api/media-proxy?url=https%3A%2F%2Fcdn.example.com%2Fresult.jpg"]);
+    });
+});
 
 describe("Canvas 智能分层", () => {
     it("优先向识别接口发送稳定媒体地址而不是大体积内联图片", () => {
@@ -114,8 +135,116 @@ describe("Canvas 智能分层", () => {
 
         expect(measureCanvasImageEditChange(source, generated, mask)).toMatchObject({ editedPixels: 1, changedPixels: 0, changedRatio: 0, meanAbsoluteDifference: 0 });
     });
+
+    it("局部编辑允许轻微变化并继续保护蒙版外原图像素", async () => {
+        const fixture = installCompositeBrowserFixture({
+            source: pixels([10, 20, 30, 255], [40, 50, 60, 255]),
+            generated: pixels([210, 220, 230, 255], [42, 51, 62, 255]),
+            mask: pixels([255, 255, 255, 255], [255, 255, 255, 0]),
+        });
+
+        await expect(compositeCanvasImageEditResult("source", "generated", "mask", undefined, false)).resolves.toBeInstanceOf(Blob);
+        expect(fixture.output()).toEqual([10, 20, 30, 255, 42, 51, 62, 255]);
+    });
 });
 
 function pixels(...values: number[][]) {
     return { data: new Uint8ClampedArray(values.flat()), width: values.length, height: 1 };
+}
+
+function installUpscaleBrowserFixture(options: { rejectTaintedCanvas?: boolean } = {}) {
+    const sources: string[] = [];
+    const crossOrigins: Array<string | null> = [];
+    let loadedWithCors = false;
+
+    class ImageFixture {
+        width = 1600;
+        height = 2844;
+        crossOrigin: string | null = null;
+        onload: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+
+        set src(value: string) {
+            sources.push(value);
+            crossOrigins.push(this.crossOrigin);
+            loadedWithCors = this.crossOrigin === "anonymous";
+            this.onload?.();
+        }
+    }
+
+    vi.stubGlobal("window", { location: { origin: "https://zeb.so-shine.com" } });
+    vi.stubGlobal("Image", ImageFixture);
+    vi.stubGlobal("document", {
+        createElement: () => ({
+            width: 0,
+            height: 0,
+            getContext: () => ({
+                imageSmoothingEnabled: true,
+                imageSmoothingQuality: "high",
+                drawImage: vi.fn(),
+            }),
+            toDataURL: () => {
+                if (options.rejectTaintedCanvas && !loadedWithCors) {
+                    throw new Error("Failed to execute 'toDataURL' on 'HTMLCanvasElement': Tainted canvases may not be exported.");
+                }
+                return "data:image/png;base64,upscaled";
+            },
+        }),
+    });
+
+    return { sources, crossOrigins };
+}
+
+function installCompositeBrowserFixture(images: Record<string, ReturnType<typeof pixels>>) {
+    let output: number[] = [];
+
+    class ImageFixture {
+        width = 2;
+        height = 1;
+        onload: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+        crossOrigin: string | null = null;
+        source = "";
+
+        set src(value: string) {
+            this.source = value;
+            this.onload?.();
+        }
+    }
+
+    class ImageDataFixture {
+        constructor(
+            public data: Uint8ClampedArray,
+            public width: number,
+            public height: number,
+        ) {}
+    }
+
+    vi.stubGlobal("Image", ImageFixture);
+    vi.stubGlobal("ImageData", ImageDataFixture);
+    vi.stubGlobal("document", {
+        createElement: () => {
+            let drawnImage: ImageFixture | undefined;
+            let writtenImage: ImageDataFixture | undefined;
+            return {
+                width: 0,
+                height: 0,
+                getContext: () => ({
+                    drawImage: (image: ImageFixture) => {
+                        drawnImage = image;
+                    },
+                    getImageData: () => images[drawnImage?.source || ""],
+                    putImageData: (image: ImageDataFixture) => {
+                        writtenImage = image;
+                    },
+                }),
+                toBlob: (callback: (blob: Blob) => void) => {
+                    output = [...(writtenImage?.data || [])];
+                    callback(new Blob([new Uint8Array(output)], { type: "image/png" }));
+                },
+            };
+        },
+    });
+
+    return { output: () => output };
 }

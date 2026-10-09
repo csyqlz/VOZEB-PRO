@@ -1,0 +1,57 @@
+name: Deploy production
+run-name: 生产部署 · ${{ inputs.image_tag }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "要部署的 GHCR 镜像 tag（例如 v0.0.8 或 sha）"
+        required: true
+        default: latest
+        type: string
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy on production runner
+    runs-on: [self-hosted, linux, x64, vozeb-prod]
+    environment: production
+    timeout-minutes: 20
+    steps:
+      - name: Verify deployment directory
+        shell: bash
+        run: |
+          test -d /home/VOZEB-PRO
+          test -f /home/VOZEB-PRO/docker-compose.external-db.yml
+
+      - name: Login to GitHub Container Registry
+        shell: bash
+        env:
+          CR_PAT: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$CR_PAT" | docker login ghcr.io --username "${{ github.actor }}" --password-stdin
+
+      - name: Pull and restart services
+        shell: bash
+        working-directory: /home/VOZEB-PRO
+        env:
+          VOZEB_PRO_IMAGE: ghcr.io/zpitq/vozeb-pro:${{ inputs.image_tag }}
+        run: |
+          compose_args=(-f docker-compose.external-db.yml)
+          if [[ -f docker-compose.gcp-adc.yml ]]; then
+            compose_args+=(-f docker-compose.gcp-adc.yml)
+          fi
+          docker compose "${compose_args[@]}" pull app generation-worker
+          docker compose "${compose_args[@]}" up -d --no-build app generation-worker
+          docker compose "${compose_args[@]}" ps
+
+      - name: Logout from GitHub Container Registry
+        if: always()
+        shell: bash
+        run: docker logout ghcr.io

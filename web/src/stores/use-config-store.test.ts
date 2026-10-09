@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { applyPublicSystemSettings, defaultConfig, modelMatchesCapability, modelOptionLabel, type PublicSystemSettings } from "./use-config-store";
+import { applyPublicSystemSettings, defaultConfig, modelMatchesCapability, modelOptionLabel, resolveModelProtocol, type PublicSystemSettings } from "./use-config-store";
 
 const audioSettings: PublicSystemSettings = {
     systemChannels: [
@@ -112,6 +112,36 @@ describe("applyPublicSystemSettings", () => {
         expect(config.generationConcurrency).toEqual({ agent: 11, image: 12, video: 6, audio: 13, text: 21, render: 7 });
         expect(config.canvasImageCount).toBe("11");
         expect(config.count).toBe("12");
+    });
+
+    it("resolves the public protocol for a logical model binding", () => {
+        const config = applyPublicSystemSettings(defaultConfig, {
+            systemChannels: [
+                {
+                    id: "image-channel",
+                    name: "图片渠道",
+                    baseUrl: "/api/ai/system/image-channel",
+                    apiKey: "system",
+                    apiFormat: "openai",
+                    models: ["vendor-image"],
+                    enabled: true,
+                    hasApiKey: true,
+                    protocol: "custom",
+                    modelProtocols: { "vendor-image": "sub2api" },
+                },
+            ],
+            logicalModels: [
+                {
+                    id: "logical-image",
+                    name: "逻辑图片模型",
+                    capability: "image",
+                    enabled: true,
+                    bindings: [{ id: "image-binding", channelId: "image-channel", upstreamModel: "vendor-image", enabled: true, priority: 1 }],
+                },
+            ],
+        });
+
+        expect(resolveModelProtocol(config, "logical-image")).toBe("sub2api");
     });
 });
 
