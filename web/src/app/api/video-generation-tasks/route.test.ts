@@ -243,7 +243,11 @@ describe("video generation candidate failover", () => {
         expect(response.status).toBe(202);
         expect(mocks.fetchInternalApi.mock.calls.some(([url]) => String(url).includes("/api/ai/system/two/"))).toBe(false);
         expect(mocks.createVideoTask).toHaveBeenCalledOnce();
-        expect(mocks.scheduleGenerationTask).toHaveBeenLastCalledWith("video", "local-task", expect.objectContaining({ executionPhase: "needs_review", nextPollAt: undefined, lastUpstreamStatus: "submission_outcome_unknown" }));
+        expect(mocks.scheduleGenerationTask).toHaveBeenLastCalledWith(
+            "video",
+            "local-task",
+            expect.objectContaining({ executionPhase: "needs_review", nextPollAt: undefined, lastUpstreamStatus: "submission_outcome_unknown", resultPayload: { reviewReason: expect.stringContaining("视频接口返回了无效 JSON") } }),
+        );
         expect(mocks.refundUserPoints).not.toHaveBeenCalled();
         expect(mocks.updateVideoTask).toHaveBeenCalledWith("local-task", expect.objectContaining({ upstream: expect.objectContaining({ pointsCost: 2.5, pointsUnits: expect.any(Number), pointsRecordId: "video-points-unknown", refunded: false }) }));
     });
@@ -267,6 +271,38 @@ describe("video generation candidate failover", () => {
         expect(response.status).toBe(502);
         expect((await response.json()).error).toBe("登录验证失败");
         expect(mocks.createVideoTask).toHaveBeenCalledOnce();
+    });
+
+    it("treats any local protocol request-construction error as a concrete safe failure", async () => {
+        mocks.getAuthSettings.mockResolvedValue({
+            ...settings,
+            systemChannels: [
+                {
+                    ...channels[0],
+                    advancedConfig: {
+                        protocol: "custom",
+                        modelConfigs: {
+                            "video-one": {
+                                capability: "video",
+                                protocol: "custom",
+                                createPath: "/videos",
+                                requestTemplate: "{invalid-json",
+                                resultField: "id",
+                            },
+                        },
+                    },
+                },
+            ],
+            logicalModels: [{ ...settings.logicalModels[0], bindings: [settings.logicalModels[0].bindings[0]] }],
+        });
+
+        const response = await POST(request());
+
+        expect(response.status).toBe(502);
+        expect(await response.json()).toMatchObject({ error: "高级请求模板必须是有效 JSON", canRetry: true });
+        expect(mocks.fetchInternalApi).not.toHaveBeenCalled();
+        expect(mocks.scheduleGenerationTask.mock.calls.some(([, , patch]) => patch.executionPhase === "needs_review")).toBe(false);
+        expect(mocks.transitionVideoTask).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ status: "error", error: "高级请求模板必须是有效 JSON", retryable: true }));
     });
 
     it("enqueues a GlobalAiOpc task for the recovery worker after creation", async () => {
@@ -467,7 +503,7 @@ describe("video generation candidate failover", () => {
                     },
                 },
             ],
-            logicalModels: [{ ...settings.logicalModels[0], bindings: [settings.logicalModels[0].bindings[0]] }],
+            logicalModels: [{ ...settings.logicalModels[0], bindings: [{ ...settings.logicalModels[0].bindings[0], capabilityProfile: { supportsReferenceVideo: true } }] }],
         });
         mocks.fetchInternalApi.mockResolvedValue(json({ id: "upstream-openai", status: "queued" }));
         const reference = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
@@ -485,12 +521,101 @@ describe("video generation candidate failover", () => {
         expect(body.get("size")).toBe("1280x720");
         expect(body.get("input_reference")).toBeInstanceOf(File);
 
+        const excessiveResponse = await POST(
+            request({ model: "video", videoSeconds: "5", size: "16:9" }, [
+                { type: "image", url: reference },
+                { type: "image", url: `${reference}#second` },
+            ]),
+        );
+
+        expect(excessiveResponse.status).toBe(400);
+        expect((await excessiveResponse.json()).error).toBe("OpenAI 视频协议最多支持 1 张参考图");
+        expect(mocks.fetchInternalApi).toHaveBeenCalledTimes(1);
+
         mocks.fetchInternalApi.mockResolvedValue(json({ id: "upstream-openai-auto", status: "queued" }));
         const intelligentResponse = await POST(request({ model: "video", videoSeconds: "5", size: "auto", vquality: "auto" }));
         const intelligentBody = (mocks.fetchInternalApi.mock.calls[1] as [string, RequestInit])[1].body as FormData;
 
         expect(intelligentResponse.status).toBe(200);
         expect(intelligentBody.get("size")).toBeNull();
+
+        mocks.fetchInternalApi.mockResolvedValue(json({ id: "upstream-openai-reference-video", status: "queued" }));
+        const videoResponse = await POST(request({ model: "video", videoSeconds: "5", size: "16:9" }, [{ type: "video", url: "https://cdn.example.com/reference.mp4" }]));
+        const videoInit = (mocks.fetchInternalApi.mock.calls[2] as [string, RequestInit])[1];
+        const videoBody = JSON.parse(String(videoInit.body));
+
+        expect(videoResponse.status).toBe(200);
+        expect(new Headers(videoInit.headers).get("content-type")).toBe("application/json");
+        expect(videoBody).toEqual({
+            model: "video-one",
+            prompt: expect.stringContaining("A test video"),
+            duration: 5,
+            resolution: "720p",
+            ratio: "16:9",
+            content: [
+                { type: "text", text: expect.stringContaining("A test video") },
+                { type: "video_url", role: "reference_video", video_url: { url: "https://cdn.example.com/reference.mp4" } },
+            ],
+            generate_audio: true,
+            watermark: false,
+        });
+    });
+
+    it("keeps New API single-image multipart and uses JSON content for advanced references", async () => {
+        mocks.getAuthSettings.mockResolvedValue(newApiSettings());
+        mocks.fetchInternalApi.mockImplementation(async () => json({ id: "upstream-newapi", status: "queued" }));
+        const inlineImage = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
+
+        const singleResponse = await POST(request({ model: "video", videoSeconds: "5", size: "16:9" }, [{ type: "image", url: inlineImage }], { clientRequestId: "newapi-single" }));
+        const singleInit = (mocks.fetchInternalApi.mock.calls[0] as [string, RequestInit])[1];
+        expect(singleResponse.status).toBe(200);
+        expect(singleInit.body).toBeInstanceOf(FormData);
+        expect((singleInit.body as FormData).get("input_reference")).toBeInstanceOf(File);
+        expect(new Headers(singleInit.headers).has("content-type")).toBe(false);
+
+        const imageReferences = [
+            { type: "image", url: "https://cdn.example.com/product.png" },
+            { type: "image", url: "https://cdn.example.com/poster.png" },
+        ];
+        const multiResponse = await POST(request({ model: "video", videoSeconds: "5", size: "16:9" }, imageReferences, { clientRequestId: "newapi-multi" }));
+        const multiInit = (mocks.fetchInternalApi.mock.calls[1] as [string, RequestInit])[1];
+        const multiBody = JSON.parse(String(multiInit.body));
+        expect(multiResponse.status).toBe(200);
+        expect(new Headers(multiInit.headers).get("content-type")).toBe("application/json");
+        expect(multiBody.content).toEqual([
+            { type: "image_url", role: "reference_image", image_url: { url: imageReferences[0].url } },
+            { type: "image_url", role: "reference_image", image_url: { url: imageReferences[1].url } },
+        ]);
+        expect(multiBody).not.toHaveProperty("images");
+        expect(multiBody).not.toHaveProperty("media");
+
+        const frameReferences = [
+            { type: "image", url: "https://cdn.example.com/first.png", role: "first_frame" },
+            { type: "image", url: "https://cdn.example.com/last.png", role: "last_frame" },
+        ];
+        const frameResponse = await POST(request({ model: "video", videoSeconds: "5", size: "16:9" }, frameReferences, { clientRequestId: "newapi-frames" }));
+        const frameInit = (mocks.fetchInternalApi.mock.calls[2] as [string, RequestInit])[1];
+        const frameBody = JSON.parse(String(frameInit.body));
+        expect(frameResponse.status).toBe(200);
+        expect(frameBody.content).toEqual([
+            { type: "image_url", role: "first_frame", image_url: { url: frameReferences[0].url } },
+            { type: "image_url", role: "last_frame", image_url: { url: frameReferences[1].url } },
+        ]);
+
+        const mixedReferences = [
+            { type: "image", url: "https://cdn.example.com/reference.png" },
+            { type: "video", url: "https://cdn.example.com/reference.mp4" },
+            { type: "audio", url: "https://cdn.example.com/reference.mp3" },
+        ];
+        const mixedResponse = await POST(request({ model: "video", videoSeconds: "5", size: "16:9" }, mixedReferences, { clientRequestId: "newapi-mixed" }));
+        const mixedInit = (mocks.fetchInternalApi.mock.calls[3] as [string, RequestInit])[1];
+        const mixedBody = JSON.parse(String(mixedInit.body));
+        expect(mixedResponse.status).toBe(200);
+        expect(mixedBody.content).toEqual([
+            { type: "image_url", role: "reference_image", image_url: { url: mixedReferences[0].url } },
+            { type: "video_url", role: "reference_video", video_url: { url: mixedReferences[1].url } },
+            { type: "audio_url", role: "reference_audio", audio_url: { url: mixedReferences[2].url } },
+        ]);
     });
 
     it("persists the Drama project, episode and shot task context", async () => {
@@ -903,6 +1028,39 @@ function request(config: Record<string, unknown> = { model: "video" }, reference
         },
         body: JSON.stringify({ config, prompt: "A test video", references, context }),
     });
+}
+
+function newApiSettings() {
+    const operation = {
+        capability: "video" as const,
+        source: "manual" as const,
+        protocol: "newapi" as const,
+        apiFormat: "openai" as const,
+        createPath: "/videos",
+        imageToVideoPath: "/videos",
+        queryPath: "/videos/:task_id",
+        requestTemplate: "multipart/form-data: model、prompt、seconds、size、input_reference",
+        resultField: "/videos/:task_id/content",
+        statusField: "status",
+        supportsReferenceImage: true,
+        supportsReferenceVideo: true,
+        supportsReferenceAudio: true,
+    };
+    return {
+        ...settings,
+        systemChannels: [
+            {
+                ...channels[0],
+                advancedConfig: { protocol: "openai" as const, modelCapabilities: { "video-one": "video" as const }, modelConfigs: { "video-one": operation } },
+            },
+        ],
+        logicalModels: [
+            {
+                ...settings.logicalModels[0],
+                bindings: [{ ...settings.logicalModels[0].bindings[0], capabilityProfile: { supportsReferenceImage: true, supportsReferenceVideo: true, supportsReferenceAudio: true, maxReferenceImages: 9 } }],
+            },
+        ],
+    };
 }
 
 function seedanceFrameSettings() {

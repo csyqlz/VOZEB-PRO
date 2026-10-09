@@ -854,8 +854,22 @@ describe("executeAgentRun backend settings", () => {
         expect(JSON.parse(String(createCall?.[1]?.body))).toMatchObject({ source: "agent", config: { size: "1080x1213" }, references: [{ url: "https://cdn.example.com/source.png" }, { url: "https://cdn.example.com/style.png" }] });
     });
 
-    it("uses completed dependency assets as real references for downstream video", async () => {
-        mocks.run = runWithTasks([imageTask("image-one"), { id: "video-one", title: "角色动画", type: "video", model: "video-model", prompt: "让角色缓慢转身", count: 1, dependencies: ["image-one"], status: "ready", attempts: 0 }]);
+    it("merges direct and completed dependency references for downstream video", async () => {
+        mocks.run = runWithTasks([
+            imageTask("image-one"),
+            {
+                id: "video-one",
+                title: "角色动画",
+                type: "video",
+                model: "video-model",
+                prompt: "让角色缓慢转身",
+                count: 1,
+                dependencies: ["image-one"],
+                status: "ready",
+                attempts: 0,
+                references: [{ assetId: "product", type: "image", url: "https://cdn.example.com/product.png" }],
+            },
+        ]);
         const nextSettings = settings("image-model", "image-channel") as unknown as {
             defaultModels: { videoModel: string };
             systemChannels: Array<Record<string, unknown>>;
@@ -896,8 +910,20 @@ describe("executeAgentRun backend settings", () => {
         await executeAgentRun(mocks.run, "http://localhost", "session=test");
 
         const videoCall = mocks.fetchInternalApi.mock.calls.find(([url, init]) => init?.method === "POST" && String(url).endsWith("/api/video-generation-tasks"));
-        expect(JSON.parse(String(videoCall?.[1]?.body))).toMatchObject({ references: [{ type: "image", url: "https://cdn.example.com/dependency.png" }] });
-        expect(mocks.run?.tasks[1]).toMatchObject({ status: "completed", referenceAssetId: "asset-0", references: [{ assetId: "asset-0", url: "https://cdn.example.com/dependency.png", type: "image" }] });
+        expect(JSON.parse(String(videoCall?.[1]?.body))).toMatchObject({
+            references: [
+                { type: "image", url: "https://cdn.example.com/product.png" },
+                { type: "image", url: "https://cdn.example.com/dependency.png" },
+            ],
+        });
+        expect(mocks.run?.tasks[1]).toMatchObject({
+            status: "completed",
+            referenceAssetId: "product",
+            references: [
+                { assetId: "product", url: "https://cdn.example.com/product.png", type: "image" },
+                { assetId: "asset-0", url: "https://cdn.example.com/dependency.png", type: "image" },
+            ],
+        });
     });
 
     it("dispatches explicit video frame roles unchanged to the video route", async () => {

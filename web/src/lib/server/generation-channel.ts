@@ -45,6 +45,7 @@ export function resolveSystemGenerationChannel(config: { apiSource?: string; bas
 
 export function toSystemGenerationChannel(resolved: ResolvedLogicalModel): SystemGenerationChannelConfig {
     const modelConfig = resolveChannelModelConfig(resolved.channel.advancedConfig, resolved.upstreamModel);
+    const advancedConfig = resolveModelAdvancedConfig(resolved.channel.advancedConfig, resolved.upstreamModel);
     return {
         apiSource: "system",
         baseUrl: `/api/ai/system/${encodeURIComponent(resolved.channelId)}`,
@@ -53,7 +54,15 @@ export function toSystemGenerationChannel(resolved: ResolvedLogicalModel): Syste
         model: resolved.upstreamModel,
         channelId: resolved.channelId,
         logicalModel: resolved.logicalModelId,
-        advancedConfig: resolveModelAdvancedConfig(resolved.channel.advancedConfig, resolved.upstreamModel),
+        advancedConfig:
+            advancedConfig && resolved.capabilityProfile
+                ? {
+                      ...advancedConfig,
+                      supportsReferenceImage: resolved.capabilityProfile.supportsReferenceImage,
+                      supportsReferenceVideo: resolved.capabilityProfile.supportsReferenceVideo,
+                      supportsReferenceAudio: resolved.capabilityProfile.supportsReferenceAudio,
+                  }
+                : advancedConfig,
         capabilityProfile: resolved.capabilityProfile,
     };
 }

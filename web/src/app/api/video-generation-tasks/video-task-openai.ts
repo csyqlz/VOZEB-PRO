@@ -12,7 +12,7 @@ type OpenAiVideoFormInput = {
 };
 
 export async function buildOpenAiVideoFormData(input: OpenAiVideoFormInput) {
-    if (input.imageUrls.length > 1) throw new Error("OpenAI 视频协议最多支持 1 张参考图");
+    assertOpenAiVideoImageReferences(input.imageUrls);
     const formData = new FormData();
     formData.set("model", input.model);
     formData.set("prompt", input.prompt);
@@ -23,4 +23,8 @@ export async function buildOpenAiVideoFormData(input: OpenAiVideoFormInput) {
         formData.set("input_reference", file);
     }
     return formData;
+}
+
+export function assertOpenAiVideoImageReferences(imageUrls: string[]) {
+    if (imageUrls.length > 1) throw new Error("OpenAI 视频协议最多支持 1 张参考图");
 }
