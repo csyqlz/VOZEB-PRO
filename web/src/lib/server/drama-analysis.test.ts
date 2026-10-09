@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
     describeDramaModelOutput,
+    hasCompleteDramaContentAnalysis,
     hasCompleteDramaDialogueAttribution,
     hasUsableDramaToolArguments,
     normalizeDramaContentAnalysis,
@@ -204,7 +205,7 @@ describe("drama analysis contracts", () => {
         expect(new Set(result.shots.map((shot) => shot.description)).size).toBe(result.shots.length);
     });
 
-    it("does not treat quoted place names as dialogue and requires explicit speakers", () => {
+    it("does not treat quoted place names as dialogue while allowing speaker review", () => {
         const script = ["林照雪低声道：“忍着点，九幽冥毒深入髓海，过程会有些痛苦。”", "二人来到“涤心池”，池水泛起灵光。", "云舒咬紧牙关：“无妨，你尽管施为。”", "剑意入体，她闷哼一声：“唔……”"].join("\n");
         const base = {
             episode: { outline: "疗毒", hook: "", nextPreview: "", sourceRange: "第二章" },
@@ -260,6 +261,21 @@ describe("drama analysis contracts", () => {
         expect(hasCompleteDramaDialogueAttribution(JSON.stringify(invalid), script)).toBe(false);
         expect(hasCompleteDramaDialogueAttribution(JSON.stringify(valid), script)).toBe(true);
 
+        const pendingSpeakerReview = {
+            ...base,
+            shots: [
+                {
+                    ...shot,
+                    utterances: [
+                        { type: "dialogue", speaker: "林照雪", text: "忍着点，九幽冥毒深入髓海，过程会有些痛苦。" },
+                        { type: "dialogue", speaker: "", text: "无妨，你尽管施为。" },
+                        { type: "dialogue", speaker: "她", text: "唔……" },
+                    ],
+                },
+            ],
+        };
+        expect(hasCompleteDramaDialogueAttribution(JSON.stringify(pendingSpeakerReview), script)).toBe(true);
+
         const result = normalizeDramaContentAnalysis(valid, { defaultSeconds: 5, durationSeconds: [5, 8, 10, 15] }, script);
         expect(result.shots.flatMap((item) => item.utterances.filter((utterance) => utterance.type === "dialogue").map((utterance) => [utterance.speaker, utterance.text]))).toEqual([
             ["林照雪", "忍着点，九幽冥毒深入髓海，过程会有些痛苦。"],
@@ -300,6 +316,84 @@ describe("drama analysis contracts", () => {
 
         expect(result.shots[0].utterances).toEqual([expect.objectContaining({ speaker: "顾言", text: "先离开这里。" })]);
         expect(hasCompleteDramaDialogueAttribution(JSON.stringify(result), script)).toBe(true);
+    });
+
+    it("infers speakers around common speech verbs and object phrases", () => {
+        const script = "灯光下，顾远看见妻子不安，便放下筷子，对着她讲：“别害怕。”妻子叹了口气，望向窗外。对顾远讲：“我还是担心。”";
+        const result = normalizeDramaContentAnalysis(
+            {
+                episode: { outline: "饭后交谈", hook: "", nextPreview: "", sourceRange: "第一章" },
+                characters: [
+                    { name: "顾远", description: "丈夫" },
+                    { name: "妻子", description: "妻子" },
+                ],
+                scenes: [],
+                props: [],
+                clues: [],
+                shots: [{ title: "交谈", description: "夫妻交谈", sourceText: script, shotBoundary: "对白结束", utterances: [], duration: 8, characterNames: [], sceneName: "饭桌", propNames: [], clueNames: [] }],
+            },
+            { defaultSeconds: 5, durationSeconds: [5, 8, 10, 15] },
+            script,
+        );
+
+        expect(result.shots.flatMap((shot) => shot.utterances.map((utterance) => [utterance.speaker, utterance.text]))).toEqual([
+            ["顾远", "别害怕。"],
+            ["妻子", "我还是担心。"],
+        ]);
+        expect(hasCompleteDramaContentAnalysis(result, script)).toBe(true);
+    });
+
+    it("recovers an object-only attribution from the prior sentence without a model character roster", () => {
+        const script = "孩子的名字叫“石头”。男人讲：“别担心。”女人叹了口气，望向窗外。对男人讲：“我还是担心。”";
+        const result = normalizeDramaContentAnalysis(
+            {
+                episode: { outline: "饭后交谈", hook: "", nextPreview: "", sourceRange: "第一章" },
+                characters: [],
+                scenes: [],
+                props: [],
+                clues: [],
+                shots: [{ title: "交谈", description: "女人表达担忧", sourceText: script, shotBoundary: "对白结束", utterances: [], duration: 8, characterNames: [], sceneName: "饭桌", propNames: [], clueNames: [] }],
+            },
+            { defaultSeconds: 5, durationSeconds: [5, 8, 10, 15] },
+            script,
+        );
+
+        expect(result.shots.flatMap((shot) => shot.utterances.map((utterance) => [utterance.speaker, utterance.text]))).toEqual([
+            ["男人", "别担心。"],
+            ["女人", "我还是担心。"],
+        ]);
+        expect(hasCompleteDramaContentAnalysis(result, script)).toBe(true);
+    });
+
+    it("keeps the local script authoritative when model source text or utterances drift", () => {
+        const script = "顾言说道：“先走。”风雪压过城门。";
+        const result = normalizeDramaContentAnalysis(
+            {
+                episode: { outline: "离城" },
+                characters: [{ name: "顾言", description: "守城人" }],
+                shots: [
+                    {
+                        title: "城门",
+                        description: "顾言离开城门",
+                        sourceText: "顾言离开。",
+                        dialogue: "顾言表示必须马上离开。",
+                        utterances: [
+                            { type: "dialogue", speaker: "顾言", text: "先走。" },
+                            { type: "dialogue", speaker: "顾言", text: "风雪压过城门。" },
+                        ],
+                        duration: 5,
+                    },
+                ],
+            },
+            5,
+            script,
+        );
+
+        const utteranceText = result.shots.flatMap((shot) => shot.utterances.map((utterance) => utterance.text));
+        expect(result.shots.map((shot) => shot.sourceText).join("")).toBe(script);
+        expect(utteranceText).toHaveLength(1);
+        expect(utteranceText[0]).toBe("先走。");
+        expect(hasCompleteDramaContentAnalysis(result, script)).toBe(true);
     });
 
     it("only accepts visual fields for reviewed shot ids", () => {
@@ -382,7 +476,7 @@ describe("drama analysis contracts", () => {
 
     it("rejects echoed input and empty structured results", () => {
         expect(hasUsableDramaToolArguments('{"script":"原始剧本","summary":"简介"}', "analyze_drama_content")).toBe(false);
-        expect(hasUsableDramaToolArguments('{"episode":{"outline":"大纲"},"shots":[{"title":"镜头一"}]}', "analyze_drama_content")).toBe(true);
+        expect(hasUsableDramaToolArguments('{"shots":[{"title":"镜头一"}]}', "analyze_drama_content")).toBe(true);
         expect(hasUsableDramaToolArguments('{"shots":[{"shotId":"shot-one"}]}', "design_drama_visuals")).toBe(true);
     });
 
