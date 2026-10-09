@@ -32,7 +32,7 @@ VOZEB PRO 是面向图片、视频、短剧与品牌物料生产的 AI 创作工
 - [社区交流与致谢](/docs/support/community)
 - [赞助支持](/docs/support/donate)
 - [商业落地缺口](/docs/business/commercial-launch)
-- [开源协议](/docs/business/license)
+- [许可证与商业使用](/docs/business/license)
 - [商业授权](/docs/business/commercial-license)
 - [免责声明](/docs/business/disclaimer)
 - [授权与合规警示](/docs/business/legal-notice)
