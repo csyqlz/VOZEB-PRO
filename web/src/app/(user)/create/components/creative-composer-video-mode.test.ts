@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { applyAgentGenerationCapability, shouldShowVideoFrameControls } from "./creative-composer-video-mode";
+import { applyAgentGenerationCapability, generationPreferencesAfterSubmit, generationPreferencesForSelectedSkill, shouldShowVideoFrameControls } from "./creative-composer-video-mode";
 
 describe("shouldShowVideoFrameControls", () => {
     it("shows first and last frame slots for explicit video mode", () => {
@@ -21,5 +21,16 @@ describe("shouldShowVideoFrameControls", () => {
     it("makes the edited Agent parameter capability immediately effective", () => {
         expect(applyAgentGenerationCapability("agent", "video", { image: { quality: "high" } })).toEqual({ mode: "video", image: { quality: "high" } });
         expect(applyAgentGenerationCapability("image", "video", { mode: "image" })).toEqual({ mode: "image" });
+    });
+
+    it("drops a stale incompatible mode when a Skill is selected", () => {
+        expect(generationPreferencesForSelectedSkill({ mode: "video", video: { seconds: 5, referenceMode: "first_frame", firstFrameAssetId: "asset-one" } }, ["image", "canvas"])).toEqual({
+            video: { seconds: 5, referenceMode: "reference", firstFrameAssetId: undefined, lastFrameAssetId: undefined },
+        });
+    });
+
+    it("resets Agent preferences after each submitted turn", () => {
+        expect(generationPreferencesAfterSubmit("agent", { mode: "video", video: { seconds: 5 } })).toEqual({});
+        expect(generationPreferencesAfterSubmit("video", { mode: "video", video: { seconds: 5, firstFrameAssetId: "asset-one" } })).toEqual({ mode: "video", video: { seconds: 5, firstFrameAssetId: undefined, lastFrameAssetId: undefined } });
     });
 });

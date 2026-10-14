@@ -1,5 +1,5 @@
 import type { AuthSettings } from "@/lib/auth/store";
-import type { CreativeAsset, CreativeConversationContext, CreativeSurface } from "@/lib/creative-runtime-contract";
+import { agentSkillSupportsGenerationMode, CreativeRuntimeInputError, type CreativeAsset, type CreativeConversationContext, type CreativeRunRequest, type CreativeSurface } from "@/lib/creative-runtime-contract";
 import { creativeAssetReferenceAliases, orderCreativeAssetsByIds } from "@/lib/creative-asset-references";
 import { resolveSiteTitle } from "@/lib/site-brand";
 import type { AgentRun, AgentRunPlannerContextSummary, AgentRunTask } from "@/lib/server/agent-run-store";
@@ -16,6 +16,15 @@ export function availableAgentSkills(settings: AuthSettings, surface: CreativeSu
 export function selectAgentSkills(settings: AuthSettings, surface: CreativeSurface, requestedSkillIds: string[] = []) {
     const available = new Map(availableAgentSkills(settings, surface).map((skill) => [skill.id, skill]));
     return Array.from(new Set(requestedSkillIds.map((id) => id.trim()).filter(Boolean))).flatMap((id) => (available.has(id) ? [available.get(id)!] : []));
+}
+
+export function assertAgentSkillModeCompatibility(settings: AuthSettings, input: Pick<CreativeRunRequest, "surface" | "skillIds" | "preferences">) {
+    const mode = input.preferences?.mode;
+    if (!mode) return;
+    const incompatible = selectAgentSkills(settings, input.surface, input.skillIds).find((skill) => !agentSkillSupportsGenerationMode(skill.workspaces, mode));
+    if (!incompatible) return;
+    const supported = (incompatible.workspaces || ["image"]).filter((workspace) => workspace === "image" || workspace === "video").map((workspace) => (workspace === "image" ? "图片" : "视频"));
+    throw new CreativeRuntimeInputError(`${incompatible.name}仅支持${supported.join("、")}生成，请切换创作类型或取消该 Skill`);
 }
 
 export function plannerAgentSkills(settings: AuthSettings, run: Pick<AgentRun, "surface" | "selectedSkillIds">) {

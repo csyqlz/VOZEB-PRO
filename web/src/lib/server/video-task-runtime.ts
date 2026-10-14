@@ -34,10 +34,11 @@ export async function queryVideoTaskUpstream(task: VideoTask, origin: string, co
     const data = await queryVideoUpstream(task, origin, cookie, workerUserId);
     const status = readVideoProviderStatus(data, task.config.advancedConfig?.statusField);
     const resultUrl = readVideoProviderUrl(data, task.config.advancedConfig?.resultField);
+    const resultError = !/^(?:https?:\/\/|data:video\/|\/)/i.test(resultUrl) && /(?:business\s+error|\berror\b|\bfailed\b|失败|错误|异常)/i.test(resultUrl) ? resultUrl : "";
+    if (resultError || isProviderBusinessError(data) || VIDEO_PROVIDER_FAILED.has(status)) return { state: "failed", status: status || "failed", error: readProviderError(data) || resultError || "视频生成失败" };
     if (resultUrl || VIDEO_PROVIDER_SUCCESS.has(status)) {
         return resultUrl ? { state: "result_ready", status: status || "completed", resultUrl } : { state: "failed", status: status || "completed", error: "视频任务已完成但没有返回视频地址" };
     }
-    if (isProviderBusinessError(data) || VIDEO_PROVIDER_FAILED.has(status)) return { state: "failed", status: status || "failed", error: readProviderError(data) || "视频生成失败" };
     return { state: "pending", status: status || "processing" };
 }
 

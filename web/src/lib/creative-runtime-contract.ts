@@ -137,6 +137,12 @@ export type CreativeGenerationPreferences = {
     audio?: { voice?: string; format?: string; speed?: number };
 };
 
+export function agentSkillSupportsGenerationMode(workspaces: readonly string[] | undefined, mode: CreativeGenerationMode) {
+    if (mode === "audio") return true;
+    const supported = (workspaces || ["image"]).filter((workspace) => workspace === "image" || workspace === "video");
+    return supported.length === 0 || supported.includes(mode);
+}
+
 export type CreativeRunRequest = {
     clientRequestId: string;
     surface: CreativeSurface;

@@ -71,8 +71,13 @@ async function mockAgentConversationSwitchRace(page: Page) {
         inputMessageId: "e2e-running-user",
         assistantMessageId: "e2e-running-assistant",
         status: "running",
+        requestedModelIds: ["e2e-image-model", "e2e-video-model"],
+        generationPreferences: { mode: "image", image: { size: "1:1", quality: "high", count: 2 }, video: { size: "16:9", quality: "720P", seconds: 10, count: 2 } },
         assetIds: [],
-        tasks: [{ id: "e2e-running-task", title: "生成图片", type: "image", status: "running" }],
+        tasks: [
+            { id: "e2e-running-image", title: "生成图片", type: "image", model: "e2e-image-model", ratio: "1:1", quality: "high", count: 2, status: "running" },
+            { id: "e2e-running-video", title: "生成视频", type: "video", model: "e2e-video-model", ratio: "16:9", quality: "720P", seconds: 10, count: 2, status: "running" },
+        ],
         createdAt: timestamp,
         updatedAt: timestamp + 1,
     };
@@ -783,6 +788,17 @@ test("switching conversations keeps the previous Agent run isolated and resumabl
     await page.goto(`/create?conversationId=${fixture.conversationA.id}`, { waitUntil: "domcontentloaded" });
     await waitForCreativeComposerReady(page);
     await expect(page.getByText("A 对话正在生成海报", { exact: true })).toBeVisible();
+    await expect(page.getByTestId("creative-media-loading")).toHaveCount(4);
+    await expect(page.locator('[data-testid="creative-media-loading"][data-loading-type="image"]')).toHaveCount(2);
+    await expect(page.locator('[data-testid="creative-media-loading"][data-loading-type="video"]')).toHaveCount(2);
+    await expect(page.getByLabel("本轮创作参数")).toContainText("e2e-image-model + e2e-video-model");
+    await expect(page.getByLabel("本轮创作参数")).toContainText("4个结果");
+    for (const loader of await page.getByTestId("creative-media-loading").all()) {
+        const bounds = await loader.evaluate((element) => element.getBoundingClientRect().toJSON());
+        expect(bounds.width).toBeGreaterThan(0);
+        expect(bounds.height).toBeGreaterThan(0);
+    }
+    await expectNoHorizontalOverflow(page, "concurrent image and video loading");
     await fixture.delayedRunRequested;
 
     let history = await openCreativeHistory(page);

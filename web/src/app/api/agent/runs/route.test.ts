@@ -28,7 +28,7 @@ describe("POST /api/agent/runs", () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.getCurrentUser.mockResolvedValue({ id: "user" });
-        mocks.getAuthSettings.mockResolvedValue({ generationConcurrency: { agent: 2 } });
+        mocks.getAuthSettings.mockResolvedValue({ generationConcurrency: { agent: 2 }, agentSkills: [] });
         mocks.checkRateLimit.mockReturnValue({ allowed: true });
         mocks.countActiveStoredGenerationTasks.mockResolvedValue(0);
         mocks.withGenerationConcurrencyLimit.mockImplementation(async (_userId, _type, _staleMs, _limit, handler) => handler());
@@ -75,6 +75,19 @@ describe("POST /api/agent/runs", () => {
             snapshot: undefined,
         });
         expect(mocks.after).toHaveBeenCalledWith(expect.any(Function));
+    });
+
+    it("rejects an incompatible selected Skill before creating or charging a run", async () => {
+        mocks.getAuthSettings.mockResolvedValue({
+            generationConcurrency: { agent: 2 },
+            agentSkills: [{ id: "ecommerce-image", name: "电商生图", enabled: true, workspaces: ["image", "canvas"] }],
+        });
+        const response = await POST(request({ ...validInput(), skillIds: ["ecommerce-image"], preferences: { mode: "video" } }));
+
+        expect(response.status).toBe(400);
+        expect(await response.json()).toMatchObject({ msg: "电商生图仅支持图片生成，请切换创作类型或取消该 Skill" });
+        expect(mocks.withGenerationConcurrencyLimit).not.toHaveBeenCalled();
+        expect(mocks.createAgentRun).not.toHaveBeenCalled();
     });
 });
 

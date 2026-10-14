@@ -10,6 +10,7 @@ import { CreativeStoreConflict } from "@/lib/server/creative-runtime-store";
 import { resolveInternalOrigin } from "@/lib/server/internal-origin";
 import { runGenerationTaskRecoveryBatch } from "@/lib/server/generation-task-recovery-service";
 import { publicAgentRun } from "@/lib/server/agent-run-public";
+import { assertAgentSkillModeCompatibility } from "@/lib/server/agent-run-surface-policy";
 
 export const maxDuration = 2400;
 
@@ -46,6 +47,7 @@ export async function POST(request: Request) {
         const rate = await checkRateLimit(`agent-run:${user.id}`, { maxRequests: 10, windowMs: 60 * 1000 });
         if (!rate.allowed) return NextResponse.json({ code: 429, data: null, msg: "Agent 请求过于频繁，请稍后重试" }, { status: 429 });
         const settings = await getAuthSettings();
+        assertAgentSkillModeCompatibility(settings, input);
         const response = await withGenerationConcurrencyLimit(
             user.id,
             "agent",

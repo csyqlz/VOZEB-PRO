@@ -475,7 +475,7 @@ describe("CreativeMessages", () => {
                             status: "running",
                             generationPreferences: { mode: "image", image: { size: "1:1", quality: "high" } },
                             assetIds: [],
-                            tasks: [{ id: "image-task", title: "图片生成", type: "image", status: "running" }],
+                            tasks: [{ id: "image-task", title: "图片生成", type: "image", model: "image-model", count: 2, status: "running" }],
                             createdAt: now,
                             updatedAt: now,
                         },
@@ -491,10 +491,90 @@ describe("CreativeMessages", () => {
         );
 
         expect(markup).toContain('data-testid="creative-generation-waiting"');
+        expect(markup).toContain('data-slot-count="2"');
+        expect(markup.match(/data-testid="creative-media-loading"/g)).toHaveLength(2);
         expect(markup).toContain("主人，画面正在一点点显现");
         expect(markup).toContain("已等待");
-        expect(markup).not.toContain("已为你生成图片");
+        expect(markup).toContain("正在生成图片");
+        expect(markup).toContain('aria-label="本轮创作参数"');
+        expect(markup).toContain("image-model");
+        expect(markup).toContain("1:1");
+        expect(markup).toContain("高画质");
         expect(markup).not.toContain("正在处理「图片生成」");
+    });
+
+    it("shows the concrete review reason instead of a loading state for a paused media run", () => {
+        const userMessage: CreativeMessage = {
+            id: "paused-user",
+            conversationId: "conversation-one",
+            runId: "paused-run",
+            sequence: 1,
+            role: "user",
+            status: "completed",
+            content: "根据两张参考图生成视频",
+            metadata: {},
+            createdAt: 1,
+            updatedAt: 1,
+        };
+        const assistantMessage: CreativeMessage = {
+            id: "paused-assistant",
+            conversationId: "conversation-one",
+            runId: "paused-run",
+            sequence: 2,
+            role: "assistant",
+            status: "running",
+            content: "正在处理「视频生成」",
+            metadata: {},
+            createdAt: 1,
+            updatedAt: 1,
+        };
+        const markup = renderToStaticMarkup(
+            <App>
+                <CreativeMessages
+                    messages={[userMessage, assistantMessage]}
+                    assets={[]}
+                    loading={false}
+                    projectLinks={{}}
+                    projectErrors={{}}
+                    runDetails={{
+                        "paused-run": {
+                            id: "paused-run",
+                            conversationId: "conversation-one",
+                            inputMessageId: userMessage.id,
+                            assistantMessageId: assistantMessage.id,
+                            status: "paused",
+                            generationPreferences: { mode: "video" },
+                            assetIds: [],
+                            tasks: [
+                                {
+                                    id: "video-task",
+                                    title: "视频生成",
+                                    type: "video",
+                                    model: "video-model",
+                                    status: "needs_review",
+                                    error: "OpenAI 视频协议最多支持 1 张参考图",
+                                },
+                            ],
+                            createdAt: 1,
+                            updatedAt: 1,
+                        },
+                    }}
+                    onMaterializeProject={async () => {
+                        throw new Error("not used");
+                    }}
+                    onRetryMessage={vi.fn()}
+                    selectedAssetIds={[]}
+                    onToggleAsset={vi.fn()}
+                />
+            </App>,
+        );
+
+        expect(markup).toContain("任务已暂停");
+        expect(markup).toContain("OpenAI 视频协议最多支持 1 张参考图");
+        expect(markup).toContain('data-testid="creative-generation-review"');
+        expect(markup).not.toContain('data-testid="creative-generation-waiting"');
+        expect(markup).not.toContain("已等待");
+        expect(markup).not.toContain("直接重试");
     });
 
     it("restores the original text before retrying an initial submission failure", () => {
@@ -643,7 +723,7 @@ describe("CreativeMessages", () => {
                             status: "failed",
                             generationPreferences: { mode: "video" },
                             assetIds: [],
-                            tasks: [],
+                            tasks: [{ id: "video-task", title: "视频生成", type: "video", model: "video-model", status: "failed", error: "视频请求参数无效：duration 只支持 5 或 10 秒" }],
                         },
                     }}
                     onMaterializeProject={async () => {
@@ -661,6 +741,8 @@ describe("CreativeMessages", () => {
         expect((markup.match(/data-testid="creative-assistant-avatar"/g) || []).length).toBe(1);
         expect(markup).toContain('aria-label="直接重试本次创作"');
         expect(markup).toContain("直接重试");
+        expect(markup).toContain("视频请求参数无效：duration 只支持 5 或 10 秒");
+        expect(markup).not.toContain("当前请求参数不被模型支持");
         const failureMarkup = markup.slice(markup.indexOf('data-testid="creative-generation-failure"'));
         expect(failureMarkup).not.toContain("size-12");
         expect(failureMarkup).not.toContain("Sparkles");
