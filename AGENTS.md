@@ -151,6 +151,7 @@
 
 ## 文档规范
 
+- 项目主许可证为 Business Source License 1.1（BUSL-1.1），README、LICENSE、商业授权说明、协议模板和文档站必须保持一致；AGPL-3.0 只作为原 LICENSE 的 Change License 描述。商业授权不公开具体价格，只保留授权范围与邮箱/QQ 咨询入口。回退业务功能或合并旧分支时必须保留这些已确认决定，未经用户明确要求不得恢复旧主许可证、公开价目表或修改原协议参数。
 - README 保持简洁，只放项目介绍、核心功能、快速开始和文档入口。
 - `docs/index.md` 放给 AI 使用的文档索引，不要再放到 `docs/content/docs/` 内容目录里。
 - 详细功能介绍写到 `docs/content/docs/overview/features.mdx`。
