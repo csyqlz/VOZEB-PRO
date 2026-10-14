@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SystemChannelAdvancedConfig, SystemModelChannel } from "@/lib/auth/store";
 import { fetchInternalApi } from "@/lib/server/internal-origin";
+import { systemAiBillingHeaders } from "@/lib/server/system-ai-billing";
 import { getTextPlanningRuntime, isStructuredTextFailure, rankTextPlanningCandidates, requestStructuredText, resetTextPlanningRuntime, type TextPlanningCandidate } from "./text-planning-runtime";
 
 vi.mock("@/lib/server/internal-origin", () => ({ fetchInternalApi: vi.fn() }));
@@ -475,12 +476,25 @@ describe("text planning runtime protocol matrix", () => {
     it("流式请求被渠道拒绝时回退一次完整 JSON 请求", async () => {
         mockedFetch.mockResolvedValueOnce(new Response("stream unsupported", { status: 422 })).mockResolvedValueOnce(chatJsonResponse());
 
-        await expect(requestStructuredText({ ...requestInput(candidate("newapi")), headers: { "idempotency-key": "stream-fallback" }, stream: true })).resolves.toMatchObject({ arguments: "{}" });
+        await expect(
+            requestStructuredText({
+                ...requestInput(candidate("newapi")),
+                headers: { "idempotency-key": "stream-fallback" },
+                fallbackHeaders: {
+                    "idempotency-key": "stream-fallback",
+                    ...systemAiBillingHeaders("planner", "billing-json", "model-one"),
+                },
+                stream: true,
+            }),
+        ).resolves.toMatchObject({ arguments: "{}" });
         expect(mockedFetch).toHaveBeenCalledTimes(2);
         expect(JSON.parse(String(mockedFetch.mock.calls[0]?.[1]?.body))).toMatchObject({ stream: true });
         expect(JSON.parse(String(mockedFetch.mock.calls[1]?.[1]?.body))).not.toHaveProperty("stream");
         expect(new Headers(mockedFetch.mock.calls[0]?.[1]?.headers).get("idempotency-key")).toContain(":chat-json-stream");
         expect(new Headers(mockedFetch.mock.calls[1]?.[1]?.headers).get("idempotency-key")).toContain(":chat-json");
+        expect(new Headers(mockedFetch.mock.calls[0]?.[1]?.headers).get("x-vozeb-pro-points-idempotency-key")).toBe("billing-json");
+        expect(new Headers(mockedFetch.mock.calls[1]?.[1]?.headers).get("x-vozeb-pro-points-idempotency-key")).toBe("billing-json:stream-fallback");
+        expect(new Headers(mockedFetch.mock.calls[0]?.[1]?.headers).get("x-vozeb-pro-points-signature")).not.toBe(new Headers(mockedFetch.mock.calls[1]?.[1]?.headers).get("x-vozeb-pro-points-signature"));
     });
 });
 

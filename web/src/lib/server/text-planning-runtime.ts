@@ -104,7 +104,13 @@ export async function requestStructuredText(input: StructuredTextRequest): Promi
                 return await readStructuredResponse(input, request, response, startedAt);
             } catch (error) {
                 if (input.stream && input.streamFallback !== false && index === 0 && shouldFallbackFromStream(error)) {
-                    const fallback = await requestStructuredText({ ...input, stream: false, streamFallback: false });
+                    const fallback = await requestStructuredText({
+                        ...input,
+                        headers: streamFallbackHeaders(input.headers, input.candidate.upstreamModel),
+                        fallbackHeaders: streamFallbackHeaders(input.fallbackHeaders, input.candidate.upstreamModel),
+                        stream: false,
+                        streamFallback: false,
+                    });
                     return { ...fallback, fallbackReason: error instanceof Error ? error.message : "上游不支持流式规划" };
                 }
                 if (index === requests.length - 1 || (!shouldFallbackFromNativeTool(error, request) && !shouldRepairStructuredResponse(error, request))) throw error;
@@ -273,6 +279,16 @@ function repairRequestHeaders(input: StructuredTextRequest) {
     const upstreamModel = headers.get(SYSTEM_AI_UPSTREAM_MODEL_HEADER)?.trim() || input.candidate.upstreamModel;
     if (!logicalModel || !businessRequestId) return headers;
     Object.entries(systemAiBillingHeaders(logicalModel, `${businessRequestId}:repair`, upstreamModel)).forEach(([name, value]) => headers.set(name, value));
+    return headers;
+}
+
+function streamFallbackHeaders(source: HeadersInit | undefined, candidateUpstreamModel: string) {
+    if (!source) return undefined;
+    const headers = new Headers(source);
+    const logicalModel = headers.get(SYSTEM_AI_LOGICAL_MODEL_HEADER)?.trim();
+    const businessRequestId = headers.get(SYSTEM_AI_POINTS_IDEMPOTENCY_HEADER)?.trim();
+    const upstreamModel = headers.get(SYSTEM_AI_UPSTREAM_MODEL_HEADER)?.trim() || candidateUpstreamModel;
+    if (logicalModel && businessRequestId) Object.entries(systemAiBillingHeaders(logicalModel, `${businessRequestId}:stream-fallback`, upstreamModel)).forEach(([name, value]) => headers.set(name, value));
     return headers;
 }
 
