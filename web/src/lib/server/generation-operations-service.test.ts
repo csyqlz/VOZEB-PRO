@@ -213,7 +213,7 @@ describe("generation operations aggregation", () => {
 
     it("shows the persisted review reason when a task has no terminal error", async () => {
         mocks.listStoredGenerationTaskRecords.mockResolvedValue({
-            items: [{ ...task(), type: "image", status: "running", executionPhase: "needs_review", payload: { config: { model: "image-model" } }, resultPayload: { reviewReason: "生成渠道暂时无法连接，请稍后重试或联系管理员。" } }],
+            items: [{ ...task(), type: "image", status: "running", executionPhase: "needs_review", payload: { config: { model: "image-model" } }, resultPayload: { reviewReason: "图片生成失败：上游接口 /v1/images/edits 返回 HTTP 502" } }],
             all: [],
             total: 1,
             page: 1,
@@ -223,7 +223,7 @@ describe("generation operations aggregation", () => {
 
         const result = await listAdminGenerationOperations({ page: 1 });
 
-        expect(result.items[0]).toMatchObject({ canReview: true, error: "生成渠道暂时无法连接，请稍后重试或联系管理员。" });
+        expect(result.items[0]).toMatchObject({ canReview: true, error: "图片生成失败：上游接口 /v1/images/edits 返回 HTTP 502" });
     });
 
     it("explains a legacy uncertain submission when no reason was persisted", async () => {

@@ -116,11 +116,13 @@ export function assertVideoReferenceRoles(config: SystemChannelAdvancedConfig | 
                 ? ["reference", "first_frame", "last_frame"]
                 : protocol === "yumeng"
                   ? templateVideoReferenceRoles(config?.requestTemplate)
-                  : protocol === "openai" || protocol === "newapi" || protocol === "sub2api"
-                    ? ["reference", "first_frame"]
-                    : protocol === "custom" || protocol === "compatible" || protocol === "auto"
-                      ? templateVideoReferenceRoles(config?.requestTemplate)
-                      : ["reference"]),
+                  : protocol === "newapi"
+                    ? ["reference", "first_frame", "last_frame"]
+                    : protocol === "openai" || protocol === "sub2api"
+                      ? ["reference", "first_frame"]
+                      : protocol === "custom" || protocol === "compatible" || protocol === "auto"
+                        ? templateVideoReferenceRoles(config?.requestTemplate)
+                        : ["reference"]),
     );
     const unsupported = requestedRoles.find((role) => !supported.has(role));
     if (unsupported) throw new Error(unsupported === "last_frame" ? "当前视频模型不支持尾帧输入" : "当前视频模型不支持显式首帧输入");

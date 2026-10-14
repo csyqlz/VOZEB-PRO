@@ -56,7 +56,10 @@ describe("channel protocol registry", () => {
             audio: { createPath: "/audio/speech" },
         });
         expect(channelProtocolDefinition("sub2api").operations.image).toMatchObject({ createPath: "/images/generations", editPath: "/images/generations", requestTemplate: expect.stringContaining("image_urls") });
-        expect(channelProtocolDefinition("newapi").operations).toEqual(channelProtocolDefinition("openai").operations);
+        expect(channelProtocolDefinition("newapi").operations).toMatchObject({
+            ...channelProtocolDefinition("openai").operations,
+            video: { supportsReferenceImage: true, supportsReferenceVideo: true, supportsReferenceAudio: true, referenceRule: expect.stringContaining("JSON content") },
+        });
         expect(channelProtocolDefinition("seedance").operations.video).toMatchObject({ createPath: "/contents/generations/tasks", queryPath: "/contents/generations/tasks/:task_id", resultField: "content.video_url" });
         expect(channelProtocolDefinition("volcengine-video").operations.video).toEqual(channelProtocolDefinition("seedance").operations.video);
         expect(channelProtocolDefinition("stable-diffusion").operations.image).toMatchObject({ createPath: "/sdapi/v1/txt2img", editPath: "/sdapi/v1/img2img", resultField: "images[0]" });
