@@ -108,11 +108,12 @@ describe("POST /api/drama/analyze", () => {
             messages?: Array<{ role: string; content: string }>;
             stream?: boolean;
             streamFallback?: boolean;
+            allowRepair?: boolean;
             signal?: AbortSignal;
         };
         const toolBillingKey = new Headers(input.headers).get("x-vozeb-pro-points-idempotency-key");
         const fallbackBillingKey = new Headers(input.fallbackHeaders).get("x-vozeb-pro-points-idempotency-key");
-        expect(input).toMatchObject({ preferNativeTools: false, stream: true, streamFallback: true, tool: { name: "analyze_drama_content" } });
+        expect(input).toMatchObject({ preferNativeTools: false, stream: true, streamFallback: true, allowRepair: true, tool: { name: "analyze_drama_content" } });
         expect(input.signal).toBeInstanceOf(AbortSignal);
         expect(input.validateArguments?.('{"script":"输入回显"}')).toBe(false);
         expect(input.validateArguments?.('{"episode":{"outline":"大纲"},"shots":[{"title":"镜头"}]}')).toBe(true);
@@ -205,7 +206,7 @@ describe("POST /api/drama/analyze", () => {
         expect(payload.data.shots.flatMap((shot) => shot.utterances)).toEqual([expect.objectContaining({ speaker: "顾言", text: "先离开这里。" })]);
     });
 
-    it("rejects dialogue that still has no specific speaker after source normalization", async () => {
+    it("keeps unresolved source dialogue for content review instead of rejecting the episode", async () => {
         const script = "他说：“快走！”";
         mocks.requestStructuredText.mockResolvedValueOnce({
             arguments: JSON.stringify({
@@ -244,12 +245,12 @@ describe("POST /api/drama/analyze", () => {
             }),
         );
 
-        expect(response.status).toBe(502);
-        await expect(response.json()).resolves.toMatchObject({ code: 502, data: null, msg: "模型返回的剧本对白或原文不完整" });
+        expect(response.status).toBe(200);
+        await expect(response.json()).resolves.toMatchObject({ code: 0, data: { shots: [expect.objectContaining({ utterances: [expect.objectContaining({ speaker: "他", text: "快走！" })] })] } });
         expect(mocks.requestStructuredText).toHaveBeenCalledOnce();
     });
 
-    it("splits a malformed single eight-second response before returning it to the editor", async () => {
+    it("repairs incomplete model source text locally before returning it to the editor", async () => {
         const lines = Array.from({ length: 78 }, (_, index) => `角色${index + 1}说：“第${index + 1}句对白必须保留。”`);
         mocks.refundUserPoints.mockResolvedValue({ pointsBalance: 98 });
         const responseForSegment = (segment: string) => ({
@@ -319,13 +320,12 @@ describe("POST /api/drama/analyze", () => {
             const messages = (input as { messages: Array<{ role: string; content: string }> }).messages;
             return (JSON.parse(messages.at(-1)!.content) as { script: string }).script;
         });
-        expect(requestedScripts).toHaveLength(3);
+        expect(requestedScripts).toHaveLength(1);
         expect(requestedScripts[0]).toBe(lines.join("\n"));
-        expect(requestedScripts.slice(1).every((segment) => segment !== requestedScripts[0])).toBe(true);
-        expect(mocks.refundUserPoints).toHaveBeenCalledWith("user-one", "planner", 2, "text", 1, undefined, "points-full");
+        expect(mocks.refundUserPoints).not.toHaveBeenCalled();
     });
 
-    it("refunds successful segments when a later segment cannot be analyzed", async () => {
+    it("uses the local script when model source coverage is incomplete", async () => {
         const lines = ["角色甲说：“第一句。”", "角色乙说：“第二句。”"];
         const script = lines.join("\n");
         const segmentResponse = (segment: string, billed = false) => ({
@@ -378,9 +378,20 @@ describe("POST /api/drama/analyze", () => {
             }),
         );
 
-        expect(response.status).toBe(502);
-        expect(mocks.refundUserPoints).toHaveBeenCalledTimes(2);
-        expect(mocks.refundUserPoints.mock.calls.map((call) => call[6])).toEqual(expect.arrayContaining(["points-failed-segment", "points-segment"]));
+        const payload = (await response.json()) as { data: { shots: Array<{ sourceText: string; utterances: Array<{ text: string }> }> } };
+        expect(response.status).toBe(200);
+        expect(
+            payload.data.shots
+                .map((shot) => shot.sourceText)
+                .join("\n")
+                .replace(/\n+/g, "\n"),
+        ).toBe(script);
+        const utteranceText = payload.data.shots.flatMap((shot) => shot.utterances.map((utterance) => utterance.text));
+        expect(utteranceText).toHaveLength(2);
+        expect(utteranceText[0]).toBe("第一句。");
+        expect(utteranceText[1]).toBe("第二句。");
+        expect(mocks.requestStructuredText).toHaveBeenCalledOnce();
+        expect(mocks.refundUserPoints).not.toHaveBeenCalled();
     });
 
     it("keeps one request idempotent while separate user actions use different billing keys", async () => {
