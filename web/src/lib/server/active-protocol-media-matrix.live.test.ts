@@ -11,6 +11,8 @@ import type { VideoTask } from "@/lib/server/video-task-store";
 import { queryVideoTaskUpstream } from "@/lib/server/video-task-runtime";
 import { createProtocolFixtureServer } from "../../../scripts/protocol-fixture-server.mjs";
 
+vi.mock("@/lib/server/proxy-dispatcher", () => ({ configureServerProxyDispatcher: vi.fn() }));
+
 const MULTIPLIERS = { imageQuality: { auto: 1, high: 1 }, videoQuality: { "720": 1, "1080": 1 }, videoSeconds: { "5": 1, "8": 1 } };
 const STRICT_IMAGE_PROTOCOLS = registeredChannelProtocolDefinitions.filter((definition) => definition.strict && definition.operations.image);
 const STRICT_VIDEO_PROTOCOLS = registeredChannelProtocolDefinitions.filter((definition) => definition.strict && definition.operations.video);
