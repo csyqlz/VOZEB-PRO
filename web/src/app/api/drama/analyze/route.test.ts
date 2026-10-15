@@ -130,6 +130,7 @@ describe("POST /api/drama/analyze", () => {
         expect(fallbackBillingKey).not.toBe(toolBillingKey);
         expect(input.messages?.[0]?.content).toContain("5、8、10、15 秒");
         expect(input.messages?.[0]?.content).toContain("不能删句");
+        expect(input.messages?.[0]?.content).not.toContain("JSON Schema");
     });
 
     it("unwraps a Responses-compatible data wrapper before validating drama fields", async () => {
