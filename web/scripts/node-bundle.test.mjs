@@ -1,16 +1,21 @@
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { chmod, mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { createFreshEnvironment, decryptEnvironment, encryptEnvironment, parseOptions, sourceEntryIncluded, validateDomain } from "../../scripts/node-bundle.mjs";
 
 const execute = promisify(execFile);
 const tool = path.resolve(import.meta.dirname, "../../scripts/node-bundle.mjs");
+const fixtureRoots = [];
+
+afterAll(async () => {
+    await Promise.all(fixtureRoots.map((root) => rm(root, { recursive: true, force: true })));
+});
 
 describe("node bundle", () => {
     it("validates CLI, public domain, source filtering and encrypted environment", () => {
@@ -82,41 +87,59 @@ describe("node bundle", () => {
         expect(calls).toContain("start generation-worker");
     });
 
-    it("backs up and restores a full node with encrypted secrets and a changed domain", async () => {
-        const fixture = await setup();
-        const deployment = path.join(fixture.root, "deployment");
-        const bundle = path.join(fixture.root, "bundle");
-        const target = path.join(fixture.root, "target");
-        const passphrase = path.join(fixture.root, "passphrase");
-        await mkdir(deployment);
-        await writeFile(path.join(deployment, "docker-compose.local.yml"), "services: {}\n");
-        await writeFile(path.join(deployment, ".env"), `${exampleEnvironment()}VOZEB_PRO_BUILD_CONTEXT=/old/source\n`, { mode: 0o600 });
-        await writeFile(passphrase, randomBytes(32).toString("hex"), { mode: 0o600 });
-        await invoke(["backup", "--mode", "full", "--source", fixture.source, "--deployment", deployment, "--output", bundle, "--passphrase-file", passphrase], fixture);
-        const manifest = JSON.parse(await readFile(path.join(bundle, "node-bundle.json"), "utf8"));
-        expect(manifest.mode).toBe("full");
-        expect(manifest.domain).toBe("https://old.example.com");
-        expect((await readFile(path.join(bundle, "deployment.env.enc"))).includes(Buffer.from("old-secret"))).toBe(false);
-        await invoke(["verify", "--input", bundle], fixture);
-        const wrongPassphrase = path.join(fixture.root, "wrong-passphrase");
-        await writeFile(wrongPassphrase, randomBytes(32).toString("hex"), { mode: 0o600 });
-        await expect(invoke(["restore", "--input", bundle, "--target", target, "--domain", "https://new.example.com", "--passphrase-file", wrongPassphrase], fixture)).rejects.toThrow();
-        await expect(readFile(path.join(target, ".env"))).rejects.toMatchObject({ code: "ENOENT" });
-        await expect(invoke(["restore", "--input", bundle, "--target", target, "--domain", "https://new.example.com", "--passphrase-file", passphrase, "--apply", "--confirm", "wrong"], fixture)).rejects.toThrow();
-        await invoke(["restore", "--input", bundle, "--target", target, "--domain", "https://new.example.com", "--passphrase-file", passphrase, "--apply", "--confirm", manifest.id], fixture);
-        const environment = await readFile(path.join(target, ".env"), "utf8");
-        expect(environment).toContain("NEXT_PUBLIC_SITE_URL=https://new.example.com");
-        expect(environment).toContain("VOZEB_PRO_ENCRYPTION_KEY=old-secret");
-        expect(environment).toContain("VOZEB_PRO_APP_BIND=127.0.0.1");
-        expect(environment).toContain("VOZEB_PRO_BUILD_CONTEXT=.");
-        expect(environment).not.toContain("/old/source");
-        const calls = await readFile(fixture.calls, "utf8");
-        expect(calls).toContain("disaster-backup.mjs");
-        expect(calls).toContain("disaster-restore.mjs");
-        expect(calls).toContain("build app");
-        expect(calls).toContain("start app");
-        expect(calls).toContain("start generation-worker");
-        expect(calls).not.toContain("up -d --wait --no-build generation-worker");
+    describe("full encrypted bundle", () => {
+        let fixture;
+        let bundle;
+        let passphrase;
+
+        beforeAll(async () => {
+            fixture = await setup();
+            const deployment = path.join(fixture.root, "deployment");
+            bundle = path.join(fixture.root, "bundle");
+            passphrase = path.join(fixture.root, "passphrase");
+            await mkdir(deployment);
+            await writeFile(path.join(deployment, "docker-compose.local.yml"), "services: {}\n");
+            await writeFile(path.join(deployment, ".env"), `${exampleEnvironment()}VOZEB_PRO_BUILD_CONTEXT=/old/source\n`, { mode: 0o600 });
+            await writeFile(passphrase, randomBytes(32).toString("hex"), { mode: 0o600 });
+            await invoke(["backup", "--mode", "full", "--source", fixture.source, "--deployment", deployment, "--output", bundle, "--passphrase-file", passphrase], fixture);
+        });
+
+        it("rejects an incorrect passphrase without writing the target environment", async () => {
+            const target = path.join(fixture.root, "wrong-passphrase-target");
+            const wrongPassphrase = path.join(fixture.root, "wrong-passphrase");
+            await writeFile(wrongPassphrase, randomBytes(32).toString("hex"), { mode: 0o600 });
+            await expect(invoke(["restore", "--input", bundle, "--target", target, "--domain", "https://new.example.com", "--passphrase-file", wrongPassphrase], fixture)).rejects.toThrow();
+            await expect(readFile(path.join(target, ".env"))).rejects.toMatchObject({ code: "ENOENT" });
+        });
+
+        it("rejects an incorrect confirmation", async () => {
+            const target = path.join(fixture.root, "wrong-confirmation-target");
+            await expect(invoke(["restore", "--input", bundle, "--target", target, "--domain", "https://new.example.com", "--passphrase-file", passphrase, "--apply", "--confirm", "wrong"], fixture)).rejects.toThrow();
+        });
+
+        it("backs up and restores a full node with encrypted secrets and a changed domain", async () => {
+            const target = path.join(fixture.root, "target");
+            // beforeAll creates the real encrypted fixture once; this verifies and restores that same bundle.
+            const manifest = JSON.parse(await readFile(path.join(bundle, "node-bundle.json"), "utf8"));
+            expect(manifest.mode).toBe("full");
+            expect(manifest.domain).toBe("https://old.example.com");
+            expect((await readFile(path.join(bundle, "deployment.env.enc"))).includes(Buffer.from("old-secret"))).toBe(false);
+            await invoke(["verify", "--input", bundle], fixture);
+            await invoke(["restore", "--input", bundle, "--target", target, "--domain", "https://new.example.com", "--passphrase-file", passphrase, "--apply", "--confirm", manifest.id], fixture);
+            const environment = await readFile(path.join(target, ".env"), "utf8");
+            expect(environment).toContain("NEXT_PUBLIC_SITE_URL=https://new.example.com");
+            expect(environment).toContain("VOZEB_PRO_ENCRYPTION_KEY=old-secret");
+            expect(environment).toContain("VOZEB_PRO_APP_BIND=127.0.0.1");
+            expect(environment).toContain("VOZEB_PRO_BUILD_CONTEXT=.");
+            expect(environment).not.toContain("/old/source");
+            const calls = await readFile(fixture.calls, "utf8");
+            expect(calls).toContain("disaster-backup.mjs");
+            expect(calls).toContain("disaster-restore.mjs");
+            expect(calls).toContain("build app");
+            expect(calls).toContain("start app");
+            expect(calls).toContain("start generation-worker");
+            expect(calls).not.toContain("up -d --wait --no-build generation-worker");
+        });
     });
 
     it("rejects omitting object files when historical records still reference them", async () => {
@@ -163,6 +186,7 @@ function exampleEnvironment() {
 
 async function setup() {
     const root = await mkdtemp(path.join(os.tmpdir(), "vozeb-node-bundle-"));
+    fixtureRoots.push(root);
     const source = path.join(root, "source");
     const bin = path.join(root, "bin");
     const calls = path.join(root, "docker-calls.log");
