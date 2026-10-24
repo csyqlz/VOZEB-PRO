@@ -2955,11 +2955,21 @@ for (const mode of ["legacy", "usage", "shadow", "hailuo-shadow", "hailuo-fast-s
                 expect(finished.status).toBe("success");
                 const state = await protocolFixtureState(request);
                 expect(state.requests.filter((item) => item.method === "POST" && item.path === (h3 ? "/v2/video_generation" : "/v1/video_generation"))).toHaveLength(1);
-                const records = JSON.parse(await readFile(path.join(e2eDataDir, "generation-tasks.json"), "utf8")) as Array<{
-                    id: string;
-                    payload: { usageObservations?: Array<{ upstreamTaskId: string; observation: { protocol: string; quantities?: Record<string, string>; fileId?: string } }> };
-                }>;
-                const receipts = records.find((item) => item.id === task.id)!.payload.usageObservations!;
+                const receipts = await (async () => {
+                    type Payload = { usageObservations?: Array<{ upstreamTaskId: string; observation: { protocol: string; quantities?: Record<string, string>; fileId?: string } }> };
+                    if (!process.env.VOZEB_PRO_E2E_DATABASE_URL) {
+                        const records = JSON.parse(await readFile(path.join(e2eDataDir, "generation-tasks.json"), "utf8")) as Array<{ id: string; payload: Payload }>;
+                        return records.find((item) => item.id === task.id)!.payload.usageObservations!;
+                    }
+                    const { Pool } = await import("pg");
+                    const pool = new Pool({ connectionString: process.env.VOZEB_PRO_E2E_DATABASE_URL });
+                    try {
+                        const result = await pool.query<{ payload: Payload }>("SELECT payload FROM vozeb_pro_generation_tasks WHERE id = $1 AND user_id = $2", [task.id, userId]);
+                        return result.rows[0].payload.usageObservations!;
+                    } finally {
+                        await pool.end();
+                    }
+                })();
                 expect(receipts).toHaveLength(1);
                 expect(receipts[0].upstreamTaskId).toBe(finished.upstreamId);
                 if (h3) {
@@ -2985,7 +2995,19 @@ for (const mode of ["legacy", "usage", "shadow", "hailuo-shadow", "hailuo-fast-s
                 const balance = (await (await page.request.get("/api/auth/session")).json()).user.pointsBalance;
                 if (shadow) {
                     expect(balance).toBe(9.75);
-                    const account = JSON.parse(await readFile(path.join(e2eDataDir, "model-pricing-shadow", `${createHash("sha256").update(userId!).digest("hex")}.json`), "utf8"));
+                    const account = await (async () => {
+                        if (!process.env.VOZEB_PRO_E2E_DATABASE_URL) return JSON.parse(await readFile(path.join(e2eDataDir, "model-pricing-shadow", `${createHash("sha256").update(userId!).digest("hex")}.json`), "utf8"));
+                        const { Pool } = await import("pg");
+                        const pool = new Pool({ connectionString: process.env.VOZEB_PRO_E2E_DATABASE_URL });
+                        try {
+                            const total = await pool.query("SELECT exact_points FROM vozeb_pro_model_pricing_shadow_accounts WHERE user_id = $1", [userId]);
+                            const calls = await pool.query("SELECT data FROM vozeb_pro_model_pricing_shadow_calls WHERE user_id = $1", [userId]);
+                            const receipts = await pool.query("SELECT data FROM vozeb_pro_model_pricing_shadow_receipts WHERE user_id = $1", [userId]);
+                            return { exactPoints: total.rows[0]?.exact_points, calls: calls.rows.map((row) => row.data), receipts: receipts.rows.map((row) => row.data) };
+                        } finally {
+                            await pool.end();
+                        }
+                    })();
                     expect(account.exactPoints).toBe(h3 ? "294" : "5523/10");
                     expect(account.receipts).toHaveLength(1);
                     expect(account.calls).toMatchObject([{ kind: "video", upstreamTaskId: finished.upstreamId, frozen: { policy: { id: salesId } }, result: { status: "priced" } }]);
