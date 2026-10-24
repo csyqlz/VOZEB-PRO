@@ -5,6 +5,7 @@
 - `quality.yml`：检查主应用与文档站的格式、类型、测试、构建和发布条件。
   - 独立检查：`Web / typecheck`、`Web / lint`、`Web / test`、`Web / build`，分别运行 `web/package.json` 中的同名脚本；一个失败不取消其他检查。
   - 使用 Node.js 22、pnpm 11.9.0 和 `pnpm install --frozen-lockfile`。四项检查只有 `contents: read`，不引用部署 secrets、不持久化 checkout 凭据；PR 使用 `pull_request`，不用 `pull_request_target` 执行提交方代码。
+  - Vitest 包含真实本地浏览器 fixture：`test` 与原有 `web` job 在单测前安装锁定 Playwright 对应的 Chromium，并仅在临时 runner 中把 `/usr/bin/chromium` 指向该版本，避免业务优先选择 runner 自带的不同版本。原有 E2E 复用已安装浏览器；不更改生产浏览器配置或测试超时。
   - 保留现有 `web`、`docs`、`security` 综合门禁，包括依赖审计、浏览器与 PostgreSQL 钱包幂等测试、Gitleaks 和 CodeQL。四项基础检查暂时会与 `web` 重复，避免平台必需检查尚未调整时削弱旧门禁。
 - `docker-image.yml`：构建并发布主应用多架构镜像。
 - `docs-docker-image.yml`：构建并发布文档站多架构镜像。

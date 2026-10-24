@@ -56,6 +56,20 @@ describe("independent web CI checks", () => {
         expect(readFileSync(path.join(root, "web/pnpm-lock.yaml"), "utf8")).toContain("lockfileVersion:");
     });
 
+    it("prepares the locked browser before both jobs run browser-backed unit tests", () => {
+        for (const [job, command] of [
+            [workflow.jobs.checks, "pnpm run ${{ matrix.check }}"],
+            [workflow.jobs.web, "pnpm test"],
+        ]) {
+            const prepare = job.steps.findIndex((step) => step.run?.includes("pnpm exec playwright install --with-deps chromium"));
+            expect(prepare).toBeGreaterThanOrEqual(0);
+            expect(prepare).toBeLessThan(job.steps.findIndex((step) => step.run === command));
+            expect(job.steps[prepare].run).toContain("chromium.executablePath()");
+            expect(job.steps[prepare].run).toContain("/usr/bin/chromium");
+        }
+        expect(workflow.jobs.checks.steps.find((step) => step.run?.includes("playwright install")).if).toBe("matrix.check == 'test'");
+    });
+
     it("retains the original required gate including security and wallet integration tests", () => {
         const web = workflow.jobs.web;
         expect(web.if).toBeUndefined();

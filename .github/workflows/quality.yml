@@ -39,6 +39,11 @@ jobs:
           cache-dependency-path: web/pnpm-lock.yaml
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      - name: Prepare Chromium for browser-backed unit tests
+        if: matrix.check == 'test'
+        run: |
+          pnpm exec playwright install --with-deps chromium
+          sudo ln -sf "$(node -e 'console.log(require("playwright-core").chromium.executablePath())')" /usr/bin/chromium
       - name: Run ${{ matrix.check }}
         run: pnpm run ${{ matrix.check }}
 
@@ -82,6 +87,10 @@ jobs:
         run: pnpm run lint
       - name: Type check
         run: pnpm run typecheck
+      - name: Prepare Chromium for browser-backed unit tests
+        run: |
+          pnpm exec playwright install --with-deps chromium
+          sudo ln -sf "$(node -e 'console.log(require("playwright-core").chromium.executablePath())')" /usr/bin/chromium
       - name: Unit tests
         run: pnpm test
       - name: Format check
@@ -90,8 +99,6 @@ jobs:
         run: pnpm run build
         env:
           NEXT_SKIP_BUILD_TYPECHECK: "1"
-      - name: Install Playwright Chromium
-        run: pnpm exec playwright install --with-deps chromium
       - name: Browser E2E
         run: pnpm run e2e
         env:
