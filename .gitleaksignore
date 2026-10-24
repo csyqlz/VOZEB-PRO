@@ -32,3 +32,7 @@ e765796c768ec56464504f4cb7c8a89c44ae5b15:web/src/app/(user)/canvas/use-canvas-lo
 e765796c768ec56464504f4cb7c8a89c44ae5b15:web/src/lib/server/payment-checkout-providers.ts:private-key:311
 e765796c768ec56464504f4cb7c8a89c44ae5b15:web/src/lib/server/payment-refund-service.ts:private-key:359
 f1acfa5dc3f92d7e39cf2221f8db5261c0be59f0:web/playwright.config.ts:generic-api-key:59
+# Audited public protocol ID arrays in the approved T01 source snapshot (not credentials).
+a410348a6d25e1007946803adc7fbaa4dfb72e6c:web/src/components/admin/channels/admin-channel-protocol-catalog.tsx:generic-api-key:13
+a410348a6d25e1007946803adc7fbaa4dfb72e6c:web/src/lib/server/active-protocol-media-proxy-matrix.live.test.ts:generic-api-key:982
+a410348a6d25e1007946803adc7fbaa4dfb72e6c:web/src/lib/server/text-planning-runtime.test.ts:generic-api-key:20
