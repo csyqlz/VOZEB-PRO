@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
     resolveLogicalModelCandidates: vi.fn(),
     checkRateLimit: vi.fn(),
     requestStructuredText: vi.fn(),
+    getDramaProjectForUser: vi.fn(),
+    recordDramaAnalysisCharge: vi.fn(),
 }));
 
 vi.mock("@/lib/auth/session", () => ({ getCurrentUser: mocks.getCurrentUser }));
@@ -15,6 +17,18 @@ vi.mock("@/lib/server/internal-origin", () => ({ resolveInternalOrigin: vi.fn((o
 vi.mock("@/lib/server/logical-model-router", () => ({ resolveLogicalModelCandidates: mocks.resolveLogicalModelCandidates }));
 vi.mock("@/lib/server/security", () => ({ checkRateLimit: mocks.checkRateLimit }));
 vi.mock("@/lib/server/text-planning-runtime", () => ({ isStructuredTextFailure: vi.fn(() => false), rankTextPlanningCandidates: vi.fn((items: unknown[]) => items), requestStructuredText: mocks.requestStructuredText }));
+vi.mock("@/lib/server/drama-project-service", () => ({
+    DramaProjectServiceError: class DramaProjectServiceError extends Error {
+        constructor(
+            message: string,
+            readonly status: number,
+        ) {
+            super(message);
+        }
+    },
+    getDramaProjectForUser: mocks.getDramaProjectForUser,
+}));
+vi.mock("@/lib/server/generation-task-charge-attribution", () => ({ recordDramaAnalysisCharge: mocks.recordDramaAnalysisCharge }));
 
 import { POST } from "./route";
 
@@ -22,6 +36,7 @@ describe("POST /api/drama/analyze", () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.getCurrentUser.mockResolvedValue({ id: "user-one" });
+        mocks.getDramaProjectForUser.mockResolvedValue({ id: "project-one" });
         mocks.checkRateLimit.mockResolvedValue({ allowed: true });
         mocks.getAuthSettings.mockResolvedValue({
             defaultModels: { textModel: "planner", videoModel: "video-planner" },
@@ -92,7 +107,7 @@ describe("POST /api/drama/analyze", () => {
             new Request("http://localhost/api/drama/analyze", {
                 method: "POST",
                 headers: { "content-type": "application/json", cookie: "session=test" },
-                body: JSON.stringify({ requestId: "drama-content-request-one", phase: "content", script: "灰黑色风暴扫过废墟。" }),
+                body: JSON.stringify({ projectId: "project-one", requestId: "drama-content-request-one", phase: "content", script: "灰黑色风暴扫过废墟。" }),
             }),
         );
 
@@ -130,6 +145,76 @@ describe("POST /api/drama/analyze", () => {
         expect(fallbackBillingKey).not.toBe(toolBillingKey);
         expect(input.messages?.[0]?.content).toContain("5、8、10、15 秒");
         expect(input.messages?.[0]?.content).toContain("不能删句");
+        expect(mocks.getDramaProjectForUser).toHaveBeenCalledWith("user-one", "project-one");
+    });
+
+    it("rejects an inaccessible project before submitting a billable request", async () => {
+        const { DramaProjectServiceError } = await import("@/lib/server/drama-project-service");
+        mocks.getDramaProjectForUser.mockRejectedValueOnce(new DramaProjectServiceError("短剧项目不存在", 404));
+        const response = await POST(
+            new Request("http://localhost/api/drama/analyze", {
+                method: "POST",
+                headers: { "content-type": "application/json", cookie: "session=test" },
+                body: JSON.stringify({ projectId: "other-project", requestId: "request-one", phase: "content", script: "灰黑色风暴扫过废墟。" }),
+            }),
+        );
+        expect(response.status).toBe(404);
+        expect(mocks.requestStructuredText).not.toHaveBeenCalled();
+    });
+
+    it("requires a project identity for billable drama analysis", async () => {
+        const response = await POST(
+            new Request("http://localhost/api/drama/analyze", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId: "analysis-one", phase: "content", script: "灰黑色风暴扫过废墟。" }) }),
+        );
+        expect(response.status).toBe(400);
+        expect(mocks.getDramaProjectForUser).not.toHaveBeenCalled();
+        expect(mocks.requestStructuredText).not.toHaveBeenCalled();
+    });
+
+    it("links a charged analysis call to its verified project and refunds if the link cannot be saved", async () => {
+        const billed = {
+            arguments: JSON.stringify({
+                episode: { outline: "大纲", hook: "", nextPreview: "", sourceRange: "第一场" },
+                characters: [],
+                scenes: [],
+                props: [],
+                clues: [],
+                shots: [
+                    {
+                        title: "荒原",
+                        description: "灰黑色风暴扫过废墟",
+                        sourceText: "灰黑色风暴扫过废墟。",
+                        shotBoundary: "环境建立",
+                        dialogue: "",
+                        narration: "",
+                        utterances: [],
+                        duration: 5,
+                        characterNames: [],
+                        sceneName: "废墟",
+                        propNames: [],
+                        clueNames: [],
+                    },
+                ],
+            }),
+            headers: new Headers({ "x-vozeb-pro-points-cost": "3", "x-vozeb-pro-points-record-id": "charge-one" }),
+            protocol: "chat",
+            elapsedMs: 10,
+        };
+        mocks.requestStructuredText.mockResolvedValue(billed);
+        const request = () =>
+            new Request("http://localhost/api/drama/analyze", {
+                method: "POST",
+                headers: { "content-type": "application/json", cookie: "session=test" },
+                body: JSON.stringify({ projectId: "project-one", requestId: "analysis-one", phase: "content", script: "灰黑色风暴扫过废墟。" }),
+            });
+
+        expect((await POST(request())).status).toBe(200);
+        expect(mocks.recordDramaAnalysisCharge).toHaveBeenCalledWith(expect.objectContaining({ userId: "user-one", projectId: "project-one", logicalModelId: "planner", pointsRecordId: "charge-one", callId: expect.any(String) }));
+        mocks.recordDramaAnalysisCharge.mockRejectedValueOnce(new Error("link failed"));
+        mocks.refundUserPoints.mockResolvedValue({ pointsBalance: 90 });
+        const failure = await POST(request());
+        expect(failure.status).toBe(502);
+        expect(mocks.refundUserPoints).toHaveBeenCalledWith("user-one", "planner", 3, "text", 1, undefined, "charge-one");
     });
 
     it("unwraps a Responses-compatible data wrapper before validating drama fields", async () => {
@@ -167,12 +252,80 @@ describe("POST /api/drama/analyze", () => {
             new Request("http://localhost/api/drama/analyze", {
                 method: "POST",
                 headers: { "content-type": "application/json", cookie: "session=test" },
-                body: JSON.stringify({ requestId: "drama-content-request-wrapper", phase: "content", script: "灰黑色风暴扫过废墟。" }),
+                body: JSON.stringify({ projectId: "project-one", requestId: "drama-content-request-wrapper", phase: "content", script: "灰黑色风暴扫过废墟。" }),
             }),
         );
 
         expect(response.status).toBe(200);
         await expect(response.json()).resolves.toMatchObject({ code: 0, data: { shots: [expect.objectContaining({ title: "荒原" })] } });
+    });
+
+    it("accepts ordered partial source anchors after restoring the original script", async () => {
+        const script = "清晨，顾言推开城门说道：“快走！”守城士兵听见号角，纷纷回头。顾言望向远处，\n发现黑云压近。";
+        mocks.requestStructuredText.mockResolvedValueOnce({
+            arguments: JSON.stringify({
+                episode: { outline: "城门告急" },
+                characters: [{ name: "顾言", description: "守城人" }],
+                scenes: [],
+                props: [],
+                clues: [],
+                shots: [
+                    { title: "城门", description: "顾言推开城门", sourceText: "清晨，顾言推开城门说道：“快走！”", duration: 5, characterNames: ["顾言"], utterances: [{ type: "dialogue", speaker: "顾言", text: "快走！" }] },
+                    { title: "黑云", description: "顾言发现黑云", sourceText: "顾言望向远处，发现黑云压近。", duration: 5, utterances: [] },
+                ],
+            }),
+            headers: new Headers(),
+            protocol: "chat",
+            elapsedMs: 10,
+        });
+
+        const response = await POST(
+            new Request("http://localhost/api/drama/analyze", {
+                method: "POST",
+                headers: { "content-type": "application/json", cookie: "session=test" },
+                body: JSON.stringify({ projectId: "project-one", requestId: "drama-content-partial-anchors", phase: "content", script }),
+            }),
+        );
+        const payload = (await response.json()) as { data: { shots: Array<{ sourceText: string; utterances: Array<{ speaker: string; text: string }> }> } };
+
+        expect(response.status).toBe(200);
+        expect(mocks.requestStructuredText).toHaveBeenCalledOnce();
+        expect(
+            payload.data.shots
+                .map((shot) => shot.sourceText)
+                .join("")
+                .replace(/\s/gu, ""),
+        ).toBe(script.replace(/\s/gu, ""));
+        expect(payload.data.shots[1].sourceText.replace(/\s/gu, "")).toContain("顾言望向远处，发现黑云压近。");
+        expect(payload.data.shots.flatMap((shot) => shot.utterances)).toEqual([expect.objectContaining({ speaker: "顾言", text: "快走！" })]);
+    });
+
+    it("rejects partial source excerpts that cannot be located in script order", async () => {
+        const script = "甲乙丙丁戊己庚辛壬癸子丑寅卯辰巳午未申酉";
+        mocks.requestStructuredText.mockResolvedValueOnce({
+            arguments: JSON.stringify({
+                episode: { outline: "乱序片段" },
+                shots: [
+                    { title: "后段", description: "后段", sourceText: "子丑寅卯辰巳午未申酉", duration: 5 },
+                    { title: "前段", description: "前段", sourceText: "甲乙丙丁戊己庚辛壬癸", duration: 5 },
+                ],
+            }),
+            headers: new Headers(),
+            protocol: "chat",
+            elapsedMs: 10,
+        });
+
+        const response = await POST(
+            new Request("http://localhost/api/drama/analyze", {
+                method: "POST",
+                headers: { "content-type": "application/json", cookie: "session=test" },
+                body: JSON.stringify({ projectId: "project-one", requestId: "drama-content-reversed-anchors", phase: "content", script }),
+            }),
+        );
+
+        expect(response.status).toBe(502);
+        await expect(response.json()).resolves.toMatchObject({ msg: "模型返回的剧本原文不完整" });
+        expect(mocks.requestStructuredText).toHaveBeenCalledOnce();
     });
 
     it("normalizes missing model utterances from the original novel instead of rejecting the request", async () => {
@@ -195,7 +348,7 @@ describe("POST /api/drama/analyze", () => {
             new Request("http://localhost/api/drama/analyze", {
                 method: "POST",
                 headers: { "content-type": "application/json", cookie: "session=test" },
-                body: JSON.stringify({ requestId: "drama-content-recover-dialogue", phase: "content", script }),
+                body: JSON.stringify({ projectId: "project-one", requestId: "drama-content-recover-dialogue", phase: "content", script }),
             }),
         );
         const payload = (await response.json()) as { data: { shots: Array<{ utterances: Array<{ speaker: string; text: string }> }> }; meta?: { mode?: string } };
@@ -240,7 +393,7 @@ describe("POST /api/drama/analyze", () => {
             new Request("http://localhost/api/drama/analyze", {
                 method: "POST",
                 headers: { "content-type": "application/json", cookie: "session=test" },
-                body: JSON.stringify({ requestId: "drama-content-unresolved-speaker", phase: "content", script }),
+                body: JSON.stringify({ projectId: "project-one", requestId: "drama-content-unresolved-speaker", phase: "content", script }),
             }),
         );
 
@@ -306,7 +459,7 @@ describe("POST /api/drama/analyze", () => {
             new Request("http://localhost/api/drama/analyze", {
                 method: "POST",
                 headers: { "content-type": "application/json", cookie: "session=test" },
-                body: JSON.stringify({ requestId: "drama-content-many-lines", phase: "content", script: lines.join("\n"), videoModel: "video-planner" }),
+                body: JSON.stringify({ projectId: "project-one", requestId: "drama-content-many-lines", phase: "content", script: lines.join("\n"), videoModel: "video-planner" }),
             }),
         );
         const payload = (await response.json()) as { data: { shots: Array<{ duration: number; utterances: Array<{ text: string }> }> } };
@@ -374,7 +527,7 @@ describe("POST /api/drama/analyze", () => {
             new Request("http://localhost/api/drama/analyze", {
                 method: "POST",
                 headers: { "content-type": "application/json", cookie: "session=test" },
-                body: JSON.stringify({ requestId: "drama-content-refund-segments", phase: "content", script }),
+                body: JSON.stringify({ projectId: "project-one", requestId: "drama-content-refund-segments", phase: "content", script }),
             }),
         );
 
@@ -389,7 +542,7 @@ describe("POST /api/drama/analyze", () => {
                 new Request("http://localhost/api/drama/analyze", {
                     method: "POST",
                     headers: { "content-type": "application/json", cookie: "session=test" },
-                    body: JSON.stringify({ requestId, phase: "content", script: "灰黑色风暴扫过废墟。", videoModel: "video-planner" }),
+                    body: JSON.stringify({ projectId: "project-one", requestId, phase: "content", script: "灰黑色风暴扫过废墟。", videoModel: "video-planner" }),
                 }),
             );
             expect(response.status).toBe(200);
@@ -398,6 +551,21 @@ describe("POST /api/drama/analyze", () => {
         const billingKeys = mocks.requestStructuredText.mock.calls.map(([input]) => new Headers((input as { headers?: HeadersInit }).headers).get("x-vozeb-pro-points-idempotency-key"));
         expect(billingKeys[0]).toBe(billingKeys[1]);
         expect(billingKeys[2]).not.toBe(billingKeys[0]);
+    });
+
+    it("binds the same client request identity to the verified project in billing keys", async () => {
+        for (const projectId of ["project-one", "project-two"]) {
+            const response = await POST(
+                new Request("http://localhost/api/drama/analyze", {
+                    method: "POST",
+                    headers: { "content-type": "application/json", cookie: "session=test" },
+                    body: JSON.stringify({ projectId, requestId: "same-request", phase: "content", script: "灰黑色风暴扫过废墟。" }),
+                }),
+            );
+            expect(response.status).toBe(200);
+        }
+        const billingKeys = mocks.requestStructuredText.mock.calls.map(([input]) => new Headers((input as { headers?: HeadersInit }).headers).get("x-vozeb-pro-points-idempotency-key"));
+        expect(billingKeys[0]).not.toBe(billingKeys[1]);
     });
 
     it("adaptively splits a structurally invalid visual request and preserves shot order", async () => {
@@ -423,7 +591,7 @@ describe("POST /api/drama/analyze", () => {
             new Request("http://localhost/api/drama/analyze", {
                 method: "POST",
                 headers: { "content-type": "application/json", cookie: "session=test" },
-                body: JSON.stringify({ requestId: "drama-visual-adaptive", phase: "visual", shots }),
+                body: JSON.stringify({ projectId: "project-one", requestId: "drama-visual-adaptive", phase: "visual", shots }),
             }),
         );
         const payload = (await response.json()) as { data: { shots: Array<{ shotId: string }> } };
@@ -466,7 +634,7 @@ describe("POST /api/drama/analyze", () => {
             new Request("http://localhost/api/drama/analyze", {
                 method: "POST",
                 headers: { "content-type": "application/json", cookie: "session=test" },
-                body: JSON.stringify({ requestId: "drama-visual-partial", phase: "visual", shots }),
+                body: JSON.stringify({ projectId: "project-one", requestId: "drama-visual-partial", phase: "visual", shots }),
             }),
         );
         const payload = (await response.json()) as { data: { shots: Array<{ shotId: string }> } };
@@ -506,7 +674,7 @@ describe("POST /api/drama/analyze", () => {
             new Request("http://localhost/api/drama/analyze", {
                 method: "POST",
                 headers: { "content-type": "application/json", cookie: "session=test" },
-                body: JSON.stringify({ requestId: "drama-content-echo", phase: "content", script: "灰黑色风暴扫过废墟。" }),
+                body: JSON.stringify({ projectId: "project-one", requestId: "drama-content-echo", phase: "content", script: "灰黑色风暴扫过废墟。" }),
             }),
         );
 

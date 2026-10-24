@@ -1,0 +1,25 @@
+{
+  "observedAt": "2026-10-10T14:09:25Z",
+  "status": "draft-pending-administrator-review",
+  "productionChanged": false,
+  "sourceUrl": "https://www.alibabacloud.com/help/en/model-studio/qwen3-6-35b-a3b",
+  "candidateInputs": [
+    {
+      "logicalModelId": "qwen3.6-35b-a3b",
+      "manufacturer": "Alibaba Cloud",
+      "series": "Qwen 3.6",
+      "officialVersion": "qwen3.6-35b-a3b",
+      "sku": "qwen3.6-35b-a3b",
+      "tier": "paid",
+      "conditions": "Alibaba Cloud Model Studio original pay-as-you-go API list price; Singapore deployment, International scope, 0 < request input tokens <= 256000. Input and output tokens are charged at the same listed rates in thinking and non-thinking modes. Context caching and batch inference are unsupported. The model also accepts image and video input, which requires separate real-channel metering review before any public usage billing. Promotional offers and free quota do not change the regular user-price baseline.",
+      "sourceKind": "manual",
+      "sourceUrl": "https://www.alibabacloud.com/help/en/model-studio/qwen3-6-35b-a3b",
+      "evidence": "2026-10-10 exact model page: Singapore International original API prices are input 0.375 and output 2.25 USD per 1M tokens; the page marks context caching and batch inference unsupported. The input/output rates independently match the 2026-10-09 Alibaba comparison. China and Global prices are separate official scopes and are not selected here.",
+      "observedAt": "2026-10-10T14:09:25Z",
+      "items": [
+        { "key": "inputTokens", "unit": "token", "per": "1000000", "price": "0.375", "currency": "USD" },
+        { "key": "outputTokens", "unit": "token", "per": "1000000", "price": "2.25", "currency": "USD" }
+      ]
+    }
+  ]
+}

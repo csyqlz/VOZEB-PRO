@@ -1,0 +1,57 @@
+{
+  "observedAt": "2026-10-10T09:42:13Z",
+  "status": "draft-pending-administrator-source-and-condition-review",
+  "productionChanged": false,
+  "sourceUrl": "https://bfl.ai/pricing?category=flux.2",
+  "detailedTableSnapshot": {
+    "observedAt": "2026-10-09",
+    "localPath": "/tmp/vozeb-pricing-bfl-browser.txt",
+    "sha256": "a045af9197a54f59d98eda6f04ce431d1567312cc3dc5ca2c859b13213e049ad"
+  },
+  "sourceReviewRequired": "2026-10-10 官方定价页搜索索引再次显示完整 FLUX.2 分项表及 MP 取整／参考图规则，金额与 10 月 9 日快照相符；动态页直接打开仍未渲染分项。BFL 官方总览和帮助页称 Max 编辑从 0.07 USD 起，但按详细表 1 MP 输出加 1 MP 参考图为 0.10 USD，发布前须由管理员核对该差异和实际账单。",
+  "recheckedSources": [
+    { "url": "https://bfl.ai/pricing?category=flux.2", "observedAt": "2026-10-10T09:42:13Z", "method": "official-page-search-index", "finding": "Max 首个输出 MP 0.07、额外输出 MP 0.03、参考图 MP 0.03 USD；Pro 分别为 0.03、0.015、0.015 USD。1 MP 为 1024×1024；输入输出分别向上取整；单参考图至多按 4 MP，多参考图每张按 1 MP。" },
+    { "url": "https://docs.bfl.ai/quick_start/pricing", "observedAt": "2026-10-10T09:42:13Z", "method": "official-documentation", "finding": "Pro 文生从 0.03、编辑从 0.045 USD；Max 文生和编辑均称从 0.07 USD。" },
+    { "url": "https://help.bfl.ai/articles/7986977817-what-are-the-costs-associated-with-using-your-models", "observedAt": "2026-10-10T09:42:13Z", "method": "official-help-center", "finding": "Max 编辑从 0.07 USD；与详细表首个输出和参考图分项相加的 0.10 USD 不一致。" },
+    { "url": "https://bfl.ai/pricing?category=flux.2", "observedAt": "2026-10-10T11:38:50Z", "method": "official-page-search-index-and-direct-open", "finding": "官方搜索索引再次列出 Max 0.07/0.03/0.03 USD 与 Pro 0.03/0.015/0.015 USD 的首 MP／额外 MP／参考图 MP 分项，并说明参考图和输出分别向上取整；直接打开动态页仍不显示分项。Max 编辑 1 MP 输出加 1 MP 参考图按详细表为 0.10 USD，官方总览仍称从 0.07 USD 起，未取得足以消除差异的官方解释或账单。" }
+  ],
+  "runtimeMeteringGap": "DataEyes FLUX 文档的同步成功响应只有临时图片 URL、seed 和完成时间，没有逐次 MP、费用或 BFL 原任务 ID；密钥用量接口只给累计金额。平台随任务结果保存下载文件在本地重采样前的 sourceWidth/sourceHeight，并记录转发参考图尺寸；这些仍不能证明 DataEyes／BFL 实际处理尺寸。公开上限允许计算一请求一图、最多 4 MP 输出和最多 8 张参考图的预留候选，但原计费凭据、实际图片处理及失败账务未核实，不能据此结算或启用按量。",
+  "candidateInputs": [
+    {
+      "logicalModelId": "flux-2-max",
+      "manufacturer": "Black Forest Labs",
+      "series": "FLUX.2",
+      "officialVersion": "FLUX.2 [max]",
+      "sku": "flux-2-max",
+      "tier": "paid",
+      "conditions": "全球标准 API；每张输出首个 MP 计一次，后续输出 MP 分项计费；参考图另按逐图 MP 计费。1 MP = 1048576 像素，输入和输出分别向上取整；单参考图超过 4 MP 按 4 MP，多参考图各按 1 MP。Max 编辑价与总览起步价存在解释差异，管理员须先复核；未核实真实代理和结果尺寸，不得启用按量。",
+      "sourceKind": "manual",
+      "sourceUrl": "https://bfl.ai/pricing?category=flux.2",
+      "evidence": "BFL 动态 FLUX.2 价目表 2026-10-09 快照与 2026-10-10 官方页搜索索引一致：max 首个输出 MP 0.07 USD、额外输出 MP 0.03 USD、参考图 MP 0.03 USD；Max 编辑起步价与官方总览／帮助页冲突，须审核。",
+      "observedAt": "2026-10-10T09:42:13Z",
+      "items": [
+        { "key": "first-output-mp", "unit": "megapixel", "per": "1", "price": "0.07", "currency": "USD" },
+        { "key": "additional-output-mp", "unit": "megapixel", "per": "1", "price": "0.03", "currency": "USD" },
+        { "key": "reference-mp", "unit": "megapixel", "per": "1", "price": "0.03", "currency": "USD" }
+      ]
+    },
+    {
+      "logicalModelId": "flux-2-pro",
+      "manufacturer": "Black Forest Labs",
+      "series": "FLUX.2",
+      "officialVersion": "FLUX.2 [pro]",
+      "sku": "flux-2-pro",
+      "tier": "paid",
+      "conditions": "全球标准 API；每张输出首个 MP 计一次，后续输出 MP 分项计费；参考图另按逐图 MP 计费。1 MP = 1048576 像素，输入和输出分别向上取整；单参考图超过 4 MP 按 4 MP，多参考图各按 1 MP。未核实真实代理和结果尺寸，不得启用按量。",
+      "sourceKind": "manual",
+      "sourceUrl": "https://bfl.ai/pricing?category=flux.2",
+      "evidence": "BFL 动态 FLUX.2 价目表 2026-10-09 快照与 2026-10-10 官方页搜索索引一致：pro 首个输出 MP 0.03 USD、额外输出 MP 0.015 USD、参考图 MP 0.015 USD；1 MP 编辑合计 0.045 USD，与官方总览一致。",
+      "observedAt": "2026-10-10T09:42:13Z",
+      "items": [
+        { "key": "first-output-mp", "unit": "megapixel", "per": "1", "price": "0.03", "currency": "USD" },
+        { "key": "additional-output-mp", "unit": "megapixel", "per": "1", "price": "0.015", "currency": "USD" },
+        { "key": "reference-mp", "unit": "megapixel", "per": "1", "price": "0.015", "currency": "USD" }
+      ]
+    }
+  ]
+}

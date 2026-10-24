@@ -1,0 +1,35 @@
+{
+  "observedAt": "2026-10-10T13:55:44Z",
+  "status": "draft-pending-administrator-review",
+  "productionChanged": false,
+  "sourceUrl": "https://www.alibabacloud.com/help/en/model-studio/qwen-mt-flash",
+  "candidateInputs": [
+    {
+      "logicalModelId": "qwen-mt-flash",
+      "manufacturer": "Alibaba Cloud",
+      "series": "Qwen-MT",
+      "officialVersion": "qwen-mt-flash",
+      "sku": "qwen-mt-flash",
+      "tier": "paid",
+      "conditions": "Alibaba Cloud Model Studio pay-as-you-go, Singapore deployment, International scope, text input and text output only. Original API list price excludes promotional offers. Context caching, function calling and batch inference are unsupported by this exact model. Do not apply this scope to a Global or unverified proxy channel.",
+      "sourceKind": "manual",
+      "sourceUrl": "https://www.alibabacloud.com/help/en/model-studio/qwen-mt-flash",
+      "evidence": "2026-10-10 exact model info page: Singapore Scope International, input 0.16 and output 0.49 USD per 1M tokens; capabilities list text-only input/output and no context caching. Independently cross-checked with the 2026-10-09 Alibaba comparison.",
+      "observedAt": "2026-10-10T13:55:44Z",
+      "items": [
+        { "key": "inputTokens", "unit": "token", "per": "1000000", "price": "0.16", "currency": "USD" },
+        { "key": "outputTokens", "unit": "token", "per": "1000000", "price": "0.49", "currency": "USD" }
+      ]
+    }
+  ],
+  "alternativeOfficialScope": {
+    "deploymentScope": "Global",
+    "regions": ["Germany (Frankfurt)", "US (Virginia)"],
+    "sourceUrl": "https://www.alibabacloud.com/help/en/model-studio/qwen-mt-flash",
+    "items": [
+      { "key": "inputTokens", "unit": "token", "per": "1000000", "price": "0.101", "currency": "USD" },
+      { "key": "outputTokens", "unit": "token", "per": "1000000", "price": "0.28", "currency": "USD" }
+    ],
+    "reviewNote": "Separate official scope, not an automatically selected price candidate. Confirm the real channel deployment and region before a human chooses the applicable standard list price."
+  }
+}

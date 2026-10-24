@@ -56,7 +56,7 @@ export function createProtocolFixtureServer(options = {}) {
 }
 
 async function handleFixtureRequest({ request, response, url, body, tasks, requests, nextTaskId, options }) {
-    const path = fixturePath(url.pathname);
+    const path = fixturePath(url.pathname, options.mountPrefixes || []);
     const responseDelayMs = Math.max(0, Number(options.responseDelayMs) || 0);
     if (request.method === "POST" && responseDelayMs) await delay(responseDelayMs);
     if (request.method === "GET" && path === "/health") return sendJson(response, 200, { ok: true });
@@ -64,14 +64,20 @@ async function handleFixtureRequest({ request, response, url, body, tasks, reque
         return sendJson(response, 200, {
             requests: requests
                 .filter((item) => !item.path.endsWith("/__state"))
-                .map((item) => ({
-                    method: item.method,
-                    path: item.path,
-                    authorization: item.headers.authorization || "",
-                    contentType: item.contentType,
-                    bodyBytes: item.body.byteLength,
-                    model: requestedModel(item.body, item.contentType),
-                })),
+                .map((item) => {
+                    const payload = jsonBody(item.body);
+                    const messages = Array.isArray(payload.messages) ? payload.messages : [];
+                    return {
+                        method: item.method,
+                        path: item.path,
+                        authorization: item.headers.authorization || "",
+                        contentType: item.contentType,
+                        bodyBytes: item.body.byteLength,
+                        model: requestedModel(item.body, item.contentType),
+                        imageCount: messages.flatMap((message) => (Array.isArray(message.content) ? message.content : [])).filter((part) => part.type === "image_url" && /^data:image\//.test(part.image_url?.url || "")).length,
+                        messageCount: messages.length,
+                    };
+                }),
             tasks: Array.from(tasks.entries()).map(([id, task]) => ({ id, ...task })),
         });
     }
@@ -98,45 +104,114 @@ async function handleFixtureRequest({ request, response, url, body, tasks, reque
         );
     }
     if (request.method === "GET" && ["/models", "/api/v3/models"].includes(path)) {
-        const catalog = url.searchParams.has("protocol") ? [...models, { id: "opaque-catalog-model" }] : models;
+        const catalog =
+            url.searchParams.get("protocol") === "dataeyes-seedance"
+                ? [{ id: "seedance-1.5-pro" }, { id: "seedance-2.0-fast" }, { id: "provider-scoped-video" }]
+                : url.searchParams.get("protocol") === "dataeyes-flux"
+                  ? [{ id: "flux-2-pro" }, { id: "gpt-image-1" }]
+                  : url.searchParams.get("protocol") === "dataeyes-seedream"
+                    ? [{ id: "ByteDance-Seedream-5.0-pro", supported_endpoint_types: ["openai"] }, { id: "gpt-image-1" }]
+                    : url.searchParams.has("protocol")
+                      ? [...models, { id: "opaque-catalog-model" }]
+                      : models;
         return sendJson(response, 200, { object: "list", data: catalog });
     }
     if (request.method === "GET" && path === "/sdapi/v1/sd-models") {
         return sendJson(response, 200, [{ title: "mock-image", model_name: "mock-image", id: "mock-image" }, ...(url.searchParams.has("protocol") ? [{ id: "opaque-catalog-model" }] : [])]);
     }
 
-    if (request.method === "POST" && ["/responses", "/chat/completions", "/messages"].includes(path)) {
+    if (request.method === "POST" && ["/responses", "/chat/completions", "/messages", "/api/paas/v4/chat/completions"].includes(path)) {
         const payload = jsonBody(body);
         const model = requestedModel(body, request.headers["content-type"] || "");
         if (shouldFailRequest(request, model)) return sendJson(response, model.includes("-fail") ? 400 : 503, { error: { message: "fixture text failure" } });
-        const toolName = selectedToolName(payload);
+        if (path === "/chat/completions" && ["gpt-4o-audio-preview", "gpt-audio-1.5"].includes(model)) {
+            if (!payload.modalities?.includes("audio") || !payload.audio?.voice || !payload.audio?.format) return sendJson(response, 400, { error: { message: "audio output parameters missing" } });
+            if (options.failOpenAiAudio) return sendJson(response, 503, { error: { message: "fixture audio response uncertain" } });
+            if (options.openAiAudioResponse) return sendJson(response, 200, options.openAiAudioResponse);
+            return sendJson(response, 200, {
+                model,
+                service_tier: "default",
+                choices: [{ index: 0, message: { role: "assistant", content: null, audio: { data: createWave().toString("base64"), transcript: "fixture audio" } } }],
+                usage: {
+                    prompt_tokens: 8,
+                    completion_tokens: 12,
+                    total_tokens: 20,
+                    prompt_tokens_details: { text_tokens: 8, audio_tokens: 0, image_tokens: 0, cached_tokens: 0, cache_write_tokens: 0 },
+                    completion_tokens_details: { text_tokens: 2, audio_tokens: 10, reasoning_tokens: 0, accepted_prediction_tokens: 0, rejected_prediction_tokens: 0 },
+                },
+            });
+        }
+        const toolName = path === "/messages" && !Array.isArray(payload.tools) ? "" : selectedToolName(payload);
         const argumentsText = toolName ? JSON.stringify(toolArguments(toolName, payload)) : "协议测试文本返回成功";
-        if (payload.stream === true) return sendStructuredTextStream(response, path, toolName, argumentsText);
+        const inputTokenDetails =
+            path === "/chat/completions" && model === "qwen3.8-max"
+                ? { cached_tokens: 2, cache_creation_input_tokens: 1 }
+                : path === "/chat/completions" && ["deepseek-flash", "kimi-k2.6", "kimi-k2.7-code", "kimi-k2.7-code-highspeed"].includes(model)
+                  ? { cached_tokens: 2 }
+                  : { cached_tokens: 2, cache_write_tokens: 1 };
+        if (path === "/chat/completions" && model === "kimi-k3") {
+            response.setHeader("Msh-Usage-Cache-Write-Tokens-5m", "1");
+            response.setHeader("Msh-Usage-Cache-Write-Tokens-1h", "0");
+        }
+        const nativeCache = path === "/chat/completions" && model === "deepseek-flash" ? { prompt_cache_hit_tokens: 2, prompt_cache_miss_tokens: 6 } : {};
+        if (payload.stream === true && path === "/messages") return sendAnthropicTextStream(response, model, toolName ? argumentsText : jsonRequested(payload) ? "{}" : argumentsText);
+        if (payload.stream === true) return sendStructuredTextStream(response, path, toolName, argumentsText, "sse", inputTokenDetails, model, nativeCache);
         if (path === "/responses") {
-            return sendJson(response, 200, toolName ? { output: [{ type: "function_call", name: toolName, arguments: argumentsText }] } : { output_text: argumentsText });
+            return sendJson(response, 200, {
+                ...(toolName ? { output: [{ type: "function_call", name: toolName, arguments: argumentsText }] } : { output_text: argumentsText }),
+                model,
+                usage: { input_tokens: 8, output_tokens: 8, input_tokens_details: { cached_tokens: 2, cache_write_tokens: 1 } },
+            });
         }
         if (path === "/messages") {
-            return sendJson(response, 200, toolName ? { content: [{ type: "tool_use", id: "tool-fixture", name: toolName, input: JSON.parse(argumentsText) }] } : { content: [{ type: "text", text: argumentsText }] });
+            const usage = { input_tokens: 5, output_tokens: 8, cache_read_input_tokens: 2, cache_creation_input_tokens: 1, cache_creation: { ephemeral_5m_input_tokens: 1, ephemeral_1h_input_tokens: 0 }, service_tier: "standard", inference_geo: "global" };
+            return sendJson(response, 200, {
+                model,
+                type: "message",
+                stop_reason: toolName ? "tool_use" : "end_turn",
+                usage,
+                content: toolName ? [{ type: "tool_use", id: "tool-fixture", name: toolName, input: JSON.parse(argumentsText) }] : [{ type: "text", text: jsonRequested(payload) ? "{}" : argumentsText }],
+            });
         }
         return sendJson(response, 200, {
+            model,
+            service_tier: "default",
             choices: [
                 {
+                    finish_reason: toolName ? "tool_calls" : "stop",
                     message: toolName ? { role: "assistant", content: "", tool_calls: [{ id: "tool-fixture", type: "function", function: { name: toolName, arguments: argumentsText } }] } : { role: "assistant", content: argumentsText },
                 },
             ],
-            usage: { prompt_tokens: 8, completion_tokens: 8, total_tokens: 16 },
+            usage: { prompt_tokens: 8, completion_tokens: 8, total_tokens: 16, prompt_tokens_details: inputTokenDetails, ...nativeCache },
         });
     }
 
     if (request.method === "POST" && /\/models\/[^/]+:(?:generateContent|streamGenerateContent)$/.test(path)) {
         const payload = jsonBody(body);
+        if (payload.generationConfig?.responseModalities?.includes("AUDIO")) {
+            if (options.failGeminiAudio) return sendJson(response, 503, { error: "fixture audio outcome unknown" });
+            if (options.geminiAudioResponse) return sendJson(response, 200, options.geminiAudioResponse);
+            return sendJson(response, 200, {
+                candidates: [{ content: { parts: [{ inlineData: { mimeType: "audio/wav", data: createWave().toString("base64") } }] } }],
+                usageMetadata: {
+                    promptTokenCount: 8,
+                    candidatesTokenCount: 12,
+                    totalTokenCount: 20,
+                    cachedContentTokenCount: 0,
+                    thoughtsTokenCount: 0,
+                    toolUsePromptTokenCount: 0,
+                    promptTokensDetails: [{ modality: "TEXT", tokenCount: 8 }],
+                    candidatesTokensDetails: [{ modality: "AUDIO", tokenCount: 12 }],
+                },
+            });
+        }
         if (payload.generationConfig?.responseModalities?.includes("IMAGE")) {
             return sendJson(response, 200, { candidates: [{ content: { parts: [{ inlineData: { mimeType: "image/png", data: (await fixtureImage(options)).toString("base64") } }] } }] });
         }
         const toolName = selectedToolName(payload);
         const text = toolName ? JSON.stringify(toolArguments(toolName, payload)) : "协议测试文本返回成功";
         if (path.endsWith(":streamGenerateContent")) return sendStructuredTextStream(response, path, toolName, text, "ndjson");
-        return sendJson(response, 200, { candidates: [{ content: { parts: [{ text }] } }], usageMetadata: { promptTokenCount: 8, candidatesTokenCount: 8, totalTokenCount: 16 } });
+        return sendJson(response, 200, { candidates: [{ content: { parts: [{ text }] } }], usageMetadata: { promptTokenCount: 8, cachedContentTokenCount: 2, candidatesTokenCount: 8, thoughtsTokenCount: 1, totalTokenCount: 17 } });
     }
     if (request.method === "POST" && ["/planner/run", "/planner/stream"].includes(path)) {
         if (path === "/planner/stream") return sendStructuredTextStream(response, path, "make_plan", "{}");
@@ -168,11 +243,32 @@ async function handleFixtureRequest({ request, response, url, body, tasks, reque
         return sendJson(response, 200, { task_id: id, status: "queued" });
     }
     if (request.method === "POST" && ["/images/generations", "/images/edits"].includes(path)) {
+        if (String(request.headers["idempotency-key"] || "").includes("xai")) return sendJson(response, 200, { data: [{ url: `${url.origin}/media/fixture.png` }] });
         const model = requestedModel(body, request.headers["content-type"] || "");
+        if (model.toLowerCase() === "bytedance-seedream-5.0-pro") {
+            const payload = jsonBody(body);
+            if (url.pathname !== "/v1/images/generations" || payload.response_format !== "url" || !/^(?:2K|[1-9]\d*x[1-9]\d*)$/.test(String(payload.size || "")) || "n" in payload || "quality" in payload)
+                return sendJson(response, 400, { error: { message: "DataEyes Seedream request shape is invalid" } });
+            return sendJson(response, 200, { data: [{ url: `${url.origin}/media/fixture.png?result=1` }, { url: `${url.origin}/media/fixture.png?result=2` }] });
+        }
         if (options.failImage || shouldFailRequest(request, model)) return sendJson(response, options.failImage || model.includes("-fail") ? 400 : 503, { error: { message: "fixture image failure" } });
-        const image = requestsTransparentBackground(body, request.headers["content-type"] || "") ? Buffer.from(TRANSPARENT_PNG_BASE64, "base64") : await fixtureImage(options);
+        if (["flux-kontext-pro", "flux-kontext-max", "flux-pro-1.1"].includes(model))
+            return sendJson(response, 200, options.imageResponse || { data: [{ url: `${url.origin}/media/fixture.png${body.includes("fixture-invalid-image-after-usage") ? "?invalid=1" : ""}` }] });
+        if (options.imageResponse) return sendJson(response, 200, options.imageResponse);
+        const image =
+            model === "e2e-image" && body.includes("fixture-invalid-image-after-usage")
+                ? Buffer.from(TRANSPARENT_PNG_BASE64, "base64").fill(0, 33)
+                : requestsTransparentBackground(body, request.headers["content-type"] || "")
+                  ? Buffer.from(TRANSPARENT_PNG_BASE64, "base64")
+                  : await fixtureImage(options);
         const images = requestsLayeredOutput(body) ? await layeredFixtureImages(body, request.headers["content-type"] || "", options) : [image];
-        return sendJson(response, 200, { created: Math.floor(Date.now() / 1000), data: images.map((item) => ({ b64_json: item.toString("base64"), revised_prompt: "protocol fixture" })) });
+        return sendJson(response, 200, {
+            created: Math.floor(Date.now() / 1000),
+            data: images.map((item) => ({ b64_json: item.toString("base64"), revised_prompt: "protocol fixture" })),
+            ...(["mock-image-priced", "e2e-image"].includes(model)
+                ? { usage: { input_tokens: 3, output_tokens: 4, total_tokens: 7, input_tokens_details: { text_tokens: 1, image_tokens: 2 }, output_tokens_details: { text_tokens: 0, image_tokens: 4 } } }
+                : {}),
+        });
     }
     if (request.method === "POST" && ["/sdapi/v1/txt2img", "/sdapi/v1/img2img"].includes(path)) {
         return sendJson(response, 200, { images: [(await fixtureImage(options)).toString("base64")], info: "{}" });
@@ -182,7 +278,105 @@ async function handleFixtureRequest({ request, response, url, body, tasks, reque
         return sendJson(response, 200, { data: { image_url: `${url.origin}/media/fixture.png` } });
     }
 
-    if (request.method === "POST" && (GLOBAL_AIOPC_VIDEO_PATHS.has(path) || ["/videos", "/contents/generations/tasks", "/seedance-special/videos"].includes(path))) {
+    if (request.method === "POST" && path === "/compatible-mode/v1/images/generations") return sendJson(response, 200, { data: [{ url: `${url.origin}/media/fixture.png` }] });
+    if (request.method === "POST" && path === "/image_generation") return sendJson(response, 200, { data: { image_urls: [`${url.origin}/media/fixture.png`] }, base_resp: { status_code: 0 } });
+    if (request.method === "POST" && /^\/flux-[a-z0-9.-]+$/.test(path)) {
+        const id = nextTaskId("bfl-image");
+        tasks.set(id, { kind: "bfl-image", status: "Ready" });
+        return sendJson(response, 200, { id, polling_url: `${url.origin}/v1/get_result?id=${encodeURIComponent(id)}` });
+    }
+    if (request.method === "GET" && path === "/get_result") {
+        const id = url.searchParams.get("id");
+        return tasks.get(id)?.kind === "bfl-image" ? sendJson(response, 200, { id, status: "Ready", result: { sample: `${url.origin}/media/fixture.png` } }) : sendJson(response, 404, { error: "task not found" });
+    }
+
+    if (request.method === "POST" && path === "/video_generation") {
+        const payload = jsonBody(body);
+        const model = payload.model;
+        if (!["MiniMax-Hailuo-2.3", "MiniMax-Hailuo-2.3-Fast"].includes(model) || (model.endsWith("-Fast") && !payload.first_frame_image) || payload.content || payload.ratio || payload.last_frame_image)
+            return sendJson(response, 400, { error: "invalid Hailuo request" });
+        if (![6, 10].includes(payload.duration ?? 6) || !["768P", "1080P"].includes(payload.resolution ?? "768P") || (payload.resolution === "1080P" && (payload.duration ?? 6) !== 6))
+            return sendJson(response, 400, { error: "invalid Hailuo duration/resolution" });
+        const id = nextTaskId("hailuo");
+        tasks.set(id, { kind: "hailuo", status: "Success", fileId: `${id}-file`, videoWidth: 1920, videoHeight: 1080 });
+        return sendJson(response, 200, { task_id: id, base_resp: { status_code: 0, status_msg: "success" }, ...options.hailuoCreateResponse });
+    }
+    if (request.method === "GET" && path === "/query/video_generation") {
+        const id = url.searchParams.get("task_id");
+        const task = tasks.get(id);
+        if (task?.kind !== "hailuo") return sendJson(response, 404, { error: "task not found" });
+        return sendJson(response, 200, {
+            task_id: id,
+            status: task.status,
+            ...(task.status === "Success" ? { file_id: task.fileId, video_width: task.videoWidth, video_height: task.videoHeight, ...(task.error ? { error: task.error } : {}) } : {}),
+            base_resp: { status_code: 0, status_msg: "success" },
+        });
+    }
+    if (request.method === "GET" && path === "/files/retrieve") {
+        const fileId = url.searchParams.get("file_id");
+        const task = [...tasks.values()].find((task) => task.kind === "hailuo" && task.fileId === fileId);
+        if (!task || task.fileUnavailable) return sendJson(response, 503, { error: "file unavailable" });
+        return sendJson(response, 200, { file: { file_id: fileId, download_url: `${url.origin}/media/hailuo.mp4` }, base_resp: { status_code: 0 } });
+    }
+
+    const officialVideoKind =
+        request.method === "POST" &&
+        (path === "/api/v1/services/aigc/video-generation/video-synthesis"
+            ? "bailian"
+            : path === "/videos/text2video" || path === "/videos/image2video"
+              ? "kling"
+              : path === "/ent/v2/text2video" || path === "/ent/v2/img2video"
+                ? "vidu"
+                : path === "/v2/video_generation"
+                  ? "minimax"
+                  : "");
+    if (officialVideoKind) {
+        if (officialVideoKind === "minimax" && !["MiniMax-H3", "MiniMax-H3-Max"].includes(jsonBody(body).model)) return sendJson(response, 400, { error: "V2 only supports H3 models" });
+        const id = nextTaskId(`${officialVideoKind}-video`);
+        tasks.set(id, {
+            kind: officialVideoKind,
+            status: "completed",
+            ...(officialVideoKind === "minimax"
+                ? {
+                      model: jsonBody(body).model,
+                      resolution: "768P",
+                      taskType: "generation",
+                      modality: "video",
+                      usage: { total_seconds: 6.25, input_seconds: 1.25, output_seconds: 5, input_image_count: 2, input_audio_seconds: 3.5 },
+                      resultFile: body.toString("utf8").includes("fixture-h3-usage") ? "hailuo.mp4" : "fixture.mp4",
+                  }
+                : {}),
+        });
+        if (officialVideoKind === "minimax" && body.toString("utf8").includes("fixture-h3-shadow"))
+            Object.assign(tasks.get(id), { usage: { total_seconds: 5.25, input_seconds: 0, output_seconds: 5.25, input_image_count: 0, input_audio_seconds: 0 }, resultFile: "hailuo.mp4" });
+        return sendJson(response, 200, officialVideoKind === "bailian" ? { output: { task_id: id, task_status: "PENDING" } } : officialVideoKind === "kling" ? { data: { task_id: id, task_status: "submitted" } } : { task_id: id, state: "created" });
+    }
+    const officialVideoId = path.match(/^\/(?:api\/v1\/tasks|videos\/(?:text2video|image2video)|ent\/v2\/tasks|v2\/query\/video_generation)\/([^/]+)/)?.[1];
+    if (request.method === "GET" && officialVideoId) {
+        const id = decodeURIComponent(officialVideoId);
+        const kind = tasks.get(id)?.kind;
+        const videoUrl = `${url.origin}/media/fixture.mp4`;
+        if (kind === "bailian") return sendJson(response, 200, { output: { task_id: id, task_status: "SUCCEEDED", video_url: videoUrl } });
+        if (kind === "kling") return sendJson(response, 200, { data: { task_id: id, task_status: "succeed", task_result: { videos: [{ url: videoUrl }] } } });
+        if (kind === "vidu") return sendJson(response, 200, { task_id: id, state: "success", creations: [{ url: videoUrl }] });
+        if (kind === "minimax") {
+            const task = tasks.get(id);
+            return sendJson(response, 200, {
+                task: {
+                    id,
+                    model: task.model,
+                    status: task.status === "completed" ? "succeeded" : task.status,
+                    resolution: task.resolution,
+                    task_type: task.taskType,
+                    modality: task.modality,
+                    usage: task.usage,
+                    content: { url: `${url.origin}/media/${task.resultFile || "fixture.mp4"}` },
+                },
+            });
+        }
+    }
+
+    if (request.method === "POST" && (GLOBAL_AIOPC_VIDEO_PATHS.has(path) || ["/videos", "/contents/generations/tasks", "/seedance/api/v3/contents/generations/tasks", "/seedance-special/videos"].includes(path))) {
         const model = requestedModel(body, request.headers["content-type"] || "");
         if (shouldFailRequest(request, model)) return sendJson(response, model.includes("-fail") ? 400 : 503, { error: { message: "fixture video failure" } });
         const id = nextTaskId("video");
@@ -190,6 +384,17 @@ async function handleFixtureRequest({ request, response, url, body, tasks, reque
         return sendJson(response, 200, { id, task_id: id, status: "queued" });
     }
     if (request.method === "POST" && path === "/videos/generations") {
+        if (String(request.headers["idempotency-key"] || "").includes("xai")) {
+            const id = nextTaskId("xai-video");
+            tasks.set(id, { kind: "grok-video", status: "done" });
+            return sendJson(response, 200, { request_id: id });
+        }
+        if (String(request.headers["idempotency-key"] || "").includes("sub2api-grok")) {
+            const payload = jsonBody(body);
+            const id = nextTaskId("grok-video");
+            tasks.set(id, { kind: "grok-video", status: "done", model: payload.model });
+            return sendJson(response, 200, { request_id: id });
+        }
         if (
             !String(request.headers["content-type"] || "")
                 .toLowerCase()
@@ -234,25 +439,44 @@ async function handleFixtureRequest({ request, response, url, body, tasks, reque
         return sendJson(response, 200, { id, task_id: id, object: "video", status: "completed", progress: 100, metadata: { url: `${url.origin}/media/fixture.mp4` } });
     }
     const videoId = videoTaskId(path);
+    const grokContentId = path.match(/^\/videos\/([^/]+)\/content$/)?.[1];
+    if (request.method === "GET" && grokContentId && tasks.get(decodeURIComponent(grokContentId))?.kind === "grok-video") {
+        const bytes = options.videoPath ? await readFile(options.videoPath) : FALLBACK_MP4;
+        return sendBytes(response, 200, "video/mp4", bytes);
+    }
+    if (request.method === "DELETE" && path.startsWith("/seedance/api/v3/contents/generations/tasks/") && videoId) {
+        const task = tasks.get(videoId);
+        if (!task) return sendJson(response, 404, { error: { message: "Seedance task not found" } });
+        tasks.set(videoId, { ...task, status: "cancelled" });
+        return sendJson(response, 200, { id: videoId, status: "cancelled" });
+    }
     if (request.method === "GET" && videoId) {
         const mediaUrl = `${url.origin}/media/fixture.mp4`;
         const task = tasks.get(videoId);
+        if (task?.kind === "grok-video") return sendJson(response, 200, { status: "done", video: { url: mediaUrl } });
         if (task?.kind === "image") return sendJson(response, 200, { task_id: videoId, status: "completed", image_url: `${url.origin}/media/fixture.png` });
         if (task?.status === "pending") return sendJson(response, 200, { id: videoId, task_id: videoId, status: "processing" });
         if (task?.status === "cancelled") return sendJson(response, 200, { id: videoId, task_id: videoId, status: "cancelled" });
         return sendJson(response, 200, { id: videoId, task_id: videoId, status: "completed", video_url: mediaUrl, content: { video_url: mediaUrl }, result: { video_url: mediaUrl } });
     }
+    if (request.method === "GET" && path === "/media/hailuo.mp4") {
+        const bytes = await readFile(new URL("./fixtures/hailuo.mp4", import.meta.url));
+        return sendBytes(response, 200, "video/mp4", bytes);
+    }
     if (request.method === "GET" && path === "/media/fixture.mp4") {
         const bytes = options.videoPath ? await readFile(options.videoPath) : FALLBACK_MP4;
         return sendBytes(response, 200, "video/mp4", bytes);
     }
-    if (request.method === "GET" && path === "/media/fixture.png") return sendBytes(response, 200, "image/png", await fixtureImage(options));
+    if (request.method === "GET" && path === "/media/fixture.png") return sendBytes(response, 200, "image/png", url.searchParams.has("invalid") ? Buffer.from("invalid fixture image") : await fixtureImage(options));
 
     if (request.method === "POST" && path === "/audio/speech") {
         const model = requestedModel(body, request.headers["content-type"] || "");
+        if (["gpt-4o-audio-preview", "gpt-audio-1.5"].includes(model)) return sendJson(response, 404, { error: { message: "audio preview uses chat completions" } });
         if (shouldFailRequest(request, model)) return sendJson(response, model.includes("-fail") ? 400 : 503, { error: { message: "fixture audio failure" } });
         return sendBytes(response, 200, "audio/wav", createWave());
     }
+    if (request.method === "POST" && path === "/tts") return sendBytes(response, 200, "audio/wav", createWave());
+    if (request.method === "POST" && path === "/t2a_v2") return sendJson(response, 200, { data: { audio: createWave().toString("hex") }, base_resp: { status_code: 0 } });
     if (request.method === "POST" && path === "/custom/audio") return sendJson(response, 200, { data: { audio_url: `${url.origin}/media/fixture.wav` } });
     if (request.method === "GET" && path === "/media/fixture.wav") return sendBytes(response, 200, "audio/wav", createWave());
     if ((request.method === "POST" || request.method === "DELETE") && /\/(?:cancel|videos\/[^/]+)$/.test(path)) {
@@ -545,7 +769,7 @@ function firstShotId(payload) {
 }
 
 function videoTaskId(path) {
-    const patterns = [/^\/videos\/([^/]+)$/, /^\/contents\/generations\/tasks\/([^/]+)$/, /^\/result\/([^/]+)$/];
+    const patterns = [/^\/videos\/([^/]+)$/, /^\/contents\/generations\/tasks\/([^/]+)$/, /^\/seedance\/api\/v3\/contents\/generations\/tasks\/([^/]+)$/, /^\/result\/([^/]+)$/];
     for (const pattern of patterns) {
         const match = path.match(pattern);
         if (match) return decodeURIComponent(match[1]);
@@ -553,9 +777,10 @@ function videoTaskId(path) {
     return "";
 }
 
-function fixturePath(pathname) {
+function fixturePath(pathname, mountPrefixes = []) {
     const internal = pathname.replace(/^\/api\/ai\/system\/[^/]+(?=\/)/, "");
-    return internal.replace(/^\/(?:api\/v3|v1beta|v1)(?=\/)/, "");
+    const mounted = mountPrefixes.reduce((path, prefix) => (path === prefix || path.startsWith(`${prefix}/`) ? path.slice(prefix.length) || "/" : path), internal);
+    return mounted.replace(/^\/(?:api\/v3|v1beta|v1)(?=\/)/, "");
 }
 
 function createWave() {
@@ -660,25 +885,54 @@ function sendBytes(response, status, contentType, bytes) {
     response.end(bytes);
 }
 
-async function sendStructuredTextStream(response, path, toolName, argumentsText, format = "sse") {
+async function sendStructuredTextStream(response, path, toolName, argumentsText, format = "sse", inputTokenDetails = { cached_tokens: 2, cache_write_tokens: 1 }, model = "mock-text", nativeCache = {}) {
     const isResponses = path === "/responses";
     const isChat = path === "/chat/completions" || path === "/messages";
     response.writeHead(200, { "content-type": format === "ndjson" ? "application/x-ndjson" : "text/event-stream", "cache-control": "no-store" });
     if (format === "ndjson") {
-        const payload = JSON.stringify({ candidates: [{ content: { parts: [{ text: argumentsText }] } }] });
+        const payload = JSON.stringify({ modelVersion: "mock-text", candidates: [{ index: 0, content: { parts: [{ text: argumentsText }] }, finishReason: "STOP" }] });
         const splitAt = Math.max(1, Math.floor(payload.length / 2));
         response.write(payload.slice(0, splitAt));
         await new Promise((resolve) => setImmediate(resolve));
         response.write(`${payload.slice(splitAt)}\n`);
+        response.write(`${JSON.stringify({ usageMetadata: { serviceTier: "default", promptTokenCount: 8, cachedContentTokenCount: 2, candidatesTokenCount: 8, thoughtsTokenCount: 1, totalTokenCount: 17 } })}\n`);
         response.end();
         return;
     }
-    const payload = isResponses ? { type: "response.output_text.delta", delta: argumentsText } : isChat ? { choices: [{ delta: { content: argumentsText } }] } : { data: { plan: argumentsText } };
+    const payload = isResponses ? { type: "response.output_text.delta", delta: argumentsText } : isChat ? { model, service_tier: "default", choices: [{ index: 0, delta: { content: argumentsText } }] } : { data: { plan: argumentsText } };
     const event = `data: ${JSON.stringify(payload)}\n\n`;
+    if (isResponses) response.write(`data: ${JSON.stringify({ type: "response.created", response: { model, service_tier: "default" } })}\n\n`);
     response.write(event.slice(0, Math.max(1, Math.floor(event.length / 2))));
     await new Promise((resolve) => setImmediate(resolve));
     response.write(event.slice(Math.max(1, Math.floor(event.length / 2))));
+    if (isResponses) response.write(`data: ${JSON.stringify({ type: "response.completed", response: { usage: { input_tokens: 8, output_tokens: 8, input_tokens_details: inputTokenDetails } } })}\n\n`);
+    else if (isChat)
+        response.write(
+            `data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: "stop" }] })}\n\ndata: ${JSON.stringify({ usage: { prompt_tokens: 8, completion_tokens: 8, prompt_tokens_details: inputTokenDetails, ...nativeCache } })}\n\n`,
+        );
     response.write("data: [DONE]\n\n");
+    response.end();
+}
+
+function jsonRequested(payload) {
+    return typeof payload.system === "string" && payload.system.includes("JSON");
+}
+
+function sendAnthropicTextStream(response, model, content) {
+    response.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store" });
+    const emit = (type, data) => response.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`);
+    emit("message_start", {
+        message: {
+            model,
+            content: [],
+            usage: { input_tokens: 5, cache_read_input_tokens: 2, cache_creation_input_tokens: 1, cache_creation: { ephemeral_5m_input_tokens: 1, ephemeral_1h_input_tokens: 0 }, service_tier: "standard", inference_geo: "global" },
+        },
+    });
+    emit("content_block_start", { index: 0, content_block: { type: "text", text: "" } });
+    emit("content_block_delta", { index: 0, delta: { type: "text_delta", text: content } });
+    emit("content_block_stop", { index: 0 });
+    emit("message_delta", { delta: { stop_reason: "end_turn" }, usage: { output_tokens: 8 } });
+    emit("message_stop", {});
     response.end();
 }
 

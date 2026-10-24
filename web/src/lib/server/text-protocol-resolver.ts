@@ -34,6 +34,7 @@ export function resolveTextProtocol(input: TextProtocolInput): ResolvedTextProto
 
     const modelProtocol = modelConfig?.protocol;
     const modelPath = modelConfig?.createPath?.trim() || "";
+    if (modelProtocol === "anthropic") return resolved("claude", modelPath || "/v1/messages");
     if (modelProtocol === "custom") return customProtocol(advanced, modelConfig, modelPath);
     if (isChatPreset(modelProtocol)) return resolved("chat", "/chat/completions");
     if (modelProtocol === "globalaiopc") return resolved("chat", "/chat/completions");
@@ -46,6 +47,7 @@ export function resolveTextProtocol(input: TextProtocolInput): ResolvedTextProto
 
     const channelProtocol = advanced?.protocol || "auto";
     const channelPath = advanced?.createPath?.trim() || "";
+    if (channelProtocol === "anthropic") return resolved("claude", channelPath || "/v1/messages");
     if (channelProtocol === "custom") return customProtocol(advanced, modelConfig, modelPath || channelPath);
     if (isChatPreset(channelProtocol)) return resolved("chat", "/chat/completions");
     if (channelProtocol === "globalaiopc") return resolved("chat", "/chat/completions");
@@ -79,7 +81,7 @@ function resolved(kind: ResolvedTextProtocolKind, path: string): ResolvedTextPro
 }
 
 function isChatPreset(protocol: SystemChannelProtocol | undefined) {
-    return protocol === "openai" || protocol === "sub2api" || protocol === "newapi";
+    return protocol === "openai" || protocol === "sub2api" || protocol === "sub2api-grok" || protocol === "newapi";
 }
 
 function isResponsesPath(value: string) {

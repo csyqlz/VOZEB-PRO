@@ -121,7 +121,7 @@ export function isPendingStatus(status: string) {
 }
 
 export function isFailedStatus(status: string) {
-    return ["failed", "failure", "error", "cancelled", "canceled", "expired"].includes(status);
+    return ["fail", "failed", "failure", "error", "cancelled", "canceled", "expired"].includes(status);
 }
 
 export function readTaskError(record: Record<string, unknown>) {

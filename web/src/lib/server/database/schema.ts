@@ -91,6 +91,156 @@ CREATE TABLE IF NOT EXISTS app_settings (
     CONSTRAINT app_settings_singleton CHECK (id = 'default')
 );
 
+CREATE TABLE IF NOT EXISTS model_pricing_state (
+    id text PRIMARY KEY DEFAULT 'default' CHECK (id = 'default'),
+    current_sales_version_id text,
+    exchange_rate jsonb,
+    billing_activations jsonb NOT NULL DEFAULT '{}'::jsonb,
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE model_pricing_state ADD COLUMN IF NOT EXISTS exchange_rate jsonb;
+ALTER TABLE model_pricing_state ADD COLUMN IF NOT EXISTS billing_activations jsonb NOT NULL DEFAULT '{}'::jsonb;
+INSERT INTO model_pricing_state (id) VALUES ('default') ON CONFLICT (id) DO NOTHING;
+CREATE TABLE IF NOT EXISTS model_price_candidates (
+    id text PRIMARY KEY,
+    logical_model_id text NOT NULL,
+    status text NOT NULL CHECK (status IN ('pending', 'approved', 'rejected')),
+    created_at timestamptz NOT NULL,
+    data jsonb NOT NULL
+);
+CREATE INDEX IF NOT EXISTS vozeb_pro_model_price_candidates_created_idx ON model_price_candidates (created_at DESC, id DESC);
+CREATE TABLE IF NOT EXISTS model_official_price_sources (
+    manufacturer text PRIMARY KEY,
+    url text NOT NULL,
+    updated_at timestamptz NOT NULL,
+    updated_by text NOT NULL
+);
+CREATE TABLE IF NOT EXISTS model_official_price_catalog (
+    id text PRIMARY KEY,
+    manufacturer text NOT NULL,
+    kind text NOT NULL CHECK (kind IN ('series', 'version')),
+    parent_id text REFERENCES model_official_price_catalog(id),
+    name text NOT NULL,
+    sku text,
+    created_at timestamptz NOT NULL,
+    data jsonb NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS vozeb_pro_price_catalog_series_name_idx ON model_official_price_catalog (manufacturer, lower(name)) WHERE kind = 'series';
+CREATE UNIQUE INDEX IF NOT EXISTS vozeb_pro_price_catalog_version_name_idx ON model_official_price_catalog (parent_id, lower(name)) WHERE kind = 'version';
+CREATE UNIQUE INDEX IF NOT EXISTS vozeb_pro_price_catalog_root_version_name_idx ON model_official_price_catalog (manufacturer, lower(name)) WHERE kind = 'version' AND parent_id IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS vozeb_pro_price_catalog_version_sku_idx ON model_official_price_catalog (manufacturer, lower(sku)) WHERE kind = 'version';
+CREATE INDEX IF NOT EXISTS vozeb_pro_price_catalog_manufacturer_idx ON model_official_price_catalog (manufacturer, kind, name);
+CREATE TABLE IF NOT EXISTS model_official_price_observations (
+    id text PRIMARY KEY,
+    manufacturer text NOT NULL,
+    official_model_id text NOT NULL,
+    observed_at timestamptz NOT NULL,
+    created_at timestamptz NOT NULL,
+    data jsonb NOT NULL
+);
+CREATE INDEX IF NOT EXISTS vozeb_pro_model_price_observations_created_idx ON model_official_price_observations (created_at DESC, id DESC);
+CREATE TABLE IF NOT EXISTS model_official_price_observation_reviews (
+    observation_id text PRIMARY KEY REFERENCES model_official_price_observations(id),
+    status text NOT NULL CHECK (status IN ('pending', 'confirmed', 'rejected')),
+    reviewed_at timestamptz,
+    reviewed_by text,
+    review_note text,
+    amendments jsonb NOT NULL DEFAULT '[]'::jsonb
+);
+ALTER TABLE model_official_price_observation_reviews ADD COLUMN IF NOT EXISTS amendments jsonb NOT NULL DEFAULT '[]'::jsonb;
+CREATE TABLE IF NOT EXISTS model_official_price_observation_links (
+    observation_id text PRIMARY KEY REFERENCES model_official_price_observations(id),
+    logical_model_id text NOT NULL,
+    linked_at timestamptz NOT NULL,
+    linked_by text NOT NULL
+);
+CREATE TABLE IF NOT EXISTS model_official_price_versions (
+    id text PRIMARY KEY,
+    logical_model_id text NOT NULL,
+    published_at timestamptz NOT NULL,
+    data jsonb NOT NULL
+);
+CREATE INDEX IF NOT EXISTS vozeb_pro_model_official_price_versions_model_published_idx ON model_official_price_versions (logical_model_id, published_at DESC, id);
+CREATE TABLE IF NOT EXISTS model_price_bindings (
+    id text PRIMARY KEY,
+    revision_order bigint GENERATED ALWAYS AS IDENTITY,
+    logical_model_id text NOT NULL,
+    scope text NOT NULL,
+    official_version_id text REFERENCES model_official_price_versions(id),
+    revision text NOT NULL,
+    status text NOT NULL CHECK (status IN ('active', 'revoked')),
+    CONSTRAINT model_price_bindings_status_version_check CHECK ((status = 'active' AND official_version_id IS NOT NULL) OR (status = 'revoked' AND official_version_id IS NULL)),
+    current boolean NOT NULL,
+    reviewed_at timestamptz NOT NULL,
+    data jsonb NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS vozeb_pro_model_price_bindings_current_idx ON model_price_bindings (logical_model_id, scope) WHERE current;
+CREATE INDEX IF NOT EXISTS vozeb_pro_model_price_bindings_history_idx ON model_price_bindings (logical_model_id, scope, revision_order DESC);
+CREATE TABLE IF NOT EXISTS model_flat_text_price_contracts (
+    id text PRIMARY KEY,
+    official_version_id text NOT NULL REFERENCES model_official_price_versions(id),
+    channel_id text NOT NULL,
+    requested_model text NOT NULL,
+    reviewed_at timestamptz NOT NULL,
+    current boolean NOT NULL DEFAULT true,
+    data jsonb NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS vozeb_pro_model_flat_text_price_contracts_current_idx ON model_flat_text_price_contracts (official_version_id, channel_id, requested_model) WHERE current;
+CREATE INDEX IF NOT EXISTS vozeb_pro_model_flat_text_price_contracts_history_idx ON model_flat_text_price_contracts (official_version_id, channel_id, requested_model, reviewed_at DESC);
+CREATE TABLE IF NOT EXISTS model_text_usage_rules (
+    id text PRIMARY KEY,
+    model_id text NOT NULL,
+    official_version_id text NOT NULL,
+    reviewed_at timestamptz NOT NULL,
+    current boolean NOT NULL,
+    data jsonb NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS vozeb_pro_model_text_usage_rules_current_idx ON model_text_usage_rules (model_id, official_version_id) WHERE current;
+CREATE INDEX IF NOT EXISTS vozeb_pro_model_text_usage_rules_history_idx ON model_text_usage_rules (model_id, official_version_id, reviewed_at DESC);
+CREATE TABLE IF NOT EXISTS model_video_price_contracts (
+    id text PRIMARY KEY,
+    official_version_id text NOT NULL REFERENCES model_official_price_versions(id),
+    channel_id text NOT NULL,
+    requested_model text NOT NULL,
+    reviewed_at timestamptz NOT NULL,
+    current boolean NOT NULL DEFAULT true,
+    data jsonb NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS vozeb_pro_model_video_price_contracts_current_idx ON model_video_price_contracts (official_version_id, channel_id, requested_model) WHERE current;
+CREATE INDEX IF NOT EXISTS vozeb_pro_model_video_price_contracts_history_idx ON model_video_price_contracts (official_version_id, channel_id, requested_model, reviewed_at DESC);
+CREATE TABLE IF NOT EXISTS model_audio_price_contracts (
+    id text PRIMARY KEY,
+    official_version_id text NOT NULL REFERENCES model_official_price_versions(id),
+    channel_id text NOT NULL,
+    requested_model text NOT NULL,
+    reviewed_at timestamptz NOT NULL,
+    current boolean NOT NULL DEFAULT true,
+    data jsonb NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS vozeb_pro_model_audio_price_contracts_current_idx ON model_audio_price_contracts (official_version_id, channel_id, requested_model) WHERE current;
+CREATE INDEX IF NOT EXISTS vozeb_pro_model_audio_price_contracts_history_idx ON model_audio_price_contracts (official_version_id, channel_id, requested_model, reviewed_at DESC);
+CREATE TABLE IF NOT EXISTS model_image_price_contracts (
+    id text PRIMARY KEY,
+    official_version_id text NOT NULL REFERENCES model_official_price_versions(id),
+    channel_id text NOT NULL,
+    requested_model text NOT NULL,
+    operation text NOT NULL CHECK (operation IN ('generations', 'edits')),
+    reviewed_at timestamptz NOT NULL,
+    current boolean NOT NULL DEFAULT true,
+    data jsonb NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS vozeb_pro_model_image_price_contracts_current_idx ON model_image_price_contracts (official_version_id, channel_id, requested_model, operation) WHERE current;
+CREATE INDEX IF NOT EXISTS vozeb_pro_model_image_price_contracts_history_idx ON model_image_price_contracts (official_version_id, channel_id, requested_model, operation, reviewed_at DESC);
+CREATE TABLE IF NOT EXISTS model_sales_price_versions (
+    id text PRIMARY KEY,
+    published_at timestamptz NOT NULL,
+    data jsonb NOT NULL
+);
+CREATE TABLE IF NOT EXISTS model_price_lifecycle_marks (
+    logical_model_id text PRIMARY KEY,
+    data jsonb NOT NULL
+);
+
 INSERT INTO app_settings (id)
 VALUES ('default')
 ON CONFLICT (id) DO NOTHING;
@@ -294,6 +444,7 @@ ALTER TABLE generation_tasks ADD CONSTRAINT generation_tasks_type CHECK (task_ty
 ALTER TABLE generation_tasks DROP CONSTRAINT IF EXISTS generation_tasks_status;
 ALTER TABLE generation_tasks ADD CONSTRAINT generation_tasks_status CHECK (status IN ('pending', 'running', 'success', 'error', 'paused', 'cancelled'));
 CREATE INDEX IF NOT EXISTS generation_tasks_expires_idx ON generation_tasks (expires_at);
+CREATE INDEX IF NOT EXISTS generation_tasks_pending_billing_idx ON generation_tasks (user_id, updated_at DESC, id) WHERE task_type IN ('text', 'image', 'video', 'audio') AND payload @> '{"billingMode":"official-usage","billingPending":true}'::jsonb;
 ALTER TABLE generation_tasks ADD COLUMN IF NOT EXISTS conversation_id text;
 ALTER TABLE generation_tasks ADD COLUMN IF NOT EXISTS run_id text;
 ALTER TABLE generation_tasks ADD COLUMN IF NOT EXISTS surface text;
@@ -658,6 +809,24 @@ CREATE INDEX IF NOT EXISTS point_records_user_created_idx ON point_records (user
 CREATE UNIQUE INDEX IF NOT EXISTS point_records_idempotency_idx ON point_records (idempotency_key) WHERE idempotency_key IS NOT NULL AND idempotency_key <> '';
 CREATE UNIQUE INDEX IF NOT EXISTS point_records_refund_source_idx ON point_records (source_record_id) WHERE type = 'refund' AND source_record_id IS NOT NULL AND source_record_id <> '';
 
+CREATE TABLE IF NOT EXISTS generation_task_charge_attributions (
+    record_id text PRIMARY KEY REFERENCES point_records(id) ON DELETE CASCADE,
+    user_id text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    task_id text NOT NULL,
+    project_id text,
+    task_type text NOT NULL CHECK (task_type IN ('text', 'image', 'video', 'audio')),
+    run_id text,
+    purpose text NOT NULL,
+    logical_model_id text,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT generation_task_charge_attributions_scope CHECK (project_id IS NOT NULL OR run_id IS NOT NULL)
+);
+ALTER TABLE generation_task_charge_attributions DROP CONSTRAINT IF EXISTS generation_task_charge_attributions_purpose_check;
+ALTER TABLE generation_task_charge_attributions DROP CONSTRAINT IF EXISTS generation_task_charge_attributions_purpose;
+ALTER TABLE generation_task_charge_attributions ADD CONSTRAINT generation_task_charge_attributions_purpose CHECK (purpose IN ('generation', 'planning', 'review', 'analysis'));
+CREATE INDEX IF NOT EXISTS generation_task_charge_attributions_project_idx ON generation_task_charge_attributions (user_id, project_id, task_type);
+CREATE INDEX IF NOT EXISTS generation_task_charge_attributions_run_idx ON generation_task_charge_attributions (user_id, run_id, task_type);
+
 CREATE TABLE IF NOT EXISTS daily_plan_point_wallets (
     user_id text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     date date NOT NULL,
@@ -966,6 +1135,81 @@ CREATE TABLE IF NOT EXISTS generation_log_assets (
 );
 
 CREATE INDEX IF NOT EXISTS generation_log_assets_log_idx ON generation_log_assets (generation_log_id, sort_order);
+
+CREATE TABLE IF NOT EXISTS model_pricing_wallet_accounts (
+    user_id text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    source_key text NOT NULL,
+    exact_points text NOT NULL DEFAULT '0' CHECK (exact_points ~ '^(0|[1-9][0-9]*)(/[1-9][0-9]*)?$'),
+    PRIMARY KEY (user_id, source_key)
+);
+CREATE TABLE IF NOT EXISTS model_pricing_wallet_reservations (
+    user_id text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    request_id text NOT NULL,
+    status text NOT NULL CHECK (status IN ('reserved', 'settled', 'released')),
+    charge_record_id text UNIQUE,
+    data jsonb NOT NULL,
+    PRIMARY KEY (user_id, request_id)
+);
+
+CREATE INDEX IF NOT EXISTS model_pricing_wallet_user_created_idx ON model_pricing_wallet_reservations (user_id, (data->>'createdAt') DESC, request_id DESC);
+CREATE INDEX IF NOT EXISTS model_pricing_wallet_user_status_created_idx ON model_pricing_wallet_reservations (user_id, status, (data->>'createdAt') DESC, request_id DESC);
+CREATE INDEX IF NOT EXISTS model_pricing_wallet_text_exception_idx ON model_pricing_wallet_reservations ((data->>'modelId'), (data #>> '{frozen,text,call,channelId}'), (data->>'createdAt') DESC, request_id DESC)
+    WHERE data->>'usageKind' = 'text' AND (status = 'reserved' OR (status = 'settled' AND data ? 'billingWarnings'));
+CREATE INDEX IF NOT EXISTS model_pricing_wallet_text_recent_usage_idx ON model_pricing_wallet_reservations ((data->>'modelId'), (data #>> '{frozen,text,call,channelId}'), (data #>> '{frozen,version,id}'), (data->>'createdAt') DESC, request_id DESC)
+    WHERE status = 'settled' AND data->>'usageKind' = 'text';
+
+CREATE INDEX IF NOT EXISTS model_pricing_audio_archive_idx ON model_pricing_wallet_reservations (user_id, request_id)
+    WHERE status <> 'reserved' AND data->'preparation'->>'taskType' = 'audio' AND NOT data ? 'audioMediaPurgedAt';
+
+CREATE TABLE IF NOT EXISTS model_pricing_audio_responses (
+    user_id text NOT NULL,
+    request_id text NOT NULL,
+    data jsonb NOT NULL,
+    PRIMARY KEY (user_id, request_id),
+    FOREIGN KEY (user_id, request_id) REFERENCES model_pricing_wallet_reservations(user_id, request_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS model_pricing_audio_reviews (
+    user_id text NOT NULL,
+    request_id text NOT NULL,
+    data jsonb NOT NULL,
+    PRIMARY KEY (user_id, request_id),
+    FOREIGN KEY (user_id, request_id) REFERENCES model_pricing_wallet_reservations(user_id, request_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS model_pricing_wallet_refunds (
+    user_id text NOT NULL,
+    request_id text NOT NULL,
+    refund_id text NOT NULL,
+    record_id text NOT NULL UNIQUE,
+    data jsonb NOT NULL,
+    PRIMARY KEY (user_id, request_id, refund_id),
+    FOREIGN KEY (user_id, request_id) REFERENCES model_pricing_wallet_reservations(user_id, request_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS model_pricing_shadow_accounts (
+    user_id text PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    exact_points text NOT NULL DEFAULT '0' CHECK (exact_points ~ '^(0|[1-9][0-9]*)(/[1-9][0-9]*)?$')
+);
+CREATE TABLE IF NOT EXISTS model_pricing_shadow_receipts (
+    user_id text NOT NULL REFERENCES model_pricing_shadow_accounts(user_id) ON DELETE CASCADE,
+    request_id text NOT NULL,
+    kind text NOT NULL CHECK (kind IN ('charge', 'reversal')),
+    data jsonb NOT NULL,
+    PRIMARY KEY (user_id, request_id, kind)
+);
+CREATE TABLE IF NOT EXISTS model_pricing_shadow_calls (
+    user_id text NOT NULL REFERENCES model_pricing_shadow_accounts(user_id) ON DELETE CASCADE,
+    request_id text NOT NULL,
+    logical_model_id text NOT NULL,
+    channel_id text NOT NULL,
+    started_at timestamptz NOT NULL,
+    status text NOT NULL CHECK (status IN ('pending', 'priced', 'unpriced', 'failed')),
+    data jsonb NOT NULL,
+    PRIMARY KEY (user_id, request_id)
+);
+CREATE INDEX IF NOT EXISTS model_pricing_shadow_model_contract_idx ON model_pricing_shadow_calls (logical_model_id, (data #>> '{frozen,contract,id}'), started_at DESC) WHERE status = 'priced';
+CREATE INDEX IF NOT EXISTS model_pricing_shadow_model_observed_idx ON model_pricing_shadow_calls (logical_model_id, started_at DESC) WHERE status IN ('priced', 'unpriced');
 
 CREATE TABLE IF NOT EXISTS audit_logs (
     id text PRIMARY KEY,

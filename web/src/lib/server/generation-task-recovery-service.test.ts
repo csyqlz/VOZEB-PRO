@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
     getTextTask: vi.fn(),
     updateTextTask: vi.fn(),
     runTextTaskStep: vi.fn(),
+    recoverPricedTextTaskStep: vi.fn(),
     requestCancellation: vi.fn(),
     refundImageTask: vi.fn(),
     refundVideoTask: vi.fn(),
@@ -58,7 +59,7 @@ vi.mock("@/lib/server/image-task-runtime", () => ({
     queryImageTaskUpstreamStep: mocks.queryImageTaskUpstreamStep,
 }));
 vi.mock("@/lib/server/image-task-store", () => ({ getImageTask: mocks.getImageTask, updateImageTask: mocks.updateImageTask }));
-vi.mock("@/lib/server/text-task-runtime", () => ({ queryCancelledTextTaskUpstreamStep: mocks.queryCancelledTextTaskUpstreamStep, runTextTaskStep: mocks.runTextTaskStep }));
+vi.mock("@/lib/server/text-task-runtime", () => ({ queryCancelledTextTaskUpstreamStep: mocks.queryCancelledTextTaskUpstreamStep, runTextTaskStep: mocks.runTextTaskStep, recoverPricedTextTaskStep: mocks.recoverPricedTextTaskStep }));
 vi.mock("@/lib/server/text-task-store", () => ({ getTextTask: mocks.getTextTask, updateTextTask: mocks.updateTextTask }));
 vi.mock("@/lib/server/model-request-policy", () => ({ resolveModelRequestTimeoutMs: mocks.resolveModelRequestTimeoutMs }));
 vi.mock("@/lib/server/image-task-refund", () => ({ refundImageTask: mocks.refundImageTask }));
@@ -563,6 +564,28 @@ describe("generation task recovery service", () => {
 
         expect(mocks.release).toHaveBeenCalledWith("text", task.id, "worker-one", expect.objectContaining({ upstreamTaskId: "upstream-one", channelId: "channel-two", provider: "custom", queryPath: "/jobs/:task_id" }));
         expect(result).toMatchObject({ claimed: 1, pending: 1 });
+    });
+
+    it("lets the priced task resume its durable receipt after a submitting-stage restart", async () => {
+        const task = { id: "text-one", userId: "user-one", status: "running", billingMode: "official-usage", config: { channelId: "channel-one", apiFormat: "openai" } };
+        mocks.claim.mockResolvedValue([{ ...lease(), id: task.id, type: "text", status: "running", executionPhase: "submitting" }]);
+        mocks.getTextTask.mockResolvedValue(task);
+        mocks.runTextTaskStep.mockResolvedValue({ state: "completed" });
+        const result = await runGenerationTaskRecoveryBatch({ origin: "http://internal", workerId: "worker-one" });
+        expect(mocks.runTextTaskStep).toHaveBeenCalledWith(task, "http://internal", expect.any(String));
+        expect(result).toMatchObject({ completed: 1, needsReview: 0 });
+    });
+
+    it("keeps a cancelled priced task reviewable until its original reservation can be reconciled", async () => {
+        const task = { id: "text-one", userId: "user-one", status: "cancelled", billingMode: "official-usage", config: { channelId: "channel-one", apiFormat: "openai" } };
+        mocks.claim.mockResolvedValue([{ ...lease(), id: task.id, type: "text", status: "cancelled", executionPhase: "cancel_requested" }]);
+        mocks.getTextTask.mockResolvedValue(task);
+        mocks.recoverPricedTextTaskStep.mockResolvedValue({ state: "needs_review", error: "原用量尚未确认" });
+        expect(await runGenerationTaskRecoveryBatch({ origin: "http://internal", workerId: "worker-one" })).toMatchObject({ needsReview: 1 });
+        expect(mocks.release).toHaveBeenCalledWith("text", task.id, "worker-one", expect.objectContaining({ executionPhase: "needs_review", nextPollAt: undefined }), { cancellation: true });
+        expect(mocks.requestCancellation).not.toHaveBeenCalled();
+        mocks.recoverPricedTextTaskStep.mockResolvedValue({ state: "failed", error: "已退回" });
+        expect(await runGenerationTaskRecoveryBatch({ origin: "http://internal", workerId: "worker-one" })).toMatchObject({ completed: 1 });
     });
 
     it("keeps polling a cancelled task after the upstream only accepts the cancellation request", async () => {

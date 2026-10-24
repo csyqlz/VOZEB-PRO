@@ -28,6 +28,59 @@ describe("admin models route", () => {
         expect(fetchMock).toHaveBeenCalledWith("https://api.example.com/v1/models", expect.objectContaining({ headers: { authorization: "Bearer test-secret-value" } }));
     });
 
+    it("reports the current DataEyes key catalog separately from retained channel models", async () => {
+        vi.stubGlobal(
+            "fetch",
+            vi.fn(async () => Response.json({ data: [{ id: "doubao-seed-2-1-pro-260915" }] })),
+        );
+
+        const response = await POST(request({ baseUrl: "https://studio.dataeyes.ai", apiKey: "fixture-key", configuredModels: ["ByteDance-Seed-1.6", "doubao-seed-2-1-pro-260915"] }));
+
+        expect(await response.json()).toMatchObject({
+            models: ["ByteDance-Seed-1.6", "doubao-seed-2-1-pro-260915"],
+            providerModels: ["doubao-seed-2-1-pro-260915"],
+            discoveredCount: 1,
+            totalCount: 2,
+        });
+    });
+
+    it.each([
+        ["zai-glm", "https://api.z.ai", "glm-5.3", "text", { authorization: "Bearer fixture-key" }],
+        ["bfl", "https://api.bfl.ai", "flux-2-pro", "image", { "x-key": "fixture-key" }],
+        ["kling", "https://api-singapore.klingai.com", "kling-v3", "video", { authorization: "Bearer fixture-key" }],
+        ["vidu", "https://api.vidu.com", "viduq3-pro", "video", { authorization: "Token fixture-key" }],
+    ] as const)("attempts the provisional %s catalog with its protocol authentication", async (protocol, baseUrl, model, capability, headers) => {
+        const fetchMock = vi.fn(async () => Response.json({ data: [{ id: model }] }));
+        vi.stubGlobal("fetch", fetchMock);
+
+        const response = await POST(request({ baseUrl, apiKey: "fixture-key", protocol, apiFormat: "openai" }));
+
+        expect(response.status).toBe(200);
+        expect(await response.json()).toMatchObject({ models: [model], modelCapabilities: { [model]: capability } });
+        expect(fetchMock).toHaveBeenCalledWith(`${baseUrl}/v1/models`, expect.objectContaining({ headers }));
+    });
+
+    it("uses the channel Bearer override when syncing an unsaved BFL relay", async () => {
+        const fetchMock = vi.fn(async () => Response.json({ data: [{ id: "flux-2-pro" }] }));
+        vi.stubGlobal("fetch", fetchMock);
+
+        const response = await POST(request({ baseUrl: "https://relay.example.com", apiKey: "fixture-key", protocol: "bfl", channelAuthMode: "bearer" }));
+
+        expect(response.status).toBe(200);
+        expect(fetchMock).toHaveBeenCalledWith("https://relay.example.com/v1/models", expect.objectContaining({ headers: { authorization: "Bearer fixture-key" } }));
+    });
+
+    it("loads only Gemini models from a DataEyes-compatible shared catalog", async () => {
+        const fetchMock = vi.fn(async () => Response.json({ data: [{ id: "gpt-4.1" }, { id: "gemini-2.5-flash" }, { id: "gemini-3.1-flash-tts-preview" }, { id: "veo-3.1-generate-preview" }] }));
+        vi.stubGlobal("fetch", fetchMock);
+
+        const response = await POST(request({ baseUrl: "https://platform.dataeyes.ai", apiKey: "fixture-key", protocol: "dataeyes-gemini", apiFormat: "gemini" }));
+
+        expect(response.status).toBe(200);
+        expect(await response.json()).toMatchObject({ models: ["gemini-2.5-flash", "gemini-3.1-flash-tts-preview", "veo-3.1-generate-preview"] });
+        expect(fetchMock).toHaveBeenCalledWith("https://platform.dataeyes.ai/v1/models", expect.objectContaining({ headers: { authorization: "Bearer fixture-key" } }));
+    });
+
     it("loads a keyless Stable Diffusion model catalog without authentication", async () => {
         const fetchMock = vi.fn(async () => Response.json([{ model_name: "sdxl", title: "SDXL" }]));
         vi.stubGlobal("fetch", fetchMock);

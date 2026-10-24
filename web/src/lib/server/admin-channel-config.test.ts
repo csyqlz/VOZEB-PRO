@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { AuthSettings, SystemModelChannel } from "@/lib/auth/store";
 import { DEFAULT_SETTINGS } from "@/lib/auth/store-foundation";
+import { emptyAdvancedConfig } from "@/lib/channel-protocol-registry";
 import {
     isProviderTimeoutError,
     isUsableAdminChannelApiKey,
@@ -91,6 +92,13 @@ describe("admin channel config", () => {
         expect(mergeSystemChannelSecrets([base], [savedChannel])[0].apiKey).toBe("secret-value");
         expect(mergeSystemChannelSecrets([{ ...base, apiKey: "new-secret" }], [savedChannel])[0].apiKey).toBe("new-secret");
         expect(mergeSystemChannelSecrets([{ ...base, clearApiKey: true }], [savedChannel])[0].apiKey).toBe("");
+    });
+
+    it("invalidates a DataEyes provider snapshot when an administrator rotates its key", () => {
+        const existing = { ...savedChannel, baseUrl: "https://studio.dataeyes.ai", advancedConfig: { ...emptyAdvancedConfig(), providerModels: ["current"] } };
+        const edited = { ...existing, apiKey: "new-secret" };
+        expect(mergeSystemChannelSecrets([edited], [existing])[0].advancedConfig?.providerModels).toEqual([]);
+        expect(mergeSystemChannelSecrets([{ ...edited, apiKey: "" }], [existing])[0].advancedConfig?.providerModels).toEqual(["current"]);
     });
 
     it("keeps, replaces, validates, and explicitly clears channel webhook secrets", () => {

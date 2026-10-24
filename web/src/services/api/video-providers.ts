@@ -4,6 +4,8 @@ import { dataUrlToFile } from "@/lib/image-utils";
 import { browserReadableMediaUrl } from "@/lib/browser-media-url";
 import { resolveGeneratedMediaUrl } from "@/lib/media-url";
 import { buildGlobalAiOpcVideoRequest, resolveGlobalAiOpcPreset } from "@/lib/globalaiopc-catalog";
+import { buildOfficialVideoRequest, isOfficialDirectVideoProtocol } from "@/lib/official-provider-protocols";
+import { buildSub2apiGrokVideoRequest } from "@/lib/sub2api-grok-protocol";
 import { getMediaBlob, readStoredMediaFile, uploadGeneratedMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
 import { refreshUserPointsIfSystem, syncUserPointsFromHeaders } from "@/services/api/points";
@@ -176,7 +178,7 @@ export async function createCompatibleVideoTask(
     audioReferences: ReferenceAudio[] = [],
 ): Promise<VideoGenerationTask> {
     let lastError = "";
-    for (const path of compatibleVideoCreatePaths(config, model)) {
+    for (const path of compatibleVideoCreatePaths(config, model, references.length > 0)) {
         const payloads = await buildCompatibleVideoPayloadVariants(config, model, prompt, references, path, videoReferences, audioReferences);
         for (const payload of payloads) {
             try {
@@ -210,10 +212,11 @@ export async function createCompatibleVideoTask(
     throw new Error(videoCreationError(lastError || "视频任务创建失败"));
 }
 
-export function compatibleVideoCreatePaths(config: AiConfig, model: string) {
+export function compatibleVideoCreatePaths(config: AiConfig, model: string, hasImageReference = false) {
     const globalPreset = globalAiOpcVideoPreset(config, model);
     if (globalPreset) return [globalPreset.createPath];
-    const configuredPath = normalizeAdvancedVideoPath(config.advancedConfig?.createPath);
+    const configuredPath = normalizeAdvancedVideoPath(hasImageReference ? config.advancedConfig?.imageToVideoPath || config.advancedConfig?.createPath : config.advancedConfig?.createPath);
+    if (isOfficialDirectVideoProtocol(config.advancedConfig?.protocol)) return configuredPath ? [configuredPath] : [];
     if (config.advancedConfig?.protocol === "yumeng") return configuredPath ? [configuredPath] : [];
     const defaultPaths = isGlobalAiOpcVideoConfig(config, model) ? [GLOBAL_AIOPC_VIDEO_CREATE_PATH, ...VIDEO_CREATE_PATHS.filter((path) => path !== GLOBAL_AIOPC_VIDEO_CREATE_PATH)] : VIDEO_CREATE_PATHS;
     return uniqueStrings([configuredPath, ...defaultPaths]);
@@ -260,6 +263,7 @@ export function compatibleVideoPollPaths(config: AiConfig, task: VideoGeneration
     const globalPreset = globalAiOpcVideoPreset(config, config.model);
     if (globalPreset?.queryPath) return [globalPreset.queryPath];
     const configuredPath = normalizeAdvancedVideoPath(config.advancedConfig?.queryPath);
+    if (isOfficialDirectVideoProtocol(config.advancedConfig?.protocol)) return configuredPath ? [configuredPath] : task.pollPath ? [task.pollPath] : [];
     if (config.advancedConfig?.protocol === "yumeng") return configuredPath ? [configuredPath] : [];
     const paths = task.pollPath === GLOBAL_AIOPC_VIDEO_CREATE_PATH ? [configuredPath, GLOBAL_AIOPC_VIDEO_RESULT_PATH, task.pollPath, ...VIDEO_CREATE_PATHS] : [configuredPath, task.pollPath || VIDEO_CREATE_PATHS[0], ...VIDEO_CREATE_PATHS];
     return uniqueStrings(paths);
@@ -384,6 +388,30 @@ export function seedanceApiUrl(config: AiConfig, taskId?: string) {
 }
 
 export async function buildCompatibleVideoPayloadVariants(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], path: string, videoReferences: ReferenceVideo[] = [], audioReferences: ReferenceAudio[] = []) {
+    const officialProtocol = config.advancedConfig?.protocol;
+    if (isOfficialDirectVideoProtocol(officialProtocol)) {
+        if (officialProtocol === "xai" && (videoReferences.length || audioReferences.length)) throw new Error("xAI 视频预设当前只支持参考图片");
+        const images = await Promise.all(references.map(async (image) => ({ type: "image", url: (await resolvePublicImageSources(image))[0] || "", role: image.videoRole })));
+        if (images.some((image) => !image.url)) throw new Error("参考图需要上游可访问的公网地址");
+        const media = [
+            ...images,
+            ...(await Promise.all(videoReferences.map(async (video) => ({ type: "video", url: await resolveSeedanceVideoUrl(video) })))),
+            ...(await Promise.all(audioReferences.map(async (audio) => ({ type: "audio", url: await resolveSeedanceAudioUrl(audio) })))),
+        ];
+        const details = {
+            model: modelOptionName(model),
+            prompt,
+            duration: normalizeCompatibleVideoDuration(config.videoSeconds),
+            ratio: normalizeCompatibleVideoRatio(config.size),
+            resolution: normalizeVideoResolution(config.vquality),
+            references: media,
+        };
+        return [
+            officialProtocol === "xai"
+                ? buildSub2apiGrokVideoRequest({ model: details.model, prompt, duration: details.duration, aspectRatio: details.ratio, resolution: details.resolution, generateAudio: boolConfig(config.videoGenerateAudio, true), references: media })
+                : buildOfficialVideoRequest(officialProtocol, details),
+        ];
+    }
     const globalPreset = globalAiOpcVideoPreset(config, model);
     const legacyGlobalAiOpc = !globalPreset && path === GLOBAL_AIOPC_VIDEO_CREATE_PATH;
     const publicUrlReferenceMode = Boolean(globalPreset) || shouldUsePublicVideoReferenceUrls(config, path);

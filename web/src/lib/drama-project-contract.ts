@@ -242,8 +242,11 @@ export type DramaProjectVersion = {
 export type DramaCostSummary = {
     estimatedPoints: number;
     actualPoints: number;
+    pendingHeldPoints: number;
     taskCount: number;
     successCount: number;
     failedCount: number;
-    byType: Partial<Record<"image" | "video" | "audio", { tasks: number; estimatedPoints: number; actualPoints: number }>>;
+    byType: Partial<Record<"text" | "image" | "video" | "audio", { tasks: number; estimatedPoints: number; actualPoints: number }>>;
+    charges: Array<{ type: "text" | "image" | "video" | "audio"; purpose: "generation" | "planning" | "review" | "analysis"; logicalModelId?: string; chargedPoints: number; refundedPoints: number; actualPoints: number }>;
+    pending: Array<{ type: "text" | "image" | "video" | "audio"; logicalModelId: string; heldPoints: number; count: number }>;
 };

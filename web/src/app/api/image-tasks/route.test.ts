@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
     rate: vi.fn(),
     withGenerationConcurrencyLimit: vi.fn(),
     createImageTask: vi.fn(),
+    listImagePriceContracts: vi.fn(),
 }));
 
 vi.mock("next/server", async (importOriginal) => {
@@ -20,7 +21,8 @@ vi.mock("@/lib/auth/store", () => ({
     isAuthInputError: vi.fn(() => false),
     refundUserPoints: vi.fn(),
 }));
-vi.mock("@/lib/server/generation-task-store", () => ({
+vi.mock("@/lib/server/generation-task-store", async (importOriginal) => ({
+    normalizeGenerationTaskContext: (await importOriginal<typeof import("@/lib/server/generation-task-store")>()).normalizeGenerationTaskContext,
     generationCapacityRetryAfterSeconds: mocks.generationCapacityRetryAfterSeconds,
     getStoredGenerationTaskByRequest: mocks.getStoredGenerationTaskByRequest,
     linkStoredGenerationTask: vi.fn(),
@@ -33,6 +35,8 @@ vi.mock("@/lib/server/security", () => ({
 vi.mock("@/lib/server/proxy-dispatcher", () => ({ configureServerProxyDispatcher: vi.fn() }));
 vi.mock("@/lib/server/generation-task-recovery-service", () => ({ runGenerationTaskRecoveryBatch: vi.fn() }));
 vi.mock("@/lib/server/generation-task-scheduler", () => ({ scheduleGenerationTask: vi.fn() }));
+vi.mock("@/lib/server/model-pricing-activation-service", () => ({ publicModelPricingMode: vi.fn(async () => undefined) }));
+vi.mock("@/lib/server/model-pricing-image-contract-store", () => ({ listImagePriceContracts: mocks.listImagePriceContracts }));
 vi.mock("@/lib/server/image-task-store", () => ({
     createImageTask: mocks.createImageTask,
     getImageTask: vi.fn(),
@@ -43,13 +47,16 @@ vi.mock("@/lib/server/image-task-store", () => ({
 
 import { maxDuration, POST } from "./route";
 import { createCanvasImageLayerGrant } from "@/lib/server/canvas-image-layer-grant";
+import { publicModelPricingMode } from "@/lib/server/model-pricing-activation-service";
 
 describe("image task route", () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        vi.mocked(publicModelPricingMode).mockReset().mockResolvedValue(undefined);
         mocks.getStoredGenerationTaskByRequest.mockResolvedValue(null);
         mocks.rate.mockResolvedValue({ allowed: true, remaining: 1, resetAt: Date.now() + 60_000 });
         mocks.getAuthSettings.mockResolvedValue({ generationConcurrency: { image: 1 } });
+        mocks.listImagePriceContracts.mockResolvedValue([{ current: true }]);
     });
 
     it("keeps background image submission alive past the five minute route default", () => {
@@ -106,10 +113,141 @@ describe("image task route", () => {
         mocks.getAuthSettings.mockResolvedValue(imageSettings());
         mocks.createImageTask.mockImplementation(async (input) => ({ ...input, id: "ordinary-image", status: "pending" }));
 
-        const response = await POST(imageRequest({ config: { model: "image" }, prompt: "普通图片" }));
+        const response = await POST(
+            imageRequest({
+                config: { model: "image" },
+                prompt: "普通图片",
+                billingMode: "official-usage",
+                context: { billingMode: "official-usage", billingPending: true, billingRequests: [{ requestId: "forged" }], pricedResponses: [{ requestId: "forged" }], attempts: [{ attemptNo: 99 }] },
+            }),
+        );
 
         expect(response.status).toBe(200);
         expect(mocks.withGenerationConcurrencyLimit).toHaveBeenCalledOnce();
+        expect(publicModelPricingMode).toHaveBeenCalledWith("image", "image", expect.any(Array), "generations");
+        const created = mocks.createImageTask.mock.calls[0][0];
+        for (const field of ["billingMode", "billingPending", "billingRequests", "pricedResponses", "attempts"]) expect(created).not.toHaveProperty(field);
+    });
+
+    it("admits other explicit sizes from a reviewed quality baseline and blocks unsupported requests", async () => {
+        mocks.withGenerationConcurrencyLimit.mockImplementation(async (_userId, _type, _staleMs, _limit, handler) => handler());
+        mocks.getAuthSettings.mockResolvedValue(imageSettings());
+        mocks.createImageTask.mockImplementation(async (input) => ({ ...input, id: "tiered-image", status: "pending" }));
+        vi.mocked(publicModelPricingMode).mockResolvedValue({ billingMode: "official-usage", fingerprint: "approved", salesVersionId: "sale", officialVersionId: "price", bindingKeys: ["image-channel/upstream-image"] });
+        mocks.listImagePriceContracts.mockResolvedValue([{ current: true, operation: "generations", holdEstimates: [{ quality: "low", size: "1024x1024" }] }]);
+        const submit = (quality: string, size: string, references: unknown[] = []) => POST(imageRequest({ config: { model: "image", quality, size }, prompt: "测试图片", references }));
+
+        for (const [quality, size, references] of [
+            ["high", "1024x1024", []],
+            ["low", "1024x1024", [{ dataUrl: "data:image/png;base64,fixture" }]],
+        ] as const) {
+            const response = await submit(quality, size, [...references]);
+            expect(response.status).toBe(409);
+            expect(await response.json()).toEqual({ error: expect.stringContaining("按量准入暂停") });
+        }
+        expect(mocks.createImageTask).not.toHaveBeenCalled();
+        expect((await submit("low", "1024x1024")).status).toBe(200);
+        expect((await submit("low", "2048x2048")).status).toBe(200);
+        expect(mocks.createImageTask).toHaveBeenCalledTimes(2);
+    });
+
+    it("admits an auto-size generation only when its quality has a reviewed auto tier", async () => {
+        mocks.withGenerationConcurrencyLimit.mockImplementation(async (_userId, _type, _staleMs, _limit, handler) => handler());
+        mocks.getAuthSettings.mockResolvedValue(imageSettings());
+        mocks.createImageTask.mockImplementation(async (input) => ({ ...input, id: "auto-image", status: "pending" }));
+        vi.mocked(publicModelPricingMode).mockResolvedValue({ billingMode: "official-usage", fingerprint: "approved", salesVersionId: "sale", officialVersionId: "price", bindingKeys: ["image-channel/upstream-image"] });
+        mocks.listImagePriceContracts.mockResolvedValue([{ current: true, operation: "generations", holdEstimates: [{ quality: "low", size: "auto", observedSize: "1536x1024" }] }]);
+        const submit = (quality: string, size: string) => POST(imageRequest({ config: { model: "image", quality, size }, prompt: "测试图片" }));
+
+        expect((await submit("low", "auto")).status).toBe(200);
+        for (const [quality, size] of [
+            ["auto", "auto"],
+            ["high", "auto"],
+            ["low", "1024x1024"],
+        ])
+            expect((await submit(quality, size)).status).toBe(409);
+        expect(mocks.createImageTask).toHaveBeenCalledOnce();
+    });
+
+    it("admits only a single-reference edit candidate with a reviewed request tier", async () => {
+        mocks.withGenerationConcurrencyLimit.mockImplementation(async (_userId, _type, _staleMs, _limit, handler) => handler());
+        mocks.getAuthSettings.mockResolvedValue(imageSettings());
+        mocks.createImageTask.mockImplementation(async (input) => ({ ...input, id: "tiered-edit", status: "pending" }));
+        vi.mocked(publicModelPricingMode).mockResolvedValue({ billingMode: "official-usage", fingerprint: "approved", salesVersionId: "sale", officialVersionId: "price", bindingKeys: ["image-channel/upstream-image"] });
+        mocks.listImagePriceContracts.mockResolvedValue([{ current: true, operation: "edits", holdEstimates: [{ quality: "low", size: "1024x1024", referenceSize: "1024x1024" }] }]);
+        const reference = { dataUrl: "data:image/png;base64,fixture" };
+        const submit = (references: unknown[], mask?: unknown) => POST(imageRequest({ kind: "edit", config: { model: "image", quality: "low", size: "1024x1024" }, prompt: "测试编辑", references, mask }));
+        for (const [references, mask] of [
+            [[], undefined],
+            [[reference, reference], undefined],
+            [[reference], reference],
+        ] as const)
+            expect((await submit([...references], mask)).status).toBe(409);
+        expect(mocks.createImageTask).not.toHaveBeenCalled();
+        expect((await submit([reference])).status).toBe(200);
+        expect(mocks.createImageTask).toHaveBeenCalledOnce();
+    });
+
+    it("rejects Seedream 5.0 Pro auto size before creating a task and accepts the explicit 2K tier", async () => {
+        mocks.withGenerationConcurrencyLimit.mockImplementation(async (_userId, _type, _staleMs, _limit, handler) => handler());
+        const model = "ByteDance-Seedream-5.0-pro";
+        const settings = {
+            generationConcurrency: { image: 1 },
+            generationDefaults: { imageSize: "auto", imageQuality: "auto" },
+            defaultModels: { imageModel: "seedream-image" },
+            systemChannels: [
+                {
+                    id: "image-channel",
+                    name: "DataEyes",
+                    enabled: true,
+                    baseUrl: "https://platform.dataeyes.ai",
+                    apiKey: "fixture-key",
+                    apiFormat: "openai",
+                    models: [model],
+                    advancedConfig: { protocol: "dataeyes-seedream", createPath: "/v1/images/generations", editPath: "/v1/images/generations", supportsReferenceImage: true },
+                },
+            ],
+            logicalModels: [{ id: "seedream-image", name: "Seedream", capability: "image", enabled: true, bindings: [{ id: "binding", channelId: "image-channel", upstreamModel: model, enabled: true, priority: 1 }] }],
+        };
+        mocks.getAuthSettings.mockResolvedValue(settings);
+        mocks.createImageTask.mockImplementation(async (input) => ({ ...input, id: "seedream-task", status: "pending" }));
+
+        const rejected = await POST(imageRequest({ config: { model: "seedream-image", size: "auto" }, prompt: "生成图片" }));
+        expect(rejected.status).toBe(400);
+        expect(await rejected.json()).toEqual({ error: expect.stringContaining("需要明确尺寸") });
+        expect(mocks.createImageTask).not.toHaveBeenCalled();
+
+        const malformed = await POST(imageRequest({ config: { model: "seedream-image", size: "not-a-size" }, prompt: "生成图片" }));
+        expect(malformed.status).toBe(400);
+        expect(await malformed.json()).toEqual({ error: expect.stringContaining("图片尺寸格式不支持") });
+        expect(mocks.createImageTask).not.toHaveBeenCalled();
+
+        const accepted = await POST(imageRequest({ config: { model: "seedream-image", size: "2K" }, prompt: "生成图片" }));
+        expect(accepted.status).toBe(200);
+        expect(mocks.createImageTask).toHaveBeenCalledWith(expect.objectContaining({ config: expect.objectContaining({ model, size: "2K" }) }));
+
+        settings.systemChannels.unshift({
+            id: "other-image-channel",
+            name: "Other image",
+            enabled: true,
+            baseUrl: "https://example.com/v1",
+            apiKey: "fixture-key",
+            apiFormat: "openai",
+            models: ["other-image"],
+            advancedConfig: { protocol: "openai", createPath: "/images/generations", editPath: "/images/edits", supportsReferenceImage: true },
+        });
+        settings.logicalModels[0].bindings.push({ id: "other-binding", channelId: "other-image-channel", upstreamModel: "other-image", enabled: true, priority: 2 });
+        mocks.createImageTask.mockClear();
+        const mixed = await POST(imageRequest({ config: { model: "seedream-image", size: "2K" }, prompt: "生成图片" }));
+        expect(mixed.status).toBe(200);
+        expect(mocks.createImageTask).toHaveBeenCalledWith(expect.objectContaining({ config: expect.objectContaining({ model }) }));
+
+        mocks.createImageTask.mockClear();
+        vi.mocked(publicModelPricingMode).mockResolvedValueOnce({ billingMode: "official-usage", fingerprint: "approved", salesVersionId: "sale", officialVersionId: "price", bindingKeys: ["other-image-channel/other-image"] });
+        const routed = await POST(imageRequest({ config: { model: "seedream-image", size: "auto" }, prompt: "生成图片" }));
+        expect(routed.status).toBe(200);
+        expect(publicModelPricingMode).toHaveBeenLastCalledWith("seedream-image", "image", [expect.objectContaining({ channelId: "other-image-channel", model: "other-image" })], "generations");
+        expect(mocks.createImageTask).toHaveBeenCalledWith(expect.objectContaining({ config: expect.objectContaining({ channelId: "other-image-channel", model: "other-image" }), candidateConfigs: [], billingMode: "official-usage" }));
     });
 
     it("lets a verified Canvas layer task bypass ordinary image capacity and persists its class", async () => {
@@ -145,6 +283,7 @@ describe("image task route", () => {
 
         expect(response.status).toBe(200);
         expect(mocks.withGenerationConcurrencyLimit).not.toHaveBeenCalled();
+        expect(publicModelPricingMode).toHaveBeenCalledWith("image", "image", expect.any(Array), "edits");
         expect(mocks.createImageTask).toHaveBeenCalledWith(
             expect.objectContaining({
                 concurrencyClass: "canvas-layer",

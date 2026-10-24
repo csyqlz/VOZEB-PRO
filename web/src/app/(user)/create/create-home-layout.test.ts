@@ -89,7 +89,7 @@ describe("create Agent home layout", () => {
         expect(preferences).toContain("视频生成");
         expect(preferences).toContain("音频生成");
         expect(preferences).toContain("生成参数");
-        expect(preferences).toContain(">比例</p>");
+        expect(preferences).toContain('"尺寸/比例" : "比例"');
         expect(preferences).toContain("1080P");
         expect(preferences).toContain("选择音色");
         expect(preferences).toContain("<Select");

@@ -75,6 +75,25 @@ describe("generation operations aggregation", () => {
         expect(JSON.stringify(result)).not.toContain("amountCents");
     });
 
+    it.each(["text", "image", "video", "audio"])("exposes only implemented accounting review for %s without exposing internal receipts", async (type) => {
+        const original = await mocks.listStoredGenerationTaskRecords();
+        mocks.listStoredGenerationTaskRecords.mockResolvedValue({
+            ...original,
+            items: [
+                {
+                    ...task(),
+                    type,
+                    status: "running",
+                    executionPhase: "needs_review",
+                    payload: { billingMode: "official-usage", billingRequests: [{ preparationStop: { evidence: "private decision" } }], pricedResponses: [{ content: "private receipt" }] },
+                },
+            ],
+        });
+        const result = await listAdminGenerationOperations({ page: 1 });
+        expect(result.items[0]).toMatchObject({ type, billingMode: "official-usage", canReview: true });
+        expect(JSON.stringify(result.items[0])).not.toMatch(/private decision|private receipt|billingRequests|pricedResponses/);
+    });
+
     it("lets PostgreSQL search users inside the task query instead of preloading user ids", async () => {
         mocks.getDatabaseProvider.mockReturnValue("postgres");
 

@@ -1,0 +1,34 @@
+{
+  "observedAt": "2026-10-10T14:27:43Z",
+  "status": "draft-pending-administrator-review",
+  "productionChanged": false,
+  "sourceUrl": "https://www.alibabacloud.com/help/en/model-studio/qwen3-6-flash",
+  "additionalSourceUrl": "https://www.alibabacloud.com/help/en/model-studio/context-cache",
+  "candidateInputs": [
+    {
+      "logicalModelId": "qwen3.6-flash",
+      "manufacturer": "Alibaba Cloud",
+      "series": "Qwen 3.6",
+      "officialVersion": "qwen3.6-flash",
+      "sku": "qwen3.6-flash",
+      "tier": "paid",
+      "conditions": "Alibaba Cloud Model Studio original pay-as-you-go API list price; Singapore International real-time calls. The entire request uses the first tier when 0 < input tokens <= 256000, or the second tier when 256000 < input tokens <= 1000000. Alias qwen3.6-flash supports caching, and implicit and explicit cache modes are mutually exclusive. The separately documented snapshot has no cache support. No batch price is included because the exact alias page marks Singapore batch unsupported, despite the aggregate pricing table advertising a batch discount. Promotional free quota does not reduce the regular user-price baseline. Real proxy region, cache mode and usage, multimodal/tool usage and reservation bounds remain unverified.",
+      "sourceKind": "manual",
+      "sourceUrl": "https://www.alibabacloud.com/help/en/model-studio/qwen3-6-flash",
+      "evidence": "2026-10-10 exact alias page Singapore International rows: <=256k input/output 0.25/1.5 and explicit cache creation/read 0.3125/0.025; >256k to 1m input/output 1/4 and explicit cache creation/read 1.25/0.1 USD per 1M tokens. Official cache billing says this model's implicit hit price is 20% of normal input: 0.05/0.2 USD per 1M tokens. Input/output prices for both tiers independently match the 2026-10-09 Alibaba comparison. This is a full official-price draft, not a reviewed or meterable contract.",
+      "observedAt": "2026-10-10T14:27:43Z",
+      "items": [
+        { "key": "shortInputTokens", "unit": "token", "per": "1000000", "price": "0.25", "currency": "USD" },
+        { "key": "shortOutputTokens", "unit": "token", "per": "1000000", "price": "1.5", "currency": "USD" },
+        { "key": "shortImplicitCacheHitTokens", "unit": "token", "per": "1000000", "price": "0.05", "currency": "USD" },
+        { "key": "shortExplicitCacheCreationTokens", "unit": "token", "per": "1000000", "price": "0.3125", "currency": "USD" },
+        { "key": "shortExplicitCacheReadTokens", "unit": "token", "per": "1000000", "price": "0.025", "currency": "USD" },
+        { "key": "longInputTokens", "unit": "token", "per": "1000000", "price": "1", "currency": "USD" },
+        { "key": "longOutputTokens", "unit": "token", "per": "1000000", "price": "4", "currency": "USD" },
+        { "key": "longImplicitCacheHitTokens", "unit": "token", "per": "1000000", "price": "0.2", "currency": "USD" },
+        { "key": "longExplicitCacheCreationTokens", "unit": "token", "per": "1000000", "price": "1.25", "currency": "USD" },
+        { "key": "longExplicitCacheReadTokens", "unit": "token", "per": "1000000", "price": "0.1", "currency": "USD" }
+      ]
+    }
+  ]
+}

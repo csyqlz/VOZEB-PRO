@@ -5,7 +5,43 @@ description: VOZEB PRO PostgreSQL 主库表结构与 Repository 边界
 
 # 数据库结构
 
+`vozeb_pro_generation_task_charge_attributions` 将已落账的消费流水 ID 关联到原生成任务、用户、能力，以及项目或 Agent Run（至少其一）；`purpose` 区分普通生成、规划、复盘和短剧分析，`logical_model_id` 保留实际选择的逻辑模型。消费金额仍只取 `point_records`，固定退款按原消费流水关联，按量退款按已确认凭据中的累计退费积分计算。该表不引用会按保留期限清理的 `generation_tasks`，因此任务清理后项目或 Run 归属仍可用于费用核对；唯一流水 ID 防止同一笔消费被多个任务重复认领。文件 Provider 使用 `generation-task-charge-attributions.json`。本表使当前 schema 增至 85 张表；项目净费用汇总已接线，Run 可按模型与用途查看已落账净费用，未结的生成任务预留单独汇总。真实 PostgreSQL、部署数据和完整用户界面矩阵仍待验收。
+
+纯文本缓存缺失规则新增 `vozeb_pro_model_text_usage_rules`（在既有 81 张表基础上增加一张）。按逻辑模型与已发布官方价版本保存审核人、读／写两个独立开关及依据；部分唯一索引只允许一个当前版本，历史版本保留供冻结请求恢复。文件 Provider 将同一版本链写入现有模型价目状态文件。模型激活只引用已审核规则 ID，原渠道在新规则影子证据齐备前继续使用旧规则。已有文本响应的显式复核生成独立、零增量的影子凭据，保存新规则报价但不重复计入影子累计；正式钱包仍以原请求冻结快照结算。`model_pricing_wallet_text_exception_idx` 支持后台按模型、绑定、时间查询待核对预扣及已结算身份异常，查询只返回脱敏计量和版本标识。`model_pricing_wallet_text_recent_usage_idx` 支持同模型、渠道、官方价版本定向读取最近一笔已结算的输出 Token 数，用于下一次请求估算预扣；只读取计量字段，不读取提示词。
+
+OpenAI `gpt-audio-1.5` 实际按量任务已接通现有音频任务、账本和私有凭据，无新增表。原尝试冻结的 `responseFormat` 随私有恢复结果返回，由真实文件编码核对后交付；私有审核凭据按同一冻结协议解析，原音频字节、型号、档位与候选位置保持不可变。安全备用、取消退款与物理任务删除后的媒体清理沿用原事务和锁约束；真实渠道与公开启用仍待准入。
+
+OpenAI Chat Audio 内部钱包复用现有预留、来源累计、退款和 `model_pricing_audio_responses` 私有凭据表，仍为 81 张。`frozen.audio` 按协议保存独立契约／上界，并新增由真实请求导出的 `responseFormat`；账本只保留计量，原音频仍进入私有凭据。按原提交身份与候选索引保存全部 Base64，MIME 来自冻结格式，不保存转写／提示词／完整上游响应。文件和 PostgreSQL 的媒体写入、未计费确认共用钱包锁；恢复不读取当前配置或重新提交。当前仅接通服务事务，OpenAI 实际任务与审核已有后续内部接线，公开仍未开放。
+
+Hailuo V1 实际任务复用既有 generation task JSON 与钱包表，不新增表。`pricedSubmissions.businessStatus=0` 只在已校验原创建成功后写入，恢复使用该持久确认而不是补猜；H3 不使用该字段。`pricedResponses.observation` 按协议保存 H3 计量或 Hailuo 原任务／文件／终态／宽高，私有 `resultUrl` 仅对应原文件查询验证的地址。`billingRequests.review` 保留原响应和完整人工决定，Hailuo 更正只补缺失事实、消除原矛盾，不能改已确认任务／文件事实。相关状态继续受任务尝试、钱包锁与原身份约束，未知账务阻止清理和删除。
+
+OpenAI Chat Audio 影子沿用现有 `model_pricing_shadow_calls/accounts/receipts`，不新增表。冻结对象保存其四分项契约与公开上界，原响应仅保留计量观察；结果与精确累计同事务提交。退款维护的定向 SQL 接受 `openai-chat-audio`，继续核对原消费、退款、用户、摘要和逻辑模型，反向金额使用原影子凭据。
+
+OpenAI Chat Audio 与 Gemini TTS 共用现有 `model_audio_price_contracts`，不新增表，仍为 81 张。契约 JSON 按 `protocol` 显式区分四分项与两分项，沿用官方价版本／渠道／精确型号的当前版本唯一约束和有界历史查询；并发审核使用原当前 ID，保留历史审核人、时间、证据和价项映射。影子读取按实际 `gemini-tts`／`openai-chat-audio` 选择对应契约与请求上界，OpenAI 内部钱包和实际任务已有后续实现；原生生成继续固定积分。
+
+音频私有媒体清理不新增表，仍为 81 张。`model_pricing_audio_archive_idx` 按已结清且未标记清理的音频预留建立部分索引，候选只返回用户／请求键并排除物理存在的原任务。原用户行锁内再次核对后，清空两张私有表内原响应／补录的音频 `data`，保留原指纹、位置、MIME、观察及审核信息，写入 `mediaPurgedAt` 与预留 `audioMediaPurgedAt`；同事务提交或回滚。文件 Provider 使用 `pricing-audio-responses|reviews/用户摘要/请求摘要.json`，中断可继续；删除账号的孤立文件按批次清除。清理不执行余额、赠送、尾差或退款业务。
+
+音频安全备用阶段不新增表。候选配置与 attempt 沿用原 `generation_tasks`；原用户钱包锁内验证原预留的释放证明、原响应不存在及无独立人工决定，再用同一 PostgreSQL 事务锁定任务并原子切换候选。文件 Provider 的任务文件可能先于外层账本提交，恢复必须从已保存的新 attempt 继续，不能再次消耗候选。原请求及冻结凭据仍保留，不按新渠道价格重算旧请求。
+
+新增 `vozeb_pro_model_pricing_audio_reviews`（当前共 81 张表），按原 `user_id + request_id` 唯一保存音频专用审核决定、审核人／时间／依据、原任务／尝试／指纹以及原媒体摘要引用，外键指向原钱包预留并随其删除。只有原音频缺失时，完整人工补录的音频才保存在本表；已有原音频时只保存独立计量决定与原摘要引用，不复制或替换原字节。文件 Provider 使用 `pricing-audio-reviews` 下的单请求摘要文件。写入与迟到原响应、未计费决定共用原用户钱包锁，审核先持久，再应用原价结算／释放／退款；文件外层账本失败时已持久决定仍禁止原响应改写，PostgreSQL 在原钱包事务内提交或回滚。业务 JSON 备份仍不包含完整计费库，完整灾备需数据库备份；私有响应／审核的媒体清理遵循本页顶部生命周期规则。
+
+音频内部任务通过既有 `generation_tasks` 的私有 `billingMode/billingPending/billingRequests` 绑定原尝试、服务端计费身份和唯一准备认领；钱包预留增加 `preparation.taskType=audio` 并在预留及提交认领时回读原任务状态。原 Base64／PCM 仍单独存储，不进入任务 payload。未结算保留及部分索引扩展到音频，过期清理和历史删除不能删除待核对账务任务。原请求内新增私有 `preparationStop`（决定 ID、Session 审核人、时间与依据），在原钱包锁内先提交撤销决定，再释放预留；预留与提交认领均回读并拒绝已撤销准备，释放中断可重放原决定。该准备撤销阶段未新增表；后续已提交请求的独立审核表见上项，安全备用已有后续接线，原响应生命周期仍待完成。
+
+新增 `vozeb_pro_model_pricing_audio_responses`，按 `user_id + request_id` 唯一保存原音频 Base64／PCM、完整 MIME 采样参数、候选／part 位置、计量白名单和内容摘要，外键引用原钱包预留并随其删除。通过钱包用户锁序列化首份响应和未计费决定；读取只按原用户／请求定向查询，存在性检查不读媒体正文。它是私有恢复凭据，不是公开资产，也不进入任务列表、钱包 DTO 或账本 JSON。文件 Provider 每个请求保存一份摘要命名的独立文件。数据库业务 JSON 备份仍不包含完整计费库，灾难恢复仍需完整数据库备份。
+
+音频内部钱包复用现有预留、退款及精确累计表，预留 JSON 增加 `frozen.audio` 契约／上下文／请求上界／摘要指纹；原提交保存规范化音频观察，不把 Base64 或完整供应商正文放到账本中。原价结算、按来源尾差和分项退款沿用钱包事务，无新表。原媒体凭据与任务准备身份已接线，原响应生命周期仍待完成。
+
+Gemini TTS 影子调用复用既有 `model_pricing_shadow_calls/accounts/receipts`，以 `kind=audio` 区分并保存冻结版本与请求上界；结果与精确凭据原子提交。原固定退款联查增加音频分支，仍按用户、请求身份及批次有界读取。没有新增账单表或修改真实余额；音频契约的保存动作本身不产生影子费用。
+
 VOZEB PRO 商业版默认使用 PostgreSQL 作为主库。数据库初始化 SQL 由 `web/src/lib/server/database/schema.ts` 维护，服务端统一通过 `web/src/lib/server/database/` 下的 Repository 访问主库。
+
+用户按量账务页沿用预留、退款和钱包表，不新增业务表。预留表增加 `model_pricing_wallet_user_created_idx` 与 `model_pricing_wallet_user_status_created_idx`（初始化时统一加 `vozeb_pro_` 前缀），分别支持按用户及用户／状态的时间倒序分页。读取在既有用户钱包行锁中完成日赠核对、余额、预留汇总和分页；退款只汇总本页请求。所有 PostgreSQL 过滤、计数、金额汇总和分页均在数据库完成，不读取整张预留表到应用内筛选。
+
+H3 标准生成已接通持久契约审核、调用前影子冻结、原上游任务异步报价及原额退款冲销；用户实际扣费仍沿用固定积分；内部钱包已具备视频预留、原创建任务确认、原终态结算和原价退款，内部任务、专用核对及安全备用接续已实现，公开准入仍待完成。官方免费事实与用户收费分开：图片按全部实际张数和常规单价计价，输入音频缺少常规付费单价时继续使用原模型固定积分，不能在任务提交后切换计费方式。
+
+视频内部预留复用既有钱包表，以受控提交凭据绑定原创建响应的上游任务 ID；`submitted` 为已确认创建但尚未结算的阶段，用户账务显示“生成中”，不返回原始任务凭据。失败、取消或缺失计量不会自动释放预留，视频人工核对复用原专用任务凭据并持久保存独立审核依据。
+
+文本／直接图片的零价准入校验复用原官方价目、契约、影子调用和钱包表，不新增字段或迁移。官方价为零仍可保存；影子调用的原 `reasons` 在提交前保存缺少常规单价的判定，重复调用不因后续价目变化改写。原冻结正数价的已提交请求继续结算；未获准入的内部请求不能创建按量预留，公开固定费用照常处理。
 
 ## 环境变量
 
@@ -38,7 +74,27 @@ VOZEB PRO 的 PostgreSQL 真实表名统一使用项目名前缀 `vozeb_pro_`。
 ## 核心表
 
 - `vozeb_pro_schema_migrations`：已应用的数据库结构版本。
-- `vozeb_pro_app_settings`：站点、注册、邮箱、积分、生成、支付配置、逻辑模型目录、渠道绑定和默认模型等全局设置；`logical_models` JSONB 保存用户可见模型及其能力、上游模型、渠道、启用状态和优先级，`generation_cost_control` JSONB 保存管理员配置的单任务、单用户每日和全站每日积分成本上限，三个值为 `0` 时均表示不限制；`data_lifecycle` JSONB 保存四类技术到期清理开关和单类批次大小，不承载对话、支付、审计等长期业务数据的法律保留期限。
+- `vozeb_pro_app_settings`：站点、注册、邮箱、积分、生成、支付配置、逻辑模型目录、渠道绑定和默认模型等全局设置；`logical_models` JSONB 保存用户可见模型及其能力、管理员确认的可选厂商/系列分组、上游模型、渠道、启用状态、优先级和权重。批量优先级提交在设置行锁内比对预览版本，只重写选中模型绑定的优先级。`generation_cost_control` JSONB 保存管理员配置的单任务、单用户每日和全站每日积分成本上限，三个值为 `0` 时均表示不限制；`data_lifecycle` JSONB 保存四类技术到期清理开关和单类批次大小，不承载对话、支付、审计等长期业务数据的法律保留期限。
+- `vozeb_pro_model_pricing_state`：保存当前销售版本 ID 的单行指针、美元兑人民币业务汇率及留证，以及 `billing_activations` JSONB 逐逻辑模型的按量计费启用记录。启用记录包含该模型有效售价、官方价、契约与渠道配置指纹，以及启用时各契约对应的真实影子报价凭据 ID；创建新任务时重新核对，只有该模型有效计费条件变化才回到固定积分，已有任务保持创建时的计费模式。汇率变更和销售发布分别锁定此行，旧销售版本的换算快照不被改写。模型目录同步不修改售价。
+- `vozeb_pro_model_price_candidates`：待审核官方价候选，按创建时间分页读取；审核时只锁定目标候选行。未关联逻辑模型的官网 SKU 候选以空 `logical_model_id` 保存，审核不自动进入售价。未录价模型列表从逻辑模型目录出发，仅聚合候选状态，不读取整张候选 JSON。
+- `vozeb_pro_model_official_price_sources`：按厂商名称保存可新增、修改的官网价格参考链接及修改人、时间；名称为稳定标识。并发写入检查更新时间；历史候选中记录的证据链接不会随参考链接修改而改变。
+- `vozeb_pro_model_official_price_catalog`：按厂商保存官网型号/版本与可选系列，型号可直接位于厂商根目录；记录官网来源、命名依据和登记人。同厂商系列名、同系列或同厂商根目录型号名、同厂商官方模型 ID 防重复。目录只为录价表单提供选择，不自动创建价目候选，也不修改已审核价目或计费规则。
+- `vozeb_pro_model_official_price_observations`：独立归档官网发现的型号、完整价格行（如有）、原文证据、来源链接与正文摘要；即使平台尚无对应逻辑模型也可保存，快照不随审核和绑定修改。`vozeb_pro_model_official_price_observation_reviews` 保存管理员核实状态和仅限待确认阶段追加的人工提取修订历史；修订逐价格组保存完整分项、原文摘录、原因、操作者与版本，原始快照始终不变，确认时校验修订版本以防覆盖并发修改。`vozeb_pro_model_official_price_observation_links` 单独保存已确认发现到现有逻辑模型的关联。关联不会自动生成官方价版本或改变售价。
+- `vozeb_pro_model_official_price_versions`：审核通过后追加不可编辑的官方 SKU 价版本；未关联的版本仍以空 `logical_model_id` 存档。旧式平价可另追加带 `linkedFromVersionId` 的逻辑模型关联版本并进入现行售价发布；新增 Standard 文本分档价在 JSONB 中保存范围、价格组和分项证据，只能用于独立选价及只读预览，不能复制进入旧式平价销售。后台按逻辑模型分页读取，计价时按版本 ID 定向读取。
+- `vozeb_pro_model_price_bindings`：独立选价绑定的追加式历史，记录逻辑模型、能力／已注册操作／处理档位范围、原始官网价版本、审核依据和 revision。每个模型与范围最多一条当前记录；图片生成与编辑可分别绑定和撤销。撤销写入不带价版本的当前墓碑记录，旧记录保留。该表当前不参与在线销售版本或钱包计费，切换须先核对部署库及未结账务。
+- `vozeb_pro_model_flat_text_price_contracts`：管理员按已审核官方价版本、渠道和上游型号追加纯文本单档的计量映射及证据；每组仅有一个当前审核版本，旧版本保留。`itemMeters` 可为 Chat/Responses 明确保存含缓存写入的 `uncachedInputTokens` 映射，与分别计量写入的映射互斥；选择必须由管理员审核，不从型号名称推断。`requestLimits` 可追加含缓存输入、含推理输出、候选数量的已审核硬上限及 HTTPS 来源；沿用契约 JSON 快照与历史版本，不新增数据表。供用量核对和内部试算使用，不开启真实钱包扣费。
+- `vozeb_pro_model_video_price_contracts`：按 `protocol` 区分 H3／H3 Max V2 秒数／图片契约与 Hailuo 2.3／Fast V1 整段契约，按 `official_version_id/channel_id/requested_model` 定向读取，外键引用官方价格版本。部分唯一索引保证每组只有一个 `current` 版本，历史索引支持按审核时间有界排序；事务内比较 `expectedCurrentId`，并发失配返回冲突，不覆盖旧 JSON 映射与证据。文件 Provider 对应 `model-pricing-video-contracts.json`。`resolutionItems` 保存各分辨率输入／输出秒数价项，`inputImageItem` 保存全部图片的常规单价，`inputImagePricing=all-at-standard-rate` 与 `unpricedInputAudio=fixed-points` 固定记录 H3 用户收费规则；Hailuo 的 `tierItems` 独立映射 `768P-6`、`768P-10`、`1080P-6` 三个一份视频档位。两协议共享当前版本唯一性和不可变历史，审核时重新读取真实启用绑定；H3 影子只选 V2。H3 内部钱包已有后续实现，Hailuo 影子已接线，内部钱包已有后续接线，实际文件任务已有后续接线，不完整回执的自动恢复尚待完成。
+- `vozeb_pro_model_audio_price_contracts`：两个精确 Gemini TTS 型号及 `gpt-audio-1.5` 的全球标准音频契约，按 `official_version_id/channel_id/requested_model` 定向有界读取，外键引用已审核价目。部分唯一索引及事务内 `expectedCurrentId` 比较保证同组仅一份当前版本，审核历史保留原 JSON 和证据。保存实际协议及真实管理员身份；Gemini 保存文本输入／音频输出价项、响应型号和型号核对方式，OpenAI 保存四个文本／音频输入输出价项及必须返回的精确型号；文件 Provider 对应 `model-pricing-audio-contracts.json`。保存前重新核对启用绑定与完整常规付费价项，不改变现有固定积分，不直接写入影子或钱包。
+- `vozeb_pro_model_image_price_contracts`：直接 Images Token 单档与 DataEyes FLUX 按张契约，按官方版本、渠道、请求型号和 `generations/edits` 分别定向读取，历史分页沿用价目页大小。每组唯一当前版本、旧映射及证据不变，审核使用期望当前 ID 的并发比较；文件 Provider 保存为 `model-pricing-image-contracts.json`。Token 范围中的 `itemMeters` 与 `zeroMeters` 恰好覆盖输入／输出文本及图片四个分项，后者只接受真实返回的零；不允许总量代替模态、遗漏缓存或按张价项。`modelIdentity` 明确要求响应型号，或由管理员举证请求型号映射；任何已返回型号仍须一致。用于审核及直接 Images JSON 影子报价；系统代理会在调用前冻结当前契约，尚未接到图片实际钱包。 新增 `global-standard-dataeyes-flux-image` 范围，仍使用同表和逐操作历史：仅三个已核实的 DataEyes FLUX 按张型号，官方 SKU 与请求型号必须一致；单一 `image` 价项不允许 Token 映射，`imageLimit` 保存每请求一张及 HTTPS 来源和审核依据。审核时核对实际渠道协议与支持操作；影子快照新增 `declaredProtocol`，调用后按完整 URL 结果计量，数量不符或协议改变不报价。响应 URL 不进入影子账本，固定退款仍驱动原额撤销；没有新增表或启用图片钱包。
+- `vozeb_pro_model_pricing_wallet_accounts`：正式用量计费按用户与资金来源保存精确累计，`(user_id, source_key)` 联合主键；永久积分使用 permanent，每个日赠日期／套餐／发放身份使用独立稳定键。整数／分数字符串保留尾差，跨来源不拼凑扣分或退款；与影子试算账户分离。当前仅内部服务和隔离测试使用，未启用生产扣费。
+- `vozeb_pro_model_pricing_wallet_reservations`：以用户与服务端请求 ID 唯一保存预留、冻结价目／售价／最高分项用量、日赠与永久来源、套餐计数日期、结算或释放证据；状态为 reserved、settled、released，消费流水关联唯一。余额、精确累计、消费流水与状态在同一用户行锁事务提交，用户删除时级联删除。文件 Provider 将对应数组保存在同一 auth.json，并在既有跨进程文件锁内原子落盘。包含新账本时禁止账户配置合并恢复，PostgreSQL 须使用完整数据库恢复点；文件 Provider 须停服保留完整一致的数据目录，现有灾备脚本不支持文件 Provider。冻结 maximumUsage 与 maximumQuoteUsage，分别用于分项上限校验和最高费用预留；文本分支另外保存已审核契约、请求条件和正文摘要；image 分支保存已审核 DataEyes FLUX 按张契约、实际协议／操作／请求条件与正文摘要，并从来源上界导出最高张数。结算保存各能力规范化响应计量，不保存请求正文或图片 URL。图片内部钱包只允许从已认领且持久化的原响应恢复结算；DataEyes FLUX 内部按张图片任务已接入。preparation 的 taskType=image 对应图片任务准备身份，原文本准备身份保持原结构。submission 在同一预留 JSON 中保存唯一认领、提交中／结果未知／响应已保存／确认未计费状态及不可改写的规范化响应或未计费凭据；认领与凭据各自原子提交，恢复结算读取原凭据，迟到错误不降级终态。保存原结算分项用量、来源精确金额与累计已退用量／次数；全额及部分退款已有内部事务；内部同步文本任务已接入全额原价退款，其他入口仍待接入。响应凭据摘要按固定计量字段序列生成，不依赖 JSONB 对象字段顺序。
+- `vozeb_pro_model_pricing_wallet_refunds`：以用户、原请求与退款 ID 唯一保存逐次退款凭据，记录退款分项、业务依据、指纹、原消费流水 ID、退款流水 ID、来源累计与恢复／失效金额；退款流水 ID 唯一，外键关联同用户预留，删除预留时级联删除。独立凭据支持多次部分退款，不改变旧固定计费的一消费一退款 source_record_id 唯一规则。文件 Provider 同步保存 pricingRefunds 数组。
+- `vozeb_pro_model_pricing_shadow_accounts`：逐用户保存内部试算的精确累计积分，以约分后的整数或分数字符串留存，避免循环小数及小额舍入丢失。不同售价版本的积分在冻结换算后累计；试算账户与真实积分钱包分离。
+- `vozeb_pro_model_pricing_shadow_receipts`：按用户、稳定业务请求和记入/撤销类型唯一保存试算凭据、价格版本、分项用量、精确变动及累计舍入差额。追加凭据与累计额在同一用户行锁事务内提交；撤销只使用原精确金额，不使用最新价格。原生 Images 的真实固定退款提交及影子完成后，核对原消费用户、模型、请求指纹和真实退款来源并撤销；维护任务通过现有 `point_records` 原消费／退款联表、有界查询和凭据唯一键补偿中断，无新增表。此表不是用户消费流水；文本及直接 Images JSON 系统代理均已接入内部试算，共用原子精确累计，真实钱包仍按固定积分。
+- `vozeb_pro_model_pricing_shadow_calls`：按用户和服务端稳定请求身份保存调用前冻结的官方价、销售版本、逐渠道契约及脱敏请求条件，调用后保存规范化用量、试算凭据关联或未计价/失败原因。文本及直接 Images JSON 的系统代理已接入；成功结果、凭据和累计积分在同一事务内写入。原始提示词、回复正文和密钥不写入此表；同步 JSON、标准 SSE 及 Gemini NDJSON 已接入内部试算；自定义响应转换仍未计价。请求前的 `requestBound` 保存审核上限与最高费用试算，响应后的 `requestBoundCheck` 独立记录是否越界；报价成功不代表上限核对通过。图片调用额外保存 `operation=generations|edits`、图片契约及脱敏模式条件，复用同一 calls JSON／凭据／精确累计表；只有文本调用包含 `requestBound`，图片暂无已审核上界。图片与文本稳定身份不得互换，原未计价尝试不因事后发布而重新定价。真实钱包继续固定积分。
+- 后台按逻辑模型读取最近的脱敏用量观察作为样例，只填入真实返回的分项；按量启用前按当前契约逐一读取已计价影子凭据，并比较该模型实际售价系数和汇率。索引按逻辑模型、契约和调用时间定向查找，不扫描整张影子调用表。
+- `vozeb_pro_model_price_lifecycle_marks`：管理员根据 BytePlus 官方停用公告确认的 Seedream / Seed 型号停用标记，按逻辑模型保存公告型号、日期、原文证据、读取方式、核对与标记时间及操作人；仅用于后台提示，不自动删除官方价版本或改变当前销售版本。
+- `vozeb_pro_model_sales_price_versions`：追加发布的销售策略版本，保存逻辑模型官方价绑定、按模型／系列／厂商／默认优先级解析的单层用户售价系数，以及版本化业务汇率和每人民币元 100 积分换算依据。套餐发放积分数不参与单次扣分。生成任务的 `payload.pricingSnapshot` 保存任务创建时的销售版本、官方价版本与套餐身份；现阶段仅供预览和后续核算，实际扣费仍按固定积分规则。
 - `vozeb_pro_object_storage_settings`：S3 兼容外部存储单例配置，保存启用状态、Endpoint、Region、Bucket、对象前缀、path-style 模式及加密后的 Access Key/Secret Key；管理接口只返回密钥是否已配置，不回传明文。
 - `vozeb_pro_system_model_channels`：系统模型渠道、分别加密保存的 API Key 与渠道生成回调密钥、模型列表和高级配置；后台不保存渠道验证记录。
 - `vozeb_pro_entitlement_plans`：商业套餐权益、每日额度、调用限制和功能标记；新用户不再通过套餐获得注册初始积分。
@@ -96,6 +152,10 @@ VOZEB PRO 的 PostgreSQL 真实表名统一使用项目名前缀 `vozeb_pro_`。
 文本、图片、视频、音频和漫剧整集合成终态更新使用带 `user_id + task_type + allowed status` 条件的原子 `UPDATE`；任务尝试元数据通过存储层原子 mutate 合并，避免取消状态被旧快照覆盖。用户取消、后台成功、后台失败和过期检查同时发生时只有一个状态转换能成功，退款由成功抢占终态或检测到已取消结果的一方执行。
 
 生成恢复通过 `worker_id + lease_until` 原子领取到期任务；页面唤醒和常驻 Worker 复用同一恢复服务。上游创建成功后先保存任务 ID，再进入查询阶段；查询到结果先写 `result_ready`，下一批只完成媒体保存。`submitting` 结果不确定且无法对账时进入 `needs_review`，只有管理员明确提供上游任务 ID、结果或确认失败后才能继续。Webhook 事件先按渠道与事件 ID 幂等登记，再匹配已有媒体任务并清除租约；未匹配事件保留为 `unmatched`，不得创建新任务。
+
+文本任务在 `generation_tasks.payload.billingRequests` 按 attempt 保存系统代理生成的计费请求 ID、请求指纹、业务请求 ID、渠道及逻辑／上游模型身份。系统代理先验证任务签名，再在任务行锁内核对归属、当前 running 尝试和模型身份后写入；文件 Provider 沿用现有任务文件锁。相同尝试不得改写请求，不同尝试保留各自关联；普通状态和消费记录更新不会覆盖它。字段不保存提示词、密钥或原始鉴权头，公开文本任务 DTO 不返回该字段。此关联用于定位原预留和试算记录，本身不代表积分预留或上游提交已经发生。内部 `billingMode: official-usage` 的同步文本任务已通过系统代理连接预留、唯一提交许可、结算及原账本退款；普通创建 API 不接受模式字段，生产启用开关仍待验收。`pricedResponses` 按计费请求保存公开答案及规范化计量，支持不再调用上游的结果恢复；不保存推理块或原始供应商响应，也不进入公开 DTO。取消任务的生成状态和账本待核对状态分开。
+
+图片任务的 `billingRequests` 沿用逐尝试关联，但系统代理通过独立的图片签名引用验证能力；`pricedResponses` 仅保存原图片 URL／结果数组和规范化计量，先于钱包结算持久化，不进入公开 DTO。内部按张图片已接预留、唯一提交、原响应恢复、取消及原价退款；普通创建接口只接受白名单上下文。没有上游任务 ID 的同步图片按原计费身份恢复，未知提交不会重建请求。图片准备撤销和已有提交身份的完整结果补录／明确未计费确认已接通；安全失败备用尝试已接通，矛盾计量持证更正已接通，真实组合准入仍待完成。
 
 Agent Run 的状态与任务数组继续保存在 `generation_tasks.payload`，每个多副本子任务同时保存子任务 ID、完成状态、尝试次数和结果，恢复时复用已完成结果并继续轮询未完成任务；事件独立写入 `creative_run_events`。状态更新、助手消息终态和事件追加在同一 PostgreSQL 事务内完成；暂停、恢复、取消、完成和失败竞争时，旧 Run 快照不能覆盖更新后的状态。文件 Provider 使用串行 mutation queue 保持相同的进程内语义。短剧成本概览按 `user_id + project_id + task_type + status` 在数据库聚合，并使用 `generation_tasks_user_project_idx`，不读取数千条完整任务 JSON 后再汇总。
 
@@ -232,3 +292,60 @@ Chat 规划可以返回 Canvas 或短剧 `projectHandoff`。服务端使用 `han
 后台 Agent Skill 保存在 `app_settings.agent_skills` JSONB 字段中，包含名称、用途、执行规则、启用状态和触发关键词。系统默认内置并启用“电商生图”Skill，管理员可在模型渠道设置页修改、停用、删除或新增 Skill。
 
 Skill 还可记录 `sourceUrl`、`sourceVersion` 和 `license`。默认电商生图 Skill 来源为 `buluslan/gpt-image2-ecommerce` v0.1.0（MIT），项目仅适配其工作流与模板匹配规则，不使用其 Codex CLI/Shell 执行链。
+
+
+### 按量文本与图片任务的账务保留
+
+`generation_tasks.payload.billingPending` 在按量文本／图片／视频计费请求绑定时写入，表示原调用账务及结果交付尚未完成。只有 text／image／video 且 `billingMode: official-usage` 且该字段为 true 时才覆盖普通期限；查询、变更、按请求去重与 Worker 到期选择沿用同一条件，过期清理不得删除它。`generation_tasks_pending_billing_idx` 是按用户／更新时间排序的部分索引，不增加业务表。
+
+`billingRequests[].preparation` 保存每次预检唯一准备者和 preparing／finished 状态；在途准备不能因暂未读到预留记录而解除保留，也不允许重复请求再次准备。同一任务结果成功保存与解除保留同事务完成；失败／取消只在明确未提交或原账本退款确认后解除。解除时恢复普通期限。历史删除事务会阻止删除含此类任务或后代的对话／项目，独立钱包账本不随正常历史清理删除。
+
+
+### 按量文本与图片人工核对凭据
+
+`generation_tasks.payload.billingRequests[].review` 在任务行锁／文件锁内保存唯一人工决定，包含原提交认领、审核人、时间、依据及经过校验的规范化计量；需要交付时只保存公开文本，不存供应商原始 JSON。原 `pricedResponses` 不改写，保存决定时比对当前尝试及原响应，防止并发补录或迟到响应覆盖。
+
+已有矛盾计量使用独立的 `correct_metered_result` 操作；`review.decision.outcome.correctedObservation` 保存被更正的原规范化用量。任务和钱包两层都要求该快照与原矛盾响应完全一致，原协议、型号、服务档及地域不变，公开结果不变；新用量继续经过冻结契约及原请求上界校验。原任务响应和钱包提交响应保持不可改写，结算只使用单独留存的审核用量；决定先保存再恢复钱包，因此中断与重复操作仍沿用原请求结算一次，无新增表。
+
+钱包预留的 `submission.review` 留存同一审核身份和依据，不包含公开文本。原 `submission.response` 保持不变；审核后的缺失计量补充仍用原冻结契约、价目与上界结算。确认未计费先登记原提交的明确依据，再按现有释放事务退回。任务／钱包分步写入期间继续保留任务，恢复可重放同一审核决定；普通审计日志只保存脱敏索引。无需新增表或迁移。
+
+图片同样使用 `billingRequests[].review` 保存不可改写决定；`review.results` 仅保存校验后的原媒体 URL 数组，`review.decision` 保存规范化按张计量或明确未计费依据，不保存供应商原始 JSON。冻结图片契约、原数量上界和已知观察共同约束补录，不能改动已有数量、型号、画质、尺寸或结果；矛盾更正通过 `review.decision.outcome.correctedObservation` 引用同一无效原观察，不能改变已确认张数或已有媒体 URL；原计量、原响应与审核决定分别保存。钱包事务读取原图片任务及其相同审核决定，拒绝没有专用任务凭据的人工变更。钱包 `submission.review` 保存相同决定但不含媒体 URL；决定先持久化，再恢复原账务和原任务媒体交付。任务与钱包均拒绝决定后的新响应，原响应仍可幂等重放；取消或媒体交付失败使用原价退款，无新增表。
+
+文本与图片的 `generation_tasks.payload.billingRequests[].preparationStop` 留存原准备的不可改写停止身份、管理员、时间与依据；钱包预留的 `preparation` 保存原 `taskId/claimId`，图片另有 `taskType: image`，预留与提交认领均在用户钱包锁内检查原权限。锁顺序为钱包后任务，任务读取／更新复用当前事务执行器，不再占用额外连接；任务更新不得反向嵌套钱包变更。停止决定先提交，随后使用独立钱包事务释放未提交预留；任务停止记录与钱包分步提交失败时继续保留账务，原决定可恢复。无新增表，无基于超时的释放。
+
+按量文本任务的备用渠道推进复用任务行锁／文件锁：在原渠道账务确认结束后，以 `expectedFailedAttempt` 核对原尝试号、失败状态、`billingPending` 及人工决定，再原子写入下一尝试和剩余候选。Worker 若在记录失败后中断，按保存的候选继续；未知用量、未释放预留、管理员更正／未计费决定或撤销准备不能被陈旧 Worker 越过。不同尝试保留独立请求身份及冻结契约，任务锁内不嵌套钱包变更。
+
+
+图片任务私有 `generation_tasks.payload.usageObservations` 保存直接 Images JSON 的分项事实，包含独立观察 ID、attempt、渠道、请求／逻辑型号、操作、时间及已有固定消费流水关联；输入文本／图片、输出文本／图片和总量分别保存，缺失及矛盾不补零。记录通过既有任务行锁／文件锁追加，不保存媒体或提示词，不更新积分钱包，不是可计费凭据，沿用普通任务保留期限。没有新增表，公开任务 DTO 不返回该字段。
+
+
+按量图片备用推进使用同一任务行锁／文件锁，核对当前 `attemptNo`、失败状态、已解除的 `billingPending` 与无人工决定后，从 `candidateConfigs` 原子移出下一配置，并同时追加新 attempt。原 `billingRequests`、响应和钱包账本完整保留；每个备用尝试独立绑定并冻结契约。开始或结束尝试的写入另核对预期尝试号，开始写入不能覆盖已绑定计费的尝试；取消或旧执行器迟到不能把任务退回旧配置。钱包检查在任务变更前独立完成，不在任务锁内嵌套钱包事务，无新增表。
+
+
+### 视频终态计量观察
+
+`generation_tasks.payload.usageObservations` 对 MiniMax H3／H3 Max V2 视频任务保存私有诊断事实，逐条含观察 ID、attempt、渠道、原上游任务 ID、请求／逻辑型号、时间、已有固定消费记录及规范化秒数／图片数。返回型号、分辨率、任务类型、模态、缺失和非法计量标记保留；不保存供应商完整 JSON、提示词、媒体 URL 或密钥。
+
+相同终态响应在任务行锁／文件锁内去重；供应商后续变化另存独立观察，原事实不改写。旧尝试观察保留原关联，不能改变当前任务状态或上游身份。存储只定向读取当前任务，沿用普通任务保留期限；不新增业务表，不修改钱包或公开 DTO。观察本身不是报价、预留、结算或未计费凭据，缺项不得补零。
+
+
+### 内部视频任务与异步账务
+
+视频任务 JSON 增加私有 `billingRequests`、`pricedSubmissions`、`pricedResponses` 和 `billingPending`，复用原 `generation_tasks` 与钱包表。当前尝试通过 `attempts` 最后一项确定，签名绑定 task／attempt、用户、渠道、逻辑模型、上游型号和请求摘要。准备认领、撤销和结果写入均核对原身份；钱包用户事务还校验原准备凭据，撤销后禁止迟到预留或提交。
+
+原创建 ID 先保存到任务私有凭据，再确认钱包提交；调度的上游归属索引可按原凭据重建。终态只保存规范化计量及必要结果 URL，不保存完整响应；媒体 URL 不进入钱包快照，私有任务字段不进入公开 DTO。结算失败从原响应继续，已取消任务按原钱包价格退款，不使用旧固定积分退款路径。成功交付、未提交释放或退款完成才解除保留；普通过期清理、历史删除及通用运维动作不能解除未定账务。视频专用人工核对已有后续接入（见下文），安全备用接续见下文。
+
+
+视频 `billingRequests[].review` 复用现有 JSON 与钱包 `submission.review`，无新增表。独立决定保存认领 ID、服务端审核人／时间和依据，响应决定另存规范化 observation，矛盾更正额外引用完整 `correctedObservation`。原 `pricedSubmissions`、`pricedResponses` 及钱包 `submission.response` 不覆盖；任务锁中比较期望原响应与创建确认，禁止迟到响应或不同决定覆盖。钱包事务还读取相同任务／尝试的持久决定并核对完全相等，防止脱离任务的直接视频审核。
+
+视频补录必须使用已确认创建 ID；保留全部已知身份、范围、数量及原 URL，更正只能针对已保存的无效观察，并继续通过冻结契约与上界。原响应已存在时不能确认未计费。未计费决定先持久保存，再释放原来源预留；成功用量在取消业务中先按原价结算，再幂等退款。处理过程中保留 `billingPending`，直到原账务和交付／退款完成。
+
+视频原响应缺少计费事实且无矛盾时，用户再次检查只查询已确认的同一上游任务。后续完整响应在原 `pricedResponses[]` 中独立保存为 `recovered`，首次 observation 与钱包 `submission.response` 不覆盖。任务锁核对原请求、任务 ID、已知计量与结果地址，钱包事务再次读取同一任务补全凭据并按原冻结价结算；失败后可用该持久凭据恢复，不重新生成或以当前价重算。出现冲突或无效计量仍保留预留并等待人工核对；公开任务 DTO 不返回私有回执。
+
+
+内部视频的私有 `creation` 保存原执行提示词、归一化参数、参考素材与业务请求 ID；`candidateConfigs` 保存尚未使用的候选配置，均复用任务 JSON，公开 DTO 不返回。失败账务结束后在任务锁内检查当前尝试、未结算标记、创建身份、准备阶段和人工决定，再原子取出候选并追加新尝试；尝试 ID 参与计费幂等键，重复渠道也不能复用上一预留。旧执行器写入须匹配尝试编号。创建快照一经保存不可替换；Worker 接续不重新发现路由，原创建确认和调度身份分步持久，提交时间随本次尝试记录。
+
+
+音频任务的私有 `generation_tasks.payload.usageObservations` 保存 OpenAI Chat Audio 与 Gemini TTS 同步 JSON 的白名单计量：观察 ID、attempt、渠道、逻辑／请求型号、时间及已有固定消费关联，以及原响应总量、明确模态分项、缓存／推理等已返回事实。文件锁／任务行锁下按原尝试和同一观察去重，变化或旧尝试的数据单独保留；不覆盖当前结果，不写音频、提示词或转写。缺失不补零，观察不是计费凭据，不更新钱包，沿用任务原保留期限；未新增表或迁移。
+
+Gemini TTS 独立报价与上界已有对应持久审核历史，绑定正式价目、逻辑模型、实际渠道与协议；影子记录、请求身份冻结和钱包类型仍待接入。音频观察中的非法型号／服务档位格式会写入既有 `invalid` 白名单原因，不把原始异常对象或私有内容保存到数据库。

@@ -17,9 +17,20 @@ export function isCreativeGenerationModel(model: string) {
 
 export function inferModelCapability(model: string): LogicalModelCapability {
     const value = normalizeModelId(model);
-    if (isSeedanceVideoModelName(value) || /stable[-_.\s]?video[-_.\s]?diffusion|(?:^|[-_.\s/])(video|videos|svd|i2v|t2v|img2video|text2video|sora|veo|kling|wan|hailuo|runway|luma|vidu)(?:$|[-_.\s/])/.test(value)) return "video";
+    if (
+        isSeedanceVideoModelName(value) ||
+        /^(?:happyhorse(?:[-_.]|$)|viduq\d|wan\d|minimax-h\d)/.test(value) ||
+        /stable[-_.\s]?video[-_.\s]?diffusion|(?:^|[-_.\s/])(video|videos|svd|i2v|t2v|img2video|text2video|sora|veo|kling|wan|hailuo|runway|luma|vidu)(?:$|[-_.\s/])/.test(value)
+    )
+        return "video";
     if (/(?:^|[-_.\s/])(audio|tts|speech|voice|music|sound)(?:$|[-_.\s/])|whisper|sensevoice/.test(value)) return "audio";
-    if (/(?:^|[-_.\s/])(image|images|img|flux|sdxl|midjourney)(?:$|[-_.\s/])|nano[-_.\s]?banana|seedream|gpt[-_.]?image|dall[-_.]?e|imagen|stable[-_.\s]?diffusion/.test(value) || isShortStableDiffusionName(value)) return "image";
+    if (
+        value === "grok-imagine" ||
+        value === "grok-imagine-edit" ||
+        /(?:^|[-_.\s/])(image|images|img|flux|sdxl|midjourney)(?:$|[-_.\s/])|nano[-_.\s]?banana|seedream|gpt[-_.]?image|dall[-_.]?e|imagen|stable[-_.\s]?diffusion/.test(value) ||
+        isShortStableDiffusionName(value)
+    )
+        return "image";
     return "text";
 }
 

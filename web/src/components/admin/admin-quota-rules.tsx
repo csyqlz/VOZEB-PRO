@@ -82,7 +82,7 @@ export function QuotaRuleTable({
             </section>
             <section className="border-b border-zinc-200 py-4 sm:py-5 dark:border-zinc-800">
                 <div className="text-sm font-semibold text-stone-950 dark:text-stone-100">模型基础扣费</div>
-                <div className="mt-1 text-xs leading-5 text-stone-500 dark:text-stone-400">每次生成先扣除模型基础积分；单独配置的模型使用自己的数值，其他模型使用统一默认值。</div>
+                <div className="mt-1 text-xs leading-5 text-stone-500 dark:text-stone-400">固定积分按模型基础值和生成参数倍率计算。未单独配置的模型继承默认值；新增模型开放前请核对其固定积分。</div>
                 <div className="mt-3 grid gap-3 lg:grid-cols-[240px_minmax(0,1fr)] lg:items-end">
                     <LabeledControl label="其他模型每次默认扣除积分">
                         <InputNumber className="w-full" min={0} precision={2} value={settings.modelPointCosts[DEFAULT_MODEL_POINT_COST_KEY] ?? 1} onChange={(value) => onModelPointCostChange(DEFAULT_MODEL_POINT_COST_KEY, toNumberOrOne(value))} />
@@ -110,9 +110,11 @@ export function QuotaRuleTable({
                     {visibleModels.length ? (
                         visibleModels.map((model) => {
                             const logical = settings.logicalModels.find((item) => item.id.toLowerCase() === model.toLowerCase());
+                            const configuredKeys = configuredModelPointCostKeys(settings.modelPointCosts, model, settings.logicalModels);
                             return (
                                 <div
                                     key={model}
+                                    data-point-cost-model={model}
                                     className="grid min-w-0 grid-cols-[minmax(0,1fr)_76px_28px] items-center gap-2 border-t border-zinc-100 py-2 first:border-t-0 md:[&:nth-child(2)]:border-t-0 dark:border-zinc-900 sm:grid-cols-[minmax(0,1fr)_104px_32px]"
                                 >
                                     <div className="min-w-0">
@@ -121,6 +123,7 @@ export function QuotaRuleTable({
                                                 {logical?.name || model}
                                             </span>
                                             <ModelCapabilityTag capability={activeCapability} />
+                                            {!configuredKeys.length ? <span className="shrink-0 text-xs text-stone-500 dark:text-stone-400">沿用默认</span> : null}
                                         </div>
                                         {logical && logical.name !== logical.id ? (
                                             <span className="mt-0.5 block truncate text-xs text-stone-400">ID: {logical.id}</span>
@@ -139,12 +142,12 @@ export function QuotaRuleTable({
                                         className="!h-7 !w-7 !min-w-7 !p-0"
                                         size="small"
                                         danger
+                                        disabled={!configuredKeys.length}
                                         icon={<Trash2 className="size-3.5" />}
                                         aria-label="删除消耗配置"
                                         title="删除消耗配置"
                                         onClick={() => {
-                                            const keys = configuredModelPointCostKeys(settings.modelPointCosts, model, settings.logicalModels);
-                                            (keys.length ? keys : [model]).forEach(onModelPointCostDelete);
+                                            configuredKeys.forEach(onModelPointCostDelete);
                                         }}
                                     />
                                 </div>

@@ -1,5 +1,10 @@
-import { getDatabaseProvider, ensurePostgresSchema, postgresQuery, withPostgresTransaction } from "@/lib/server/database";
+import { generationTaskAvailableSql, hasPendingTaskBilling, isGenerationTaskAvailable, pendingTaskBillingSql } from "./generation-task-retention";
+import { getDatabaseProvider, ensurePostgresSchema, postgresQuery, withPostgresTransaction, type QueryExecutor } from "@/lib/server/database";
 import { resolveGenerationReviewReason } from "@/lib/server/generation-task-review-reason";
+import { capturePublishedPricingIdentity } from "@/lib/server/model-pricing-service";
+import { getModelPricingActivationStatus } from "@/lib/server/model-pricing-activation-service";
+import { PricingConflictError } from "@/lib/model-pricing";
+import { recordGenerationTaskCharges, summarizeGenerationTaskNetCharges } from "./generation-task-charge-attribution";
 import { readJsonDataFile, withJsonDataFileLock, writeJsonDataFile } from "@/lib/server/data-adapter";
 import type {
     GenerationTaskContext,
@@ -26,7 +31,53 @@ let fileMutationQueue = Promise.resolve();
 const concurrencyQueues = new Map<string, Promise<void>>();
 
 export async function createStoredGenerationTask<T extends { id: string; userId: string; status: string; createdAt: number; updatedAt: number }>(type: GenerationTaskType, task: T, ttlMs: number) {
-    return insertTask(type, task, ttlMs);
+    const config = "config" in task && task.config && typeof task.config === "object" ? (task.config as { logicalModel?: string; model?: string; advancedConfig?: { protocol?: string } }) : undefined;
+    const modelId = config?.logicalModel || config?.model;
+    const kind = "kind" in task ? task.kind : undefined;
+    const scope =
+        type === "text"
+            ? { capability: "text" as const, operation: "generation" as const }
+            : type === "video"
+              ? { capability: "video" as const, operation: "generation" as const }
+              : type === "audio"
+                ? { capability: "audio" as const, operation: config?.advancedConfig?.protocol === "openai" ? ("chat/completions" as const) : ("generateContent" as const) }
+                : type === "image" && (kind === "generation" || kind === "edit")
+                  ? { capability: "image" as const, operation: kind === "edit" ? ("edits" as const) : ("generations" as const) }
+                  : undefined;
+    const snapshot = await capturePublishedPricingIdentity(task.userId, modelId, scope);
+    const savedTask = task;
+    const approval = "billingApproval" in task ? (task.billingApproval as import("@/lib/model-pricing").ModelPricingApproval | undefined) : undefined;
+    if (approval) {
+        const selected = ["config" in task ? task.config : undefined, "candidateConfigs" in task ? task.candidateConfigs : undefined]
+            .flatMap((value) => (Array.isArray(value) ? value : value ? [value] : []))
+            .map((value) => value as { channelId?: string; model?: string });
+        const bindingKeys = selected.map((value) => `${value.channelId}/${value.model}`);
+        const approved =
+            modelId &&
+            snapshot &&
+            (task as { billingMode?: string }).billingMode === "official-usage" &&
+            approval.billingMode === "official-usage" &&
+            Boolean(bindingKeys.length && approval.bindingKeys?.length && bindingKeys.every((key) => approval.bindingKeys!.includes(key))) &&
+            approval.salesVersionId === snapshot.salesVersionId &&
+            approval.officialVersionId === snapshot.officialVersionId &&
+            (!approval.scope || approval.scope === ((type === "image" || type === "audio") && scope ? `${scope.capability}:${scope.operation}:standard` : undefined)) &&
+            (await getModelPricingActivationStatus(
+                modelId,
+                type === "image" && approval.scope ? (scope?.operation as "generations" | "edits") : undefined,
+                type === "audio" && approval.scope ? (scope?.operation as "generateContent" | "chat/completions") : undefined,
+            )
+                .then(
+                    (status) =>
+                        status.active &&
+                        status.admission.fingerprint === approval.fingerprint &&
+                        status.admission.salesVersionId === approval.salesVersionId &&
+                        status.admission.officialVersionId === approval.officialVersionId &&
+                        bindingKeys.every((key) => status.bindings.some((binding) => binding.key === key && binding.active)),
+                )
+                .catch(() => false));
+        if (!approved) throw new PricingConflictError("按量计费准入已变化，未创建任务；请刷新后重试");
+    }
+    return insertTask(type, snapshot ? { ...savedTask, pricingSnapshot: snapshot } : savedTask, ttlMs);
 }
 
 export async function cleanupExpiredStoredGenerationTasks(input: { limit: number; now?: Date }) {
@@ -37,52 +88,64 @@ export async function cleanupExpiredStoredGenerationTasks(input: { limit: number
         const result = await postgresQuery<{ id: string }>(
             `WITH candidates AS (
                 SELECT id FROM generation_tasks
-                WHERE expires_at <= $1
+                WHERE expires_at <= $1 AND NOT ${pendingTaskBillingSql()}
                 ORDER BY expires_at ASC, id ASC
                 LIMIT $2
             )
             DELETE FROM generation_tasks
             USING candidates
-            WHERE generation_tasks.id = candidates.id
+            WHERE generation_tasks.id = candidates.id AND generation_tasks.expires_at <= $1 AND NOT ${pendingTaskBillingSql("generation_tasks")}
             RETURNING generation_tasks.id`,
+            [now.toISOString(), limit],
+        );
+        await postgresQuery(
+            `WITH candidates AS (
+                SELECT user_id, task_type, request_id FROM generation_concurrency_reservations
+                WHERE expires_at <= $1
+                ORDER BY expires_at ASC, user_id ASC, task_type ASC, request_id ASC
+                LIMIT $2
+            )
+            DELETE FROM generation_concurrency_reservations AS reservation
+            USING candidates
+            WHERE reservation.user_id = candidates.user_id AND reservation.task_type = candidates.task_type
+              AND reservation.request_id = candidates.request_id AND reservation.expires_at <= $1`,
             [now.toISOString(), limit],
         );
         return result.rows.length;
     }
     return withGenerationTaskFileMutation(async (tasks) => {
-        const expiredIds = new Set(
-            tasks
-                .filter((task) => task.expiresAt <= now.getTime())
-                .toSorted((left, right) => left.expiresAt - right.expiresAt || left.id.localeCompare(right.id))
-                .slice(0, limit)
-                .map((task) => task.id),
-        );
+        const expired = tasks
+            .filter((task) => task.expiresAt <= now.getTime() && !hasPendingTaskBilling(task))
+            .toSorted((left, right) => left.expiresAt - right.expiresAt || left.id.localeCompare(right.id))
+            .slice(0, limit);
+        for (const task of expired) await recordGenerationTaskCharges(task.type, task.payload);
+        const expiredIds = new Set(expired.map((task) => task.id));
         return { tasks: tasks.filter((task) => !expiredIds.has(task.id)), result: expiredIds.size };
     });
 }
 
-export async function getStoredGenerationTask<T>(type: GenerationTaskType, id: string): Promise<(T & GenerationTaskExecutionState) | null> {
+export async function getStoredGenerationTask<T>(type: GenerationTaskType, id: string, executor?: QueryExecutor): Promise<(T & GenerationTaskExecutionState) | null> {
     if (getDatabaseProvider() === "postgres") {
-        await ensurePostgresSchema();
-        const result = await postgresQuery<{ payload: T; execution_phase?: unknown; last_upstream_status?: unknown; result_payload?: unknown }>(
-            "SELECT payload, execution_phase, last_upstream_status, result_payload FROM generation_tasks WHERE id = $1 AND task_type = $2 AND expires_at > now()",
+        if (!executor) await ensurePostgresSchema();
+        const result = await (executor?.query ?? postgresQuery)<{ payload: T; execution_phase?: unknown; last_upstream_status?: unknown; result_payload?: unknown }>(
+            `SELECT payload, execution_phase, last_upstream_status, result_payload FROM generation_tasks WHERE id = $1 AND task_type = $2 AND ${generationTaskAvailableSql()}`,
             [id, type],
         );
         const row = result.rows[0];
         return row?.payload ? withExecutionState(row.payload, row.execution_phase, row.last_upstream_status, row.result_payload) : null;
     }
     const tasks = await readFileTasks();
-    const record = tasks.find((task) => task.id === id && task.type === type && task.expiresAt > Date.now());
+    const record = tasks.find((task) => task.id === id && task.type === type && isGenerationTaskAvailable(task));
     return record ? withExecutionState(record.payload as T, record.executionPhase, record.lastUpstreamStatus, record.resultPayload) : null;
 }
 
 export async function getStoredGenerationTaskRecord(type: GenerationTaskType, id: string): Promise<StoredGenerationTaskRecord | null> {
     if (getDatabaseProvider() === "postgres") {
         await ensurePostgresSchema();
-        const result = await postgresQuery<Record<string, unknown>>("SELECT * FROM generation_tasks WHERE id = $1 AND task_type = $2 AND expires_at > now()", [id, type]);
+        const result = await postgresQuery<Record<string, unknown>>(`SELECT * FROM generation_tasks WHERE id = $1 AND task_type = $2 AND ${generationTaskAvailableSql()}`, [id, type]);
         return result.rows[0] ? mapStoredTaskRecord(result.rows[0]) : null;
     }
-    return (await readFileTasks()).find((task) => task.id === id && task.type === type && task.expiresAt > Date.now()) || null;
+    return (await readFileTasks()).find((task) => task.id === id && task.type === type && isGenerationTaskAvailable(task)) || null;
 }
 
 export async function listStoredGenerationTaskRecordsByRunIds(runIds: string[], userIds: string[] = []) {
@@ -93,7 +156,7 @@ export async function listStoredGenerationTaskRecordsByRunIds(runIds: string[], 
         await ensurePostgresSchema();
         const result = await postgresQuery<Record<string, unknown>>(
             `SELECT * FROM generation_tasks
-             WHERE expires_at > now() AND run_id = ANY($1::text[]) AND task_type <> 'agent'
+             WHERE ${generationTaskAvailableSql()} AND run_id = ANY($1::text[]) AND task_type <> 'agent'
                AND (cardinality($2::text[]) = 0 OR user_id = ANY($2::text[]))
              ORDER BY run_id ASC, created_at ASC, id ASC`,
             [ids, owners],
@@ -101,8 +164,27 @@ export async function listStoredGenerationTaskRecordsByRunIds(runIds: string[], 
         return result.rows.map(mapStoredTaskRecord);
     }
     return (await readFileTasks())
-        .filter((task) => task.expiresAt > Date.now() && task.type !== "agent" && task.runId && ids.includes(task.runId) && (!owners.length || owners.includes(task.userId)))
+        .filter((task) => isGenerationTaskAvailable(task) && task.type !== "agent" && task.runId && ids.includes(task.runId) && (!owners.length || owners.includes(task.userId)))
         .sort((left, right) => String(left.runId).localeCompare(String(right.runId)) || left.createdAt - right.createdAt || left.id.localeCompare(right.id));
+}
+
+export async function listStoredGenerationTaskRecordsByProjectIds(projectIds: string[], userId: string) {
+    const ids = Array.from(new Set(projectIds.map(cleanContextText).filter(Boolean)));
+    const owner = cleanContextText(userId);
+    if (!ids.length || !owner) return [];
+    if (getDatabaseProvider() === "postgres") {
+        await ensurePostgresSchema();
+        const result = await postgresQuery<Record<string, unknown>>(
+            `SELECT * FROM generation_tasks
+             WHERE ${generationTaskAvailableSql()} AND project_id = ANY($1::text[]) AND user_id = $2 AND task_type <> 'agent'
+             ORDER BY project_id ASC, created_at ASC, id ASC`,
+            [ids, owner],
+        );
+        return result.rows.map(mapStoredTaskRecord);
+    }
+    return (await readFileTasks())
+        .filter((task) => isGenerationTaskAvailable(task) && task.type !== "agent" && task.projectId && ids.includes(task.projectId) && task.userId === owner)
+        .sort((left, right) => String(left.projectId).localeCompare(String(right.projectId)) || left.createdAt - right.createdAt || left.id.localeCompare(right.id));
 }
 
 export async function getStoredGenerationTaskByRequest<T>(type: GenerationTaskType, userId: string, clientRequestId: string, attemptNo?: number): Promise<T | null> {
@@ -111,7 +193,7 @@ export async function getStoredGenerationTaskByRequest<T>(type: GenerationTaskTy
     const attempt = normalizedAttemptNo(attemptNo);
     if (getDatabaseProvider() === "postgres") {
         await ensurePostgresSchema();
-        const result = await postgresQuery<{ payload: T }>("SELECT payload FROM generation_tasks WHERE user_id = $1 AND task_type = $2 AND client_request_id = $3 AND COALESCE(attempt_no, 0) = $4 AND expires_at > now() LIMIT 1", [
+        const result = await postgresQuery<{ payload: T }>(`SELECT payload FROM generation_tasks WHERE user_id = $1 AND task_type = $2 AND client_request_id = $3 AND COALESCE(attempt_no, 0) = $4 AND ${generationTaskAvailableSql()} LIMIT 1`, [
             userId,
             type,
             requestId,
@@ -120,7 +202,7 @@ export async function getStoredGenerationTaskByRequest<T>(type: GenerationTaskTy
         return result.rows[0]?.payload || null;
     }
     const tasks = await readFileTasks();
-    return (tasks.find((task) => sameTaskRequest(task, type, userId, requestId, attempt) && task.expiresAt > Date.now())?.payload as T | undefined) || null;
+    return (tasks.find((task) => sameTaskRequest(task, type, userId, requestId, attempt) && isGenerationTaskAvailable(task))?.payload as T | undefined) || null;
 }
 
 export async function getStoredGenerationTaskByUpstream(type: GenerationTaskType, userId: string, channelId: string, upstreamTaskId: string): Promise<StoredGenerationTaskRecord | null> {
@@ -131,13 +213,13 @@ export async function getStoredGenerationTaskByUpstream(type: GenerationTaskType
         await ensurePostgresSchema();
         const result = await postgresQuery<Record<string, unknown>>(
             `SELECT * FROM generation_tasks
-             WHERE user_id = $1 AND task_type = $2 AND channel_id = $3 AND upstream_task_id = $4 AND expires_at > now()
+             WHERE user_id = $1 AND task_type = $2 AND channel_id = $3 AND upstream_task_id = $4 AND ${generationTaskAvailableSql()}
              LIMIT 1`,
             [userId, type, normalizedChannelId, normalizedUpstreamTaskId],
         );
         return result.rows[0] ? mapStoredTaskRecord(result.rows[0]) : null;
     }
-    return (await readFileTasks()).find((task) => task.userId === userId && task.type === type && task.channelId === normalizedChannelId && task.upstreamTaskId === normalizedUpstreamTaskId && task.expiresAt > Date.now()) || null;
+    return (await readFileTasks()).find((task) => task.userId === userId && task.type === type && task.channelId === normalizedChannelId && task.upstreamTaskId === normalizedUpstreamTaskId && isGenerationTaskAvailable(task)) || null;
 }
 
 export async function listStoredGenerationTasks<T>(type: GenerationTaskType, userId: string, limit = 20): Promise<T[]> {
@@ -154,7 +236,7 @@ export async function queryStoredGenerationTasks<T>(type: GenerationTaskType, op
     if (getDatabaseProvider() === "postgres") {
         await ensurePostgresSchema();
         const values: unknown[] = [userId, type];
-        const filters = ["user_id = $1", "task_type = $2", "expires_at > now()"];
+        const filters = ["user_id = $1", "task_type = $2", generationTaskAvailableSql()];
         const addFilter = (column: string, value?: string) => {
             if (!value) return;
             values.push(value);
@@ -177,7 +259,7 @@ export async function queryStoredGenerationTasks<T>(type: GenerationTaskType, op
             (task) =>
                 task.userId === userId &&
                 task.type === type &&
-                task.expiresAt > Date.now() &&
+                isGenerationTaskAvailable(task) &&
                 (!conversationId || task.conversationId === conversationId) &&
                 (!projectId || task.projectId === projectId) &&
                 (!surface || task.surface === surface) &&
@@ -217,7 +299,7 @@ export async function listStoredGenerationTaskRecords(options: GenerationTaskRec
         summary = mapGenerationTaskSummary(summaryResult.rows);
         return { items: records, total: summary.total, page, pageSize, all: [], summary };
     } else {
-        records = (await readFileTasks()).filter((record) => record.expiresAt > Date.now());
+        records = (await readFileTasks()).filter((record) => isGenerationTaskAvailable(record));
     }
     const search = (options.search || "").trim().toLowerCase();
     const searchUserIds = new Set((options.searchUserIds || []).map((id) => id.trim()).filter(Boolean));
@@ -336,26 +418,36 @@ export async function summarizeStoredGenerationTaskCosts(input: { userId: string
         await ensurePostgresSchema();
         const result = await postgresQuery<Record<string, unknown>>(
             `SELECT task_type, status, count(*)::int AS task_count,
-                    coalesce(sum(coalesce(${numericJsonValue("payload->>'estimatedPoints'")}, 0)), 0) AS estimated_points,
-                    coalesce(sum(CASE WHEN status = 'success' THEN ${generationTaskPointsSql()} ELSE 0 END), 0) AS actual_points
+                    coalesce(sum(coalesce(${numericJsonValue("payload->>'estimatedPoints'")}, 0)), 0) AS estimated_points
              FROM generation_tasks
-             WHERE expires_at > now() AND user_id = $1 AND project_id = $2 AND task_type = ANY($3::text[])
+             WHERE ${generationTaskAvailableSql()} AND user_id = $1 AND project_id = $2 AND task_type = ANY($3::text[])
              GROUP BY task_type, status`,
             [userId, projectId, types],
         );
-        return result.rows.flatMap(mapGenerationTaskCostAggregate);
+        return mergeGenerationTaskNetCharges(result.rows.flatMap(mapGenerationTaskCostAggregate), await summarizeGenerationTaskNetCharges(userId, projectId, types));
     }
     const groups = new Map<string, GenerationTaskCostAggregate>();
     for (const record of await readFileTasks()) {
-        if (record.expiresAt <= Date.now() || record.userId !== userId || record.projectId !== projectId || !types.includes(record.type)) continue;
+        if (!isGenerationTaskAvailable(record) || record.userId !== userId || record.projectId !== projectId || !types.includes(record.type)) continue;
         const key = `${record.type}:${record.status}`;
         const current = groups.get(key) || { type: record.type, status: record.status, taskCount: 0, estimatedPoints: 0, actualPoints: 0 };
         current.taskCount += 1;
         current.estimatedPoints += positiveNumber(record.estimatedPoints, record.payload.estimatedPoints);
-        if (record.status === "success") current.actualPoints += generationTaskPointsCost(record.payload);
         groups.set(key, current);
     }
-    return Array.from(groups.values()).map((item) => ({ ...item, estimatedPoints: Number(item.estimatedPoints.toFixed(2)), actualPoints: Number(item.actualPoints.toFixed(2)) }));
+    return mergeGenerationTaskNetCharges(
+        Array.from(groups.values()).map((item) => ({ ...item, estimatedPoints: Number(item.estimatedPoints.toFixed(2)) })),
+        await summarizeGenerationTaskNetCharges(userId, projectId, types),
+    );
+}
+
+function mergeGenerationTaskNetCharges(groups: GenerationTaskCostAggregate[], charges: Array<{ type: GenerationTaskType; actualPoints: number }>) {
+    for (const charge of charges) {
+        const group = groups.find((item) => item.type === charge.type && item.status === "success") || groups.find((item) => item.type === charge.type);
+        if (group) group.actualPoints = charge.actualPoints;
+        else groups.push({ type: charge.type, status: "success", taskCount: 0, estimatedPoints: 0, actualPoints: charge.actualPoints });
+    }
+    return groups;
 }
 
 function generationTaskSelect() {
@@ -363,7 +455,7 @@ function generationTaskSelect() {
 }
 
 function generationTaskWhere() {
-    return `WHERE expires_at > now()
+    return `WHERE ${generationTaskAvailableSql()}
               AND ($1::text IS NULL OR task_type = $1)
               AND ($2::text IS NULL OR status = $2)
               AND ($3::text IS NULL OR surface = $3)
@@ -528,6 +620,7 @@ function nonNegativeInteger(value: unknown) {
 
 export async function updateStoredGenerationTask<T extends { id: string; userId: string; status: string; createdAt: number; updatedAt: number }>(type: GenerationTaskType, task: T, ttlMs: number) {
     await upsertTask(type, task, ttlMs);
+    await recordGenerationTaskCharges(type, task as Record<string, unknown>);
     return task;
 }
 
@@ -545,8 +638,10 @@ export async function transitionStoredGenerationTask<T extends { id: string; use
     const execution = executionPatch ? normalizeExecutionPatch(executionPatch) : null;
     if (getDatabaseProvider() === "postgres") {
         await ensurePostgresSchema();
-        const result = await postgresQuery<{ payload: T }>(
-            `UPDATE generation_tasks
+        const update = async (client?: QueryExecutor) => {
+            const query = client ? client.query.bind(client) : postgresQuery;
+            const result = await query<{ payload: T }>(
+                `UPDATE generation_tasks
              SET status = $5, payload = payload || $6::jsonb, updated_at = $7, expires_at = $8,
                  execution_phase = CASE WHEN $9::boolean THEN COALESCE($10, execution_phase) ELSE execution_phase END,
                  upstream_task_id = CASE WHEN $9::boolean THEN COALESCE($11, upstream_task_id) ELSE upstream_task_id END,
@@ -560,58 +655,72 @@ export async function transitionStoredGenerationTask<T extends { id: string; use
                  result_payload = CASE WHEN $9::boolean THEN COALESCE($19::jsonb, result_payload) ELSE result_payload END,
                  worker_id = CASE WHEN $9::boolean THEN NULL ELSE worker_id END,
                  lease_until = CASE WHEN $9::boolean THEN NULL ELSE lease_until END
-             WHERE id = $1 AND task_type = $2 AND user_id = $3 AND status = ANY($4::text[]) AND expires_at > now()
+             WHERE id = $1 AND task_type = $2 AND user_id = $3 AND status = ANY($4::text[]) AND ${generationTaskAvailableSql()}
              RETURNING payload`,
-            [
-                id,
-                type,
-                userId,
-                allowedStatuses.map(normalizeGenerationTaskStatus),
-                normalizeGenerationTaskStatus(patch.status),
-                JSON.stringify(nextPatch),
-                new Date(updatedAt),
-                new Date(updatedAt + ttlMs),
-                Boolean(execution),
-                execution?.executionPhase || null,
-                execution?.upstreamTaskId || null,
-                execution?.channelId || null,
-                execution?.provider || null,
-                execution?.queryPath || null,
-                optionalDate(execution?.submittedAt),
-                optionalDate(execution?.nextPollAt),
-                optionalDate(execution?.lastPollAt),
-                execution?.lastUpstreamStatus || null,
-                execution?.resultPayload ? JSON.stringify(execution.resultPayload) : null,
-            ],
-        );
-        return result.rows[0]?.payload || null;
+                [
+                    id,
+                    type,
+                    userId,
+                    allowedStatuses.map(normalizeGenerationTaskStatus),
+                    normalizeGenerationTaskStatus(patch.status),
+                    JSON.stringify(nextPatch),
+                    new Date(updatedAt),
+                    new Date(updatedAt + ttlMs),
+                    Boolean(execution),
+                    execution?.executionPhase || null,
+                    execution?.upstreamTaskId || null,
+                    execution?.channelId || null,
+                    execution?.provider || null,
+                    execution?.queryPath || null,
+                    optionalDate(execution?.submittedAt),
+                    optionalDate(execution?.nextPollAt),
+                    optionalDate(execution?.lastPollAt),
+                    execution?.lastUpstreamStatus || null,
+                    execution?.resultPayload ? JSON.stringify(execution.resultPayload) : null,
+                ],
+            );
+            const transitioned = result.rows[0]?.payload || null;
+            if (transitioned) await recordGenerationTaskCharges(type, transitioned as Record<string, unknown>, client);
+            return transitioned;
+        };
+        return type === "text" || type === "image" || type === "video" || type === "audio" ? withPostgresTransaction(update) : update();
     }
     let transitioned: T | null = null;
     const allowed = new Set(allowedStatuses.map(normalizeGenerationTaskStatus));
-    await mutateFileTasks((tasks) =>
-        tasks.map((record) => {
-            if (record.id !== id || record.type !== type || record.userId !== userId || record.expiresAt <= updatedAt || !allowed.has(record.status)) return record;
-            transitioned = { ...(record.payload as T), ...nextPatch };
-            return {
-                ...record,
-                status: normalizeGenerationTaskStatus(patch.status),
-                payload: transitioned as unknown as Record<string, unknown>,
-                updatedAt,
-                expiresAt: updatedAt + ttlMs,
-                ...(execution ? applyExecutionPatch(execution) : {}),
-                ...(execution ? { workerId: undefined, leaseUntil: undefined } : {}),
-            };
-        }),
+    await mutateFileTasks(
+        (tasks) =>
+            tasks.map((record) => {
+                if (record.id !== id || record.type !== type || record.userId !== userId || !isGenerationTaskAvailable(record, updatedAt) || !allowed.has(record.status)) return record;
+                transitioned = { ...(record.payload as T), ...nextPatch };
+                return {
+                    ...record,
+                    status: normalizeGenerationTaskStatus(patch.status),
+                    payload: transitioned as unknown as Record<string, unknown>,
+                    updatedAt,
+                    expiresAt: updatedAt + ttlMs,
+                    ...(execution ? applyExecutionPatch(execution) : {}),
+                    ...(execution ? { workerId: undefined, leaseUntil: undefined } : {}),
+                };
+            }),
+        async () => {
+            if (transitioned) await recordGenerationTaskCharges(type, transitioned as Record<string, unknown>);
+        },
     );
     return transitioned;
 }
 
-export async function mutateStoredGenerationTask<T extends { id: string; userId: string; status: string; createdAt: number; updatedAt: number }>(type: GenerationTaskType, id: string, ttlMs: number, mutate: (current: T) => T | null): Promise<T | null> {
+export async function mutateStoredGenerationTask<T extends { id: string; userId: string; status: string; createdAt: number; updatedAt: number }>(
+    type: GenerationTaskType,
+    id: string,
+    ttlMs: number,
+    mutate: (current: T) => T | null,
+    executor?: QueryExecutor,
+): Promise<T | null> {
     const updatedAt = Date.now();
     if (getDatabaseProvider() === "postgres") {
-        await ensurePostgresSchema();
-        return withPostgresTransaction(async (client) => {
-            const result = await client.query<{ payload: T }>("SELECT payload FROM generation_tasks WHERE id = $1 AND task_type = $2 AND expires_at > now() FOR UPDATE", [id, type]);
+        if (!executor) await ensurePostgresSchema();
+        const update = async (client: QueryExecutor) => {
+            const result = await client.query<{ payload: T }>(`SELECT payload FROM generation_tasks WHERE id = $1 AND task_type = $2 AND ${generationTaskAvailableSql()} FOR UPDATE`, [id, type]);
             const current = result.rows[0]?.payload;
             if (!current) return null;
             const next = normalizeMutation(current, mutate(current), updatedAt);
@@ -623,19 +732,26 @@ export async function mutateStoredGenerationTask<T extends { id: string; userId:
                  RETURNING payload`,
                 [id, type, normalizeGenerationTaskStatus(next.status), JSON.stringify(next), new Date(updatedAt), new Date(updatedAt + ttlMs)],
             );
-            return updated.rows[0]?.payload || null;
-        });
+            const saved = updated.rows[0]?.payload || null;
+            if (saved) await recordGenerationTaskCharges(type, saved as Record<string, unknown>, client);
+            return saved;
+        };
+        return executor ? update(executor) : withPostgresTransaction(update);
     }
     let mutated: T | null = null;
-    await mutateFileTasks((tasks) =>
-        tasks.map((record) => {
-            if (record.id !== id || record.type !== type || record.expiresAt <= updatedAt) return record;
-            const current = record.payload as T;
-            const next = normalizeMutation(current, mutate(current), updatedAt);
-            if (!next) return record;
-            mutated = next;
-            return { ...record, status: normalizeGenerationTaskStatus(next.status), payload: next as unknown as Record<string, unknown>, updatedAt, expiresAt: updatedAt + ttlMs };
-        }),
+    await mutateFileTasks(
+        (tasks) =>
+            tasks.map((record) => {
+                if (record.id !== id || record.type !== type || !isGenerationTaskAvailable(record, updatedAt)) return record;
+                const current = record.payload as T;
+                const next = normalizeMutation(current, mutate(current), updatedAt);
+                if (!next) return record;
+                mutated = next;
+                return { ...record, status: normalizeGenerationTaskStatus(next.status), payload: next as unknown as Record<string, unknown>, updatedAt, expiresAt: updatedAt + ttlMs };
+            }),
+        async () => {
+            if (mutated) await recordGenerationTaskCharges(type, mutated as Record<string, unknown>);
+        },
     );
     return mutated;
 }
@@ -659,28 +775,46 @@ export async function linkStoredGenerationTask(type: GenerationTaskType, id: str
     const normalized = normalizeGenerationTaskContext(context);
     if (getDatabaseProvider() === "postgres") {
         await ensurePostgresSchema();
-        await postgresQuery(
-            `UPDATE generation_tasks
+        const link = async (client?: QueryExecutor) => {
+            const query = client ? client.query.bind(client) : postgresQuery;
+            const result = await query<{ payload: Record<string, unknown> }>(
+                `UPDATE generation_tasks
              SET conversation_id = COALESCE($3, conversation_id), run_id = COALESCE($4, run_id), surface = COALESCE($5, surface),
                  project_id = COALESCE($6, project_id), parent_task_id = COALESCE($7, parent_task_id), attempt_no = COALESCE($8, attempt_no),
                  client_request_id = COALESCE($9, client_request_id), payload = payload || $10::jsonb
-             WHERE id = $1 AND task_type = $2`,
-            [
-                id,
-                type,
-                normalized.conversationId || null,
-                normalized.runId || null,
-                normalized.surface || null,
-                normalized.projectId || null,
-                normalized.parentTaskId || null,
-                normalized.attemptNo ?? null,
-                normalized.clientRequestId || null,
-                JSON.stringify(normalized),
-            ],
-        );
+             WHERE id = $1 AND task_type = $2
+             RETURNING payload`,
+                [
+                    id,
+                    type,
+                    normalized.conversationId || null,
+                    normalized.runId || null,
+                    normalized.surface || null,
+                    normalized.projectId || null,
+                    normalized.parentTaskId || null,
+                    normalized.attemptNo ?? null,
+                    normalized.clientRequestId || null,
+                    JSON.stringify(normalized),
+                ],
+            );
+            if (result.rows[0]?.payload) await recordGenerationTaskCharges(type, result.rows[0].payload, client);
+        };
+        if (type === "text" || type === "image" || type === "video" || type === "audio") await withPostgresTransaction(link);
+        else await link();
         return;
     }
-    await mutateFileTasks((tasks) => tasks.map((task) => (task.id === id && task.type === type ? { ...task, ...normalized, payload: { ...task.payload, ...normalized } } : task)));
+    let linked: Record<string, unknown> | null = null;
+    await mutateFileTasks(
+        (tasks) =>
+            tasks.map((task) => {
+                if (task.id !== id || task.type !== type) return task;
+                linked = { ...task.payload, ...normalized };
+                return { ...task, ...normalized, payload: linked };
+            }),
+        async () => {
+            if (linked && (normalized.projectId || normalized.runId)) await recordGenerationTaskCharges(type, linked);
+        },
+    );
 }
 
 export async function countActiveStoredGenerationTasks(userId: string, type: GenerationTaskType, staleMs: number, excludeTaskId?: string) {
@@ -689,7 +823,7 @@ export async function countActiveStoredGenerationTasks(userId: string, type: Gen
     if (getDatabaseProvider() === "postgres") {
         await ensurePostgresSchema();
         const result = await postgresQuery<{ total: string | number }>(
-            `SELECT count(*) AS total FROM generation_tasks WHERE user_id = $1 AND task_type = $2 AND status IN ('pending', 'running') AND execution_phase = ANY($4::text[]) AND updated_at >= $3 AND expires_at > now()${excludeTaskId ? " AND id <> $5" : ""}${concurrencyClassFilter}`,
+            `SELECT count(*) AS total FROM generation_tasks WHERE user_id = $1 AND task_type = $2 AND status IN ('pending', 'running') AND execution_phase = ANY($4::text[]) AND updated_at >= $3 AND ${generationTaskAvailableSql()}${excludeTaskId ? " AND id <> $5" : ""}${concurrencyClassFilter}`,
             [userId, type, new Date(activeAfter), ACTIVE_CONCURRENCY_PHASES, ...(excludeTaskId ? [excludeTaskId] : [])],
         );
         return Number(result.rows[0]?.total || 0);
@@ -704,7 +838,7 @@ export async function countActiveStoredGenerationTasks(userId: string, type: Gen
             ["pending", "running"].includes(task.status) &&
             isActiveConcurrencyPhase(task.executionPhase) &&
             task.updatedAt >= activeAfter &&
-            task.expiresAt > Date.now(),
+            isGenerationTaskAvailable(task),
     ).length;
 }
 
@@ -724,7 +858,7 @@ export async function generationCapacityRetryAfterSeconds(userId: string, type: 
              ))))::integer END AS retry_after_seconds
              FROM generation_tasks
              WHERE user_id = $1 AND task_type = $2 AND status IN ('pending', 'running')
-               AND execution_phase = ANY($4::text[]) AND updated_at >= $3 AND expires_at > now()${excludeTaskId ? " AND id <> $5" : ""}${concurrencyClassFilter}`,
+               AND execution_phase = ANY($4::text[]) AND updated_at >= $3 AND ${generationTaskAvailableSql()}${excludeTaskId ? " AND id <> $5" : ""}${concurrencyClassFilter}`,
             [userId, type, new Date(activeAfter), ACTIVE_CONCURRENCY_PHASES, ...(excludeTaskId ? [excludeTaskId] : [])],
         );
         const seconds = Number(result.rows[0]?.retry_after_seconds);
@@ -740,7 +874,7 @@ export async function generationCapacityRetryAfterSeconds(userId: string, type: 
                 ["pending", "running"].includes(task.status) &&
                 isActiveConcurrencyPhase(task.executionPhase) &&
                 task.updatedAt >= activeAfter &&
-                task.expiresAt > now,
+                isGenerationTaskAvailable(task, now),
         )
         .reduce((earliest, task) => Math.min(earliest, task.leaseUntil && task.leaseUntil > now ? task.leaseUntil : task.nextPollAt && task.nextPollAt > now ? task.nextPollAt : now), Number.POSITIVE_INFINITY);
     return Number.isFinite(retryAt) ? Math.max(1, Math.ceil((retryAt - now) / 1000)) : undefined;
@@ -752,12 +886,12 @@ export async function withGenerationConcurrencyLimit<T>(userId: string, type: Ge
         const reservationId = requestId?.trim() || `reservation:${crypto.randomUUID()}`;
         const admitted = await withPostgresTransaction(async (client) => {
             await client.query("SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))", [userId, type]);
-            await client.query("DELETE FROM generation_concurrency_reservations WHERE expires_at <= now()");
+            await client.query("DELETE FROM generation_concurrency_reservations WHERE user_id = $1 AND task_type = $2 AND expires_at <= now()", [userId, type]);
             const duplicate = await client.query("SELECT 1 FROM generation_concurrency_reservations WHERE user_id = $1 AND task_type = $2 AND request_id = $3 AND expires_at > now()", [userId, type, reservationId]);
             if (duplicate.rows.length) return false;
             const result = await client.query<{ total: string | number }>(
                 `SELECT
-                    (SELECT count(*) FROM generation_tasks WHERE user_id = $1 AND task_type = $2 AND status IN ('pending', 'running') AND execution_phase = ANY($4::text[]) AND updated_at >= $3 AND expires_at > now()${excludeTaskId ? " AND id <> $5" : ""}${type === "image" ? " AND COALESCE(payload->>'concurrencyClass', '') <> 'canvas-layer'" : ""})
+                    (SELECT count(*) FROM generation_tasks WHERE user_id = $1 AND task_type = $2 AND status IN ('pending', 'running') AND execution_phase = ANY($4::text[]) AND updated_at >= $3 AND ${generationTaskAvailableSql()}${excludeTaskId ? " AND id <> $5" : ""}${type === "image" ? " AND COALESCE(payload->>'concurrencyClass', '') <> 'canvas-layer'" : ""})
                     +
                     (SELECT count(*) FROM generation_concurrency_reservations AS reservation
                      WHERE reservation.user_id = $1 AND reservation.task_type = $2 AND reservation.expires_at > now()
@@ -765,7 +899,7 @@ export async function withGenerationConcurrencyLimit<T>(userId: string, type: Ge
                            SELECT 1 FROM generation_tasks AS task
                            WHERE task.user_id = reservation.user_id AND task.task_type = reservation.task_type
                              AND task.client_request_id = reservation.request_id AND task.status IN ('pending', 'running')
-                             AND task.execution_phase = ANY($4::text[]) AND task.updated_at >= $3 AND task.expires_at > now()
+                             AND task.execution_phase = ANY($4::text[]) AND task.updated_at >= $3 AND ${generationTaskAvailableSql("now()", "task")}
                        )) AS total`,
                 [userId, type, new Date(Date.now() - staleMs), ACTIVE_CONCURRENCY_PHASES, ...(excludeTaskId ? [excludeTaskId] : [])],
             );
@@ -791,7 +925,7 @@ export async function withGenerationConcurrencyLimit<T>(userId: string, type: Ge
     concurrencyQueues.set(key, queued);
     await previous;
     try {
-        return (await countActiveStoredGenerationTasks(userId, type, staleMs, excludeTaskId)) >= limit ? null : handler();
+        return (await countActiveStoredGenerationTasks(userId, type, staleMs, excludeTaskId)) >= limit ? null : await handler();
     } finally {
         release();
         if (concurrencyQueues.get(key) === queued) concurrencyQueues.delete(key);
@@ -925,8 +1059,12 @@ async function readFileTasks() {
     return readJsonDataFile<StoredGenerationTaskRecord[]>(TASK_FILE, []);
 }
 
-function mutateFileTasks(mutator: (tasks: StoredGenerationTaskRecord[]) => StoredGenerationTaskRecord[]) {
-    return withGenerationTaskFileMutation(async (tasks) => ({ tasks: mutator(tasks), result: undefined }));
+function mutateFileTasks(mutator: (tasks: StoredGenerationTaskRecord[]) => StoredGenerationTaskRecord[], beforePersist?: () => Promise<void>) {
+    return withGenerationTaskFileMutation(async (tasks) => {
+        const next = mutator(tasks);
+        await beforePersist?.();
+        return { tasks: next, result: undefined };
+    });
 }
 
 export function withGenerationTaskFileMutation<T>(mutator: (tasks: StoredGenerationTaskRecord[]) => Promise<{ tasks: StoredGenerationTaskRecord[]; result: T }>) {
@@ -944,7 +1082,7 @@ export function withGenerationTaskFileMutation<T>(mutator: (tasks: StoredGenerat
     return run;
 }
 
-function normalizeGenerationTaskContext(context: GenerationTaskContext): GenerationTaskContext {
+export function normalizeGenerationTaskContext(context: GenerationTaskContext): GenerationTaskContext {
     const attempt = Number(context.attemptNo);
     return {
         conversationId: cleanContextText(context.conversationId),

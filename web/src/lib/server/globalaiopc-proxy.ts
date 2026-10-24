@@ -15,12 +15,15 @@ export function isGlobalAiOpcChannel(config?: SystemChannelAdvancedConfig) {
 
 export function adaptGlobalAiOpcTextRequest(config: SystemChannelAdvancedConfig | undefined, path: string[], body: BodyInit | undefined) {
     const payload = jsonObject(body);
+    const anthropic = config?.protocol === "anthropic";
     const preset = resolveGlobalAiOpcPreset(config, payload?.model);
-    if (!preset || (preset.id !== "text-gemini-native" && preset.id !== "text-claude-native")) return null;
+    if (!anthropic && (!preset || (preset.id !== "text-gemini-native" && preset.id !== "text-claude-native"))) return null;
     const cleanPath = path[0] === "v1" ? path.slice(1) : path;
     if (cleanPath.join("/") === "responses") return "responses-unsupported" as const;
     if (cleanPath.join("/") !== "chat/completions") return null;
     if (!payload) return null;
+    if (anthropic) return { path: ["v1", "messages"], body: JSON.stringify(toClaudeRequest(payload)), adapter: "claude" as const };
+    if (!preset) return null;
     return preset.id === "text-gemini-native"
         ? { path: ["models", `${modelName(payload.model)}:generateContent`], body: JSON.stringify(toGeminiRequest(payload)), adapter: "gemini" as const }
         : { path: ["messages"], body: JSON.stringify(toClaudeRequest(payload)), adapter: "claude" as const };

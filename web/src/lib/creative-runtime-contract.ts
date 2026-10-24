@@ -120,8 +120,9 @@ export type CreativeRunEvent = {
 };
 
 export type CreativeGenerationMode = "image" | "video" | "audio";
+export type CreativeCreationMode = "agent" | "text" | CreativeGenerationMode;
 export type CreativeGenerationPreferences = {
-    mode?: CreativeGenerationMode;
+    mode?: "text" | CreativeGenerationMode;
     image?: { size?: string; quality?: string; count?: number };
     video?: {
         size?: string;
@@ -135,6 +136,12 @@ export type CreativeGenerationPreferences = {
         lastFrameAssetId?: string;
     };
     audio?: { voice?: string; format?: string; speed?: number };
+};
+
+export type CreativeCostPreview = {
+    totalCount: number;
+    fixedEstimatedPoints: number;
+    lines: Array<{ modelId: string; modelName: string; capability: "image" | "video" | "audio"; count: number; estimatedPoints?: number; note?: string }>;
 };
 
 export type CreativeRunRequest = {
@@ -185,6 +192,7 @@ export function normalizeCreativeRunRequest(value: unknown): CreativeRunRequest 
     if (!prompt) throw new CreativeRuntimeInputError("创作需求不能为空");
     if (skillIds.length > CREATIVE_RUN_SKILL_LIMIT) throw new CreativeRuntimeInputError(`一次最多启用 ${CREATIVE_RUN_SKILL_LIMIT} 个 Skill`);
     if (modelIds.length > CREATIVE_RUN_MODEL_LIMIT) throw new CreativeRuntimeInputError(`一次最多选择 ${CREATIVE_RUN_MODEL_LIMIT} 个模型`);
+    if (preferences?.mode === "text" && (surface !== "chat" || skillIds.length || modelIds.length || preferences.image || preferences.video || preferences.audio)) throw new CreativeRuntimeInputError("文本对话只能使用默认文本模型和本轮素材");
     if (videoFrameAssetIds(preferences?.video).some((id) => !assetIds.includes(id))) throw new CreativeRuntimeInputError("视频首尾帧必须来自本轮已选择的图片素材");
     if (surface === "chat" && (projectId || snapshot !== undefined)) throw new CreativeRuntimeInputError("普通对话不接受项目或快照");
     if (surface !== "chat" && !projectId) throw new CreativeRuntimeInputError(surface === "canvas" ? "画布标识不能为空" : "短剧项目标识不能为空");
@@ -193,10 +201,10 @@ export function normalizeCreativeRunRequest(value: unknown): CreativeRunRequest 
     return { clientRequestId, surface, conversationId, projectId, prompt, ...(publicPrompt && publicPrompt !== prompt ? { publicPrompt } : {}), snapshot, assetIds, skillIds, modelIds, ...(preferences ? { preferences } : {}) };
 }
 
-function normalizeCreativeGenerationPreferences(value: unknown): CreativeGenerationPreferences | undefined {
+export function normalizeCreativeGenerationPreferences(value: unknown): CreativeGenerationPreferences | undefined {
     if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
     const input = value as Record<string, unknown>;
-    const mode = input.mode === "image" || input.mode === "video" || input.mode === "audio" ? input.mode : undefined;
+    const mode = input.mode === "text" || input.mode === "image" || input.mode === "video" || input.mode === "audio" ? input.mode : undefined;
     const image = normalizeImagePreferences(input.image);
     const video = normalizeVideoPreferences(input.video);
     const audio = normalizeAudioPreferences(input.audio);
@@ -207,7 +215,7 @@ function normalizeCreativeGenerationPreferences(value: unknown): CreativeGenerat
 function normalizeImagePreferences(value: unknown) {
     if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
     const input = value as Record<string, unknown>;
-    const size = normalizePreferenceSize(input.size);
+    const size = normalizePreferenceSize(input.size, true);
     const rawQuality = optionalText(input.quality, 40);
     const quality = isCreativeAutoValue(rawQuality) ? "auto" : rawQuality;
     const count = Number(input.count);
@@ -260,10 +268,11 @@ function normalizeAudioPreferences(value: unknown) {
     return voice || format || normalizedSpeed ? { ...(voice ? { voice } : {}), ...(format ? { format } : {}), ...(normalizedSpeed ? { speed: normalizedSpeed } : {}) } : undefined;
 }
 
-function normalizePreferenceSize(value: unknown) {
+function normalizePreferenceSize(value: unknown, image = false) {
     if (typeof value !== "string") return undefined;
     const size = value.trim().replace(/[：；;]/g, ":");
     if (!size || isCreativeAutoValue(size)) return size ? "auto" : undefined;
+    if (image && size.toLowerCase() === "2k") return "2K";
     const dimensions = size.match(/^(\d+)\s*[x*×]\s*(\d+)$/i);
     if (dimensions && Number(dimensions[1]) > 0 && Number(dimensions[2]) > 0) return `${Number(dimensions[1])}x${Number(dimensions[2])}`;
     const ratio = size.match(/^(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)$/);

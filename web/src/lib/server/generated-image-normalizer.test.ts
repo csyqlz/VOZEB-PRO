@@ -10,7 +10,7 @@ describe("generated image normalization", () => {
             .toBuffer();
         const result = await normalizeGeneratedImageBytes(source, "image/png", "1824x1024");
 
-        expect(result).toMatchObject({ mimeType: "image/png", width: 1824, height: 1024 });
+        expect(result).toMatchObject({ mimeType: "image/png", width: 1824, height: 1024, sourceWidth: 1600, sourceHeight: 900 });
         await expect(sharp(result.bytes).metadata()).resolves.toMatchObject({ format: "png", width: 1824, height: 1024 });
     });
 
@@ -30,7 +30,7 @@ describe("generated image normalization", () => {
             .toBuffer();
         const result = await normalizeGeneratedImageBytes(source, "image/jpeg", "16:9");
 
-        expect(result).toMatchObject({ mimeType: "image/jpeg", width: 1280, height: 720 });
+        expect(result).toMatchObject({ mimeType: "image/jpeg", width: 1280, height: 720, sourceWidth: 1280, sourceHeight: 720 });
         expect(result.bytes).toEqual(source);
     });
 

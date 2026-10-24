@@ -11,6 +11,7 @@ vi.mock("./creative-runtime-store", () => ({
     mutateCreativeRun: mocks.mutateCreativeRun,
 }));
 vi.mock("./drama-project-store", () => ({ getDramaProject: mocks.getDramaProject }));
+vi.mock("./model-pricing-service", () => ({ capturePublishedPricingIdentity: vi.fn(async () => null) }));
 vi.mock("./generation-task-store", () => ({ getStoredGenerationTask: vi.fn(), listStoredGenerationTasks: vi.fn() }));
 
 import { createAgentRun, setAgentRunStatus, updateAgentRunById, updateAgentRunTaskById } from "./agent-run-store";

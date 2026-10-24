@@ -1,0 +1,476 @@
+{
+  "observedAt": "2026-10-10T15:26:48Z",
+  "status": "draft-pending-administrator-review",
+  "productionChanged": false,
+  "scopeNote": "Singapore International only. Other deployment scopes have different list prices. Regular prices are retained despite promotional discounts or free quota. These inputs do not certify proxy region, cache usage, request bounds or metered admission.",
+  "candidateInputs": [
+    {
+      "logicalModelId": "qwen3.5-plus",
+      "manufacturer": "Alibaba Cloud",
+      "series": "Qwen3.5 Plus",
+      "officialVersion": "qwen3.5-plus",
+      "sku": "qwen3.5-plus",
+      "tier": "paid",
+      "conditions": "Singapore International, Standard real-time API original list prices, total-input request tiers UpTo256k/Over256kTo1m; selected tier prices the whole request, with its upper bound inclusive. Only the listed explicit cache creation/read prices are included; other cache modes require separate review. Thinking and non-thinking output share the listed price where both are supported. Excludes Global/US scopes, Batch, promotions/free quota, tools and unverified modalities; proxy region, cache mode and usage require review.",
+      "sourceKind": "manual",
+      "sourceUrl": "https://www.alibabacloud.com/help/en/model-studio/qwen3-5-plus",
+      "evidence": "Alibaba Cloud Model Studio qwen3.5-plus model page, Singapore International original Pricing rows: 2 request tier(s), 8 USD token items; checked 2026-10-10.",
+      "observedAt": "2026-10-10T15:26:48Z",
+      "items": [
+        {
+          "key": "inputTokensUpTo256k",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.4",
+          "currency": "USD"
+        },
+        {
+          "key": "outputTokensUpTo256k",
+          "unit": "token",
+          "per": "1000000",
+          "price": "2.4",
+          "currency": "USD"
+        },
+        {
+          "key": "cacheWriteTokensUpTo256k",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.5",
+          "currency": "USD"
+        },
+        {
+          "key": "explicitCachedInputTokensUpTo256k",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.04",
+          "currency": "USD"
+        },
+        {
+          "key": "inputTokensOver256kTo1m",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.5",
+          "currency": "USD"
+        },
+        {
+          "key": "outputTokensOver256kTo1m",
+          "unit": "token",
+          "per": "1000000",
+          "price": "3",
+          "currency": "USD"
+        },
+        {
+          "key": "cacheWriteTokensOver256kTo1m",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.625",
+          "currency": "USD"
+        },
+        {
+          "key": "explicitCachedInputTokensOver256kTo1m",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.05",
+          "currency": "USD"
+        }
+      ]
+    },
+    {
+      "logicalModelId": "qwen3.6-max-preview",
+      "manufacturer": "Alibaba Cloud",
+      "series": "Qwen3.6 Max Preview",
+      "officialVersion": "qwen3.6-max-preview",
+      "sku": "qwen3.6-max-preview",
+      "tier": "paid",
+      "conditions": "Singapore International, Standard real-time API original list prices, total-input request tiers UpTo128k/Over128kTo256k; selected tier prices the whole request, with its upper bound inclusive. Only the listed explicit cache creation/read prices are included; other cache modes require separate review. Thinking and non-thinking output share the listed price where both are supported. Excludes Global/US scopes, Batch, promotions/free quota, tools and unverified modalities; proxy region, cache mode and usage require review.",
+      "sourceKind": "manual",
+      "sourceUrl": "https://www.alibabacloud.com/help/en/model-studio/qwen3-6-max",
+      "evidence": "Alibaba Cloud Model Studio qwen3.6-max-preview model page, Singapore International original Pricing rows: 2 request tier(s), 8 USD token items; checked 2026-10-10.",
+      "observedAt": "2026-10-10T15:26:48Z",
+      "items": [
+        {
+          "key": "inputTokensUpTo128k",
+          "unit": "token",
+          "per": "1000000",
+          "price": "1.3",
+          "currency": "USD"
+        },
+        {
+          "key": "outputTokensUpTo128k",
+          "unit": "token",
+          "per": "1000000",
+          "price": "7.8",
+          "currency": "USD"
+        },
+        {
+          "key": "cacheWriteTokensUpTo128k",
+          "unit": "token",
+          "per": "1000000",
+          "price": "1.625",
+          "currency": "USD"
+        },
+        {
+          "key": "explicitCachedInputTokensUpTo128k",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.13",
+          "currency": "USD"
+        },
+        {
+          "key": "inputTokensOver128kTo256k",
+          "unit": "token",
+          "per": "1000000",
+          "price": "2",
+          "currency": "USD"
+        },
+        {
+          "key": "outputTokensOver128kTo256k",
+          "unit": "token",
+          "per": "1000000",
+          "price": "12",
+          "currency": "USD"
+        },
+        {
+          "key": "cacheWriteTokensOver128kTo256k",
+          "unit": "token",
+          "per": "1000000",
+          "price": "2.5",
+          "currency": "USD"
+        },
+        {
+          "key": "explicitCachedInputTokensOver128kTo256k",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.2",
+          "currency": "USD"
+        }
+      ]
+    },
+    {
+      "logicalModelId": "qwen3.6-plus",
+      "manufacturer": "Alibaba Cloud",
+      "series": "Qwen3.6 Plus",
+      "officialVersion": "qwen3.6-plus",
+      "sku": "qwen3.6-plus",
+      "tier": "paid",
+      "conditions": "Singapore International, Standard real-time API original list prices, total-input request tiers UpTo256k/Over256kTo1m; selected tier prices the whole request, with its upper bound inclusive. Only the listed explicit cache creation/read prices are included; other cache modes require separate review. Thinking and non-thinking output share the listed price where both are supported. Excludes Global/US scopes, Batch, promotions/free quota, tools and unverified modalities; proxy region, cache mode and usage require review.",
+      "sourceKind": "manual",
+      "sourceUrl": "https://www.alibabacloud.com/help/en/model-studio/qwen3-6-plus",
+      "evidence": "Alibaba Cloud Model Studio qwen3.6-plus model page, Singapore International original Pricing rows: 2 request tier(s), 8 USD token items; checked 2026-10-10.",
+      "observedAt": "2026-10-10T15:26:48Z",
+      "items": [
+        {
+          "key": "inputTokensUpTo256k",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.5",
+          "currency": "USD"
+        },
+        {
+          "key": "outputTokensUpTo256k",
+          "unit": "token",
+          "per": "1000000",
+          "price": "3",
+          "currency": "USD"
+        },
+        {
+          "key": "cacheWriteTokensUpTo256k",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.625",
+          "currency": "USD"
+        },
+        {
+          "key": "explicitCachedInputTokensUpTo256k",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.05",
+          "currency": "USD"
+        },
+        {
+          "key": "inputTokensOver256kTo1m",
+          "unit": "token",
+          "per": "1000000",
+          "price": "2",
+          "currency": "USD"
+        },
+        {
+          "key": "outputTokensOver256kTo1m",
+          "unit": "token",
+          "per": "1000000",
+          "price": "6",
+          "currency": "USD"
+        },
+        {
+          "key": "cacheWriteTokensOver256kTo1m",
+          "unit": "token",
+          "per": "1000000",
+          "price": "2.5",
+          "currency": "USD"
+        },
+        {
+          "key": "explicitCachedInputTokensOver256kTo1m",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.2",
+          "currency": "USD"
+        }
+      ]
+    },
+    {
+      "logicalModelId": "qwen3.7-flash",
+      "manufacturer": "Alibaba Cloud",
+      "series": "Qwen3.7 Flash",
+      "officialVersion": "qwen3.7-flash",
+      "sku": "qwen3.7-flash",
+      "tier": "paid",
+      "conditions": "Singapore International, Standard real-time API original list prices, total-input request tiers UpTo32k/Over32kTo256k/Over256kTo1m; selected tier prices the whole request, with its upper bound inclusive. Implicit cache hits and explicit cache creation/read have separate list prices; modes are mutually exclusive. Thinking and non-thinking output share the listed price where both are supported. Excludes Global/US scopes, Batch, promotions/free quota, tools and unverified modalities; proxy region, cache mode and usage require review.",
+      "sourceKind": "manual",
+      "sourceUrl": "https://www.alibabacloud.com/help/en/model-studio/qwen3-7-flash",
+      "evidence": "Alibaba Cloud Model Studio qwen3.7-flash model page, Singapore International original Pricing rows: 3 request tier(s), 15 USD token items; checked 2026-10-10.",
+      "observedAt": "2026-10-10T15:26:48Z",
+      "items": [
+        {
+          "key": "inputTokensUpTo32k",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.03",
+          "currency": "USD"
+        },
+        {
+          "key": "outputTokensUpTo32k",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.13",
+          "currency": "USD"
+        },
+        {
+          "key": "implicitCachedInputTokensUpTo32k",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.006",
+          "currency": "USD"
+        },
+        {
+          "key": "cacheWriteTokensUpTo32k",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.038",
+          "currency": "USD"
+        },
+        {
+          "key": "explicitCachedInputTokensUpTo32k",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.003",
+          "currency": "USD"
+        },
+        {
+          "key": "inputTokensOver32kTo256k",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.1",
+          "currency": "USD"
+        },
+        {
+          "key": "outputTokensOver32kTo256k",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.4",
+          "currency": "USD"
+        },
+        {
+          "key": "implicitCachedInputTokensOver32kTo256k",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.02",
+          "currency": "USD"
+        },
+        {
+          "key": "cacheWriteTokensOver32kTo256k",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.125",
+          "currency": "USD"
+        },
+        {
+          "key": "explicitCachedInputTokensOver32kTo256k",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.01",
+          "currency": "USD"
+        },
+        {
+          "key": "inputTokensOver256kTo1m",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.2",
+          "currency": "USD"
+        },
+        {
+          "key": "outputTokensOver256kTo1m",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.8",
+          "currency": "USD"
+        },
+        {
+          "key": "implicitCachedInputTokensOver256kTo1m",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.04",
+          "currency": "USD"
+        },
+        {
+          "key": "cacheWriteTokensOver256kTo1m",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.25",
+          "currency": "USD"
+        },
+        {
+          "key": "explicitCachedInputTokensOver256kTo1m",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.02",
+          "currency": "USD"
+        }
+      ]
+    },
+    {
+      "logicalModelId": "qwen3.7-max",
+      "manufacturer": "Alibaba Cloud",
+      "series": "Qwen3.7 Max",
+      "officialVersion": "qwen3.7-max",
+      "sku": "qwen3.7-max",
+      "tier": "paid",
+      "conditions": "Singapore International, Standard real-time API original list prices, total-input request tiers all-input; selected tier prices the whole request, with its upper bound inclusive. Implicit cache hits and explicit cache creation/read have separate list prices; modes are mutually exclusive. Thinking and non-thinking output share the listed price where both are supported. Excludes Global/US scopes, Batch, promotions/free quota, tools and unverified modalities; proxy region, cache mode and usage require review.",
+      "sourceKind": "manual",
+      "sourceUrl": "https://www.alibabacloud.com/help/en/model-studio/qwen3-7-max",
+      "evidence": "Alibaba Cloud Model Studio qwen3.7-max model page, Singapore International original Pricing rows: 1 request tier(s), 5 USD token items; checked 2026-10-10.",
+      "observedAt": "2026-10-10T15:26:48Z",
+      "items": [
+        {
+          "key": "inputTokens",
+          "unit": "token",
+          "per": "1000000",
+          "price": "2.5",
+          "currency": "USD"
+        },
+        {
+          "key": "outputTokens",
+          "unit": "token",
+          "per": "1000000",
+          "price": "7.5",
+          "currency": "USD"
+        },
+        {
+          "key": "implicitCachedInputTokens",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.5",
+          "currency": "USD"
+        },
+        {
+          "key": "cacheWriteTokens",
+          "unit": "token",
+          "per": "1000000",
+          "price": "3.125",
+          "currency": "USD"
+        },
+        {
+          "key": "explicitCachedInputTokens",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.25",
+          "currency": "USD"
+        }
+      ]
+    },
+    {
+      "logicalModelId": "qwen3.7-plus",
+      "manufacturer": "Alibaba Cloud",
+      "series": "Qwen3.7 Plus",
+      "officialVersion": "qwen3.7-plus",
+      "sku": "qwen3.7-plus",
+      "tier": "paid",
+      "conditions": "Singapore International, Standard real-time API original list prices, total-input request tiers UpTo256k/Over256kTo1m; selected tier prices the whole request, with its upper bound inclusive. Implicit cache hits and explicit cache creation/read have separate list prices; modes are mutually exclusive. Thinking and non-thinking output share the listed price where both are supported. Excludes Global/US scopes, Batch, promotions/free quota, tools and unverified modalities; proxy region, cache mode and usage require review.",
+      "sourceKind": "manual",
+      "sourceUrl": "https://www.alibabacloud.com/help/en/model-studio/qwen3-7-plus",
+      "evidence": "Alibaba Cloud Model Studio qwen3.7-plus model page, Singapore International original Pricing rows: 2 request tier(s), 10 USD token items; checked 2026-10-10.",
+      "observedAt": "2026-10-10T15:26:48Z",
+      "items": [
+        {
+          "key": "inputTokensUpTo256k",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.4",
+          "currency": "USD"
+        },
+        {
+          "key": "outputTokensUpTo256k",
+          "unit": "token",
+          "per": "1000000",
+          "price": "1.6",
+          "currency": "USD"
+        },
+        {
+          "key": "implicitCachedInputTokensUpTo256k",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.08",
+          "currency": "USD"
+        },
+        {
+          "key": "cacheWriteTokensUpTo256k",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.5",
+          "currency": "USD"
+        },
+        {
+          "key": "explicitCachedInputTokensUpTo256k",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.04",
+          "currency": "USD"
+        },
+        {
+          "key": "inputTokensOver256kTo1m",
+          "unit": "token",
+          "per": "1000000",
+          "price": "1.2",
+          "currency": "USD"
+        },
+        {
+          "key": "outputTokensOver256kTo1m",
+          "unit": "token",
+          "per": "1000000",
+          "price": "4.8",
+          "currency": "USD"
+        },
+        {
+          "key": "implicitCachedInputTokensOver256kTo1m",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.24",
+          "currency": "USD"
+        },
+        {
+          "key": "cacheWriteTokensOver256kTo1m",
+          "unit": "token",
+          "per": "1000000",
+          "price": "1.5",
+          "currency": "USD"
+        },
+        {
+          "key": "explicitCachedInputTokensOver256kTo1m",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.12",
+          "currency": "USD"
+        }
+      ]
+    }
+  ]
+}

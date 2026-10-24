@@ -48,6 +48,13 @@ describe("creative model capabilities", () => {
         expect(reconcileCreativeGenerationPreferences({ image: { size: "1080x1920", quality: "2k", count: 1 } }, [model])).toEqual({ image: { size: "1080x1920", quality: "2K", count: 1 } });
     });
 
+    it("keeps a custom pixel size when a Seedream model only declares the verified 2K tier", () => {
+        const model: CreativeModelCapabilityOption = { id: "seedream", name: "Seedream", capability: "image", capabilityProfile: { aspectRatios: ["2K"] } };
+        expect(reconcileCreativeGenerationPreferences({ image: { size: "2048x2048" } }, [model]).image?.size).toBe("2048x2048");
+        expect(reconcileCreativeGenerationPreferences({ image: { size: "2K" } }, [model]).image?.size).toBe("2K");
+        expect(reconcileCreativeGenerationPreferences({ image: { size: "1234x1500" } }, [{ ...model, capabilityProfile: { aspectRatios: ["1:1", "16:9", "2K"] } }]).image?.size).toBe("1234x1500");
+    });
+
     it("keeps every selected model represented and sums their known batch capacities", () => {
         const models: CreativeModelCapabilityOption[] = [
             { id: "first", name: "一", capability: "image", capabilityProfile: { maxBatchSize: 1 } },

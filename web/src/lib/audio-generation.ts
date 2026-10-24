@@ -12,6 +12,17 @@ export const audioVoiceOptions = [
     { value: "verse", label: "Verse" },
     { value: "marin", label: "Marin" },
     { value: "cedar", label: "Cedar" },
+    { value: "Kore", label: "Kore（Gemini）" },
+    { value: "Charon", label: "Charon（Gemini）" },
+    { value: "Fenrir", label: "Fenrir（Gemini）" },
+    { value: "Aoede", label: "Aoede（Gemini）" },
+    { value: "Puck", label: "Puck（Gemini）" },
+    { value: "Leda", label: "Leda（Gemini）" },
+    { value: "eve", label: "Eve（Grok）" },
+    { value: "ara", label: "Ara（Grok）" },
+    { value: "leo", label: "Leo（Grok）" },
+    { value: "rex", label: "Rex（Grok）" },
+    { value: "sal", label: "Sal（Grok）" },
 ];
 
 export const audioFormatOptions = [

@@ -2,7 +2,7 @@ import { agnesModelCatalog, agnesModelConfigs } from "@/lib/agnes-model-catalog"
 import { capabilityFromHint, inferModelCapability, isCreativeGenerationModel, normalizeModelId, type ModelCatalogEntry, type ModelCatalogSource } from "@/lib/model-capability";
 import type { LogicalModelCapability } from "@/lib/auth/store-types";
 import type { SystemChannelModelConfig, SystemChannelProtocol } from "@/lib/auth/store-types";
-import { protocolCatalogCapability } from "@/lib/channel-protocol-registry";
+import { protocolCatalogCapability, registeredChannelProtocolDefinitions } from "@/lib/channel-protocol-registry";
 
 type ModelsResponse = Record<string, unknown> & {
     data?: unknown;
@@ -76,7 +76,13 @@ export function parseModels(payload: ModelsResponse) {
 export function parseModelCatalog(payload: unknown, source: ModelCatalogSource = "provider", protocol?: SystemChannelProtocol) {
     return mergeModelCatalogEntries(
         ...collectModelValues(payload)
-            .filter(({ id }) => isCreativeGenerationModel(id))
+            .filter(
+                ({ id }) =>
+                    isCreativeGenerationModel(id) &&
+                    (protocol !== "dataeyes-gemini" || /^(?:gemini|veo)[-_.]/i.test(id.replace(/^models\//i, ""))) &&
+                    (protocol !== "dataeyes-flux" || /^flux[-_.]/i.test(id)) &&
+                    (protocol !== "dataeyes-seedream" || /seedream/i.test(id)),
+            )
             .map(({ id, metadata }) => [
                 {
                     id,
@@ -90,7 +96,13 @@ export function parseModelCatalog(payload: unknown, source: ModelCatalogSource =
 export function parseModelConfigs(payload: unknown, protocol?: SystemChannelProtocol) {
     return Object.fromEntries(
         collectModelValues(payload)
-            .filter(({ id }) => isCreativeGenerationModel(id))
+            .filter(
+                ({ id }) =>
+                    isCreativeGenerationModel(id) &&
+                    (protocol !== "dataeyes-gemini" || /^(?:gemini|veo)[-_.]/i.test(id.replace(/^models\//i, ""))) &&
+                    (protocol !== "dataeyes-flux" || /^flux[-_.]/i.test(id)) &&
+                    (protocol !== "dataeyes-seedream" || /seedream/i.test(id)),
+            )
             .map(({ id, metadata }) => {
                 const capability = resolveCatalogCapability(id, metadata, protocol);
                 return [normalizeModelId(id), { ...modelConfigFromMetadata(metadata, capability), source: "provider" as const }] as const;
@@ -256,6 +268,7 @@ function capabilityFromModelMetadata(record: Record<string, unknown> | undefined
 }
 
 function resolveCatalogCapability(model: string, metadata: Record<string, unknown> | undefined, protocol?: SystemChannelProtocol) {
+    if (protocol === "dataeyes-seedream") return "image";
     return capabilityFromModelMetadata(metadata) || (protocol ? protocolCatalogCapability(protocol) : undefined) || inferModelCapability(model);
 }
 
@@ -314,22 +327,7 @@ function firstApiPath(record: Record<string, unknown>, keys: string[]) {
 }
 
 function isChannelProtocol(value: unknown): value is SystemChannelProtocol {
-    return (
-        value === "auto" ||
-        value === "openai" ||
-        value === "yumeng" ||
-        value === "gemini" ||
-        value === "sub2api" ||
-        value === "newapi" ||
-        value === "vozeb-recommended" ||
-        value === "globalaiopc" ||
-        value === "seedance" ||
-        value === "stable-diffusion" ||
-        value === "volcengine-video" ||
-        value === "seedance-special" ||
-        value === "custom" ||
-        value === "compatible"
-    );
+    return typeof value === "string" && registeredChannelProtocolDefinitions.some((definition) => definition.id === value);
 }
 
 function normalizeCapabilityMap(value: unknown) {

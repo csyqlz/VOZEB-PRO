@@ -30,16 +30,44 @@ describe("registered protocol model catalogs over a local TCP interface", () => 
         expect(response.ok).toBe(true);
         const catalog = parseModelCatalog(payload, "provider", definition.id);
         const configs = parseModelConfigs(payload, definition.id);
-        const expectedIds = (path === "/sdapi/v1/sd-models" ? ["mock-image", "opaque-catalog-model"] : ["mock-audio", "mock-image", "mock-text", "mock-video", "opaque-catalog-model"]).sort((left, right) => left.localeCompare(right));
+        const expectedIds = (
+            definition.id === "dataeyes-gemini"
+                ? []
+                : definition.id === "dataeyes-flux"
+                  ? ["flux-2-pro"]
+                  : definition.id === "dataeyes-seedream"
+                    ? ["ByteDance-Seedream-5.0-pro"]
+                    : definition.id === "dataeyes-seedance"
+                      ? ["seedance-1.5-pro", "seedance-2.0-fast", "provider-scoped-video"]
+                      : path === "/sdapi/v1/sd-models"
+                        ? ["mock-image", "opaque-catalog-model"]
+                        : ["mock-audio", "mock-image", "mock-text", "mock-video", "opaque-catalog-model"]
+        ).sort((left, right) => left.localeCompare(right));
         expect(catalog.map((entry) => entry.id)).toEqual(expectedIds);
         expect(Object.keys(configs).sort()).toEqual(expectedIds.map((id) => id.toLowerCase()).sort());
         expect(modelCapabilitiesRecord(catalog, configs)).toEqual(
-            Object.fromEntries(expectedIds.map((id) => [id.toLowerCase(), id === "opaque-catalog-model" ? (definition.capabilities.length === 1 ? definition.capabilities[0] : "text") : id.replace("mock-", "")])),
+            Object.fromEntries(
+                expectedIds.map((id) => [
+                    id.toLowerCase(),
+                    definition.id === "dataeyes-seedance"
+                        ? "video"
+                        : definition.id === "dataeyes-flux" || definition.id === "dataeyes-seedream"
+                          ? "image"
+                          : id === "opaque-catalog-model"
+                            ? definition.capabilities.length === 1
+                                ? definition.capabilities[0]
+                                : "text"
+                            : id.replace("mock-", ""),
+                ]),
+            ),
         );
         const request = fixture.requests.at(-1);
         expect(request?.path).toBe(path);
         if (definition.authMode === "none") expect(request?.headers.authorization).toBeUndefined();
         else if (definition.id === "gemini") expect(request?.headers["x-goog-api-key"]).toBe("fixture-key");
+        else if (definition.id === "anthropic") expect(request?.headers).toMatchObject({ "x-api-key": "fixture-key", "anthropic-version": "2023-06-01" });
+        else if (definition.id === "bfl") expect(request?.headers["x-key"]).toBe("fixture-key");
+        else if (definition.id === "vidu") expect(request?.headers.authorization).toBe("Token fixture-key");
         else expect(request?.headers.authorization).toBe("Bearer fixture-key");
     });
 });

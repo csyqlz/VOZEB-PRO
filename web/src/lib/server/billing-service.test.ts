@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { BillingOrderRecord, PaymentTransactionRecord, UserPlanAssignmentRecord } from "@/lib/server/database";
+import { isPostgresDatabaseEnabled } from "@/lib/server/database";
 import type { UserRecord } from "@/lib/server/database/repository-shared";
 
 const mocks = vi.hoisted(() => ({
@@ -75,7 +76,14 @@ vi.mock("@/lib/server/billing-service-helpers", async (importOriginal) => ({
     createOrderPlanAssignment: mocks.createOrderPlanAssignment,
 }));
 
-import { completeBillingOrderPayment, refundBillingOrder } from "./billing-service";
+import { completeBillingOrderPayment, listUserBillingOrders, refundBillingOrder } from "./billing-service";
+
+describe("billing order listing", () => {
+    it("returns an empty page in file database mode without querying PostgreSQL", async () => {
+        vi.mocked(isPostgresDatabaseEnabled).mockReturnValueOnce(false);
+        await expect(listUserBillingOrders("user-one", { page: 2, pageSize: 10 })).resolves.toEqual({ items: [], total: 0, page: 2, pageSize: 10 });
+    });
+});
 
 const now = "2026-07-23T00:00:00.000Z";
 const baseUser = {

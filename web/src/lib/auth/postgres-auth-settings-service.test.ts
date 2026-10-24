@@ -20,7 +20,7 @@ vi.mock("@/lib/server/database", () => ({
 
 vi.mock("./store-repository", () => ({ readPostgresAuthSettings: mocks.readSettings }));
 
-import { updatePostgresAuthSettings } from "./postgres-auth-settings-service";
+import { updatePostgresAuthSettings, updatePostgresAuthSettingsWith } from "./postgres-auth-settings-service";
 
 describe("updatePostgresAuthSettings", () => {
     beforeEach(() => {
@@ -91,5 +91,27 @@ describe("updatePostgresAuthSettings", () => {
         expect(settings.systemChannels).toEqual([]);
         expect(mocks.upsertSystemModelChannel).not.toHaveBeenCalled();
         expect(mocks.deleteSystemModelChannelsNotIn).toHaveBeenCalledWith([]);
+    });
+
+    it("locks and reads the latest settings before a scoped logical-model update", async () => {
+        const latest = structuredClone(DEFAULT_SETTINGS);
+        latest.systemChannels = [{ id: "one", name: "One", baseUrl: "https://api.example.com/v1", apiKey: "", apiFormat: "openai", models: ["writer"], enabled: true }];
+        latest.logicalModels = [{ id: "writer", name: "另一个管理员的新昵称", capability: "text", enabled: true, bindings: [{ id: "binding", channelId: "one", upstreamModel: "writer", enabled: true, priority: 3 }] }];
+        const events: string[] = [];
+        mocks.lock.mockImplementation(async () => {
+            events.push("lock");
+        });
+        mocks.readSettings.mockImplementation(async () => {
+            events.push("read");
+            return latest;
+        });
+
+        await updatePostgresAuthSettingsWith((current) => {
+            events.push("patch");
+            return { logicalModels: current.logicalModels.map((model) => ({ ...model, bindings: model.bindings.map((binding) => ({ ...binding, priority: 1 })) })) };
+        });
+
+        expect(events).toEqual(["lock", "read", "patch"]);
+        expect(mocks.updateSettings).toHaveBeenCalledWith({ logicalModels: [expect.objectContaining({ name: "另一个管理员的新昵称", bindings: [expect.objectContaining({ priority: 1 })] })] });
     });
 });

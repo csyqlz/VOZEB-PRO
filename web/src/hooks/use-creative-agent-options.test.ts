@@ -22,6 +22,22 @@ describe("creative Agent public model catalog", () => {
         expect(config.videoModels).toEqual(["video-one"]);
         expect(creativeAgentModelsFromConfig(config, ["video"])).toEqual([{ id: "video-one", name: "video-one", capability: "video" }]);
     });
+
+    it("offers the verified 2K tier for a DataEyes Seedream 5.0 Pro binding", () => {
+        const settings = publicSettings();
+        settings.systemChannels![0] = { ...settings.systemChannels![0], models: ["ByteDance-Seedream-5.0-pro"] };
+        settings.logicalModels = [
+            {
+                id: "seedream-image",
+                name: "Seedream 5.0 Pro",
+                capability: "image",
+                enabled: true,
+                bindings: [{ id: "seedream-binding", channelId: "media-channel", upstreamModel: "ByteDance-Seedream-5.0-pro", enabled: true, priority: 1, capabilityProfile: { aspectRatios: ["2K"] } }],
+            },
+        ];
+        const models = creativeAgentModelsFromConfig(applyPublicSystemSettings(defaultConfig, settings), ["image"]);
+        expect(models).toEqual([{ id: "seedream-image", name: "Seedream 5.0 Pro", capability: "image", capabilityProfile: { aspectRatios: ["2K"] } }]);
+    });
 });
 
 function publicSettings(): PublicSystemSettings {

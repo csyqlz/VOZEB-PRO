@@ -32,7 +32,11 @@
         ".next-dev/types/**/*.ts",
         ".next-dev/dev/types/**/*.ts",
         ".next-production/types/**/*.ts",
-        ".next-production/dev/types/**/*.ts"
+        ".next-production/dev/types/**/*.ts",
+        ".next-dev-pricing/types/**/*.ts",
+        ".next-dev-pricing/dev/types/**/*.ts",
+        ".next-pricing-test/types/**/*.ts",
+        ".next-pricing-test/dev/types/**/*.ts"
     ],
     "exclude": ["node_modules"]
 }

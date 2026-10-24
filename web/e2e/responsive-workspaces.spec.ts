@@ -4,6 +4,51 @@ import { expect, test, type APIRequestContext, type Locator } from "@playwright/
 
 import { billingProductsFixture, expectDialogWithinViewport, expectNoHorizontalOverflow, masonryGalleryFixture, masonryLayoutIsReady, openCreativeHistory, readMasonryLayout } from "./responsive-helpers";
 
+test("short-drama project billing separates settled charges and open holds", async ({ page, request }) => {
+    const created = await request.post("/api/drama/projects", { data: { title: `短剧费用回归 ${randomUUID().slice(0, 8)}`, ratio: "9:16" } });
+    expect(created.ok(), await created.text()).toBe(true);
+    const project = ((await created.json()) as { data: { project: { id: string } } }).data.project;
+    try {
+        await page.route(`**/api/drama/projects/${project.id}/costs`, (route) =>
+            route.fulfill({
+                json: {
+                    code: 0,
+                    msg: "OK",
+                    data: {
+                        summary: {
+                            estimatedPoints: 0,
+                            actualPoints: 7,
+                            pendingHeldPoints: 4.25,
+                            taskCount: 1,
+                            successCount: 1,
+                            failedCount: 0,
+                            byType: {},
+                            charges: [{ type: "image", purpose: "generation", logicalModelId: "image-a", chargedPoints: 10, refundedPoints: 3, actualPoints: 7 }],
+                            pending: [{ type: "video", logicalModelId: "video-a", heldPoints: 4.25, count: 1 }],
+                        },
+                    },
+                },
+            }),
+        );
+        await page.goto(`/drama/${project.id}`, { waitUntil: "domcontentloaded" });
+        await expect(page.locator("[data-drama-workspace]")).toBeVisible();
+        await page.getByRole("button", { name: "切换到镜头生成" }).click();
+        const billing = page.locator("[data-drama-project-billing]");
+        await expect(billing.locator("summary")).toContainText("已结 7 积分 · 未结预留 4.25 积分");
+        await billing.locator("summary").click();
+        await expect(billing.getByRole("list", { name: "已结费用" })).toContainText("image-a · 图片 · 生成");
+        await expect(billing.getByRole("list", { name: "已结费用" })).toContainText("已扣 10 · 已退 3 · 净额 7 积分");
+        await expect(billing.getByRole("list", { name: "未结预留" })).toContainText("video-a · 视频 × 1");
+        await expect(billing.getByRole("list", { name: "未结预留" })).toContainText("4.25 积分");
+        const size = await billing.evaluate((element) => ({ width: element.clientWidth, scrollWidth: element.scrollWidth }));
+        expect(size.scrollWidth).toBeLessThanOrEqual(size.width + 1);
+        await expectNoHorizontalOverflow(page, `短剧项目费用 ${page.viewportSize()?.width}px`);
+    } finally {
+        const deleted = await request.delete(`/api/drama/projects/${project.id}`);
+        expect(deleted.ok(), await deleted.text()).toBe(true);
+    }
+});
+
 test("creative workspaces remain usable without horizontal overflow in light and dark themes", async ({ page, request }) => {
     const created = await request.post("/api/drama/projects", { data: { title: "E2E 短剧项目", ratio: "9:16" } });
     expect(created.ok(), await created.text()).toBe(true);
@@ -133,7 +178,7 @@ test("creative workspaces remain usable without horizontal overflow in light and
                 expect((contentBox?.x || 0) + (contentBox?.width || 0)).toBeLessThanOrEqual((agentBox?.x || 0) + 1);
                 agentSurface = agentPanel;
             } else {
-                const agentDrawer = page.getByRole("dialog", { name: "项目 Agent" });
+                const agentDrawer = page.getByRole("dialog", { name: "项目 Agent", includeHidden: true });
                 await expect(agentDrawer).toBeVisible();
                 await expectDialogWithinViewport(agentDrawer);
                 agentSurface = agentDrawer;
@@ -165,6 +210,7 @@ test("creative workspaces remain usable without horizontal overflow in light and
             await page.keyboard.press("Escape");
             await agentSurface.getByRole("button", { name: "收起项目 Agent" }).click();
             await expect(page.getByRole("button", { name: "打开项目 Agent", exact: true })).toBeVisible();
+            await expect(agentSurface).toBeHidden();
         }
         if (route === canvasRoute) {
             await expect(page.locator("[data-canvas-surface]")).toHaveCSS("background-color", "rgb(255, 255, 255)");

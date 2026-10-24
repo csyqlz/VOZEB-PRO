@@ -16,9 +16,16 @@ export async function recoverGenerationTaskFromUpstream(input: {
     origin: string;
     publicOrigin?: string;
     cookie?: string;
+    cancelled?: boolean;
 }) {
-    const rearmed = await scheduleGenerationTask(input.type, input.id, {
-        executionPhase: "polling",
+    const record = !input.upstreamTaskId || input.cancelled ? await getStoredGenerationTaskRecord(input.type, input.id) : null;
+    const cancelledMediaBilling = ["video", "audio"].includes(input.type) && record?.status === "cancelled" && record.payload.billingMode === "official-usage" && record.payload.billingPending === true;
+    if (!input.upstreamTaskId) {
+        if (!["image", "video", "audio"].includes(input.type) || record?.payload.billingMode !== "official-usage") return false;
+    }
+    if (input.cancelled && !cancelledMediaBilling) return false;
+    const patch: Parameters<typeof scheduleGenerationTask>[2] = {
+        executionPhase: cancelledMediaBilling ? "cancel_polling" : input.upstreamTaskId ? "polling" : "submitting",
         upstreamTaskId: input.upstreamTaskId,
         channelId: input.channelId,
         provider: input.provider,
@@ -26,7 +33,8 @@ export async function recoverGenerationTaskFromUpstream(input: {
         submittedAt: input.submittedAt,
         nextPollAt: Date.now(),
         lastUpstreamStatus: "user_recovery_requested",
-    });
+    };
+    const rearmed = cancelledMediaBilling ? await scheduleGenerationTask(input.type, input.id, patch, { cancellation: true }) : await scheduleGenerationTask(input.type, input.id, patch);
     if (!rearmed) return false;
 
     const recoveryInput = {

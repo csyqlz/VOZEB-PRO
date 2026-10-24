@@ -1,6 +1,6 @@
 export const CREATE_AGENT_PROMPT_MAX_LENGTH = 4000;
 
-export const CREATE_AGENT_MODES = ["agent", "image", "video", "audio"] as const;
+export const CREATE_AGENT_MODES = ["agent", "text", "image", "video", "audio"] as const;
 
 export type CreateAgentMode = (typeof CREATE_AGENT_MODES)[number];
 export type CreateAgentPromptSource = "gallery" | "home";

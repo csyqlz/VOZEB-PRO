@@ -8,10 +8,12 @@ import { Blocks, Plus, RefreshCw, Route, Search, Settings2, Trash2 } from "lucid
 import { AdminLogicalModelManager } from "@/components/admin/admin-logical-model-manager";
 import type { SystemChannelProtocol, SystemModelChannel } from "@/lib/auth/store";
 import { channelProtocolDefinitions, channelSupportsModelCatalog } from "@/lib/channel-protocol-registry";
+import { currentChannelModels } from "@/lib/channel-model-availability";
 import { capabilityLabel, isLogicalModelResolvable } from "@/lib/model-routing-config";
 
 import { AdminChannelDetailDrawer } from "./admin-channel-detail-drawer";
 import { AdminChannelOnboardingDrawer } from "./admin-channel-onboarding-drawer";
+import { builtInProtocolCount, ProtocolCatalogFilters, protocolCatalogDescription, visibleProtocolGroups, type ProtocolCapabilityFilter } from "./admin-channel-protocol-catalog";
 import { ChannelStatusBadge } from "./admin-channel-status-badge";
 import { channelBindingCount, channelCapabilityLabels, channelProtocolLabel, channelSearchText, channelWorkspaceStatus, updateChannelInWorkspace, type ChannelWorkspaceSettings, type ChannelWorkspaceStatus } from "./admin-channel-workspace-model";
 
@@ -71,7 +73,17 @@ export function AdminChannelWorkspace({ settings, fetchingModelId, saving, onCha
             ),
         },
         { title: "协议", key: "protocol", width: 190, render: (_, channel) => <span className="text-sm">{channelProtocolLabel(channel)}</span> },
-        { title: "模型", key: "models", width: 90, align: "center", render: (_, channel) => channel.models.length },
+        {
+            title: "模型",
+            key: "models",
+            width: 90,
+            align: "center",
+            render: (_, channel) => (
+                <span title={channel.models.length > currentChannelModels(channel).length ? `当前可用 ${currentChannelModels(channel).length}，本地保留 ${channel.models.length - currentChannelModels(channel).length}` : "当前可用模型"}>
+                    {currentChannelModels(channel).length}
+                </span>
+            ),
+        },
         { title: "能力", key: "capabilities", width: 170, render: (_, channel) => <span className="text-xs text-stone-600 dark:text-stone-300">{channelCapabilityLabels(channel).join("、") || "待识别"}</span> },
         { title: "绑定", key: "bindings", width: 80, align: "center", render: (_, channel) => channelBindingCount(channel.id, settings) },
         {
@@ -283,7 +295,7 @@ function ChannelList({
                             <Switch size="small" checked={channel.enabled} disabled aria-label={`${channel.name}当前启用状态`} />
                         </div>
                         <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-stone-500 dark:text-stone-400">
-                            <span>{channel.models.length} 个模型</span>
+                            <span>{currentChannelModels(channel).length} 个当前可用模型</span>
                             <span>{channelCapabilityLabels(channel).join("、") || "能力待识别"}</span>
                             <span>{channelBindingCount(channel.id, settings)} 个绑定</span>
                         </div>
@@ -304,43 +316,61 @@ function ChannelList({
 }
 
 function ProtocolCenter({ settings, onCreate, onOpenChannel }: { settings: ChannelWorkspaceSettings; onCreate: (protocol?: SystemChannelProtocol) => void; onOpenChannel: (id: string) => void }) {
-    const definitions = channelProtocolDefinitions.filter((definition) => !["auto", "compatible"].includes(definition.id));
+    const [query, setQuery] = useState("");
+    const [capability, setCapability] = useState<ProtocolCapabilityFilter>("all");
+    const groups = visibleProtocolGroups(query, capability);
     const customChannels = settings.systemChannels.filter((channel) => channel.advancedConfig?.protocol === "custom");
     return (
         <div className="space-y-6">
             <section>
-                <div className="mb-3 flex items-center justify-between gap-3">
-                    <div className="text-sm font-semibold text-stone-950 dark:text-stone-100">内置协议</div>
-                    <Tag>{definitions.length} 个</Tag>
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                        <div className="text-sm font-semibold text-stone-950 dark:text-stone-100">
+                            内置协议 <span className="ml-1 text-xs font-normal text-stone-500 dark:text-stone-400">{builtInProtocolCount} 个</span>
+                        </div>
+                        <div className="mt-1 text-xs text-stone-500 dark:text-stone-400">按接口模板查找；实际上游地址以渠道配置为准。</div>
+                    </div>
+                    <Button icon={<Plus className="size-4" />} onClick={() => onCreate("custom")}>
+                        创建自定义协议
+                    </Button>
                 </div>
-                <div className="grid gap-2 lg:grid-cols-2">
-                    {definitions.map((definition) => {
-                        const used = settings.systemChannels.filter((channel) => channel.advancedConfig?.protocol === definition.id).length;
-                        return (
-                            <div key={definition.id} className="rounded-md border border-stone-200 bg-white p-3 dark:border-stone-800 dark:bg-stone-950">
-                                <div className="flex items-start justify-between gap-3">
-                                    <div className="min-w-0">
-                                        <div className="flex flex-wrap items-center gap-2">
-                                            <span className="text-sm font-semibold text-stone-950 dark:text-stone-100">{definition.label}</span>
-                                            <Tag className="m-0">内置</Tag>
-                                            {definition.strict ? <Tag className="m-0 !border-stone-300 !bg-stone-50 !text-stone-700 dark:!border-stone-700 dark:!bg-stone-900 dark:!text-stone-200">严格</Tag> : null}
-                                        </div>
-                                        <div className="mt-1 text-xs leading-5 text-stone-500 dark:text-stone-400">{definition.description}</div>
-                                    </div>
-                                    <Button size="small" onClick={() => onCreate(definition.id)}>
-                                        接入
-                                    </Button>
-                                </div>
-                                <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                                    {definition.capabilities.map((capability) => (
-                                        <Tag key={capability}>{capabilityLabel(capability)}</Tag>
-                                    ))}
-                                    <span className="ml-auto text-xs text-stone-500 dark:text-stone-400">{used} 个渠道使用</span>
-                                </div>
+                <ProtocolCatalogFilters query={query} onQueryChange={setQuery} capability={capability} onCapabilityChange={setCapability} />
+                {groups.length ? (
+                    groups.map((group) => (
+                        <div key={group.id} data-protocol-group={group.id} className="mt-5">
+                            <div className="mb-2 flex items-center justify-between border-b border-stone-200 pb-2 dark:border-stone-800">
+                                <div className="text-sm font-semibold text-stone-950 dark:text-stone-100">{group.title}</div>
+                                <div className="text-xs text-stone-500 dark:text-stone-400">{group.definitions.length} 个协议</div>
                             </div>
-                        );
-                    })}
-                </div>
+                            <div className="grid gap-2 lg:grid-cols-2">
+                                {group.definitions.map((definition) => {
+                                    const used = settings.systemChannels.filter((channel) => channel.advancedConfig?.protocol === definition.id).length;
+                                    return (
+                                        <div key={definition.id} data-protocol-id={definition.id} className="min-w-0 rounded-md border border-stone-200 bg-white p-3 dark:border-stone-800 dark:bg-stone-950">
+                                            <div className="flex items-start justify-between gap-3">
+                                                <div className="min-w-0 text-sm font-semibold text-stone-950 dark:text-stone-100">{definition.label}</div>
+                                                <Button size="small" onClick={() => onCreate(definition.id)}>
+                                                    接入
+                                                </Button>
+                                            </div>
+                                            <div className="mt-1 text-xs leading-5 text-stone-500 dark:text-stone-400">{protocolCatalogDescription(definition)}</div>
+                                            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                                                {definition.capabilities.map((item) => (
+                                                    <Tag key={item} className="!m-0">
+                                                        {capabilityLabel(item)}
+                                                    </Tag>
+                                                ))}
+                                                {used ? <span className="ml-auto text-xs text-stone-500 dark:text-stone-400">{used} 个渠道使用</span> : null}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    ))
+                ) : (
+                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有匹配的协议" />
+                )}
             </section>
             <section>
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -348,9 +378,6 @@ function ProtocolCenter({ settings, onCreate, onOpenChannel }: { settings: Chann
                         <div className="text-sm font-semibold text-stone-950 dark:text-stone-100">自定义协议草稿</div>
                         <div className="mt-1 text-xs text-stone-500 dark:text-stone-400">当前版本保存于具体渠道；完成 AdapterRevision 数据结构后再提供跨渠道发布与回滚。</div>
                     </div>
-                    <Button icon={<Plus className="size-4" />} onClick={() => onCreate("custom")}>
-                        创建自定义协议
-                    </Button>
                 </div>
                 <div className="divide-y divide-stone-200 border-y border-stone-200 dark:divide-stone-800 dark:border-stone-800">
                     {customChannels.map((channel) => (

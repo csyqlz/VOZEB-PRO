@@ -227,6 +227,16 @@ describe("image task runtime submission safety", () => {
         expect(mocks.writeLog).toHaveBeenCalledOnce();
     });
 
+    it("persists fetched source dimensions alongside delivery dimensions", async () => {
+        state = { ...imageTask(), status: "running", result: { dataUrl: "data:image/png;base64,c2FmZQ==" } };
+        mocks.normalizeAssets.mockResolvedValueOnce([{ type: "image", url: "/api/generation-log-assets/result.png", serverUrl: "/api/generation-log-assets/result.png", width: 800, height: 800, sourceWidth: 1600, sourceHeight: 900 }]);
+        mocks.writeLog.mockResolvedValueOnce(undefined);
+
+        await persistImageTaskResult(state, "http://internal", "inline://image-task-result");
+
+        expect(state.result).toMatchObject({ width: 800, height: 800, sourceWidth: 1600, sourceHeight: 900 });
+    });
+
     it("fails a corrupt synchronous image result before publishing it as ready", async () => {
         state = imageTask();
         state.config = { ...state.config, advancedConfig: { ...emptyAdvancedConfig(), protocol: "openai" } };
@@ -282,6 +292,7 @@ describe("image task runtime submission safety", () => {
     });
 
     it("downloads system-proxied image results with task-bound media authorization", async () => {
+        state.config.logicalModel = "logical-image-distinct-from-upstream";
         state.config = { ...state.config, baseUrl: "/api/ai/system/channel-one", advancedConfig: { ...emptyAdvancedConfig(), protocol: "openai" } };
         state.candidateConfigs = [];
         const remoteUrl = "https://provider.example/media/result.png";

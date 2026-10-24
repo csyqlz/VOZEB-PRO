@@ -1,0 +1,120 @@
+{
+  "observedAt": "2026-10-10T10:40:01Z",
+  "status": "draft-pending-administrator-review",
+  "productionChanged": false,
+  "candidateInputs": [
+    {
+      "logicalModelId": "gpt-3.5-turbo-0125",
+      "manufacturer": "OpenAI",
+      "series": "GPT-3.5 Turbo",
+      "officialVersion": "gpt-3.5-turbo-0125",
+      "sku": "gpt-3.5-turbo-0125",
+      "tier": "paid",
+      "conditions": "Global Standard API, pure text Chat Completions, uncached input and output tokens only. This exact snapshot is deprecated and scheduled for shutdown on 2026-10-23; administrator must review lifecycle before publishing. Excludes Batch, tools and unverified modalities.",
+      "sourceKind": "manual",
+      "sourceUrl": "https://developers.openai.com/api/docs/models/gpt-3.5-turbo",
+      "evidence": "OpenAI GPT-3.5 Turbo model page lists gpt-3.5-turbo-0125 as a snapshot and text token prices of USD 0.50 input / 1.50 output per million; deprecations page lists shutdown on 2026-10-23; checked 2026-10-10.",
+      "observedAt": "2026-10-10T10:40:01Z",
+      "items": [
+        { "key": "inputTokens", "unit": "token", "per": "1000000", "price": "0.5", "currency": "USD" },
+        { "key": "outputTokens", "unit": "token", "per": "1000000", "price": "1.5", "currency": "USD" }
+      ]
+    },
+    {
+      "logicalModelId": "gpt-5.2-pro",
+      "manufacturer": "OpenAI",
+      "series": "GPT-5.2 Pro",
+      "officialVersion": "gpt-5.2-pro",
+      "sku": "gpt-5.2-pro",
+      "tier": "paid",
+      "conditions": "Global Standard Responses API, pure text uncached input and output tokens only. No cached-input or cache-write price is listed on the model page; cache use, image input, Batch and tools require separate evidence before metered admission.",
+      "sourceKind": "manual",
+      "sourceUrl": "https://developers.openai.com/api/docs/models/gpt-5.2-pro",
+      "evidence": "OpenAI GPT-5.2 Pro model page lists Standard text token prices of USD 21 input / 168 output per million and names gpt-5.2-pro as an alias; checked 2026-10-10.",
+      "observedAt": "2026-10-10T10:40:01Z",
+      "items": [
+        { "key": "inputTokens", "unit": "token", "per": "1000000", "price": "21", "currency": "USD" },
+        { "key": "outputTokens", "unit": "token", "per": "1000000", "price": "168", "currency": "USD" }
+      ]
+    },
+    {
+      "logicalModelId": "gpt-5.2-pro-2025-12-11",
+      "manufacturer": "OpenAI",
+      "series": "GPT-5.2 Pro",
+      "officialVersion": "gpt-5.2-pro-2025-12-11",
+      "sku": "gpt-5.2-pro-2025-12-11",
+      "tier": "paid",
+      "conditions": "Global Standard Responses API, exact GPT-5.2 Pro snapshot, pure text uncached input and output tokens only. No cached-input or cache-write price is listed on the model page; cache use, image input, Batch and tools require separate evidence before metered admission.",
+      "sourceKind": "manual",
+      "sourceUrl": "https://developers.openai.com/api/docs/models/gpt-5.2-pro",
+      "evidence": "OpenAI GPT-5.2 Pro model page lists gpt-5.2-pro-2025-12-11 as an official snapshot under the USD 21 input / 168 output per million text token pricing; checked 2026-10-10.",
+      "observedAt": "2026-10-10T10:40:01Z",
+      "items": [
+        { "key": "inputTokens", "unit": "token", "per": "1000000", "price": "21", "currency": "USD" },
+        { "key": "outputTokens", "unit": "token", "per": "1000000", "price": "168", "currency": "USD" }
+      ]
+    },
+    {
+      "logicalModelId": "gpt-5.2-2025-12-11",
+      "manufacturer": "OpenAI",
+      "series": "GPT-5.2",
+      "officialVersion": "gpt-5.2-2025-12-11",
+      "sku": "gpt-5.2-2025-12-11",
+      "tier": "paid",
+      "conditions": "Global Standard API, exact GPT-5.2 snapshot, pure text input, cached input and output tokens. Excludes Batch, Flex, regional processing, image input and tools; real-channel usage and request bounds require separate review before metered admission.",
+      "sourceKind": "manual",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "evidence": "OpenAI pricing table lists GPT-5.2 Standard USD 1.75 input / 0.175 cached input / 14 output per million tokens; official GPT-5.2 model page identifies gpt-5.2-2025-12-11 as the current snapshot; checked 2026-10-10.",
+      "observedAt": "2026-10-10T15:19:04Z",
+      "items": [
+        { "key": "inputTokens", "unit": "token", "per": "1000000", "price": "1.75", "currency": "USD" },
+        { "key": "cachedInputTokens", "unit": "token", "per": "1000000", "price": "0.175", "currency": "USD" },
+        { "key": "outputTokens", "unit": "token", "per": "1000000", "price": "14", "currency": "USD" }
+      ]
+    },
+    {
+      "logicalModelId": "gpt-5.4-2026-03-05",
+      "manufacturer": "OpenAI",
+      "series": "GPT-5.4",
+      "officialVersion": "gpt-5.4-2026-03-05",
+      "sku": "gpt-5.4-2026-03-05",
+      "tier": "paid",
+      "conditions": "Global Standard API, exact GPT-5.4 snapshot, pure text tokens. Up to 272000 input tokens uses short-context rates; above 272000 input tokens prices the full request at long-context rates. Excludes Batch, Flex, regional processing (10% uplift), image input and tools; real-channel usage and request bounds require separate review before metered admission.",
+      "sourceKind": "manual",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "evidence": "OpenAI pricing table lists GPT-5.4 Standard short-context USD 2.50 / 0.25 / 15 and long-context USD 5 / 0.50 / 22.50 per million for input / cached input / output; official GPT-5.4 model page identifies gpt-5.4-2026-03-05 as the current snapshot and confirms the full-session threshold and regional uplift; checked 2026-10-10.",
+      "observedAt": "2026-10-10T15:19:04Z",
+      "items": [
+        { "key": "inputTokensUpTo272k", "unit": "token", "per": "1000000", "price": "2.5", "currency": "USD" },
+        { "key": "cachedInputTokensUpTo272k", "unit": "token", "per": "1000000", "price": "0.25", "currency": "USD" },
+        { "key": "outputTokensUpTo272k", "unit": "token", "per": "1000000", "price": "15", "currency": "USD" },
+        { "key": "inputTokensOver272k", "unit": "token", "per": "1000000", "price": "5", "currency": "USD" },
+        { "key": "cachedInputTokensOver272k", "unit": "token", "per": "1000000", "price": "0.5", "currency": "USD" },
+        { "key": "outputTokensOver272k", "unit": "token", "per": "1000000", "price": "22.5", "currency": "USD" }
+      ]
+    },
+    {
+      "logicalModelId": "gpt-6.1-sol",
+      "manufacturer": "OpenAI",
+      "series": "GPT-6 Sol",
+      "officialVersion": "gpt-6.1-sol",
+      "sku": "gpt-6.1-sol",
+      "tier": "paid",
+      "conditions": "Global Standard API, pure text tokens. More than 272000 input tokens prices the full request at the long-context rates. Cached input and cache writes require separately verified actual response counters. Excludes Batch, Flex, Fast, Ultrafast, regional uplifts, tools and image input.",
+      "sourceKind": "manual",
+      "sourceUrl": "https://developers.openai.com/api/docs/models/gpt-6.1-sol",
+      "evidence": "OpenAI GPT-6.1 Sol model page and Standard pricing table list short-context USD 2 / 0.10 / 2.50 / 10 and long-context USD 4 / 0.20 / 5 / 15 per million for input / cached input / cache writes / output; full-request long-context threshold is over 272K input tokens; checked 2026-10-10.",
+      "observedAt": "2026-10-10T10:40:01Z",
+      "items": [
+        { "key": "inputTokensUpTo272k", "unit": "token", "per": "1000000", "price": "2", "currency": "USD" },
+        { "key": "cachedInputTokensUpTo272k", "unit": "token", "per": "1000000", "price": "0.1", "currency": "USD" },
+        { "key": "cacheWriteTokensUpTo272k", "unit": "token", "per": "1000000", "price": "2.5", "currency": "USD" },
+        { "key": "outputTokensUpTo272k", "unit": "token", "per": "1000000", "price": "10", "currency": "USD" },
+        { "key": "inputTokensOver272k", "unit": "token", "per": "1000000", "price": "4", "currency": "USD" },
+        { "key": "cachedInputTokensOver272k", "unit": "token", "per": "1000000", "price": "0.2", "currency": "USD" },
+        { "key": "cacheWriteTokensOver272k", "unit": "token", "per": "1000000", "price": "5", "currency": "USD" },
+        { "key": "outputTokensOver272k", "unit": "token", "per": "1000000", "price": "15", "currency": "USD" }
+      ]
+    }
+  ]
+}

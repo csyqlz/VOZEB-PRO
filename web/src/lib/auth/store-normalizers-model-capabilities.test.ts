@@ -21,6 +21,10 @@ describe("system channel model capabilities", () => {
         expect(normalized?.modelCapabilities).toEqual({ "writer-v1": "text", "image-v1": "image", "video-v1": "video" });
     });
 
+    it("persists the current provider model snapshot through settings normalization", () => {
+        expect(normalizeSystemChannelAdvancedConfig({ protocol: "openai", providerModels: [" doubao-seed-2-1-pro-260915 ", "doubao-seed-2-1-pro-260915"] } as never)?.providerModels).toEqual(["doubao-seed-2-1-pro-260915"]);
+    });
+
     it("persists the VOZEB recommended protocol after a settings round-trip", () => {
         expect(normalizeSystemChannelAdvancedConfig({ protocol: "vozeb-recommended" } as never)?.protocol).toBe("vozeb-recommended");
     });

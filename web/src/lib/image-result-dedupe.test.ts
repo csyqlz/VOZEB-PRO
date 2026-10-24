@@ -13,4 +13,15 @@ describe("image result dedupe", () => {
     it("keeps genuinely different upstream images", () => {
         expect(dedupeImageResults([{ remoteUrl: "https://cdn.example.com/one.png" }, { remoteUrl: "https://cdn.example.com/two.png" }])).toHaveLength(2);
     });
+
+    it("keeps separate upstream results even when their inline bytes match", () => {
+        const bytes = "data:image/png;base64,aGVsbG8=";
+        expect(
+            dedupeImageResults([
+                { dataUrl: bytes, remoteUrl: "https://cdn.example.com/one.png" },
+                { dataUrl: bytes, remoteUrl: "https://cdn.example.com/two.png" },
+            ]),
+        ).toHaveLength(2);
+        expect(dedupeImageResults([{ dataUrl: bytes }, { dataUrl: bytes }])).toHaveLength(1);
+    });
 });

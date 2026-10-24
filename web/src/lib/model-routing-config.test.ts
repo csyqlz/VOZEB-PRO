@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { LogicalModel, SystemModelChannel } from "@/lib/auth/store";
+import { emptyAdvancedConfig } from "@/lib/channel-protocol-registry";
 import {
     channelDetectedCapabilities,
     channelModelCapability,
@@ -17,6 +18,14 @@ import {
 const channel = (id: string, models: string[], enabled = true): SystemModelChannel => ({ id, name: id, baseUrl: `https://${id}.example.com/v1`, apiKey: "test-secret", apiFormat: "openai", models, enabled });
 
 describe("model routing config", () => {
+    it("starts a newly synchronized native Anthropic text binding in directed acceptance only", () => {
+        const native = channel("new", ["claude-fable-5"]);
+        native.advancedConfig = { ...emptyAdvancedConfig(), protocol: "anthropic" };
+        const created = synchronizeLogicalModelsWithChannels([], [native])[0].bindings[0];
+        expect(created.acceptanceOnly).toBe(true);
+        expect(synchronizeLogicalModelsWithChannels([{ id: "claude-fable-5", name: "Claude", capability: "text", enabled: true, bindings: [{ ...created, acceptanceOnly: false }] }], [native])[0].bindings[0].acceptanceOnly).toBeUndefined();
+        expect(synchronizeLogicalModelsWithChannels([], [channel("other", ["gpt-6-sol"])])[0].bindings[0].acceptanceOnly).toBeUndefined();
+    });
     it("removes missing, unsupported, and duplicate bindings", () => {
         const channels = [channel("one", ["models/GPT-TEST"]), channel("two", ["gpt-test-2"], false)];
         const models: LogicalModel[] = [
@@ -41,6 +50,29 @@ describe("model routing config", () => {
 
         expect(normalizeLogicalModelsConfig([], channels)).toHaveLength(1);
         expect(normalizeLogicalModelsConfig(undefined, channels)).toHaveLength(1);
+    });
+
+    it("retains administrator-confirmed grouping and uses weight to break equal priorities", () => {
+        const channels = [channel("one", ["gemini-test"]), channel("two", ["gemini-test"])];
+        const existing: LogicalModel[] = [
+            {
+                id: "gemini-test",
+                name: "Gemini",
+                manufacturer: "Google",
+                series: "Gemini",
+                capability: "text",
+                enabled: true,
+                bindings: [
+                    { id: "one", channelId: "one", upstreamModel: "gemini-test", enabled: true, priority: 1, weight: 20 },
+                    { id: "two", channelId: "two", upstreamModel: "gemini-test", enabled: true, priority: 1, weight: 80 },
+                ],
+            },
+        ];
+        const models = synchronizeLogicalModelsWithChannels(existing, channels);
+
+        expect(models[0]).toMatchObject({ manufacturer: "Google", series: "Gemini" });
+        expect(models[0].bindings.map((binding) => binding.id)).toEqual(["two", "one"]);
+        expect(resolveLogicalModelConfig(models, channels, "text", "gemini-test")?.channel.id).toBe("two");
     });
 
     it("distinguishes SD2.0 video aliases from full Stable Diffusion image names", () => {
@@ -137,6 +169,34 @@ describe("model routing config", () => {
 
         expect(models).toHaveLength(1);
         expect(models[0].bindings).toEqual([{ ...existing[0].bindings[0], upstreamModel: "models/GPT-IMAGE-2" }, expect.objectContaining({ channelId: "two", upstreamModel: "gpt-image-2" })]);
+    });
+
+    it("preserves separately configured logical models sharing an upstream SKU", () => {
+        const channels = [channel("one", ["gpt-image-2"]), channel("two", ["gpt-image-2"])];
+        const existing: LogicalModel[] = ["standard", "premium"].map((id, index) => ({
+            id,
+            name: id,
+            manufacturer: "OpenAI",
+            capability: "image",
+            enabled: true,
+            bindings: [{ id: `${id}-binding`, channelId: channels[index].id, upstreamModel: "gpt-image-2", enabled: true, priority: 1 }],
+        }));
+
+        const models = normalizeLogicalModelsConfig(existing, channels);
+
+        expect(models.map((model) => model.id)).toEqual(["standard", "premium"]);
+        expect(models.map((model) => model.bindings.map((binding) => binding.channelId))).toEqual([["one"], ["two"]]);
+        expect(resolveLogicalModelConfig(models, channels, "image", "premium")?.channel.id).toBe("two");
+    });
+
+    it("keeps the current logical model when another model's matching channel was removed", () => {
+        const channels = [channel("current", ["gpt-image-2"])];
+        const existing: LogicalModel[] = [
+            { id: "gpt-image-2", name: "stale", capability: "image", enabled: true, bindings: [{ id: "stale", channelId: "removed", upstreamModel: "gpt-image-2", enabled: true, priority: 1 }] },
+            { id: "premium", name: "premium", capability: "image", enabled: true, bindings: [{ id: "current", channelId: "current", upstreamModel: "gpt-image-2", enabled: true, priority: 1 }] },
+        ];
+
+        expect(normalizeLogicalModelsConfig(existing, channels).map((model) => model.id)).toEqual(["premium"]);
     });
 
     it("removes stale bindings and creates separate logical models for different upstream names", () => {

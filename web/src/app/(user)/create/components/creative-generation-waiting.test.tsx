@@ -1,8 +1,17 @@
 import { describe, expect, it } from "vitest";
+import { renderToStaticMarkup } from "react-dom/server";
 
-import { creativeGenerationWaitingCopy, formatCreativeWaitingTime } from "./creative-generation-waiting";
+import { CreativeGenerationWaiting, creativeGenerationWaitingCopy, formatCreativeWaitingTime } from "./creative-generation-waiting";
 
 describe("creative generation waiting", () => {
+    it("offers resume only for the paused run with a resume action", () => {
+        const run = { id: "run-one", conversationId: "conversation-one", inputMessageId: "user", assistantMessageId: "assistant", status: "paused" as const, assetIds: [], tasks: [] };
+        const message = { content: "任务已暂停", createdAt: Date.now(), runId: run.id };
+        expect(renderToStaticMarkup(<CreativeGenerationWaiting run={run} message={message} onResume={async () => undefined} />)).toContain("继续原任务");
+        expect(renderToStaticMarkup(<CreativeGenerationWaiting run={run} message={message} />)).not.toContain("继续原任务");
+        expect(renderToStaticMarkup(<CreativeGenerationWaiting run={{ ...run, status: "running" }} message={message} onResume={async () => undefined} />)).not.toContain("继续原任务");
+    });
+
     it("uses the real task phase before elapsed-time comfort copy", () => {
         expect(creativeGenerationWaitingCopy({ mode: "image", runStatus: "planning", progressText: "正在理解需求并选择合适的创作能力", elapsedSeconds: 180 })).toContain("画面的氛围和细节");
         expect(creativeGenerationWaitingCopy({ mode: "text", runStatus: "planning", progressText: "正在理解需求并选择合适的创作能力", elapsedSeconds: 180 })).toContain("想法理顺");

@@ -120,10 +120,10 @@ describe("audio task runtime submission safety", () => {
             config: {
                 baseUrl: origin,
                 apiKey: "fixture-key",
-                apiFormat: "openai",
+                apiFormat: definition.apiFormat,
                 model: `${definition.id}-audio`,
                 channelId: `fixture-${definition.id}-audio`,
-                voice: custom ? "nova" : "alloy",
+                voice: custom ? "nova" : definition.apiFormat === "gemini" ? "Kore" : "alloy",
                 format: "wav",
                 speed: custom ? "1.25" : "1",
                 advancedConfig,
@@ -142,13 +142,58 @@ describe("audio task runtime submission safety", () => {
                 expect(mocks.writeMedia).toHaveBeenCalledWith(expect.stringMatching(/^data:audio\/wav;base64,UklGR/), "audio", expect.objectContaining({ ownerUserId: "user-one", taskId: "audio-one" }));
                 expect(mocks.register).toHaveBeenCalledOnce();
             }
-            expect(fixture.requests[0]).toMatchObject({ method: "POST", path: custom ? "/custom/audio" : "/audio/speech" });
-            expect(fixture.requests[0]?.headers.authorization).toBe("Bearer fixture-key");
+            expect(fixture.requests[0]).toMatchObject({
+                method: "POST",
+                path: custom
+                    ? "/custom/audio"
+                    : definition.apiFormat === "gemini"
+                      ? `/models/${definition.id}-audio:generateContent`
+                      : definition.id === "sub2api-grok"
+                        ? "/tts"
+                        : definition.id === "xai"
+                          ? "/v1/tts"
+                          : definition.id === "minimax"
+                            ? "/v1/t2a_v2"
+                            : "/audio/speech",
+            });
+            if (definition.id === "sub2api-grok" || definition.id === "xai") expect(JSON.parse(fixture.requests[0]?.body.toString("utf8") || "{}")).toMatchObject({ text: "test", voice_id: "eve", language: "auto", codec: "wav" });
+            if (definition.id === "minimax") expect(JSON.parse(fixture.requests[0]?.body.toString("utf8") || "{}")).toMatchObject({ output_format: "hex", voice_setting: { voice_id: "male-qn-qingse" } });
+            expect(fixture.requests[0]?.headers[definition.id === "gemini" ? "x-goog-api-key" : "authorization"]).toBe(definition.id === "gemini" ? "fixture-key" : "Bearer fixture-key");
             expect(fixture.requests[0]?.headers["idempotency-key"]).toBe("audio-task:audio-one:attempt:1");
             expect(fixture.requests[0]?.headers["x-client-request-id"]).toBe("audio-task:audio-one:attempt:1");
         } finally {
             await new Promise<void>((resolve, reject) => fixture.server.close((error) => (error ? reject(error) : resolve())));
         }
+    });
+
+    it.each(["gpt-4o-audio-preview", "gpt-audio-1.5"])("saves %s speech from Chat Completions even when the saved OpenAI preset still names the TTS path", async (model) => {
+        const fixture = createProtocolFixtureServer();
+        await new Promise<void>((resolve) => fixture.server.listen(0, "127.0.0.1", resolve));
+        const address = fixture.server.address();
+        if (!address || typeof address === "string") throw new Error("Protocol fixture did not bind a TCP port");
+        state = {
+            ...audioTask(),
+            config: { ...audioTask().config, baseUrl: `http://127.0.0.1:${address.port}`, model, format: "wav", advancedConfig: { ...emptyAdvancedConfig(), ...protocolModelConfig("openai", "audio") } },
+            candidateConfigs: [],
+        };
+        try {
+            await expect(createAudioTaskUpstreamStep(state, "http://internal")).resolves.toEqual({ state: "completed" });
+            expect(fixture.requests[0]).toMatchObject({ method: "POST", path: "/chat/completions" });
+            expect(JSON.parse(fixture.requests[0]?.body.toString("utf8") || "{}")).toMatchObject({ model, modalities: ["text", "audio"], audio: { voice: "alloy", format: "wav" }, messages: [{ role: "user", content: "test" }] });
+            expect(mocks.writeMedia).toHaveBeenCalledWith(expect.stringMatching(/^data:audio\/wav;base64,UklGR/), "audio", expect.objectContaining({ taskId: "audio-one" }));
+            expect(state).toMatchObject({ status: "success", result: { mimeType: "audio/wav" } });
+        } finally {
+            await new Promise<void>((resolve, reject) => fixture.server.close((error) => (error ? reject(error) : resolve())));
+        }
+    });
+
+    it("fails safely when Chat Completions returns text without audio", async () => {
+        state = { ...audioTask(), config: { ...audioTask().config, model: "gpt-4o-audio-preview", advancedConfig: { ...emptyAdvancedConfig(), ...protocolModelConfig("openai", "audio") } }, candidateConfigs: [] };
+        vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(Response.json({ id: "chat-one", choices: [{ message: { content: "text only" } }] })));
+
+        await expect(createAudioTaskUpstreamStep(state, "http://internal")).resolves.toMatchObject({ state: "failed", error: expect.stringContaining("未返回有效的语音数据") });
+        expect(state.upstream).toBeUndefined();
+        expect(mocks.writeMedia).not.toHaveBeenCalled();
     });
 
     it("keeps the original candidate when the request connection is interrupted", async () => {

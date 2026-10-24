@@ -7,6 +7,7 @@ export function resolveRequestSize(quality: string | undefined, size: string) {
     try {
         const value = size.trim();
         if (!value || value.toLowerCase() === "auto") return undefined;
+        if (value.toLowerCase() === "2k") return "2K";
         const dimensions = parseImageDimensions(value);
         if (dimensions) {
             validateImageDimensions(dimensions.width, dimensions.height);
@@ -22,6 +23,7 @@ export function resolveRequestSize(quality: string | undefined, size: string) {
 
 export function resolveResultSize(quality: string | undefined, size: string) {
     const value = size.trim();
+    if (value.toLowerCase() === "2k") return undefined;
     const dimensions = parseImageDimensions(value);
     if (dimensions) {
         validateImageDimensions(dimensions.width, dimensions.height);

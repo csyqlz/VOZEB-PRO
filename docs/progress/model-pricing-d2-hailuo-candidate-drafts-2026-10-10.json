@@ -1,0 +1,44 @@
+{
+  "observedAt": "2026-10-11T03:40:43Z",
+  "status": "draft-pending-administrator-review",
+  "productionChanged": false,
+  "sourceUrl": "https://platform.minimax.io/docs/pricing/overview",
+  "candidateInputs": [
+    {
+      "logicalModelId": "MiniMax-Hailuo-2.3",
+      "manufacturer": "MiniMax",
+      "series": "Hailuo",
+      "officialVersion": "MiniMax-Hailuo-2.3",
+      "sku": "MiniMax-Hailuo-2.3",
+      "tier": "paid",
+      "conditions": "Global pay-as-you-go V1 video generation; text-to-video or image-to-video; one output video at the selected resolution and duration.",
+      "sourceKind": "manual",
+      "sourceUrl": "https://platform.minimax.io/docs/pricing/overview",
+      "evidence": "MiniMax Pay as You Go, Video, Legacy Models: three listed USD prices for MiniMax-Hailuo-2.3; checked 2026-10-11.",
+      "observedAt": "2026-10-11T03:40:43Z",
+      "items": [
+        { "key": "768P-6", "unit": "video", "per": "1", "price": "0.28", "currency": "USD" },
+        { "key": "768P-10", "unit": "video", "per": "1", "price": "0.56", "currency": "USD" },
+        { "key": "1080P-6", "unit": "video", "per": "1", "price": "0.49", "currency": "USD" }
+      ]
+    },
+    {
+      "logicalModelId": "MiniMax-Hailuo-2.3-Fast",
+      "manufacturer": "MiniMax",
+      "series": "Hailuo",
+      "officialVersion": "MiniMax-Hailuo-2.3-Fast",
+      "sku": "MiniMax-Hailuo-2.3-Fast",
+      "tier": "paid",
+      "conditions": "Global pay-as-you-go V1 image-to-video generation with a first-frame image; one output video at the selected resolution and duration.",
+      "sourceKind": "manual",
+      "sourceUrl": "https://platform.minimax.io/docs/pricing/overview",
+      "evidence": "MiniMax Pay as You Go, Video, Legacy Models: three listed USD prices for MiniMax-Hailuo-2.3-Fast; checked 2026-10-11.",
+      "observedAt": "2026-10-11T03:40:43Z",
+      "items": [
+        { "key": "768P-6", "unit": "video", "per": "1", "price": "0.19", "currency": "USD" },
+        { "key": "768P-10", "unit": "video", "per": "1", "price": "0.32", "currency": "USD" },
+        { "key": "1080P-6", "unit": "video", "per": "1", "price": "0.33", "currency": "USD" }
+      ]
+    }
+  ]
+}

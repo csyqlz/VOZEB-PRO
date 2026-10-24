@@ -42,4 +42,12 @@ describe("admin channel workspace model", () => {
 
         expect(updateChannelInWorkspace(settings, channel.id, { enabled: false }).defaultModels.videoModel).toBe("");
     });
+
+    it("invalidates a DataEyes key snapshot when credentials change", () => {
+        const dataEyes = { ...channel, baseUrl: "https://studio.dataeyes.ai", models: ["old", "current"], advancedConfig: { ...channel.advancedConfig!, providerModels: ["current"] } };
+        const settings = { systemChannels: [dataEyes], logicalModels: [], defaultModels: { textModel: "", imageModel: "", videoModel: "", audioModel: "" } };
+        const updated = updateChannelInWorkspace(settings, dataEyes.id, { apiKey: "new-key" });
+        expect(updated.systemChannels[0].models).toEqual(["old", "current"]);
+        expect(updated.systemChannels[0].advancedConfig?.providerModels).toEqual([]);
+    });
 });

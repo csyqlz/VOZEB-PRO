@@ -49,9 +49,10 @@ export function isGenerationStatus(value?: string): value is GenerationLogStatus
 }
 
 type GenerationAssetContext = { ownerUserId: string; source: string; conversationId?: string; taskId?: string; originalName?: string; targetSize?: string; assetIndex?: number; assetCount?: number };
+type AssetWithSourceDimensions = GenerationLogAsset & { sourceWidth?: number; sourceHeight?: number };
 
 export async function normalizeAssets(assets: Array<Partial<GenerationLogAsset> & { url?: string; targetSize?: string }>, context: GenerationAssetContext) {
-    const normalized: GenerationLogAsset[] = [];
+    const normalized: AssetWithSourceDimensions[] = [];
     for (const [assetIndex, asset] of assets.entries()) {
         const assetContext = { ...context, targetSize: asset.targetSize, assetIndex, assetCount: assets.length };
         const type = asset.type === "video" ? "video" : "image";
@@ -59,7 +60,7 @@ export async function normalizeAssets(assets: Array<Partial<GenerationLogAsset> 
         const remoteUrl = normalizeRemoteUrl(asset.remoteUrl || (isRemoteAssetUrl(sourceUrl) ? sourceUrl : ""));
         const existingServerUrl = normalizeServerAssetUrl(asset.serverUrl || (isServerAssetUrl(sourceUrl) ? sourceUrl : ""));
         let serverUrl = existingServerUrl;
-        let stored: GenerationLogAsset | null = null;
+        let stored: AssetWithSourceDimensions | null = null;
 
         if (!sourceUrl || sourceUrl.startsWith("blob:")) {
             if (!remoteUrl && !serverUrl) continue;
@@ -82,13 +83,15 @@ export async function normalizeAssets(assets: Array<Partial<GenerationLogAsset> 
             mimeType: normalizeOptionalText(stored?.mimeType || asset.mimeType, undefined, 120),
             width: toOptionalNumber(stored?.width || asset.width),
             height: toOptionalNumber(stored?.height || asset.height),
+            sourceWidth: stored?.sourceWidth,
+            sourceHeight: stored?.sourceHeight,
             bytes: toOptionalNumber(stored?.bytes || asset.bytes),
         });
     }
     return normalized;
 }
 
-export async function writeDataUrlAsset(dataUrl: string, type: GenerationLogKind, context: GenerationAssetContext): Promise<GenerationLogAsset | null> {
+export async function writeDataUrlAsset(dataUrl: string, type: GenerationLogKind, context: GenerationAssetContext): Promise<AssetWithSourceDimensions | null> {
     const match = dataUrl.match(/^data:([^;,]+);base64,(.+)$/);
     if (!match) return null;
     const mimeType = match[1] || (type === "video" ? "video/mp4" : "image/png");
@@ -98,7 +101,7 @@ export async function writeDataUrlAsset(dataUrl: string, type: GenerationLogKind
     return writeAssetBytes(bytes, mimeType, type, context);
 }
 
-export async function writeRemoteAsset(url: string, type: GenerationLogKind, context: GenerationAssetContext): Promise<GenerationLogAsset | null> {
+export async function writeRemoteAsset(url: string, type: GenerationLogKind, context: GenerationAssetContext): Promise<AssetWithSourceDimensions | null> {
     if (!(await isSafeRemoteAssetUrl(url))) return null;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), SERVER_ASSET_DOWNLOAD_TIMEOUT_MS);
@@ -124,8 +127,8 @@ export async function isSafeRemoteAssetUrl(value: string) {
     return isSafeOutboundUrl(value, { allowCredentials: false });
 }
 
-export async function writeAssetBytes(bytes: Buffer, mimeType: string, type: GenerationLogKind, context: GenerationAssetContext): Promise<GenerationLogAsset> {
-    const normalized: { bytes: Buffer; mimeType: string; width?: number; height?: number } = type === "image" ? await normalizeGeneratedImageBytes(bytes, mimeType, context.targetSize) : { bytes, mimeType };
+export async function writeAssetBytes(bytes: Buffer, mimeType: string, type: GenerationLogKind, context: GenerationAssetContext): Promise<AssetWithSourceDimensions> {
+    const normalized: { bytes: Buffer; mimeType: string; width?: number; height?: number; sourceWidth?: number; sourceHeight?: number } = type === "image" ? await normalizeGeneratedImageBytes(bytes, mimeType, context.targetSize) : { bytes, mimeType };
     bytes = normalized.bytes;
     mimeType = normalized.mimeType;
     const extension = extensionFromMime(mimeType, type);
@@ -145,7 +148,7 @@ export async function writeAssetBytes(bytes: Buffer, mimeType: string, type: Gen
     };
     const external = await persistExternalMediaIfEnabled({ registration, bytes });
     const serverUrl = `/api/generation-log-assets/${relativePath.split("/").map(encodeURIComponent).join("/")}`;
-    if (external) return { type, url: serverUrl, serverUrl, mimeType, bytes: bytes.length, width: normalized.width, height: normalized.height };
+    if (external) return { type, url: serverUrl, serverUrl, mimeType, bytes: bytes.length, width: normalized.width, height: normalized.height, sourceWidth: normalized.sourceWidth, sourceHeight: normalized.sourceHeight };
     const filePath = resolve(ASSET_ROOT, relativePath);
     await mkdir(dirname(filePath), { recursive: true });
     await writeFile(filePath, bytes);
@@ -155,7 +158,7 @@ export async function writeAssetBytes(bytes: Buffer, mimeType: string, type: Gen
         await unlink(filePath).catch(() => undefined);
         throw error;
     }
-    return { type, url: serverUrl, serverUrl, mimeType, bytes: bytes.length, width: normalized.width, height: normalized.height };
+    return { type, url: serverUrl, serverUrl, mimeType, bytes: bytes.length, width: normalized.width, height: normalized.height, sourceWidth: normalized.sourceWidth, sourceHeight: normalized.sourceHeight };
 }
 
 export function maxServerAssetBytes(type: GenerationLogKind) {

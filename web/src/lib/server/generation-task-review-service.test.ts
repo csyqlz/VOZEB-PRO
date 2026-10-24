@@ -47,6 +47,14 @@ describe("generation task manual review", () => {
         expect(mocks.schedule).not.toHaveBeenCalled();
     });
 
+    it.each(["resume_upstream", "provide_result", "confirm_failed"] as const)("requires accounting review for priced text instead of %s", async (action) => {
+        mocks.getRecord.mockResolvedValue({ executionPhase: "needs_review", payload: { billingMode: "official-usage" } });
+        await expect(reviewGenerationTask("text", "priced-task", { action, upstreamTaskId: "id", origin: "http://internal", result: "text", reason: "timeout" })).rejects.toMatchObject({ status: 409 });
+        expect(mocks.schedule).not.toHaveBeenCalled();
+        expect(mocks.transitionText).not.toHaveBeenCalled();
+        expect(mocks.markTextFailed).not.toHaveBeenCalled();
+    });
+
     it("attaches an existing upstream task ID without creating another task", async () => {
         mocks.getImage.mockResolvedValue({ id: "image-one", config: { baseUrl: "/api/ai/system/channel-one" } });
 

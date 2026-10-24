@@ -19,7 +19,7 @@ export async function loadDisasterObjectStorageConfig({ databaseUrl, dataDir, en
 
 export async function backupObjectStorage(config, recoveryPointDir) {
     const summary = publicConfig(config);
-    if (!config.enabled) return { ...summary, enabled: false, objects: [] };
+    if (!requiresObjectBackup(config)) return { ...summary, enabled: false, objects: [] };
     assertConfigured(config);
     const client = createClient(config);
     const objects = [];
@@ -38,6 +38,10 @@ export async function backupObjectStorage(config, recoveryPointDir) {
     }
     objects.sort((left, right) => left.key.localeCompare(right.key));
     return { ...summary, enabled: true, objects };
+}
+
+export function requiresObjectBackup(config) {
+    return config.enabled === true || config.hasReferencedObjects === true;
 }
 
 export async function restoreObjectStorage(config, expected, recoveryPointDir) {
@@ -105,11 +109,15 @@ async function readPostgresSettings(databaseUrl) {
     const client = new pg.Client({ connectionString: databaseUrl });
     await client.connect();
     try {
-        const result = await client.query("SELECT * FROM vozeb_pro_object_storage_settings WHERE id = 'default'");
-        return result.rows[0] || {};
-    } catch (error) {
-        if (error?.code === "42P01") return {};
-        throw error;
+        let result;
+        try {
+            result = await client.query("SELECT * FROM vozeb_pro_object_storage_settings WHERE id = 'default'");
+        } catch (error) {
+            if (error?.code === "42P01") return {};
+            throw error;
+        }
+        const referenced = await client.query("SELECT EXISTS (SELECT 1 FROM vozeb_pro_local_media_assets WHERE storage_provider = 'object') AS present");
+        return { ...(result.rows[0] || {}), hasReferencedObjects: referenced.rows[0]?.present === true };
     } finally {
         await client.end();
     }
@@ -128,6 +136,7 @@ function normalizeConfig(value, encryptionKey) {
     const source = value && typeof value === "object" ? value : {};
     return {
         enabled: source.enabled === true,
+        hasReferencedObjects: source.hasReferencedObjects === true,
         endpoint: text(source.endpoint),
         region: text(source.region) || "us-east-1",
         bucket: text(source.bucket),

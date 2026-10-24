@@ -3,6 +3,7 @@ import {
     type CreativeAsset,
     type CreativeConversation,
     type CreativeConversationSource,
+    type CreativeCostPreview,
     type CreativeGenerationPreferences,
     type CreativeMessage,
     type CreativeProjectHandoff,
@@ -46,6 +47,22 @@ export type CreativeAgentRun = {
         error?: string;
     }>;
     cancellation?: { pendingCount: number };
+};
+
+export type CreativeRunBillingSummary = {
+    chargedPoints: number;
+    refundedPoints: number;
+    actualPoints: number;
+    pendingHeldPoints: number;
+    charges: Array<{
+        type: "text" | "image" | "video" | "audio";
+        purpose: "generation" | "planning" | "review";
+        logicalModelId?: string;
+        chargedPoints: number;
+        refundedPoints: number;
+        actualPoints: number;
+    }>;
+    pending: Array<{ type: "text" | "image" | "video" | "audio"; logicalModelId: string; heldPoints: number; count: number }>;
 };
 
 type ApiResponse<T> = { code: number; data: T; msg: string };
@@ -102,6 +119,14 @@ export function controlCreativeAgentRun(runId: string, action: "cancel" | "pause
 
 export function getCreativeAgentRun(runId: string) {
     return request<{ run: CreativeAgentRun }>(`/api/agent/runs/${encodeURIComponent(runId)}`).then((data) => data.run);
+}
+
+export function getCreativeAgentRunBilling(runId: string) {
+    return request<{ summary: CreativeRunBillingSummary }>(`/api/agent/runs/${encodeURIComponent(runId)}/billing`).then((data) => data.summary);
+}
+
+export function getCreativeCostPreview(input: { modelIds: string[]; preferences?: CreativeGenerationPreferences; hasImageReferences: boolean }, signal?: AbortSignal) {
+    return request<{ preview: CreativeCostPreview }>("/api/agent/preview-costs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input), signal }).then((data) => data.preview);
 }
 
 export function listCreativeAgentRuns(surface: CreativeRunRequest["surface"] = "chat", input: { activeOnly?: boolean; limit?: number; projectId?: string; conversationId?: string } = {}) {

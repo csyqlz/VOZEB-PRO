@@ -2,7 +2,7 @@ import { createPostgresRepositories, ensurePostgresSchema, isPostgresDatabaseEna
 import { formatAccountId } from "@/lib/account-id";
 import { normalizeRegistrationPolicyConsent } from "@/lib/registration-consent";
 import { normalizeAdminPermissions } from "@/lib/admin-permissions";
-import { readJsonDataFile, writeJsonDataFile } from "@/lib/server/data-adapter";
+import { readJsonDataFile, writeJsonDataFile, withJsonDataFileLock } from "@/lib/server/data-adapter";
 import { decryptSecretValue, encryptSecretValue } from "@/lib/server/secret-crypto";
 import {
     type UserRole,
@@ -165,17 +165,19 @@ export async function readAuthDb(): Promise<AuthDatabase> {
 
 export async function mutateAuthDb<T>(mutator: (db: AuthDatabase) => T | Promise<T>) {
     if (isPostgresDatabaseEnabled()) throw new Error("PostgreSQL auth mutations must use entity repositories");
-    const run = mutationQueue.then(async () => {
-        const db = await readAuthDb();
-        try {
-            const result = await mutator(db);
-            await writeAuthDb(db);
-            return result;
-        } catch (error) {
-            if (error instanceof EmailCodeAttemptError) await writeAuthDb(db);
-            throw error;
-        }
-    });
+    const run = mutationQueue.then(() =>
+        withJsonDataFileLock(AUTH_DATA_FILE, async () => {
+            const db = await readAuthDb();
+            try {
+                const result = await mutator(db);
+                await writeAuthDb(db);
+                return result;
+            } catch (error) {
+                if (error instanceof EmailCodeAttemptError) await writeAuthDb(db);
+                throw error;
+            }
+        }),
+    );
     mutationQueue = run.then(
         () => undefined,
         () => undefined,
@@ -191,7 +193,23 @@ export async function writeAuthDb(db: AuthDatabase) {
 /** Full authentication snapshot for the explicit administrator backup transaction only. */
 export async function readPostgresAuthDb(executor: QueryExecutor): Promise<AuthDatabase> {
     const query: QueryExecutor["query"] = executor.query.bind(executor);
-    const [settingsResult, planResult, channelResult, userResult, sessionResult, quotaResult, pointRecordResult, dailyWalletResult, emailCodeResult, cdkResult, cdkRedemptionResult, announcementResult] = await Promise.all([
+    const [
+        settingsResult,
+        planResult,
+        channelResult,
+        userResult,
+        sessionResult,
+        quotaResult,
+        pointRecordResult,
+        pricingReservationResult,
+        pricingAccrualResult,
+        pricingRefundResult,
+        dailyWalletResult,
+        emailCodeResult,
+        cdkResult,
+        cdkRedemptionResult,
+        announcementResult,
+    ] = await Promise.all([
         query("SELECT * FROM app_settings WHERE id = 'default'"),
         query("SELECT * FROM entitlement_plans ORDER BY sort_order ASC, created_at ASC"),
         query("SELECT * FROM system_model_channels ORDER BY sort_order ASC, created_at ASC"),
@@ -199,6 +217,9 @@ export async function readPostgresAuthDb(executor: QueryExecutor): Promise<AuthD
         query("SELECT * FROM sessions ORDER BY created_at ASC"),
         query("SELECT * FROM quota_usage ORDER BY date ASC"),
         query("SELECT * FROM point_records ORDER BY created_at ASC"),
+        query("SELECT data FROM model_pricing_wallet_reservations"),
+        query("SELECT user_id, source_key, exact_points FROM model_pricing_wallet_accounts"),
+        query("SELECT data FROM model_pricing_wallet_refunds"),
         query("SELECT * FROM daily_plan_point_wallets ORDER BY date ASC"),
         query("SELECT * FROM email_codes ORDER BY created_at ASC"),
         query("SELECT * FROM cdk_codes ORDER BY created_at ASC"),
@@ -219,6 +240,9 @@ export async function readPostgresAuthDb(executor: QueryExecutor): Promise<AuthD
         sessions: sessionResult.rows.map(mapPostgresSession),
         quotaUsage: quotaResult.rows.map(mapPostgresQuotaUsage),
         pointRecords: pointRecordResult.rows.map(mapPostgresPointRecord),
+        pricingReservations: pricingReservationResult.rows.map((row) => row.data as AuthDatabase["pricingReservations"][number]),
+        pricingAccruals: pricingAccrualResult.rows.map((row) => ({ userId: dbText(row.user_id), sourceKey: dbText(row.source_key), exactPoints: dbText(row.exact_points) })),
+        pricingRefunds: pricingRefundResult.rows.map((row) => row.data as AuthDatabase["pricingRefunds"][number]),
         dailyPlanPointWallets: dailyWalletResult.rows.map(mapPostgresDailyPlanPointWallet),
         emailCodes: emailCodeResult.rows.map(mapPostgresEmailCode),
         cdkCodes: cdkResult.rows.map((row) => mapPostgresCdkCode(row, redemptionsByCodeId.get(dbText(row.id)) || [])),

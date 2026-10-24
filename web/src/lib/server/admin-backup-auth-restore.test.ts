@@ -24,6 +24,14 @@ import { restorePostgresAuthSnapshot } from "./admin-backup-auth-restore";
 describe("PostgreSQL account-config auth restore", () => {
     beforeEach(() => vi.clearAllMocks());
 
+    it("rejects a partial restore of a priced wallet before mutating users or balances", async () => {
+        const db = emptyDb();
+        db.pricingAccruals.push({ userId: "user-a", sourceKey: "permanent", exactPoints: "1/250" });
+        const client = { query: vi.fn() } as unknown as QueryExecutor;
+        await expect(restorePostgresAuthSnapshot(client, db)).rejects.toThrow("完整数据库");
+        expect(mocks.insertPostgresUsers).not.toHaveBeenCalled();
+    });
+
     it("uses upserts and never deletes users or backup-missing auth entities", async () => {
         const query = vi.fn(async (...args: [string]) => {
             void args;

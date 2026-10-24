@@ -512,6 +512,7 @@ export function useCreateAgent() {
             const result = await controlCreativeAgentRun(activeRunId, action, expectedConversationId);
             if (!isCurrentConversation(expectedConversationId, generation) || result.run.conversationId !== expectedConversationId) return;
             setActiveRunStatus(result.run.status);
+            setRunDetails((current) => ({ ...current, [result.run.id]: result.run }));
             if (action === "resume") {
                 const assistantMessage = messages.find((item) => item.runId === result.run.id && item.role === "assistant");
                 if (assistantMessage) watchRun(result.run, assistantMessage.id, generation);

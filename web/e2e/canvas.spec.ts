@@ -8,6 +8,62 @@ import { E2E_PROTOCOL_ORIGIN } from "./support";
 
 test.describe.configure({ mode: "serial" });
 
+test("canvas project billing remains readable on desktop and narrow screens", async ({ page, request }) => {
+    const project = await createCanvasProject(request, { title: `Canvas 费用回归 ${randomUUID().slice(0, 8)}`, nodes: [], connections: [] });
+    try {
+        await page.goto(`/canvas/${project.id}`, { waitUntil: "domcontentloaded" });
+        await expect(page.locator("[data-canvas-surface]")).toBeVisible();
+        await page.getByRole("button", { name: "收起 Agent 面板" }).click();
+        await expect(page.getByRole("button", { name: "收起 Agent 面板" })).toBeHidden();
+        for (const width of [1440, 390, 430]) {
+            await page.setViewportSize({ width, height: width === 1440 ? 900 : 844 });
+            await page.getByRole("button", { name: "打开画布菜单" }).click();
+            await page.getByRole("menuitem", { name: "项目费用" }).click();
+            const dialog = page.getByRole("dialog", { name: "项目已结费用" });
+            await expect(dialog).toBeVisible();
+            await expect(dialog.getByText("已结净额：0 积分")).toBeVisible();
+            await expect(dialog.getByText("暂无可归属的已结账务记录。")).toBeVisible();
+            const box = await dialog.boundingBox();
+            expect(box).not.toBeNull();
+            expect(box!.x).toBeGreaterThanOrEqual(0);
+            expect(box!.x + box!.width).toBeLessThanOrEqual(width);
+            await expectNoHorizontalOverflow(page, `Canvas 费用弹窗 ${width}px`);
+            await dialog.getByRole("button", { name: "Close" }).click();
+            await expect(dialog).toBeHidden();
+        }
+        await page.route(`**/api/canvas/projects/${project.id}/billing`, (route) =>
+            route.fulfill({
+                json: {
+                    code: 0,
+                    msg: "OK",
+                    data: {
+                        summary: {
+                            actualPoints: 7,
+                            pendingHeldPoints: 4.25,
+                            charges: [{ type: "image", purpose: "generation", logicalModelId: "image-a", chargedPoints: 10, refundedPoints: 3, actualPoints: 7 }],
+                            pending: [{ type: "image", logicalModelId: "image-a", heldPoints: 4.25, count: 1 }],
+                        },
+                    },
+                },
+            }),
+        );
+        for (const width of [390, 430]) {
+            await page.setViewportSize({ width, height: 844 });
+            await page.getByRole("button", { name: "打开画布菜单" }).click();
+            await page.getByRole("menuitem", { name: "项目费用" }).click();
+            const dialog = page.getByRole("dialog", { name: "项目已结费用" });
+            await expect(dialog.getByText("已结净额：7 积分")).toBeVisible();
+            await expect(dialog.getByText("未结预留", { exact: true })).toBeVisible();
+            await expect(dialog.getByText("未结预留", { exact: true }).locator("..").getByText("4.25 积分", { exact: true })).toBeVisible();
+            await expectNoHorizontalOverflow(page, `Canvas 已结及预留 ${width}px`);
+            await dialog.getByRole("button", { name: "Close" }).click();
+            await expect(dialog).toBeHidden();
+        }
+    } finally {
+        await deleteCanvasProject(request, project.id);
+    }
+});
+
 test("canvas keeps editing, selection, linking and persistence fluid", async ({ page, request }) => {
     const project = await createCanvasProject(request, {
         title: `Canvas 交互回归 ${randomUUID().slice(0, 8)}`,

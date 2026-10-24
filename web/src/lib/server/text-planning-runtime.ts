@@ -4,11 +4,12 @@ import { fetchInternalApi } from "@/lib/server/internal-origin";
 import { resolveModelRequestTimeoutMs } from "@/lib/server/model-request-policy";
 import { buildProviderRequest, isProviderBusinessError, readProviderError, readProviderString, readProviderValue } from "@/lib/server/provider-task-config";
 import { extractJsonObjectText } from "@/lib/server/structured-model-output";
+import { inspectProviderTokenUsage, type TokenUsageObservation, type TokenUsageProtocol } from "@/lib/server/model-pricing-token-usage";
 import { SYSTEM_AI_LOGICAL_MODEL_HEADER, SYSTEM_AI_POINTS_IDEMPOTENCY_HEADER, SYSTEM_AI_UPSTREAM_MODEL_HEADER, systemAiBillingHeaders } from "@/lib/server/system-ai-billing";
 import { interpolateModelPath, resolveTextProtocol } from "@/lib/server/text-protocol-resolver";
 import { resolveChannelModelConfig } from "@/lib/channel-protocol-registry";
 
-export type TextPlanningProtocol = "responses" | "chat" | "gemini" | "custom";
+export type TextPlanningProtocol = "responses" | "chat" | "gemini" | "claude" | "custom";
 export type TextPlanningCandidate = {
     channelId: string;
     upstreamModel: string;
@@ -16,7 +17,7 @@ export type TextPlanningCandidate = {
     capabilityProfile?: { timeoutMs?: number };
 };
 export type TextPlanningTool = { name: string; description: string; parameters: Record<string, unknown> };
-export type TextPlanningCall = { arguments: string; headers: Headers; protocol: TextPlanningProtocol; elapsedMs: number; transport?: "stream" | "complete"; fallbackReason?: string };
+export type TextPlanningCall = { arguments: string; headers: Headers; protocol: TextPlanningProtocol; elapsedMs: number; transport?: "stream" | "complete"; responseComplete: boolean; fallbackReason?: string; tokenUsage?: TokenUsageObservation };
 type TextPlanningRequestErrorReason = "http" | "transport" | "invalid-structure";
 export type StructuredTextFailureCode = "invalid-response-json" | "missing-structured-result" | "invalid-structured-result";
 
@@ -71,6 +72,7 @@ export class TextPlanningRequestError extends Error {
         readonly retryable = status >= 500 || status === 408 || status === 429,
         readonly reason: TextPlanningRequestErrorReason = "http",
         readonly failureCode?: StructuredTextFailureCode,
+        readonly transportCode?: string,
     ) {
         super(message);
         this.name = "TextPlanningRequestError";
@@ -128,6 +130,7 @@ export function resetTextPlanningRuntime() {
 
 function planningProtocolRequests(input: StructuredTextRequest, messages: Array<{ role: string; content: string }>) {
     const promptRequest = planningProtocolRequest(input.candidate, messages, "json", undefined, input.stream === true);
+    if (promptRequest.protocol === "claude") return [promptRequest, planningProtocolRequest(input.candidate, planningMessages(input, true), "repair")];
     if (input.allowRepair === false) {
         return input.preferNativeTools && promptRequest.protocol !== "custom" ? [planningProtocolRequest(input.candidate, messages, "tool", input.tool), promptRequest] : [promptRequest];
     }
@@ -147,11 +150,12 @@ function planningProtocolRequest(candidate: TextPlanningCandidate, messages: Arr
     const streaming = modelStreaming || candidate.channel.advancedConfig?.streaming;
     const hasExplicitStreamPath = Boolean(streaming?.path?.trim());
     const streamEnabled = streaming?.enabled === true || (streaming?.enabled !== false && resolved.kind !== "custom" && resolved.kind !== "gemini");
-    const stream = requestedStream && variant === "json" && streamEnabled && (resolved.kind === "chat" || resolved.kind === "responses" || hasExplicitStreamPath);
+    const stream = requestedStream && variant === "json" && streamEnabled && (resolved.kind === "chat" || resolved.kind === "responses" || resolved.kind === "claude" || hasExplicitStreamPath);
     const streamPath = resolved.kind === "gemini" ? interpolateModelPath(streaming?.path || resolved.path, candidate.upstreamModel) : streaming?.path || resolved.path;
     const streamFormat = streaming?.format || (resolved.kind === "gemini" ? "ndjson" : "sse");
     if (resolved.kind === "responses") return responsesRequest(candidate.upstreamModel, messages, stream ? streamPath : resolved.path, variant === "tool" ? tool : undefined, variant, stream);
     if (resolved.kind === "gemini") return geminiRequest(candidate.upstreamModel, messages, stream ? streamPath : resolved.path, variant === "tool" ? tool : undefined, variant, stream, streamFormat);
+    if (resolved.kind === "claude") return claudeRequest(candidate.upstreamModel, messages, stream ? streamPath : resolved.path, variant, stream);
     if (resolved.kind === "custom") return customRequest(candidate.upstreamModel, stream ? streamPath : resolved.path, resolved.requestTemplate!, resolved.resultField!, messages, variant, stream, streamFormat);
     return chatRequest(candidate.upstreamModel, messages, stream ? streamPath : resolved.path, variant === "tool" ? tool : undefined, variant, stream, streamFormat);
 }
@@ -188,6 +192,26 @@ function responsesRequest(model: string, messages: Array<{ role: string; content
             model,
             input: messages,
             ...(tool ? { tools: [{ type: "function", ...tool }], tool_choice: { type: "function", name: tool.name } } : variant === "json" || variant === "repair" ? { text: { format: { type: "json_object" } } } : {}),
+            ...(stream ? { stream: true } : {}),
+        },
+        ...(stream ? { stream: true, streamFormat: "sse" } : {}),
+    };
+}
+
+function claudeRequest(model: string, messages: Array<{ role: string; content: string }>, path: string, variant: ProtocolRequest["variant"], stream: boolean): ProtocolRequest {
+    const system = messages
+        .filter((message) => message.role === "system")
+        .map((message) => message.content)
+        .join("\n\n");
+    return {
+        protocol: "claude",
+        variant,
+        path,
+        body: {
+            model,
+            max_tokens: 4096,
+            ...(system ? { system } : {}),
+            messages: messages.filter((message) => message.role !== "system").map((message) => ({ role: message.role === "assistant" ? "assistant" : "user", content: message.content })),
             ...(stream ? { stream: true } : {}),
         },
         ...(stream ? { stream: true, streamFormat: "sse" } : {}),
@@ -262,7 +286,9 @@ async function requestTextProtocol(input: StructuredTextRequest, request: Protoc
         return await fetchInternalApi(`${base}${normalizePath(request.path)}`, { method: "POST", headers, body: JSON.stringify(request.body), cache: "no-store", signal });
     } catch (error) {
         if (input.signal?.aborted) throw error;
-        throw new TextPlanningRequestError(isTimeoutError(error) ? "文本模型规划响应超时，正在切换备用渠道" : "文本模型渠道暂时无法连接", 504, true, "transport");
+        const cause = error instanceof Error && "cause" in error ? error.cause : undefined;
+        const code = cause && typeof cause === "object" && "code" in cause && typeof cause.code === "string" && /^[A-Z_]+$/.test(cause.code) ? cause.code : error instanceof Error ? error.name : undefined;
+        throw new TextPlanningRequestError(isTimeoutError(error) ? "文本模型规划响应超时，正在切换备用渠道" : "文本模型渠道暂时无法连接", 504, true, "transport", undefined, code);
     }
 }
 
@@ -298,7 +324,7 @@ async function readStructuredResponse(input: StructuredTextRequest, request: Pro
     } catch {
         if (request.stream) {
             const streamedArguments = (typeof body === "string" ? undefined : body.arguments) || extractStreamedArguments(raw, request.protocol, input.tool.name, request.resultField, input.allowNaturalLanguage);
-            if (streamedArguments) return finalizeStructuredArguments(input, request, response, startedAt, streamedArguments);
+            if (streamedArguments) return finalizeStructuredArguments(input, request, response, startedAt, streamedArguments, typeof body === "string" ? {} : body.usagePayload || {}, typeof body !== "string" && body.complete);
         }
         await input.onInvalidResponse?.(response.headers);
         console.error("[text-planning] structured response is not JSON", JSON.stringify({ protocol: request.protocol, status: response.status, responseBytes: Buffer.byteLength(raw, "utf8") }));
@@ -314,10 +340,12 @@ async function readStructuredResponse(input: StructuredTextRequest, request: Pro
         throw new TextPlanningRequestError(readProviderError(payload) || "自定义文本协议返回失败");
     }
     const argumentsText = readProtocolArguments(payload, input.tool.name, request, input.allowNaturalLanguage);
-    return finalizeStructuredArguments(input, request, response, startedAt, argumentsText, payload);
+    const streamedMediaType = /(?:text\/event-stream|application\/(?:x-)?ndjson)/i.test(response.headers.get("content-type") || "");
+    const responseComplete = !request.stream || !streamedMediaType || (typeof body !== "string" && body.complete);
+    return finalizeStructuredArguments(input, request, response, startedAt, argumentsText, payload, responseComplete);
 }
 
-async function finalizeStructuredArguments(input: StructuredTextRequest, request: ProtocolRequest, response: Response, startedAt: number, argumentsText: string, payload: Record<string, unknown> = {}) {
+async function finalizeStructuredArguments(input: StructuredTextRequest, request: ProtocolRequest, response: Response, startedAt: number, argumentsText: string, payload: Record<string, unknown> = {}, responseComplete = true) {
     if (!argumentsText) {
         await input.onInvalidResponse?.(response.headers);
         console.error("[text-planning] structured response has no readable result", JSON.stringify({ protocol: request.protocol, tool: input.tool.name, ...describeStructuredPayload(payload) }));
@@ -330,10 +358,20 @@ async function finalizeStructuredArguments(input: StructuredTextRequest, request
     }
     const elapsedMs = Date.now() - startedAt;
     recordTextSuccess(input.candidate, request.protocol, elapsedMs);
-    return { arguments: argumentsText, headers: response.headers, protocol: request.protocol, elapsedMs, transport: request.stream ? ("stream" as const) : ("complete" as const) };
+    const tokenProtocol: TokenUsageProtocol | null =
+        request.protocol === "chat" ? "openai-chat" : request.protocol === "responses" ? "openai-responses" : request.protocol === "gemini" ? "gemini-generate" : request.protocol === "claude" ? "anthropic-messages" : null;
+    return {
+        arguments: argumentsText,
+        headers: response.headers,
+        protocol: request.protocol,
+        elapsedMs,
+        transport: request.stream ? ("stream" as const) : ("complete" as const),
+        responseComplete,
+        ...(tokenProtocol ? { tokenUsage: inspectProviderTokenUsage(tokenProtocol, payload) } : {}),
+    };
 }
 
-async function readResponseBody(response: Response, accumulator?: StreamAccumulator): Promise<string | { raw: string; arguments: string }> {
+async function readResponseBody(response: Response, accumulator?: StreamAccumulator): Promise<string | { raw: string; arguments: string; usagePayload?: Record<string, unknown>; complete: boolean }> {
     if (!response.body) return response.text();
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -357,7 +395,7 @@ async function readResponseBody(response: Response, accumulator?: StreamAccumula
         const next = await reader.read();
         if (next.done) {
             consume(decoder.decode(), true);
-            return accumulator ? { raw: output, arguments: accumulator.result() } : output;
+            return accumulator ? { raw: output, arguments: accumulator.result(), usagePayload: accumulator.usagePayload(), complete: accumulator.complete() } : output;
         }
         consume(decoder.decode(next.value, { stream: true }));
     }
@@ -369,15 +407,22 @@ function extractStreamedArguments(raw: string, protocol: TextPlanningProtocol, t
     return accumulator.result();
 }
 
-type StreamAccumulator = { append: (line: string) => void; result: () => string };
+type StreamAccumulator = { append: (line: string) => void; result: () => string; usagePayload: () => Record<string, unknown> | undefined; complete: () => boolean };
 
 function createStreamAccumulator(protocol: TextPlanningProtocol, toolName: string, resultField?: string, allowNaturalLanguage = false): StreamAccumulator {
     let content = "";
     let argumentsText = "";
+    let usagePayload: Record<string, unknown> | undefined;
+    let completed = false;
+    const responseIdentity: Record<string, string> = {};
     return {
         append(line) {
             const value = line.trim().startsWith("data:") ? line.trim().slice(5).trim() : line.trim();
-            if (!value || value === "[DONE]") return;
+            if (!value) return;
+            if (value === "[DONE]") {
+                if (protocol === "chat") completed = true;
+                return;
+            }
             let payload: Record<string, unknown>;
             try {
                 const parsed = JSON.parse(value) as unknown;
@@ -386,6 +431,16 @@ function createStreamAccumulator(protocol: TextPlanningProtocol, toolName: strin
             } catch {
                 return;
             }
+            const response = protocol === "responses" ? record(payload.response) || {} : payload;
+            if (protocol === "responses" && payload.type === "response.completed") completed = true;
+            if (protocol === "responses" && payload.type === "response.failed") completed = false;
+            if (protocol === "gemini" && ["STOP", "MAX_TOKENS"].includes(String(record(firstRecord(payload.candidates))?.finishReason || ""))) completed = true;
+            for (const key of ["model", "modelVersion", "service_tier"] as const) {
+                if (typeof response[key] === "string") responseIdentity[key] = response[key];
+            }
+            if (protocol === "responses" && response.usage) usagePayload = response;
+            else if (protocol === "gemini" && payload.usageMetadata) usagePayload = payload;
+            else if (protocol === "chat" && payload.usage) usagePayload = payload;
             if (protocol === "chat") {
                 const delta = record(firstRecord(payload.choices)?.delta) || record(firstRecord(payload.choices)?.message);
                 const call = records(delta?.tool_calls).find((item) => !toolName || record(item.function)?.name === toolName || !record(item.function)?.name);
@@ -406,6 +461,19 @@ function createStreamAccumulator(protocol: TextPlanningProtocol, toolName: strin
                 const call = parts.map((part) => record(part.functionCall)).find((item) => item?.name === toolName);
                 if (call?.args) argumentsText += JSON.stringify(call.args);
                 content += parts.map((part) => (typeof part.text === "string" ? part.text : "")).join("");
+            } else if (protocol === "claude") {
+                if (payload.type === "message_start") {
+                    const message = record(payload.message);
+                    if (message?.usage) usagePayload = { model: message.model, usage: { ...record(message.usage) } };
+                } else if (payload.type === "message_delta") {
+                    usagePayload = { ...usagePayload, usage: { ...record(usagePayload?.usage), ...record(payload.usage) } };
+                } else if (payload.type === "content_block_start") {
+                    const block = record(payload.content_block);
+                    if (block?.type === "text" && typeof block.text === "string") content += block.text;
+                } else if (payload.type === "content_block_delta") {
+                    const delta = record(payload.delta);
+                    if (delta?.type === "text_delta" && typeof delta.text === "string") content += delta.text;
+                } else if (payload.type === "message_stop") completed = true;
             } else {
                 const configured = readProviderValue(payload, resultField);
                 argumentsText += jsonObjectArguments(configured) || "";
@@ -415,18 +483,34 @@ function createStreamAccumulator(protocol: TextPlanningProtocol, toolName: strin
         result() {
             return extractJsonObjectText(argumentsText) || extractJsonObjectText(content) || (allowNaturalLanguage ? content.trim() : "");
         },
+        usagePayload() {
+            return usagePayload ? { ...responseIdentity, ...usagePayload } : undefined;
+        },
+        complete() {
+            return completed;
+        },
     };
 }
 
 function readProtocolArguments(payload: Record<string, unknown>, toolName: string, request: ProtocolRequest, allowNaturalLanguage = false) {
     if (request.protocol === "responses") return responsesArguments(payload, toolName, allowNaturalLanguage);
     if (request.protocol === "gemini") return geminiArguments(payload, toolName, allowNaturalLanguage);
+    if (request.protocol === "claude") return claudeArguments(payload, allowNaturalLanguage);
     if (request.protocol === "custom") {
         const configured = readProviderValue(payload, request.resultField);
         const content = jsonObjectArguments(configured) || readProviderString(payload, request.resultField, TEXT_RESULT_KEYS);
         return extractJsonObjectText(content) || (allowNaturalLanguage ? content : "");
     }
     return chatArguments(payload, toolName, allowNaturalLanguage);
+}
+
+function claudeArguments(payload: Record<string, unknown>, allowNaturalLanguage: boolean) {
+    const content = records(payload.content)
+        .filter((part) => part.type === "text")
+        .map((part) => (typeof part.text === "string" ? part.text : ""))
+        .join("")
+        .trim();
+    return extractJsonObjectText(content) || (allowNaturalLanguage ? content : "");
 }
 
 function planningMessages(input: StructuredTextRequest, recovery = false) {

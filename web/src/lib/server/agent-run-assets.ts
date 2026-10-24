@@ -3,6 +3,7 @@ import { agentTaskResultItems } from "@/lib/server/agent-run-result-items";
 import type { AgentRun, AgentRunTask } from "@/lib/server/agent-run-store";
 
 export async function registerAgentTaskAssets(run: AgentRun, task: AgentRunTask, result: unknown, sourceTaskIds: string[]) {
+    if (run.generationPreferences?.mode === "text" && task.type === "text") return [];
     const records: Array<{ record: Record<string, unknown>; textContent?: string; location?: NonNullable<ReturnType<typeof persistentMediaLocation>> }> = [];
     for (const record of agentTaskResultItems(result)) {
         if (task.type === "text") {

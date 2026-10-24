@@ -30,6 +30,8 @@ export function mergeAccountConfigBackup(current: AdminBackupData, imported: Adm
 }
 
 function mergeAuthDatabase(current: AuthDatabase, imported: AuthDatabase): AuthDatabase {
+    if (current.pricingRefunds.length || imported.pricingRefunds.length || current.pricingReservations.length || imported.pricingReservations.length || current.pricingAccruals.length || imported.pricingAccruals.length)
+        throw new Error("存在按用量计费钱包时不能合并账户配置备份，请使用完整数据库灾难恢复以保留余额与预留的一致性");
     return {
         ...current,
         ...imported,

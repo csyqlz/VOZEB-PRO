@@ -6,6 +6,7 @@ import { fetchOptionalResponses } from "@/lib/server/responses-request";
 import { TEXT_MODEL_REQUEST_TIMEOUT_MS } from "@/lib/server/model-request-policy";
 import { strictJsonObjectText } from "@/lib/server/structured-model-output";
 import { hasSystemAiCharge, readSystemAiBilling, systemAiBillingHeaders, systemAiIdempotencyKey, type SystemAiBilling } from "@/lib/server/system-ai-billing";
+import { recordAgentAuxiliaryCharge } from "@/lib/server/generation-task-charge-attribution";
 import { resolveSiteTitle } from "@/lib/site-brand";
 
 export type CreativeReviewTaskInput = {
@@ -19,7 +20,7 @@ export type CreativeReviewTaskInput = {
 
 type ReviewCall = { arguments: string } & SystemAiBilling;
 
-export async function reviewCreativeOutputs(input: { origin: string; cookie: string; userId: string; billingId?: string; foundation: CreativeFoundation; tasks: CreativeReviewTaskInput[] }): Promise<CreativeReview> {
+export async function reviewCreativeOutputs(input: { origin: string; cookie: string; userId: string; billingId?: string; projectId?: string; foundation: CreativeFoundation; tasks: CreativeReviewTaskInput[] }): Promise<CreativeReview> {
     const validTaskIds = new Set(input.tasks.map((task) => task.id));
     const imageInputs = await reviewImages(input.tasks, input.origin, input.cookie);
     const hasTextResult = input.tasks.some((task) => task.type === "text" && task.resultSummary.trim());
@@ -48,6 +49,14 @@ export async function reviewCreativeOutputs(input: { origin: string; cookie: str
         let call = await callResponses(input.origin, resolved.channel.id, resolved.upstreamModel, responsesInput, headers, input.userId, model);
         if (!call) call = await callChat(input.origin, resolved.channel.id, resolved.upstreamModel, chatMessages, headers, input.userId, model);
         if (!call) return unavailableCreativeReview("默认文本模型没有返回有效复盘结果，生成结果已保留。");
+        if (input.billingId && hasSystemAiCharge(call)) {
+            try {
+                await recordAgentAuxiliaryCharge({ userId: input.userId, runId: input.billingId, projectId: input.projectId, purpose: "review", logicalModelId: model, pointsRecordId: call.pointsRecordId });
+            } catch {
+                await refundUserPoints(input.userId, model, call.pointsCost, "text", 1, undefined, call.pointsRecordId);
+                throw new Error("复盘费用归属保存失败");
+            }
+        }
         let review: CreativeReview | null = null;
         try {
             review = normalizeCreativeReview(JSON.parse(call.arguments), validTaskIds);

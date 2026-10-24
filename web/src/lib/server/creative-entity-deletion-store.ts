@@ -8,6 +8,7 @@ import type { RuntimeFileDatabase } from "@/lib/server/creative-runtime-reposito
 import type { GenerationLogDatabase } from "@/lib/server/generation-log-types";
 import type { StoredGenerationTaskRecord } from "@/lib/server/generation-task-store";
 import { collectLocalMediaStorageKeys } from "@/lib/server/local-media-references";
+import { hasPendingTaskBilling } from "./generation-task-retention";
 
 const FILES = ["canvas-projects.json", "drama-projects.json", "creative-runtime.json", "generation-logs.json", "generation-tasks.json", "local-media-assets.json"] as const;
 
@@ -130,6 +131,7 @@ async function deletePostgresEntities(client: QueryExecutor, userId: string, sco
     );
     const messageRunIds = messageRunResult.rows.map((row) => text(row.run_id)).filter(Boolean);
     const taskRows = await selectPostgresTasks(client, userId, conversationIds, projectIds, messageRunIds);
+    if (taskRows.some((row) => hasPendingTaskBilling({ type: text(row.task_type), payload: (row.payload || {}) as Record<string, unknown> }))) throw new CreativeEntityDeletionConflict("该对话或项目仍有待结算的模型任务，请先检查任务状态后再删除");
     const taskIds = taskRows.map((row) => text(row.id)).filter(Boolean);
     const logResult = await client.query<Record<string, unknown>>(
         `SELECT id, request_snapshot FROM generation_logs
@@ -177,13 +179,13 @@ async function selectPostgresTasks(client: QueryExecutor, userId: string, conver
     do {
         const result = parentIds.length
             ? await client.query<Record<string, unknown>>(
-                  `SELECT id, run_id, parent_task_id, payload, result_payload FROM generation_tasks
+                  `SELECT id, task_type, run_id, parent_task_id, payload, result_payload FROM generation_tasks
                    WHERE user_id = $1 AND (parent_task_id = ANY($2::text[]) OR run_id = ANY($2::text[]))
                    FOR UPDATE`,
                   [userId, parentIds],
               )
             : await client.query<Record<string, unknown>>(
-                  `SELECT id, run_id, parent_task_id, payload, result_payload FROM generation_tasks
+                  `SELECT id, task_type, run_id, parent_task_id, payload, result_payload FROM generation_tasks
                    WHERE user_id = $1
                      AND (conversation_id = ANY($2::text[]) OR project_id = ANY($3::text[]) OR id = ANY($4::text[]) OR run_id = ANY($4::text[]))
                    FOR UPDATE`,
@@ -238,6 +240,7 @@ async function deleteFileEntities(userId: string, scope: DeletionScope): Promise
         const messageRunIds = new Set(before.runtime.messages.filter((message) => conversationIds.has(message.conversationId) && message.runId).map((message) => message.runId!));
         const tasks = selectFileTasks(before.tasks, userId, conversationIds, new Set(projectIds), messageRunIds);
         const taskIds = new Set(tasks.map((task) => task.id));
+        if (tasks.some(hasPendingTaskBilling)) throw new CreativeEntityDeletionConflict("该对话或项目仍有待结算的模型任务，请先检查任务状态后再删除");
         const logs = before.logs.logs.filter((log) => log.userId === userId && ((Boolean(log.conversationId) && conversationIds.has(log.conversationId!)) || (Boolean(log.taskId) && taskIds.has(log.taskId!))));
         const logIds = new Set(logs.map((log) => log.id));
         const deletedAssets = before.runtime.assets.filter((asset) => asset.userId === userId && conversationIds.has(asset.conversationId));

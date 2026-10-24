@@ -26,12 +26,39 @@ afterAll(async () => {
 });
 
 describe("text planning runtime live protocol fixture", () => {
-    it.each(STRICT_TEXT_PROTOCOLS)("sends the $id preset through Chat and reads strict JSON", async (definition) => {
-        const result = await requestStructuredText(input(candidate(definition.id)));
+    it.each(STRICT_TEXT_PROTOCOLS)("sends the $id preset through its registered text protocol", async (definition) => {
+        const result = await requestStructuredText(input(candidate(definition.id, { apiFormat: definition.apiFormat })));
 
-        expect(result).toMatchObject({ protocol: "chat", arguments: "{}" });
-        expect(lastRequest()).toMatchObject({ path: `/api/ai/system/${definition.id}/chat/completions`, body: expect.any(Buffer) });
-        expect(JSON.parse(lastRequest().body.toString("utf8"))).toMatchObject({ model: "mock-text", messages: expect.any(Array) });
+        expect(result).toMatchObject({ protocol: definition.id === "anthropic" ? "claude" : definition.apiFormat === "gemini" ? "gemini" : "chat", arguments: "{}" });
+        expect(result.tokenUsage?.quantities).toMatchObject(
+            definition.apiFormat === "gemini"
+                ? { inputTokens: "6", cachedInputTokens: "2", outputTokens: "9" }
+                : definition.id === "anthropic"
+                  ? { inputTokens: "5", cachedInputTokens: "2", cacheWrite5mTokens: "1", outputTokens: "8" }
+                  : { inputTokens: "5", cachedInputTokens: "2", cacheWriteTokens: "1", outputTokens: "8" },
+        );
+        expect(lastRequest()).toMatchObject({
+            path: definition.id === "anthropic" ? `/api/ai/system/${definition.id}/v1/messages` : definition.apiFormat === "gemini" ? `/api/ai/system/${definition.id}/models/mock-text:generateContent` : `/api/ai/system/${definition.id}/chat/completions`,
+            body: expect.any(Buffer),
+        });
+        expect(JSON.parse(lastRequest().body.toString("utf8"))).toMatchObject(
+            definition.apiFormat === "gemini"
+                ? { contents: expect.any(Array) }
+                : definition.id === "anthropic"
+                  ? { model: "mock-text", max_tokens: 4096, system: expect.any(String), messages: expect.any(Array) }
+                  : { model: "mock-text", messages: expect.any(Array) },
+        );
+    });
+
+    it("keeps native Claude planning text-only and reads its complete SSE usage", async () => {
+        const configured = candidate("anthropic");
+        const result = await requestStructuredText({ ...input(configured), preferNativeTools: true, stream: true });
+        expect(result).toMatchObject({ protocol: "claude", transport: "stream", responseComplete: true, arguments: "{}" });
+        expect(result.tokenUsage).toMatchObject({ reportedModel: "mock-text", missing: [], quantities: { inputTokens: "5", cachedInputTokens: "2", cacheWrite5mTokens: "1", outputTokens: "8" } });
+        expect(lastRequest().path).toBe("/api/ai/system/anthropic/v1/messages");
+        const body = JSON.parse(lastRequest().body.toString("utf8"));
+        expect(body).toMatchObject({ model: "mock-text", stream: true, max_tokens: 4096 });
+        expect(body.tools).toBeUndefined();
     });
 
     it.each(MANUAL_TEXT_PROTOCOLS)("receives structured text from the configured $id protocol", async (definition) => {
@@ -41,6 +68,7 @@ describe("text planning runtime live protocol fixture", () => {
         const expectedPath = definition.id === "custom" ? "/planner/run" : definition.id === "compatible" ? "/responses" : "/chat/completions";
 
         expect(result).toMatchObject({ protocol: expectedProtocol, arguments: "{}" });
+        if (expectedProtocol === "responses") expect(result.tokenUsage?.quantities).toMatchObject({ inputTokens: "5", cachedInputTokens: "2", cacheWriteTokens: "1", outputTokens: "8" });
         expect(lastRequest().path).toBe(`/api/ai/system/${definition.id}${expectedPath}`);
     });
 
@@ -48,7 +76,27 @@ describe("text planning runtime live protocol fixture", () => {
         const result = await requestStructuredText(input(candidate("compatible", { apiFormat: "gemini", createPath: "/models/:model:generateContent" })));
 
         expect(result).toMatchObject({ protocol: "gemini", arguments: "{}" });
+        expect(result.tokenUsage?.quantities).toMatchObject({ inputTokens: "6", cachedInputTokens: "2", outputTokens: "9" });
         expect(lastRequest().path).toBe("/api/ai/system/compatible/models/mock-text:generateContent");
+    });
+
+    it("reads Qwen explicit cache creation from complete Chat JSON and SSE responses", async () => {
+        const configured = candidate("newapi", {}, "qwen3.8-max");
+        for (const stream of [false, true]) {
+            const result = await requestStructuredText({ ...input(configured), stream });
+            expect(result.tokenUsage).toMatchObject({ reportedModel: "qwen3.8-max", missing: [], quantities: { inputTokens: "5", cachedInputTokens: "2", cacheWriteTokens: "1", outputTokens: "8" } });
+            expect(lastRequest().path).toBe("/api/ai/system/newapi/chat/completions");
+        }
+    });
+
+    it("cross-checks DeepSeek native cache counts in complete Chat JSON and SSE responses", async () => {
+        const configured = candidate("newapi", {}, "deepseek-flash");
+        for (const stream of [false, true]) {
+            const result = await requestStructuredText({ ...input(configured), stream });
+            expect(result.tokenUsage).toMatchObject({ reportedModel: "deepseek-flash", missing: ["cache_write_tokens"], quantities: { cachedInputTokens: "2", cacheMissTokens: "6", uncachedInputTokens: "6", outputTokens: "8" } });
+            expect(result.tokenUsage?.quantities.inputTokens).toBeUndefined();
+            expect(lastRequest().path).toBe("/api/ai/system/newapi/chat/completions");
+        }
     });
 
     it.each(GLOBAL_AIOPC_TEXT_PRESETS)("receives structured text through the legacy $id preset", async (preset) => {
@@ -60,19 +108,25 @@ describe("text planning runtime live protocol fixture", () => {
 
     it("reads Chat, Responses, Gemini and custom streaming contracts from the TCP fixture", async () => {
         const chat = await requestStructuredText({ ...input(candidate("newapi")), stream: true });
-        expect(chat).toMatchObject({ protocol: "chat", transport: "stream", arguments: "{}" });
+        expect(chat).toMatchObject({ protocol: "chat", transport: "stream", responseComplete: true, arguments: "{}" });
+        expect(chat.tokenUsage).toMatchObject({ reportedModel: "mock-text", serviceTier: "default" });
+        expect(chat.tokenUsage?.quantities).toMatchObject({ inputTokens: "5", cachedInputTokens: "2", cacheWriteTokens: "1", outputTokens: "8" });
         expect(lastRequest().path).toBe("/api/ai/system/newapi/chat/completions");
         expect(JSON.parse(lastRequest().body.toString("utf8"))).toMatchObject({ stream: true });
 
         const responses = await requestStructuredText({ ...input(candidate("compatible", { createPath: "/responses" })), stream: true });
-        expect(responses).toMatchObject({ protocol: "responses", transport: "stream", arguments: "{}" });
+        expect(responses).toMatchObject({ protocol: "responses", transport: "stream", responseComplete: true, arguments: "{}" });
+        expect(responses.tokenUsage).toMatchObject({ reportedModel: "mock-text", serviceTier: "default" });
+        expect(responses.tokenUsage?.quantities).toMatchObject({ inputTokens: "5", cachedInputTokens: "2", cacheWriteTokens: "1", outputTokens: "8" });
         expect(lastRequest().path).toBe("/api/ai/system/compatible/responses");
 
         const gemini = await requestStructuredText({
             ...input(candidate("compatible", { apiFormat: "gemini", createPath: "/models/:model:generateContent", streaming: { enabled: true, path: "/models/:model:streamGenerateContent", format: "ndjson" } })),
             stream: true,
         });
-        expect(gemini).toMatchObject({ protocol: "gemini", transport: "stream", arguments: "{}" });
+        expect(gemini).toMatchObject({ protocol: "gemini", transport: "stream", responseComplete: true, arguments: "{}" });
+        expect(gemini.tokenUsage).toMatchObject({ reportedModel: "mock-text" });
+        expect(gemini.tokenUsage?.quantities).toMatchObject({ inputTokens: "6", cachedInputTokens: "2", outputTokens: "9" });
         expect(lastRequest().path).toBe("/api/ai/system/compatible/models/mock-text:streamGenerateContent");
 
         const custom = await requestStructuredText({

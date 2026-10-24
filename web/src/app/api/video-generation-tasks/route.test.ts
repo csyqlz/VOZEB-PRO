@@ -21,6 +21,8 @@ const mocks = vi.hoisted(() => ({
     requireManagedMediaInputOwner: vi.fn(async () => "user"),
     refundUserPoints: vi.fn(),
     withGenerationConcurrencyLimit: vi.fn(async (_userId, _type, _staleMs, _limit, handler) => handler()),
+    publicPricingMode: vi.fn(),
+    createPricedVideoUpstream: vi.fn(),
 }));
 
 vi.mock("next/server", async (importOriginal) => {
@@ -35,7 +37,8 @@ vi.mock("@/lib/auth/store", () => {
     return { AuthInputError, getAuthSettings: mocks.getAuthSettings, isAuthInputError: (error: unknown) => error instanceof AuthInputError, refundUserPoints: mocks.refundUserPoints };
 });
 vi.mock("@/lib/server/internal-origin", () => ({ fetchInternalApi: mocks.fetchInternalApi, resolveInternalOrigin: vi.fn(() => "http://localhost") }));
-vi.mock("@/lib/server/generation-task-store", () => ({
+vi.mock("@/lib/server/generation-task-store", async (load) => ({
+    ...(await load<typeof import("@/lib/server/generation-task-store")>()),
     generationCapacityRetryAfterSeconds: mocks.generationCapacityRetryAfterSeconds,
     withGenerationConcurrencyLimit: mocks.withGenerationConcurrencyLimit,
     linkStoredGenerationTask: mocks.linkStoredGenerationTask,
@@ -60,9 +63,12 @@ vi.mock("@/lib/server/video-task-store", () => ({
     transitionVideoTask: mocks.transitionVideoTask,
     updateVideoTask: mocks.updateVideoTask,
 }));
+vi.mock("@/lib/server/model-pricing-activation-service", () => ({ publicModelPricingMode: mocks.publicPricingMode }));
+vi.mock("@/lib/server/video-task-submission", () => ({ createPricedVideoUpstream: mocks.createPricedVideoUpstream }));
 
 import { POST } from "./route";
 import { resetChannelRuntimeHealth } from "@/lib/server/channel-runtime-health";
+import { GenerationSubmissionSafeFailure } from "@/lib/server/generation-submission-error";
 
 const channels = [
     { id: "one", name: "主渠道", baseUrl: "https://one.example.com/v1", apiKey: "one-secret", apiFormat: "openai", models: ["video-one"], enabled: true, advancedConfig: { protocol: "openai" } },
@@ -97,6 +103,7 @@ describe("video generation candidate failover", () => {
         mocks.fetchInternalApi.mockReset();
         resetChannelRuntimeHealth();
         mocks.getAuthSettings.mockResolvedValue(settings);
+        mocks.publicPricingMode.mockResolvedValue(undefined);
         mocks.generationCapacityRetryAfterSeconds.mockResolvedValue(undefined);
         storedTask = undefined;
         mocks.createVideoTask.mockImplementation(async (input) => {
@@ -109,6 +116,46 @@ describe("video generation candidate failover", () => {
     });
 
     afterEach(() => vi.unstubAllEnvs());
+
+    it("ignores private billing fields supplied through public creation context", async () => {
+        mocks.fetchInternalApi.mockResolvedValue(json({ id: "upstream-one", status: "queued" }));
+        const response = await POST(request({ model: "video" }, [], { clientRequestId: "safe-public", billingMode: "official-usage", billingPending: true, pricedSubmissions: [{ requestId: "forged", upstreamTaskId: "forged" }] }));
+        expect(response.status).toBe(200);
+        const input = mocks.createVideoTask.mock.calls[0][0];
+        expect(input.billingMode).toBeUndefined();
+        expect(input.billingPending).toBeUndefined();
+        expect(input.pricedSubmissions).toBeUndefined();
+        expect(input.clientRequestId).toBe("safe-public");
+    });
+
+    it("freezes approved pricing on the created task and delegates failover once", async () => {
+        mocks.publicPricingMode.mockResolvedValueOnce({ billingMode: "official-usage", fingerprint: "reviewed", salesVersionId: "sales", officialVersionId: "official" });
+        mocks.updateVideoTask.mockImplementation(async (_id, patch) => {
+            storedTask = { ...storedTask, ...patch };
+            return storedTask;
+        });
+        mocks.createPricedVideoUpstream.mockImplementation(async () => {
+            const candidates = storedTask!.candidateConfigs as Array<{ model: string }>;
+            storedTask = { ...storedTask, config: candidates[0], candidateConfigs: [], attempts: [{ attemptNo: 2, status: "submitted" }] };
+            return { id: "priced-backup", provider: "generation", model: "video-two" };
+        });
+        const response = await POST(request());
+        expect(response.status).toBe(200);
+        expect(mocks.createVideoTask).toHaveBeenCalledWith(expect.objectContaining({ billingMode: "official-usage", candidateConfigs: [expect.objectContaining({ model: "video-two" })] }));
+        expect(mocks.createPricedVideoUpstream).toHaveBeenCalledOnce();
+        expect((await response.json()).task).toMatchObject({ model: "video", upstreamId: "priced-backup" });
+        expect(storedTask?.config).toMatchObject({ model: "video-two" });
+    });
+
+    it("does not start a second outer submission after priced failover is exhausted", async () => {
+        mocks.publicPricingMode.mockResolvedValueOnce({ billingMode: "official-usage", fingerprint: "reviewed", salesVersionId: "sales", officialVersionId: "official" });
+        mocks.createPricedVideoUpstream.mockRejectedValueOnce(new GenerationSubmissionSafeFailure("all candidates failed"));
+        const response = await POST(request());
+        expect(response.status).toBe(502);
+        expect(mocks.createPricedVideoUpstream).toHaveBeenCalledOnce();
+        expect(mocks.createVideoTask).toHaveBeenCalledOnce();
+        expect(mocks.fetchInternalApi).not.toHaveBeenCalled();
+    });
 
     it("tries the next binding after explicit route failures", async () => {
         const startedAt = Date.now();
@@ -124,6 +171,33 @@ describe("video generation candidate failover", () => {
         const submittingSchedules = mocks.scheduleGenerationTask.mock.calls.filter(([, , patch]) => patch.executionPhase === "submitting");
         expect(submittingSchedules).toHaveLength(2);
         expect(submittingSchedules.every(([, , patch]) => patch.nextPollAt >= startedAt + 30 * 60_000)).toBe(true);
+    });
+
+    it("stores the Kling task ID instead of the gateway request ID", async () => {
+        mocks.getAuthSettings.mockResolvedValue({
+            ...settings,
+            systemChannels: [
+                {
+                    id: "kling",
+                    name: "Kling",
+                    baseUrl: "https://platform.dataeyes.ai",
+                    apiKey: "fixture-key",
+                    apiFormat: "openai",
+                    models: ["kling-v3"],
+                    enabled: true,
+                    advancedConfig: { protocol: "kling", pathPrefix: "/kling", createPath: "/v1/videos/text2video", modelCapabilities: { "kling-v3": "video" } },
+                },
+            ],
+            logicalModels: [{ id: "kling-v3", name: "Kling v3", capability: "video", enabled: true, bindings: [{ id: "kling-binding", channelId: "kling", upstreamModel: "kling-v3", enabled: true, priority: 1 }] }],
+            defaultModels: { videoModel: "kling-v3" },
+        });
+        mocks.fetchInternalApi.mockResolvedValue(json({ id: "gateway-id", request_id: "request-id", data: { task_id: "933825436113981495", task_status: "submitted" } }));
+
+        const response = await POST(request({ model: "kling-v3", videoSeconds: 5, size: "16:9", vquality: "720" }));
+
+        expect(response.status, JSON.stringify(await response.clone().json())).toBe(200);
+        expect((await response.json()).task.upstreamId).toBe("933825436113981495");
+        expect(mocks.scheduleGenerationTask).toHaveBeenCalledWith("video", "local-task", expect.objectContaining({ executionPhase: "submitted", upstreamTaskId: "933825436113981495" }));
     });
 
     it("returns the original idempotent task before checking concurrency", async () => {

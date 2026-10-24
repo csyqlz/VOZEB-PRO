@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readlink, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -64,6 +64,7 @@ describe("release type-check and build contract", () => {
                 mkdir(path.join(fixtureRoot, "public", "icons"), { recursive: true }),
                 mkdir(path.join(fixtureRoot, "node_modules", ".pnpm", "@img+sharp-linux-x64@0.35.3", "node_modules", "@img", "sharp-linux-x64"), { recursive: true }),
                 mkdir(path.join(fixtureRoot, "node_modules", ".pnpm", "@img+sharp-libvips-linux-x64@1.3.2", "node_modules", "@img", "sharp-libvips-linux-x64", "lib"), { recursive: true }),
+                mkdir(path.join(fixtureRoot, "node_modules", ".pnpm", "playwright-core@1.62.1", "node_modules", "playwright-core"), { recursive: true }),
             ]);
             await Promise.all([
                 writeFile(path.join(fixtureRoot, distDir, "standalone", "server.js"), "server"),
@@ -73,7 +74,11 @@ describe("release type-check and build contract", () => {
                 writeFile(path.join(fixtureRoot, "public", "icons", "icon-192.png"), "png"),
                 writeFile(path.join(fixtureRoot, "node_modules", ".pnpm", "@img+sharp-linux-x64@0.35.3", "node_modules", "@img", "sharp-linux-x64", "sharp.node"), "native"),
                 writeFile(path.join(fixtureRoot, "node_modules", ".pnpm", "@img+sharp-libvips-linux-x64@1.3.2", "node_modules", "@img", "sharp-libvips-linux-x64", "lib", "libvips.so"), "libvips"),
+                writeFile(path.join(fixtureRoot, "node_modules", ".pnpm", "playwright-core@1.62.1", "node_modules", "playwright-core", "browsers.json"), "{}"),
             ]);
+            const nativePackageImg = path.join(fixtureRoot, "node_modules", ".pnpm", "@img+sharp-linux-x64@0.35.3", "node_modules", "@img");
+            const relativeLibvips = "../../../@img+sharp-libvips-linux-x64@1.3.2/node_modules/@img/sharp-libvips-linux-x64";
+            await symlink(relativeLibvips, path.join(nativePackageImg, "sharp-libvips-linux-x64"));
 
             const result = await prepareStandaloneAssets({ webRoot: fixtureRoot, distDir });
 
@@ -85,6 +90,23 @@ describe("release type-check and build contract", () => {
             expect(existsSync(path.join(fixtureRoot, distDir, "standalone", "public", "icons", "icon-192.png"))).toBe(true);
             expect(existsSync(path.join(fixtureRoot, distDir, "standalone", "node_modules", ".pnpm", "@img+sharp-linux-x64@0.35.3", "node_modules", "@img", "sharp-linux-x64", "sharp.node"))).toBe(true);
             expect(existsSync(path.join(fixtureRoot, distDir, "standalone", "node_modules", ".pnpm", "@img+sharp-libvips-linux-x64@1.3.2", "node_modules", "@img", "sharp-libvips-linux-x64", "lib", "libvips.so"))).toBe(true);
+            expect(existsSync(path.join(fixtureRoot, distDir, "standalone", "node_modules", ".pnpm", "playwright-core@1.62.1", "node_modules", "playwright-core", "browsers.json"))).toBe(true);
+            const copiedNativePackageImg = path.join(fixtureRoot, distDir, "standalone", "node_modules", ".pnpm", "@img+sharp-linux-x64@0.35.3", "node_modules", "@img");
+            expect(await readlink(path.join(copiedNativePackageImg, "sharp-libvips-linux-x64"))).toBe(relativeLibvips);
+            expect(existsSync(path.join(copiedNativePackageImg, "sharp-libvips-linux-x64", "lib", "libvips.so"))).toBe(true);
+        } finally {
+            await rm(fixtureRoot, { recursive: true, force: true });
+        }
+    });
+
+    it("rejects a standalone build that contains runtime data", async () => {
+        const fixtureRoot = await mkdtemp(path.join(os.tmpdir(), "vozeb-standalone-data-"));
+        try {
+            const standalone = path.join(fixtureRoot, ".next", "standalone");
+            await mkdir(path.join(standalone, ".data"), { recursive: true });
+            await writeFile(path.join(standalone, "server.js"), "server");
+            await writeFile(path.join(standalone, ".data", "private.bin"), "private");
+            await expect(prepareStandaloneAssets({ webRoot: fixtureRoot })).rejects.toThrow("must not contain runtime .data files");
         } finally {
             await rm(fixtureRoot, { recursive: true, force: true });
         }

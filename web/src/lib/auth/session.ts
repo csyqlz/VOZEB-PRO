@@ -4,6 +4,7 @@ import type { NextResponse } from "next/server";
 import { deleteSession, getPublicUsersByIds, getUserBySession, sessionMaxAgeSeconds, type AuthSettings, type PublicUser } from "./store";
 import { authorizedWorkerUserId } from "@/lib/server/maintenance-auth";
 import { getTrustedProxyHops } from "@/lib/server/trusted-proxy";
+import { DATAEYES_SEEDREAM_5_SIZES, isDataeyesSeedream5 } from "@/lib/dataeyes-seedream-protocol";
 import { parseSessionCookie } from "./store-normalizers";
 
 const SESSION_COOKIE_NAME = "vozeb_pro_session";
@@ -150,13 +151,16 @@ export function serializePublicSettings(settings: AuthSettings) {
                     .filter((binding) => binding.enabled)
                     .map((binding) => {
                         const capabilityProfile = publicCapabilityProfile(binding.capabilityProfile);
+                        const channel = settings.systemChannels.find((item) => item.id === binding.channelId);
+                        const seedream5 = model.capability === "image" && isDataeyesSeedream5(channel?.advancedConfig?.protocol, binding.upstreamModel);
+                        const publicProfile = seedream5 ? { ...capabilityProfile, aspectRatios: [...new Set([...(capabilityProfile?.aspectRatios?.length ? capabilityProfile.aspectRatios : DATAEYES_SEEDREAM_5_SIZES), "2K"])] } : capabilityProfile;
                         return {
                             id: binding.id,
                             channelId: binding.channelId,
                             upstreamModel: binding.upstreamModel,
                             enabled: true,
                             priority: binding.priority,
-                            ...(capabilityProfile ? { capabilityProfile } : {}),
+                            ...(publicProfile ? { capabilityProfile: publicProfile } : {}),
                         };
                     }),
             })),

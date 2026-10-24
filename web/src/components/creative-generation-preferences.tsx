@@ -1,7 +1,7 @@
 "use client";
 
 import { Button, Popover, Select } from "antd";
-import { AudioLines, ChevronDown, ImageIcon, Lightbulb, Maximize2, Sparkles, Video } from "lucide-react";
+import { AudioLines, ChevronDown, ImageIcon, Lightbulb, Maximize2, MessageCircle, Sparkles, Video } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { audioFormatLabel, audioFormatOptions, audioVoiceLabel, audioVoiceOptions } from "@/lib/audio-generation";
@@ -100,7 +100,10 @@ export function generationRatioOptions(capability: MediaCapability, profile?: Cr
     if (capability !== "image") return [smart, ...uniqueConfigured];
 
     const declaredRatios = configuredValues.filter((value) => /^\d+(?:\.\d+)?:\d+(?:\.\d+)?$/.test(value.trim())).map(normalizedRatio);
-    const highResolutionPresets = defaults.filter((option) => parseCustomDimensions(option.value) && declaredRatios.includes(normalizedRatio(option.value)));
+    const declaredTiers = configuredValues.filter((value) => /^\d+(?:\.\d+)?K$/i.test(value.trim())).map((value) => value.trim().toLowerCase());
+    const highResolutionPresets = defaults.filter(
+        (option) => parseCustomDimensions(option.value) && declaredRatios.includes(normalizedRatio(option.value)) && (!declaredTiers.length || declaredTiers.some((tier) => option.label.toLowerCase().startsWith(`${tier} `))),
+    );
     return [smart, ...uniqueConfigured, ...highResolutionPresets.filter((option) => !uniqueConfigured.some((item) => item.value.toLowerCase() === option.value.toLowerCase()))];
 }
 
@@ -338,8 +341,8 @@ function PreferencePanel({
     const selectedSize = capability === "image" ? preferences.image?.size || "auto" : preferences.video?.size || "auto";
     const selectedQuality = capability === "image" ? preferences.image?.quality || "auto" : preferences.video?.quality || "auto";
     const selectedCount = capability === "image" ? preferences.image?.count || 1 : preferences.video?.count || 1;
-    const standardRatios = ratios.filter((ratio) => !parseCustomDimensions(ratio.value));
-    const highResolutionRatios = ratios.filter((ratio) => parseCustomDimensions(ratio.value));
+    const standardRatios = ratios.filter((ratio) => !parseCustomDimensions(ratio.value) && !/^\d+(?:\.\d+)?K$/i.test(ratio.value));
+    const highResolutionRatios = ratios.filter((ratio) => parseCustomDimensions(ratio.value) || /^\d+(?:\.\d+)?K$/i.test(ratio.value));
     const [customEditorOpen, setCustomEditorOpen] = useState(Boolean(parseCustomDimensions(selectedSize)) && !isPresetMediaSize(capability, selectedSize));
     const [section, setSection] = useState<"canvas" | "output">("canvas");
 
@@ -405,7 +408,7 @@ function PreferencePanel({
                     ) : (
                         <div className="grid min-w-0 gap-1.5">
                             <div className="flex items-center justify-between gap-3">
-                                <p className="text-[11px] font-medium text-[#7b8591] dark:text-[#98a2ae]">比例</p>
+                                <p className="text-[11px] font-medium text-[#7b8591] dark:text-[#98a2ae]">{capability === "image" && standardRatios.some((ratio) => ratio.value.toLowerCase() === "2k") ? "尺寸/比例" : "比例"}</p>
                                 <span className="text-[10px] text-[#a0a8b2] dark:text-[#707b88]">{selectedSize === "auto" ? "智能" : formatSizeLabel(selectedSize, capability)}</span>
                             </div>
                             <div className="grid min-w-0 grid-cols-4 gap-1">
@@ -421,7 +424,7 @@ function PreferencePanel({
                                                 : "bg-[#f5f6f7] text-[#687481] hover:bg-[#edf0f2] hover:text-[#20242a] dark:bg-[#24282e] dark:text-[#a6afb9] dark:hover:bg-[#30363e] dark:hover:text-white",
                                         )}
                                         onClick={() => onChange({ size: ratio.value })}
-                                        aria-label={`选择${capability === "image" ? "图片" : "视频"}比例 ${ratio.label}`}
+                                        aria-label={`选择${capability === "image" ? "图片" : "视频"}${ratio.value.toLowerCase() === "2k" ? "尺寸" : "比例"} ${ratio.label}`}
                                         aria-pressed={selectedSize === ratio.value}
                                     >
                                         <span className="grid h-4 w-5 shrink-0 place-items-center">
@@ -775,7 +778,8 @@ export function mediaCapabilityLabel(capability: MediaCapability) {
     return capability === "image" ? "图片" : capability === "video" ? "视频" : "音频";
 }
 
-export function CreativeModeIcon({ mode }: { mode: "agent" | MediaCapability }) {
+export function CreativeModeIcon({ mode }: { mode: "agent" | "text" | MediaCapability }) {
+    if (mode === "text") return <MessageCircle className="size-4" />;
     if (mode === "image") return <ImageIcon className="size-4" />;
     if (mode === "video") return <Video className="size-4" />;
     if (mode === "audio") return <AudioLines className="size-4" />;
@@ -784,6 +788,7 @@ export function CreativeModeIcon({ mode }: { mode: "agent" | MediaCapability }) 
 
 export const creativeModeOptions = [
     { value: "agent", label: "Agent 模式", description: "自动理解需求并匹配能力" },
+    { value: "text", label: "文本对话", description: "截图解读、文字识别和图表问答" },
     { value: "image", label: "图片生成", description: "生成或编辑图片" },
     { value: "video", label: "视频生成", description: "文生视频或图生视频" },
     { value: "audio", label: "音频生成", description: "配音、旁白和音频" },

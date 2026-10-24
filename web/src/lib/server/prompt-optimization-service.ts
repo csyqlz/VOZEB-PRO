@@ -1,13 +1,13 @@
 import { getAuthSettings, refundUserPoints } from "@/lib/auth/store";
 import { CREATE_AGENT_PROMPT_MAX_LENGTH } from "@/lib/create-agent-prompt";
-import type { CreativeGenerationMode } from "@/lib/creative-runtime-contract";
+import type { CreativeCreationMode } from "@/lib/creative-runtime-contract";
 import { toSafeGenerationErrorMessage } from "@/lib/server/generation-errors";
 import { resolveLogicalModelCandidates } from "@/lib/server/logical-model-router";
 import { hasSystemAiCharge, readSystemAiBilling, systemAiBillingHeaders, systemAiIdempotencyKey } from "@/lib/server/system-ai-billing";
 import { rankTextPlanningCandidates, requestStructuredText } from "@/lib/server/text-planning-runtime";
 import { resolveSiteTitle } from "@/lib/site-brand";
 
-type PromptOptimizationMode = "agent" | CreativeGenerationMode;
+type PromptOptimizationMode = CreativeCreationMode;
 
 export class PromptOptimizationError extends Error {
     constructor(
@@ -60,7 +60,7 @@ export async function optimizeCreativePrompt(input: { origin: string; cookie: st
 }
 
 function promptOptimizationInstruction(mode: PromptOptimizationMode, siteTitle: string) {
-    const target = mode === "image" ? "图片" : mode === "video" ? "视频" : mode === "audio" ? "音频" : "创作";
+    const target = mode === "image" ? "图片" : mode === "video" ? "视频" : mode === "audio" ? "音频" : mode === "text" ? "问答" : "创作";
     return `你是 ${resolveSiteTitle(siteTitle)} 提示词编辑器。把用户原文改写为清晰、紧凑、可直接发送的中文${target}提示词。保留主体、人名、品牌、数量、尺寸、比例、时长、文字内容、参考素材要求和否定要求；不得改变用户意图，不得虚构事实或添加用户没有要求的复杂设定。只返回优化后的公开提示词，不解释修改过程，不输出内部规划、模型选择理由或思维链。`;
 }
 

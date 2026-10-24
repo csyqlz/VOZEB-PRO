@@ -8,7 +8,7 @@ import { hasSystemAiCharge, readSystemAiBilling, systemAiBillingHeaders, systemA
 import { safeProtocolDocumentationUrl } from "@/lib/channel-protocol-security";
 import { extractProtocolHtmlDocument, ProtocolDocumentFetchError, readProtocolDocumentSource } from "@/lib/server/protocol-document-source";
 
-const MAX_PROTOCOL_SOURCE_CHARACTERS = 120_000;
+export const MAX_PROTOCOL_SOURCE_CHARACTERS = 120_000;
 
 export type ChannelProtocolDraftBundle = {
     drafts: ChannelProtocolDraft[];

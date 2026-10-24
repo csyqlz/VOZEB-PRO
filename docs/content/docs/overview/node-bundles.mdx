@@ -1,0 +1,82 @@
+---
+title: 跨服务器备份与新节点
+description: 打包源码、Docker 镜像与完整数据，或制作不含生产数据的新节点模板
+---
+
+# 跨服务器备份与新节点
+
+`scripts/node-bundle.mjs` 适用于仓库的 `docker-compose.local.yml` 拓扑：App 与 Worker 使用同一份 `vozeb-pro:local` 镜像，PostgreSQL 使用 `postgres:16-alpine`。其他 Compose、外部 PostgreSQL、不同镜像标签和跨 CPU 架构迁移尚未由该脚本自动处理。
+
+脚本有两种模式：
+
+| 模式 | 内容 | 用途 |
+| --- | --- | --- |
+| `full` | 当前源码快照、两份镜像、加密 `.env`、PostgreSQL、本地媒体与已启用的对象存储 | 恢复原有账号、任务和作品 |
+| `template` | 当前源码快照、两份镜像；不带 `.env`、数据库或媒体 | 在其他服务器初始化独立的新站点 |
+
+完整迁移不能留下指向不存在媒体文件的历史记录。因此 `--local-media omit` 只在服务器媒体目录没有文件时可用；`--object-storage omit` 只在外部存储未启用且没有历史对象媒体引用时可用。即使管理员后来关闭外部存储，历史媒体仍可能在原桶中，完整备份会继续包含它们。新节点模板默认省略两类媒体。缺少媒体但仍恢复原数据库的“元数据克隆”不属于可运行恢复方式。
+
+若确认两类存储都为空，可在完整备份命令末尾追加 `--local-media omit --object-storage omit`；脚本会检查实际状态，条件不满足即拒绝备份。
+
+## 制作备份包
+
+先在源码与部署目录之外保存一个权限为 `0600` 的随机口令文件，例如使用 `openssl rand -hex 32 > /secure/vozeb-backup.pass`，然后执行 `chmod 600 /secure/vozeb-backup.pass`。口令文件不要放入备份包，也不要与备份包存在同一异地副本中。
+
+完整迁移：
+
+```bash
+node scripts/node-bundle.mjs backup \
+  --mode full \
+  --source /home/ubuntu/Vozeb-pro \
+  --deployment /opt/vozeb-pro \
+  --output /srv/vozeb-backups/node-001 \
+  --passphrase-file /secure/vozeb-backup.pass
+```
+
+脚本会先打包当前工作树及本机镜像，再记录正在运行的 App／Worker、停止它们、调用已有灾备脚本并在退出时恢复原运行状态。数据库在备份期间保持运行，App／Worker 停止写入；备份窗口会中断站点服务。若 Docker Socket 只有管理员可访问，请用具备 Docker 权限的账号或经授权的 `sudo` 执行。`--output` 必须是源码和部署目录之外的空目录。
+
+仅制作独立新节点模板：
+
+```bash
+node scripts/node-bundle.mjs backup \
+  --mode template \
+  --source /home/ubuntu/Vozeb-pro \
+  --output /srv/vozeb-backups/fresh-node
+```
+
+模板模式不停止现有服务。两种模式都生成 SHA-256 文件清单和独立的 `node-bundle.mjs`，可先运行：
+
+```bash
+node /srv/vozeb-backups/node-001/node-bundle.mjs verify \
+  --input /srv/vozeb-backups/node-001
+```
+
+完整包中的数据库快照可能包含敏感业务数据；加密 `.env` 不等于整个备份包已加密。备份目录应限制访问并通过加密传输或加密磁盘保存。源码快照包含未提交的工作区文件，但排除 `.env*`、密钥文件、`.git`、依赖、构建产物、临时目录和本机业务数据；如生产镜像与当前工作树不同，请将镜像与源码对应关系单独核对。
+
+## 在新服务器恢复
+
+目标服务器需有 Docker Engine、Compose v2、Node.js 和解包工具。把整个备份目录传到新服务器；完整迁移另行安全传递口令文件。目标部署目录必须不存在或为空，目标 CPU 架构必须与包内镜像一致。
+若目标服务器已有与备份包不同的 `vozeb-pro:local` 或 `postgres:16-alpine` 镜像标签，恢复会在导入前拒绝，避免覆盖现有镜像。
+
+先只做预检：
+
+```bash
+node /srv/vozeb-backups/node-001/node-bundle.mjs restore \
+  --input /srv/vozeb-backups/node-001 \
+  --target /opt/vozeb-pro \
+  --domain https://new.example.com \
+  --passphrase-file /secure/vozeb-backup.pass
+```
+
+预检输出确认 ID 后，追加 `--apply --confirm <完整确认 ID>` 才执行恢复。模板包无需 `--passphrase-file`。脚本会校验文件与恢复点、解包源码、导入镜像并生成目标 `.env`；域名变化时重新构建 App 镜像。完整模式随后启动 PostgreSQL、恢复业务数据和媒体，并启动 App；模板模式创建空白数据库并启动 App，之后需访问 `/install` 完成初始化。恢复后的应用只绑定 `127.0.0.1:3000`，Worker 保持停止。
+
+完成 HTTPS／反向代理、支付与第三方回调、对象存储、媒体读取、登录和任务核对后，再执行：
+
+```bash
+cd /opt/vozeb-pro
+docker compose -f docker-compose.local.yml up -d --no-build generation-worker
+```
+
+完整恢复会保留原加密密钥及数据库中的上游配置。现有对象存储恢复只支持相同 Endpoint、区域、桶和前缀；改桶需单独迁移并修改恢复流程。脚本只改写站点公开地址，不会盲目替换数据库或其他环境变量中的旧域名。新旧服务器不能同时处理同一批待执行任务；正式切换前须停旧节点、核对 DNS 与支付回调，并按实际 RPO 补做最终备份。恢复脚本不自动签发证书，也不修改 DNS 或第三方控制台。
+
+如果执行阶段失败，脚本会保留目标目录、隔离 Compose 卷及已有的恢复前安全副本供排查；不要直接对同一目录再次执行 `--apply`，先核对失败阶段与已恢复的数据。完整恢复的对象存储写入目标仍是原桶，切换前须确认不会与仍在写入的旧站并行冲突。

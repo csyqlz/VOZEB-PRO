@@ -8,7 +8,7 @@ import { useRouter } from "next/navigation";
 
 import { CREATIVE_UPLOAD_ACCEPT, CREATIVE_UPLOAD_MAX_BYTES, isCreativeUploadMimeType } from "@/lib/creative-upload";
 import type { CreateOverviewAsset } from "@/lib/create-workbench-overview";
-import type { CreativeAsset, CreativeGenerationMode, CreativeGenerationPreferences, CreativeMessage } from "@/lib/creative-runtime-contract";
+import type { CreativeAsset, CreativeCreationMode, CreativeGenerationMode, CreativeGenerationPreferences, CreativeMessage } from "@/lib/creative-runtime-contract";
 import { reconcileCreativeGenerationPreferences } from "@/lib/creative-model-capabilities";
 import { cn } from "@/lib/utils";
 import type { VideoReferenceRole } from "@/lib/video-reference-contract";
@@ -68,7 +68,7 @@ export default function CreatePage() {
     const [selectedSkillId, setSelectedSkillId] = useState<string>();
     const [selectedModelIds, setSelectedModelIds] = useState<string[]>([]);
     const [smartPlanning, setSmartPlanning] = useState(true);
-    const [creationMode, setCreationMode] = useState<"agent" | CreativeGenerationMode>("agent");
+    const [creationMode, setCreationMode] = useState<CreativeCreationMode>("agent");
     const [generationPreferences, setGenerationPreferences] = useState<CreativeGenerationPreferences>({});
     const [historyOpen, setHistoryOpen] = useState(false);
     const [assetsOpen, setAssetsOpen] = useState(false);
@@ -83,7 +83,7 @@ export default function CreatePage() {
     const showConversation = hasConversation || agent.conversationLoading;
     const selectedSkill = skills.find((skill) => skill.id === selectedSkillId);
     const modelOptions = useCreativeAgentModels();
-    const selectedModels = modelOptions.filter((model) => selectedModelIds.includes(model.id));
+    const selectedModels = selectedModelIds.map((id) => modelOptions.find((model) => model.id === id)).filter((model): model is (typeof modelOptions)[number] => Boolean(model));
     const updatePrompt = useCallback((value: string) => {
         promptValueRef.current = value;
         promptRevisionRef.current += 1;
@@ -188,11 +188,15 @@ export default function CreatePage() {
 
     const submit = async () => {
         if (!prompt.trim()) {
-            message.warning("请先描述你的创作需求");
+            message.warning(creationMode === "text" ? "请输入要提问的内容" : "请先描述你的创作需求");
             inputRef.current?.focus();
             return;
         }
-        if (!smartPlanning && !selectedModelIds.length) {
+        if (creationMode === "text" && agent.selectedAssets.some((asset) => asset.type !== "image" && asset.type !== "text")) {
+            message.warning("文本对话目前支持图片和文本素材，请移除视频或音频素材");
+            return;
+        }
+        if (creationMode !== "text" && !smartPlanning && !selectedModelIds.length) {
             message.warning("请选择至少一个模型，或重新开启智能规划");
             return;
         }
@@ -212,8 +216,8 @@ export default function CreatePage() {
             if (
                 await agent.submit(prompt, {
                     publicPrompt: publicCreativeAssetPrompt(prompt),
-                    skillIds: selectedSkillId ? [selectedSkillId] : [],
-                    ...(!smartPlanning && selectedModelIds.length ? { modelIds: selectedModelIds } : {}),
+                    skillIds: creationMode !== "text" && selectedSkillId ? [selectedSkillId] : [],
+                    ...(creationMode !== "text" && !smartPlanning && selectedModelIds.length ? { modelIds: selectedModelIds } : {}),
                     ...(Object.keys(preferences).length ? { preferences } : {}),
                 })
             ) {
@@ -340,12 +344,12 @@ export default function CreatePage() {
         window.requestAnimationFrame(() => inputRef.current?.focus());
     };
 
-    const changeCreationMode = (mode: "agent" | CreativeGenerationMode) => {
+    const changeCreationMode = (mode: CreativeCreationMode) => {
         setCreationMode(mode);
         setGenerationPreferences((current) => {
             const automaticPreferences = { ...current };
             delete automaticPreferences.mode;
-            const next: CreativeGenerationPreferences = mode === "agent" ? automaticPreferences : { ...current, mode };
+            const next: CreativeGenerationPreferences = mode === "agent" ? automaticPreferences : mode === "text" ? { mode: "text" } : { ...current, mode };
             if (mode === "video" || !next.video) return next;
             return { ...next, video: { ...next.video, referenceMode: "reference", firstFrameAssetId: undefined, lastFrameAssetId: undefined } };
         });
@@ -356,6 +360,7 @@ export default function CreatePage() {
         }
         setSelectedModelIds([]);
         setSmartPlanning(true);
+        if (mode === "text") setSelectedSkillId(undefined);
     };
 
     const changeGenerationCapability = (capability: CreativeGenerationMode) => {
@@ -698,6 +703,14 @@ export default function CreatePage() {
                                 olderLoading={agent.olderMessagesLoading}
                                 onLoadOlder={() => void agent.loadOlderMessages()}
                                 followLatest={!awayFromLatest}
+                                resumableRunId={agent.activeRunId}
+                                onResumeRun={async () => {
+                                    try {
+                                        await agent.control("resume");
+                                    } catch (error) {
+                                        message.error(error instanceof Error ? error.message : "继续任务失败");
+                                    }
+                                }}
                             />
                         ) : (
                             <div className="mx-auto flex min-h-full w-full min-w-0 max-w-[1240px] flex-col items-center px-2.5 pb-3 pt-5 sm:px-8 sm:pb-8 sm:pt-14 lg:pt-[10vh]">

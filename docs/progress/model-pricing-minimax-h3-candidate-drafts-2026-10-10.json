@@ -1,0 +1,50 @@
+{
+  "observedAt": "2026-10-10T11:14:07Z",
+  "status": "draft-pending-administrator-review",
+  "productionChanged": false,
+  "billingMode": "fixed-points",
+  "sourceUrl": "https://platform.minimax.io/docs/pricing/overview",
+  "candidateInputs": [
+    {
+      "logicalModelId": "MiniMax-H3",
+      "manufacturer": "MiniMax",
+      "series": "H3",
+      "officialVersion": "MiniMax-H3",
+      "sku": "MiniMax-H3",
+      "tier": "paid",
+      "conditions": "Global pay-as-you-go V2 video generation. Input video and output video are billed separately by seconds at the selected output resolution. First 5 input images are free upstream, then USD 0.04 per image; customer billing does not deduct that free allowance. Input audio is a standing free item: bill actual audio at zero points while charging video seconds and every input image at the regular customer rate after review. Current public billing remains fixed points until model admission is complete. Excludes regeneration and Context-IR tasks.",
+      "sourceKind": "manual",
+      "sourceUrl": "https://platform.minimax.io/docs/pricing/overview",
+      "evidence": "MiniMax Pricing Overview, Video Generation Output Pricing and Input Material Pricing, exact MiniMax-H3 rows; checked 2026-10-10. The standing free input-audio row is reviewed separately as a zero-point customer item; promotional free-image allowances do not reduce customer charges.",
+      "observedAt": "2026-10-10T11:14:07Z",
+      "items": [
+        { "key": "768P-inputVideoSeconds", "unit": "second", "per": "1", "price": "0.08", "currency": "USD" },
+        { "key": "768P-outputVideoSeconds", "unit": "second", "per": "1", "price": "0.08", "currency": "USD" },
+        { "key": "2K-inputVideoSeconds", "unit": "second", "per": "1", "price": "0.13", "currency": "USD" },
+        { "key": "2K-outputVideoSeconds", "unit": "second", "per": "1", "price": "0.13", "currency": "USD" },
+        { "key": "inputImages", "unit": "image", "per": "1", "price": "0.04", "currency": "USD" },
+        { "key": "inputAudioSeconds", "unit": "second", "per": "1", "price": "0", "currency": "USD" }
+      ]
+    }
+  ],
+  "unboundOfficialObservationDrafts": [
+    {
+      "officialModelId": "MiniMax-H3-Max",
+      "catalogStatus": "No logical MiniMax-H3-Max model in the 2026-10-09 active binding inventory; save as independent official discovery before any candidate mapping.",
+      "nextAction": "Register the verified official pricing URL, save the website evidence as an independent pending observation, then create and review an exact logical-model mapping only if the model enters the catalog.",
+      "manufacturer": "MiniMax",
+      "conditions": "Global pay-as-you-go V2 video generation. Input video and output video are billed separately by seconds at the selected output resolution. First 2 input images are free upstream, then USD 0.074 per image; customer billing does not deduct that free allowance. Input audio is a standing free item: bill actual audio at zero points while charging video seconds and every input image at the regular customer rate after review. Current public billing remains fixed points until model admission is complete. Excludes regeneration and Context-IR tasks.",
+      "sourceUrl": "https://platform.minimax.io/docs/pricing/overview",
+      "evidence": "MiniMax Pricing Overview, Video Generation Output Pricing and Input Material Pricing, exact MiniMax-H3-Max rows; checked 2026-10-10. The standing free input-audio row is reviewed separately as a zero-point customer item; promotional free-image allowances do not reduce customer charges.",
+      "observedAt": "2026-10-10T11:14:07Z",
+      "items": [
+        { "key": "480P-inputVideoSeconds", "unit": "second", "per": "1", "price": "0.0553", "currency": "USD" },
+        { "key": "480P-outputVideoSeconds", "unit": "second", "per": "1", "price": "0.05", "currency": "USD" },
+        { "key": "768P-inputVideoSeconds", "unit": "second", "per": "1", "price": "0.143", "currency": "USD" },
+        { "key": "768P-outputVideoSeconds", "unit": "second", "per": "1", "price": "0.08", "currency": "USD" },
+        { "key": "inputImages", "unit": "image", "per": "1", "price": "0.074", "currency": "USD" },
+        { "key": "inputAudioSeconds", "unit": "second", "per": "1", "price": "0", "currency": "USD" }
+      ]
+    }
+  ]
+}

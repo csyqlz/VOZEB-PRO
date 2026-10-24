@@ -1,6 +1,7 @@
 import type { DramaAssetReference, DramaProject, DramaShot } from "../types";
-import type { useEffectiveConfig } from "@/stores/use-config-store";
+import type { AiConfig } from "@/stores/use-config-store";
 import { resolveDramaGenerationSize } from "@/lib/drama-image-size";
+import { resolveConfiguredModelPointCost } from "@/lib/model-point-cost";
 import type { ReferenceImage } from "@/types/image";
 import type { VideoReferenceRole } from "@/lib/video-reference-contract";
 
@@ -38,19 +39,19 @@ export function dramaGenerationSize(project: DramaProject, prompt: string, refer
     return resolveDramaGenerationSize({ projectSize: project.ratio, prompt, references });
 }
 
-export function estimateTaskPoints(config: ReturnType<typeof useEffectiveConfig>, type: "image" | "video" | "audio", duration = 5) {
+export function estimateTaskPoints(config: AiConfig, type: "image" | "video" | "audio", duration = 5) {
     const model = type === "image" ? config.imageModel || config.model : type === "video" ? config.videoModel || config.model : config.audioModel;
-    const base = Number(config.modelPointCosts[model] || 0);
+    const base = resolveConfiguredModelPointCost(config.modelPointCosts, model, config.logicalModels);
     if (type === "image") return Number((base * (config.generationPointMultipliers.imageQuality[config.quality] || 1)).toFixed(2));
     if (type === "video") {
-        const quality = config.generationPointMultipliers.videoQuality[config.vquality] || 1;
+        const quality = config.generationPointMultipliers.videoQuality[config.vquality.replace(/p$/i, "")] || 1;
         const seconds = config.generationPointMultipliers.videoSeconds[String(duration)] || config.generationPointMultipliers.videoSeconds[config.videoSeconds] || 1;
         return Number((base * quality * seconds).toFixed(2));
     }
     return Number(base.toFixed(2));
 }
 
-export function estimateEpisodePoints(config: ReturnType<typeof useEffectiveConfig>, project: DramaProject, shots: DramaShot[]) {
+export function estimateEpisodePoints(config: AiConfig, project: DramaProject, shots: DramaShot[]) {
     const total = shots.reduce((sum, shot) => {
         const mode = shot.videoMode || project.defaultVideoMode;
         const image = mode === "storyboard" ? estimateTaskPoints(config, "image") * (shot.storyboardFrameMode === "first_last" ? 2 : 1) : 0;

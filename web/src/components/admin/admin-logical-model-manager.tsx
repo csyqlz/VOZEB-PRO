@@ -5,6 +5,7 @@ import { AlertTriangle, GitBranch, Pencil, RefreshCw, Route, Search } from "luci
 import { useDeferredValue, useMemo, useState } from "react";
 
 import { LabeledControl, SectionTitle } from "@/components/admin/admin-settings-controls";
+import { AdminModelPriorityBatch } from "@/components/admin/channels/admin-model-priority-batch";
 import type { LogicalModel, LogicalModelBinding, LogicalModelCapability, LogicalModelCapabilityProfile, SystemDefaultModels, SystemModelChannel } from "@/lib/auth/store";
 import { capabilityLabel, isLogicalModelResolvable, normalizeDefaultModelsConfig, resolveLogicalModelConfig, synchronizeLogicalModelsWithChannels } from "@/lib/model-routing-config";
 
@@ -40,7 +41,9 @@ export function AdminLogicalModelManager({ channels, logicalModels, defaultModel
     const visibleModels = useMemo(
         () =>
             logicalModels.filter(
-                (model) => (capabilityFilter === "all" || model.capability === capabilityFilter) && (!deferredQuery || `${model.id} ${model.name} ${model.bindings.map((binding) => binding.upstreamModel).join(" ")}`.toLowerCase().includes(deferredQuery)),
+                (model) =>
+                    (capabilityFilter === "all" || model.capability === capabilityFilter) &&
+                    (!deferredQuery || `${model.id} ${model.name} ${model.manufacturer || ""} ${model.series || ""} ${model.bindings.map((binding) => binding.upstreamModel).join(" ")}`.toLowerCase().includes(deferredQuery)),
             ),
         [capabilityFilter, deferredQuery, logicalModels],
     );
@@ -91,9 +94,23 @@ export function AdminLogicalModelManager({ channels, logicalModels, defaultModel
                     </div>
                     <p className="mt-1 text-xs leading-5 text-stone-500 dark:text-stone-400">逻辑模型由渠道模型目录自动生成；同名上游模型跨渠道合并，前端昵称可独立设置。</p>
                 </div>
-                <Button icon={<RefreshCw className="size-4" />} onClick={syncChannelModels}>
-                    重新同步
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                    <AdminModelPriorityBatch
+                        channels={channels}
+                        models={logicalModels}
+                        onGroupChange={(modelIds, manufacturer, series) => {
+                            const selected = new Set(modelIds);
+                            onChange({ logicalModels: logicalModels.map((model) => (selected.has(model.id) ? { ...model, ...(manufacturer !== undefined ? { manufacturer } : {}), ...(series !== undefined ? { series } : {}) } : model)), defaultModels });
+                        }}
+                        onSaved={(changes) => {
+                            const priorities = new Map(changes.map((item) => [`${item.modelId}:${item.bindingId}`, item.newPriority]));
+                            onChange({ logicalModels: logicalModels.map((model) => ({ ...model, bindings: model.bindings.map((binding) => ({ ...binding, priority: priorities.get(`${model.id}:${binding.id}`) ?? binding.priority })) })), defaultModels });
+                        }}
+                    />
+                    <Button icon={<RefreshCw className="size-4" />} onClick={syncChannelModels}>
+                        重新同步
+                    </Button>
+                </div>
             </div>
 
             <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
@@ -123,6 +140,10 @@ export function AdminLogicalModelManager({ channels, logicalModels, defaultModel
                                         </div>
                                         <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-stone-500 dark:text-stone-400">
                                             <span>ID：{model.id}</span>
+                                            <span>
+                                                {model.manufacturer || "厂商未确认"}
+                                                {model.series ? ` / ${model.series}` : ""}
+                                            </span>
                                             <span>{model.bindings.length} 个同名渠道绑定</span>
                                             <span className={resolved ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}>{resolved ? `${resolved.channel.name} / ${resolved.binding.upstreamModel}` : "当前无可用渠道"}</span>
                                         </div>
@@ -188,7 +209,7 @@ export function AdminLogicalModelManager({ channels, logicalModels, defaultModel
                     <>
                         <div className="rounded-lg border border-stone-200 bg-stone-50/70 p-3 dark:border-stone-800 dark:bg-stone-900/40">
                             <div className="truncate text-xs text-stone-500 dark:text-stone-400">逻辑 ID：{draft.id}（由上游模型自动建立）</div>
-                            <div className="mt-2 grid gap-3 sm:max-w-[456px] sm:grid-cols-[192px_144px_96px]">
+                            <div className="mt-2 grid gap-3 sm:grid-cols-2">
                                 <LabeledControl label="前端昵称">
                                     <Input
                                         className="!w-full"
@@ -198,6 +219,12 @@ export function AdminLogicalModelManager({ channels, logicalModels, defaultModel
                                         placeholder={draft.bindings[0]?.upstreamModel || draft.id}
                                         onChange={(event) => setDraft((current) => (current ? { ...current, name: event.target.value } : current))}
                                     />
+                                </LabeledControl>
+                                <LabeledControl label="模型厂商（管理员确认）">
+                                    <Input className="!w-full" maxLength={80} value={draft.manufacturer || ""} placeholder="例如 Google" onChange={(event) => setDraft((current) => (current ? { ...current, manufacturer: event.target.value } : current))} />
+                                </LabeledControl>
+                                <LabeledControl label="模型系列（管理员确认）">
+                                    <Input className="!w-full" maxLength={80} value={draft.series || ""} placeholder="例如 Gemini 2.5" onChange={(event) => setDraft((current) => (current ? { ...current, series: event.target.value } : current))} />
                                 </LabeledControl>
                                 <LabeledControl label="能力类型">
                                     <Select className="w-full" value={draft.capability} options={capabilityOptions} onChange={(capability) => setDraft((current) => (current ? { ...current, capability } : current))} />
@@ -278,6 +305,11 @@ function BindingEditor({ binding, capability, channels, onChange }: { binding: L
                     <Switch size="small" checked={binding.enabled} aria-label={`${channel?.name || "渠道"}绑定启用状态`} onChange={(enabled) => onChange({ enabled })} />
                 </div>
             </div>
+            {capability === "text" && (
+                <Checkbox className="mt-3" checked={binding.acceptanceOnly === true} onChange={(event) => onChange({ acceptanceOnly: event.target.checked })}>
+                    仅管理员定向验收；固定积分时不参与普通路由，按量验收纳入后自动承接
+                </Checkbox>
+            )}
             <div className="mt-3 rounded-md border border-stone-200/80 bg-white/70 p-3 dark:border-stone-800 dark:bg-stone-950/40">
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                     <div>

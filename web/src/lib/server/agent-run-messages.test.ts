@@ -9,6 +9,11 @@ describe("Agent 返回文案", () => {
         expect(agentTaskCompletionMessage(task({ title: "文案", result: { content: "最终文案内容" } }))).toContain("最终文案内容");
     });
 
+    it("returns the complete text conversation answer without a generation prefix", () => {
+        const answer = "图表显示逐月增长。".repeat(300);
+        expect(agentRunCompletionReply(agentRun({ surface: "chat", generationPreferences: { mode: "text" }, tasks: [task({ result: { content: answer } })] }))).toBe(answer);
+    });
+
     it("summarizes media completion without exposing base64", () => {
         const image = task({ title: "主图", type: "image", result: { dataUrl: "data:image/png;base64,abc" } });
         const run = agentRun({ tasks: [image] });

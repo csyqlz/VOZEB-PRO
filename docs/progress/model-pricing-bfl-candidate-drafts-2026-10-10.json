@@ -1,0 +1,56 @@
+{
+  "observedAt": "2026-10-10T08:28:19Z",
+  "status": "draft-pending-administrator-review",
+  "productionChanged": false,
+  "sourceUrl": "https://docs.bfl.ai/quick_start/pricing",
+  "candidateInputs": [
+    {
+      "logicalModelId": "flux-kontext-pro",
+      "manufacturer": "Black Forest Labs",
+      "series": "FLUX.1 Kontext",
+      "officialVersion": "flux-kontext-pro",
+      "sku": "flux-kontext-pro",
+      "tier": "paid",
+      "conditions": "Standard FLUX.1 Kontext [pro] API generation or editing; USD per image. Batch output count and failed-request billing need channel verification; excludes other FLUX variants.",
+      "sourceKind": "manual",
+      "sourceUrl": "https://docs.bfl.ai/quick_start/pricing",
+      "evidence": "BFL API Pricing, FLUX.1 Models (Previous Generation): Kontext [pro], 4 credits per image at 0.01 USD per credit, 0.04 USD per image; checked 2026-10-10.",
+      "observedAt": "2026-10-10T08:28:19Z",
+      "items": [
+        { "key": "outputImages", "unit": "image", "per": "1", "price": "0.04", "currency": "USD" }
+      ]
+    },
+    {
+      "logicalModelId": "flux-kontext-max",
+      "manufacturer": "Black Forest Labs",
+      "series": "FLUX.1 Kontext",
+      "officialVersion": "flux-kontext-max",
+      "sku": "flux-kontext-max",
+      "tier": "paid",
+      "conditions": "Standard FLUX.1 Kontext [max] API generation or editing; USD per image. Batch output count and failed-request billing need channel verification; excludes other FLUX variants.",
+      "sourceKind": "manual",
+      "sourceUrl": "https://docs.bfl.ai/quick_start/pricing",
+      "evidence": "BFL API Pricing, FLUX.1 Models (Previous Generation): Kontext [max], 8 credits per image at 0.01 USD per credit, 0.08 USD per image; checked 2026-10-10.",
+      "observedAt": "2026-10-10T08:28:19Z",
+      "items": [
+        { "key": "outputImages", "unit": "image", "per": "1", "price": "0.08", "currency": "USD" }
+      ]
+    },
+    {
+      "logicalModelId": "flux-pro-1.1",
+      "manufacturer": "Black Forest Labs",
+      "series": "FLUX1.1 Pro",
+      "officialVersion": "flux-pro-1.1",
+      "sku": "flux-pro-1.1",
+      "tier": "paid",
+      "conditions": "Standard FLUX1.1 [pro] text-to-image API generation; USD per image. Batch output count and failed-request billing need channel verification; excludes Ultra and Raw variants.",
+      "sourceKind": "manual",
+      "sourceUrl": "https://docs.bfl.ai/flux_models/flux_1_1_pro",
+      "evidence": "BFL FLUX1.1 [pro] Image Generation states API path /flux-pro-1.1 and 0.04 USD per image; cross-checked against API Pricing, checked 2026-10-10.",
+      "observedAt": "2026-10-10T08:28:19Z",
+      "items": [
+        { "key": "outputImages", "unit": "image", "per": "1", "price": "0.04", "currency": "USD" }
+      ]
+    }
+  ]
+}

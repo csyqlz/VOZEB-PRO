@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import type { AiConfig } from "@/stores/use-config-store";
 
-import { shotReferenceImages, storyboardReferenceImages } from "./drama-shot-generation-utils";
+import { estimateTaskPoints, shotReferenceImages, storyboardReferenceImages } from "./drama-shot-generation-utils";
 
 describe("storyboardReferenceImages", () => {
     it("marks the storyboard start and end images as explicit video frames", () => {
@@ -40,5 +41,23 @@ describe("storyboardReferenceImages", () => {
 
         expect(references).toHaveLength(5);
         expect(references.at(-1)).toMatchObject({ id: "character-4", serverUrl: "/api/reference-assets/4.png" });
+    });
+
+    it("estimates newly synced models using the same fixed points as the wallet", () => {
+        const config = {
+            imageModel: "new-image",
+            videoModel: "new-video",
+            audioModel: "new-audio",
+            modelPointCosts: { __default__: 2.5 },
+            logicalModels: [],
+            quality: "standard",
+            vquality: "720P",
+            videoSeconds: "5",
+            generationPointMultipliers: { imageQuality: { standard: 2 }, videoQuality: { "720": 1.5 }, videoSeconds: { "5": 2 } },
+        } as unknown as AiConfig;
+        expect(estimateTaskPoints(config, "image")).toBe(5);
+        expect(estimateTaskPoints(config, "video", 5)).toBe(7.5);
+        expect(estimateTaskPoints(config, "audio")).toBe(2.5);
+        expect(estimateTaskPoints({ ...config, modelPointCosts: { "new-audio": 0, __default__: 2.5 } }, "audio")).toBe(0);
     });
 });

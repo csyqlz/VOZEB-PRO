@@ -1,6 +1,14 @@
+import { bindAudioTaskBillingRequest, type AudioTask } from "@/lib/server/audio-task-store";
+import { executePricedAudioTask } from "@/lib/server/model-pricing-audio-task";
+import { SYSTEM_AI_AUDIO_TASK_HEADER } from "@/lib/server/system-ai-billing";
+import { bindVideoTaskBillingRequest, type VideoTask } from "@/lib/server/video-task-store";
+import { executePricedVideoTask } from "@/lib/server/model-pricing-video-task";
+import { bindImageTaskBillingRequest, type ImageTask } from "@/lib/server/image-task-store";
+import { executePricedImageTask } from "@/lib/server/model-pricing-image-task";
 import { createHash, randomUUID } from "node:crypto";
 
 import { NextResponse } from "next/server";
+import sharp from "sharp";
 
 import { consumeUserPoints, getAuthSettings, isAuthInputError, isQuotaExceededError, refundUserPoints, type ApiCallFormat, type GenerationPointMultipliers, type PointUsageKind } from "@/lib/auth/store";
 import { getCurrentUser } from "@/lib/auth/session";
@@ -14,16 +22,39 @@ import { checkMediaProxyRateLimit, isSafeOutboundUrl, rateLimitHeaders } from "@
 import { fetchSafeOutbound } from "@/lib/server/safe-outbound-fetch";
 import { readRequestBodyBytes, RequestBodyTooLargeError } from "@/lib/server/request-body-limit";
 import { resolveGlobalAiOpcPathPreset, resolveGlobalAiOpcPreset } from "@/lib/globalaiopc-catalog";
+import { dataeyesFluxFixedImageUnits } from "@/lib/dataeyes-flux-protocol";
 import { adaptGlobalAiOpcTextRequest, adaptGlobalAiOpcTextResponse, isGlobalAiOpcChannel } from "@/lib/server/globalaiopc-proxy";
-import { readVerifiedSystemAiBusinessRequestId, SYSTEM_AI_LOGICAL_MODEL_HEADER, SYSTEM_AI_UPSTREAM_MODEL_HEADER, systemAiPointsIdempotencyKey, systemAiRequestFingerprint } from "@/lib/server/system-ai-billing";
+import {
+    readVerifiedSystemAiBillingRequest,
+    SYSTEM_AI_VIDEO_TASK_HEADER,
+    SYSTEM_AI_IMAGE_TASK_HEADER,
+    SYSTEM_AI_TEXT_TASK_HEADER,
+    SYSTEM_AI_LOGICAL_MODEL_HEADER,
+    SYSTEM_AI_UPSTREAM_MODEL_HEADER,
+    systemAiPointsIdempotencyKey,
+    systemAiRequestFingerprint,
+} from "@/lib/server/system-ai-billing";
+import { bindTextTaskBillingRequest, type TextTask } from "@/lib/server/text-task-store";
+import { executePricedTextTask } from "@/lib/server/model-pricing-text-task";
+import { PricingConflictError, PricingInputError } from "@/lib/model-pricing";
 import { isAgnesApiBaseUrl } from "@/lib/agnes-model-catalog";
 import { channelConnectionReady, protocolAuthHeaders, resolveChannelModelConfig } from "@/lib/channel-protocol-registry";
+import { currentChannelModels } from "@/lib/channel-model-availability";
+import { isHailuo23Model } from "@/lib/official-provider-protocols";
+import { withChannelPathPrefix } from "@/lib/channel-path-prefix";
+import { isOpenAiChatAudioModel } from "@/lib/openai-chat-audio";
 import { normalizeYumengModelCenterBaseUrl } from "@/lib/yumeng-model-center";
 import { authorizedWorkerUserId } from "@/lib/server/maintenance-auth";
 import { authorizeGenerationMediaProxyRequest } from "@/lib/server/generation-media-access";
 import { SYSTEM_PROXY_JSON_BODY_MAX_BYTES } from "@/lib/server/system-proxy-request-limits";
 import { userOwnsGenerationUpstreamTask } from "@/lib/server/generation-task-authorization";
 import { authorizeSystemAiProxyRequest } from "@/lib/server/system-ai-proxy-policy";
+import { beginShadowTextCall, finishShadowTextCall, safelyObserveShadowPrice } from "@/lib/server/model-pricing-shadow-call";
+import { beginShadowVideoCall, acknowledgeShadowVideoCall } from "@/lib/server/model-pricing-shadow-video-call";
+import { beginShadowImageCall, finishShadowImageCall } from "@/lib/server/model-pricing-shadow-image-call";
+import { beginShadowAudioCall, finishShadowAudioCall } from "@/lib/server/model-pricing-shadow-audio-call";
+import { observeShadowTextStream } from "@/lib/server/model-pricing-shadow-stream";
+import { resolveHailuoVideoFile } from "@/lib/server/minimax-video-file";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,7 +66,7 @@ type RouteContext = {
     params: Promise<{ channelId: string; path: string[] }>;
 };
 type PointsRequest = { model: string; amount: number; usageKind: PointUsageKind };
-type ProxyRequestBody = { body?: BodyInit; pointsPayload?: ArrayBuffer | Record<string, unknown>; bodyDigest: string };
+type ProxyRequestBody = { body?: BodyInit; pointsPayload?: ArrayBuffer | Record<string, unknown>; bodyDigest: string; imageValues?: FormDataEntryValue[]; maskPresent?: boolean; multipartFieldNames?: string[] };
 const MAX_PROXY_MULTIPART_BYTES = 25 * 1024 * 1024;
 const SYSTEM_MEDIA_TIMEOUT_MS = 30 * 1000;
 const MAX_SYSTEM_MEDIA_REDIRECTS = 4;
@@ -89,29 +120,42 @@ async function proxySystemRequest(request: Request, context: RouteContext) {
         requestBody = await readProxyRequestBody(request, isMultipart);
     } catch (error) {
         if (error instanceof RequestBodyTooLargeError) return NextResponse.json({ error: error.message }, { status: error.status });
+        if (error instanceof PricingInputError) return NextResponse.json({ error: error.message }, { status: 400 });
         throw error;
     }
     const upstreamModel = readRequestModel(readRequestBody(contentType, requestBody.pointsPayload)) || request.headers.get(SYSTEM_AI_UPSTREAM_MODEL_HEADER)?.trim() || readPathModel(path);
     const modelConfig = upstreamModel ? resolveChannelModelConfig(channel.advancedConfig, upstreamModel) : undefined;
+    const channelPaths = modelConfig?.protocol === "minimax" && isHailuo23Model(upstreamModel) ? undefined : channel.advancedConfig;
     const apiFormat = modelConfig?.apiFormat || channel.apiFormat;
     const globalChannel = isGlobalAiOpcChannel(channel.advancedConfig);
     const globalPreset = resolveGlobalAiOpcPreset(channel.advancedConfig, upstreamModel) || resolveGlobalAiOpcPathPreset(channel.advancedConfig, path);
     const globalAdaptation = adaptGlobalAiOpcTextRequest(channel.advancedConfig, path, requestBody.body);
     if (globalAdaptation === "responses-unsupported") return NextResponse.json({ error: "该 GlobalAiOpc 原生文本接口不支持 Responses，已切换 Chat 兼容回退。" }, { status: 404 });
     const pointsRequest =
-        classifyPointsRequest(request.method, apiFormat, path, contentType, requestBody.pointsPayload, settings.generationPointMultipliers) ||
+        classifyPointsRequest(request.method, apiFormat, path, contentType, requestBody.pointsPayload, settings.generationPointMultipliers, modelConfig?.protocol || channel.advancedConfig?.protocol) ||
         classifyConfiguredPointsRequest(
             request.method,
             path,
             contentType,
             requestBody.pointsPayload,
             channel.id,
-            [globalPreset?.createPath, modelConfig?.createPath, modelConfig?.editPath, modelConfig?.imageToVideoPath, channel.advancedConfig?.createPath, channel.advancedConfig?.editPath, channel.advancedConfig?.imageToVideoPath],
+            [
+                modelConfig?.streaming?.path,
+                channelPaths?.streaming?.path,
+                globalPreset?.createPath,
+                modelConfig?.createPath,
+                modelConfig?.editPath,
+                modelConfig?.imageToVideoPath,
+                channelPaths?.createPath,
+                channelPaths?.editPath,
+                channelPaths?.imageToVideoPath,
+            ],
             upstreamModel,
             settings.logicalModels,
             settings.generationPointMultipliers,
         );
-    if (pointsRequest?.model && !channelHasModel(channel.models, pointsRequest.model)) return NextResponse.json({ error: "该模型未在后台渠道中启用" }, { status: 403 });
+    if (pointsRequest?.model && !channelHasModel(currentChannelModels(channel), pointsRequest.model))
+        return NextResponse.json({ error: channelHasModel(channel.models, pointsRequest.model) ? "该模型未在当前渠道密钥的供应商目录中" : "该模型未在后台渠道中启用" }, { status: 403 });
     const access = authorizeSystemAiProxyRequest({
         method: request.method,
         path: globalAdaptation?.path || path,
@@ -124,11 +168,21 @@ async function proxySystemRequest(request: Request, context: RouteContext) {
         pointsUsageKind: pointsRequest?.usageKind,
         upstreamTaskIdHint: readRequestTaskId(readRequestBody(contentType, requestBody.pointsPayload)),
         paths: {
-            create: [globalPreset?.createPath, modelConfig?.createPath, modelConfig?.editPath, modelConfig?.imageToVideoPath, channel.advancedConfig?.createPath, channel.advancedConfig?.editPath, channel.advancedConfig?.imageToVideoPath],
-            query: [globalPreset?.queryPath, modelConfig?.queryPath, channel.advancedConfig?.queryPath],
+            create: [
+                modelConfig?.streaming?.path,
+                channelPaths?.streaming?.path,
+                globalPreset?.createPath,
+                modelConfig?.createPath,
+                modelConfig?.editPath,
+                modelConfig?.imageToVideoPath,
+                channelPaths?.createPath,
+                channelPaths?.editPath,
+                channelPaths?.imageToVideoPath,
+            ],
+            query: [globalPreset?.queryPath, modelConfig?.queryPath, channelPaths?.queryPath],
             cancel: [
                 { path: modelConfig?.cancelPath, method: modelConfig?.cancelMethod },
-                { path: channel.advancedConfig?.cancelPath, method: channel.advancedConfig?.cancelMethod },
+                { path: channelPaths?.cancelPath, method: channelPaths?.cancelMethod },
             ],
         },
     });
@@ -138,7 +192,10 @@ async function proxySystemRequest(request: Request, context: RouteContext) {
         if (!owned) return NextResponse.json({ error: "任务不存在或无权访问" }, { status: 404 });
     }
 
-    const target = targetUrl(globalPreset?.baseUrl || channel.baseUrl, globalPreset?.apiFormat || apiFormat, globalAdaptation?.path || path, new URL(request.url).search, globalChannel, modelConfig?.protocol || channel.advancedConfig?.protocol);
+    const target = withChannelPathPrefix(
+        targetUrl(globalPreset?.baseUrl || channel.baseUrl, globalPreset?.apiFormat || apiFormat, globalAdaptation?.path || path, new URL(request.url).search, globalChannel, modelConfig?.protocol || channel.advancedConfig?.protocol),
+        channel.advancedConfig?.pathPrefix,
+    );
     if (!(await isSafeOutboundUrl(target, { allowCredentials: false }))) return NextResponse.json({ error: "接口地址不允许访问内网或保留地址" }, { status: 400 });
     const headers = new Headers();
     if (contentType && !isMultipart) headers.set("content-type", contentType);
@@ -149,8 +206,14 @@ async function proxySystemRequest(request: Request, context: RouteContext) {
     if (clientRequestId) headers.set("x-client-request-id", clientRequestId);
     const authConfig = modelConfig?.protocol ? { ...channel.advancedConfig, protocol: modelConfig.protocol } : channel.advancedConfig;
     Object.entries(protocolAuthHeaders(channel.apiKey, authConfig, globalChannel ? "openai" : apiFormat)).forEach(([key, value]) => headers.set(key, value));
+    if (authConfig?.protocol === "alibaba-bailian" && request.method === "POST" && new URL(target).pathname.endsWith("/api/v1/services/aigc/video-generation/video-synthesis")) headers.set("X-DashScope-Async", "enable");
     const callType = `${access.capability}:${access.operation}:/${(globalAdaptation?.path || path).join("/")}`;
-    const businessRequestId = readVerifiedSystemAiBusinessRequestId(request.headers, access.logicalModelId, upstreamModel) || `direct:${randomUUID()}`;
+    const billingRequest = readVerifiedSystemAiBillingRequest(request.headers, access.logicalModelId, upstreamModel);
+    if (request.headers.has(SYSTEM_AI_TEXT_TASK_HEADER) && !billingRequest?.textTask) return NextResponse.json({ error: "文本任务计费签名无效" }, { status: 403 });
+    if (request.headers.has(SYSTEM_AI_IMAGE_TASK_HEADER) && !billingRequest?.imageTask) return NextResponse.json({ error: "图片任务计费签名无效" }, { status: 403 });
+    if (request.headers.has(SYSTEM_AI_VIDEO_TASK_HEADER) && !billingRequest?.videoTask) return NextResponse.json({ error: "视频任务计费签名无效" }, { status: 403 });
+    if (request.headers.has(SYSTEM_AI_AUDIO_TASK_HEADER) && !billingRequest?.audioTask) return NextResponse.json({ error: "音频任务计费签名无效" }, { status: 403 });
+    const businessRequestId = billingRequest?.businessRequestId || `direct:${randomUUID()}`;
     const pointsIdempotencyKey = pointsRequest ? systemAiPointsIdempotencyKey({ userId, businessRequestId, logicalModel: access.logicalModelId, channelId: channel.id, upstreamModel, callType }) : undefined;
     const requestFingerprint = pointsRequest
         ? systemAiRequestFingerprint({
@@ -164,6 +227,138 @@ async function proxySystemRequest(request: Request, context: RouteContext) {
               bodyDigest: requestBody.bodyDigest,
           })
         : undefined;
+    let boundTextTask: TextTask | undefined;
+    if (billingRequest?.textTask) {
+        if (access.capability !== "text" || access.operation !== "create" || !pointsIdempotencyKey || !requestFingerprint) return NextResponse.json({ error: "文本任务计费身份不适用于该请求" }, { status: 400 });
+        try {
+            boundTextTask = await bindTextTaskBillingRequest({
+                ...billingRequest.textTask,
+                userId,
+                businessRequestId,
+                requestId: pointsIdempotencyKey,
+                requestFingerprint,
+                channelId: channel.id,
+                logicalModel: access.logicalModelId,
+                upstreamModel,
+            });
+        } catch (error) {
+            if (error instanceof PricingConflictError) return NextResponse.json({ error: error.message }, { status: 409 });
+            if (error instanceof PricingInputError) return NextResponse.json({ error: error.message }, { status: 403 });
+            throw error;
+        }
+    }
+    let boundImageTask: ImageTask | undefined;
+    if (billingRequest?.imageTask) {
+        if (access.capability !== "image" || access.operation !== "create" || !pointsIdempotencyKey || !requestFingerprint) return NextResponse.json({ error: "图片任务计费身份不适用于该请求" }, { status: 400 });
+        try {
+            boundImageTask = await bindImageTaskBillingRequest({ ...billingRequest.imageTask, userId, businessRequestId, requestId: pointsIdempotencyKey, requestFingerprint, channelId: channel.id, logicalModel: access.logicalModelId, upstreamModel });
+        } catch (error) {
+            if (error instanceof PricingConflictError) return NextResponse.json({ error: error.message }, { status: 409 });
+            if (error instanceof PricingInputError) return NextResponse.json({ error: error.message }, { status: 403 });
+            throw error;
+        }
+    }
+    let boundVideoTask: VideoTask | undefined;
+    if (billingRequest?.videoTask) {
+        if (access.capability !== "video" || access.operation !== "create" || !pointsIdempotencyKey || !requestFingerprint) return NextResponse.json({ error: "视频任务计费身份不适用于该请求" }, { status: 400 });
+        try {
+            boundVideoTask = await bindVideoTaskBillingRequest({ ...billingRequest.videoTask, userId, businessRequestId, requestId: pointsIdempotencyKey, requestFingerprint, channelId: channel.id, logicalModel: access.logicalModelId, upstreamModel });
+        } catch (error) {
+            if (error instanceof PricingConflictError) return NextResponse.json({ error: error.message }, { status: 409 });
+            if (error instanceof PricingInputError) return NextResponse.json({ error: error.message }, { status: 403 });
+            throw error;
+        }
+    }
+    let boundAudioTask: AudioTask | undefined;
+    if (billingRequest?.audioTask) {
+        if (access.capability !== "audio" || access.operation !== "create" || !pointsIdempotencyKey || !requestFingerprint) return NextResponse.json({ error: "音频任务计费身份不适用于该请求" }, { status: 400 });
+        try {
+            boundAudioTask = await bindAudioTaskBillingRequest({ ...billingRequest.audioTask, userId, businessRequestId, requestId: pointsIdempotencyKey, requestFingerprint, channelId: channel.id, logicalModel: access.logicalModelId, upstreamModel });
+        } catch (error) {
+            if (error instanceof PricingConflictError) return NextResponse.json({ error: error.message }, { status: 409 });
+            if (error instanceof PricingInputError) return NextResponse.json({ error: error.message }, { status: 403 });
+            throw error;
+        }
+    }
+    const send = () =>
+        fetchSafeOutbound(target, {
+            method: request.method,
+            headers,
+            body: globalAdaptation?.body || requestBody.body,
+            cache: "no-store",
+            redirect: "manual",
+            signal: request.signal,
+        });
+    if (boundTextTask?.billingMode === "official-usage" && pointsIdempotencyKey && requestFingerprint) {
+        return executePricedTextTask({
+            task: boundTextTask,
+            userId,
+            requestId: pointsIdempotencyKey,
+            requestFingerprint,
+            modelId: access.logicalModelId,
+            channelId: channel.id,
+            requestedModel: upstreamModel,
+            path,
+            payload: readRequestBody(contentType, requestBody.pointsPayload),
+            adapted: Boolean(globalAdaptation),
+            signal: request.signal,
+            send,
+        });
+    }
+    if (boundImageTask?.billingMode === "official-usage" && pointsIdempotencyKey && requestFingerprint) {
+        return executePricedImageTask({
+            task: boundImageTask,
+            userId,
+            requestId: pointsIdempotencyKey,
+            requestFingerprint,
+            modelId: access.logicalModelId,
+            channelId: channel.id,
+            requestedModel: upstreamModel,
+            path,
+            declaredProtocol: modelConfig?.protocol || channel.advancedConfig?.protocol,
+            payload: readRequestBody(contentType, requestBody.pointsPayload),
+            referenceImages: await inspectMultipartImageReferences(requestBody.imageValues),
+            hasMask: requestBody.maskPresent,
+            requestFieldNames: requestBody.multipartFieldNames,
+            adapted: Boolean(globalAdaptation),
+            signal: request.signal,
+            send,
+        });
+    }
+    if (boundVideoTask?.billingMode === "official-usage" && pointsIdempotencyKey && requestFingerprint) {
+        return executePricedVideoTask({
+            task: boundVideoTask,
+            userId,
+            requestId: pointsIdempotencyKey,
+            requestFingerprint,
+            modelId: access.logicalModelId,
+            channelId: channel.id,
+            requestedModel: upstreamModel,
+            path,
+            declaredProtocol: modelConfig?.protocol || channel.advancedConfig?.protocol,
+            payload: readRequestBody(contentType, requestBody.pointsPayload),
+            adapted: Boolean(globalAdaptation),
+            signal: request.signal,
+            send,
+        });
+    }
+    if (boundAudioTask?.billingMode === "official-usage" && pointsIdempotencyKey && requestFingerprint) {
+        return executePricedAudioTask({
+            task: boundAudioTask,
+            userId,
+            requestId: pointsIdempotencyKey,
+            requestFingerprint,
+            modelId: access.logicalModelId,
+            channelId: channel.id,
+            requestedModel: upstreamModel,
+            path,
+            declaredProtocol: modelConfig?.protocol || channel.advancedConfig?.protocol,
+            payload: readRequestBody(contentType, requestBody.pointsPayload),
+            adapted: Boolean(globalAdaptation),
+            signal: request.signal,
+            send,
+        });
+    }
     let pointsResult: Awaited<ReturnType<typeof consumeUserPoints>> | null = null;
     let refundedPointsRemaining: number | null = null;
     let pointsSettled = false;
@@ -184,18 +379,86 @@ async function proxySystemRequest(request: Request, context: RouteContext) {
     }
     request.signal.addEventListener("abort", () => void refundConsumedPoints(), { once: true });
 
+    const shadowContext = { userId, requestId: pointsIdempotencyKey || "", taskId: billingRequest?.textTask?.taskId || billingRequest?.imageTask?.taskId || billingRequest?.videoTask?.taskId || billingRequest?.audioTask?.taskId };
+    const shadowCall =
+        access.capability === "text" && access.operation === "create" && pointsIdempotencyKey && requestFingerprint
+            ? await safelyObserveShadowPrice(shadowContext, () =>
+                  beginShadowTextCall({
+                      ...shadowContext,
+                      requestFingerprint,
+                      modelId: access.logicalModelId,
+                      channelId: channel.id,
+                      requestedModel: upstreamModel,
+                      directedPricingRuleId: boundTextTask?.directedPricingRuleId,
+                      path,
+                      payload: readRequestBody(contentType, requestBody.pointsPayload),
+                      adapted: Boolean(globalAdaptation),
+                  }),
+              )
+            : undefined;
+    const imageShadowCall =
+        access.capability === "image" && access.operation === "create" && pointsIdempotencyKey && requestFingerprint
+            ? await safelyObserveShadowPrice(shadowContext, async () =>
+                  beginShadowImageCall({
+                      ...shadowContext,
+                      requestFingerprint,
+                      modelId: access.logicalModelId,
+                      channelId: channel.id,
+                      requestedModel: upstreamModel,
+                      path: new URL(target).pathname.split("/").filter(Boolean),
+                      payload: readRequestBody(contentType, requestBody.pointsPayload),
+                      declaredProtocol: modelConfig?.protocol || channel.advancedConfig?.protocol,
+                      referenceImages: await inspectMultipartImageReferences(requestBody.imageValues),
+                      adapted: Boolean(globalAdaptation) || (modelConfig?.protocol || channel.advancedConfig?.protocol) === "custom",
+                  }),
+              )
+            : undefined;
+    const videoShadowCall =
+        access.capability === "video" && access.operation === "create" && pointsIdempotencyKey && requestFingerprint
+            ? await safelyObserveShadowPrice(shadowContext, () =>
+                  beginShadowVideoCall({
+                      ...shadowContext,
+                      requestFingerprint,
+                      modelId: access.logicalModelId,
+                      channelId: channel.id,
+                      requestedModel: upstreamModel,
+                      path: new URL(target).pathname.split("/").filter(Boolean),
+                      payload: readRequestBody(contentType, requestBody.pointsPayload),
+                      declaredProtocol: modelConfig?.protocol || channel.advancedConfig?.protocol,
+                      adapted: Boolean(globalAdaptation),
+                  }),
+              )
+            : undefined;
+    const audioShadowCall =
+        access.capability === "audio" && access.operation === "create" && pointsIdempotencyKey && requestFingerprint
+            ? await safelyObserveShadowPrice(shadowContext, () =>
+                  beginShadowAudioCall({
+                      ...shadowContext,
+                      requestFingerprint,
+                      modelId: access.logicalModelId,
+                      channelId: channel.id,
+                      requestedModel: upstreamModel,
+                      path: new URL(target).pathname.split("/").filter(Boolean),
+                      payload: readRequestBody(contentType, requestBody.pointsPayload),
+                      declaredProtocol: modelConfig?.protocol || channel.advancedConfig?.protocol,
+                      adapted: Boolean(globalAdaptation),
+                  }),
+              )
+            : undefined;
+    const observe = async (outcome: Parameters<typeof finishShadowTextCall>[1]) => {
+        const result = request.signal.aborted ? { failure: "请求已取消" } : outcome;
+        if (shadowCall) await safelyObserveShadowPrice(shadowContext, () => finishShadowTextCall(shadowCall, result));
+        if (imageShadowCall) await safelyObserveShadowPrice(shadowContext, () => finishShadowImageCall(imageShadowCall, result));
+        if (videoShadowCall) await safelyObserveShadowPrice(shadowContext, () => acknowledgeShadowVideoCall(videoShadowCall, result));
+        if (audioShadowCall) await safelyObserveShadowPrice(shadowContext, () => finishShadowAudioCall(audioShadowCall, result));
+    };
+
     let upstream: Response;
     try {
-        upstream = await fetchSafeOutbound(target, {
-            method: request.method,
-            headers,
-            body: globalAdaptation?.body || requestBody.body,
-            cache: "no-store",
-            redirect: "manual",
-            signal: request.signal,
-        });
+        upstream = await send();
     } catch (error) {
         await refundConsumedPoints();
+        await observe({ failure: "上游连接失败，未取得完整响应" });
         console.error("System API proxy request failed", error instanceof Error ? error.message : error);
         return NextResponse.json({ error: DEFAULT_CHANNEL_CONNECT_ERROR }, { status: 502, headers: responseHeaders(new Headers(), null, refundedPointsRemaining) });
     }
@@ -204,6 +467,7 @@ async function proxySystemRequest(request: Request, context: RouteContext) {
         await refundConsumedPoints();
         pointsResult = null;
     }
+    if (!upstream.ok) await observe({ failure: `上游返回 HTTP ${upstream.status}` });
     if (isRedirectStatus(upstream.status)) {
         return NextResponse.json({ error: "上游接口不允许重定向，请检查后台渠道地址" }, { status: 502, headers: responseHeaders(new Headers(), null, refundedPointsRemaining) });
     }
@@ -212,15 +476,30 @@ async function proxySystemRequest(request: Request, context: RouteContext) {
         if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
             await refundConsumedPoints();
             pointsResult = null;
+            await observe({ unavailable: "上游响应不是有效 JSON" });
             return NextResponse.json({ error: "上游文本接口返回了无效 JSON" }, { status: 502, headers: responseHeaders(upstream.headers, null, refundedPointsRemaining, target) });
         }
         pointsSettled = true;
+        await observe({ unavailable: "该响应转换尚无已验证的用量解析" });
         return NextResponse.json(adaptGlobalAiOpcTextResponse(globalAdaptation.adapter, payload), { status: upstream.status, headers: responseHeaders(upstream.headers, pointsResult, refundedPointsRemaining, target) });
     }
     if (isJsonResponse(upstream)) {
         try {
             const body = await upstream.arrayBuffer();
             if (upstream.ok) pointsSettled = true;
+            if (upstream.ok && authConfig?.protocol === "minimax" && access.operation === "query" && new URL(target).pathname.endsWith("/v1/query/video_generation")) {
+                const payload = await resolveHailuoVideoFile(JSON.parse(new TextDecoder().decode(body)), access.upstreamTaskId, target, headers, request.signal);
+                return NextResponse.json(payload, { status: upstream.status, headers: responseHeaders(upstream.headers, pointsResult, refundedPointsRemaining, target) });
+            }
+            if (upstream.ok && (shadowCall || imageShadowCall || videoShadowCall || audioShadowCall)) {
+                let payload: unknown;
+                try {
+                    payload = JSON.parse(new TextDecoder().decode(body));
+                } catch {
+                    /* Keep the existing upstream response unchanged. */
+                }
+                await observe(payload === undefined ? { unavailable: "上游响应不是有效 JSON" } : { payload, ...(shadowCall ? { responseHeaders: upstream.headers } : {}) });
+            }
             return new Response(body, {
                 status: upstream.status,
                 statusText: upstream.statusText,
@@ -229,13 +508,18 @@ async function proxySystemRequest(request: Request, context: RouteContext) {
         } catch (error) {
             await refundConsumedPoints();
             pointsResult = null;
+            await observe({ failure: "上游响应未完整读取" });
             console.error("System API proxy response body failed", error instanceof Error ? error.message : error);
             return NextResponse.json({ error: DEFAULT_CHANNEL_CONNECT_ERROR }, { status: 502, headers: responseHeaders(new Headers(), null, refundedPointsRemaining) });
         }
     }
     if (upstream.ok) pointsSettled = true;
+    const responseContentType = upstream.headers.get("content-type") || "";
+    const streamFormat = /^\s*text\/event-stream\b/i.test(responseContentType) ? "sse" : shadowCall?.protocol === "gemini-generate" && /^\s*application\/(?:x-)?ndjson\b/i.test(responseContentType) ? "ndjson" : undefined;
+    const observeStream = upstream.ok && shadowCall?.protocol && upstream.body && streamFormat;
+    if (upstream.ok && !observeStream) await observe({ unavailable: "该流式或非 JSON 响应格式的用量观察尚未接入" });
 
-    return new Response(upstream.body, {
+    return new Response(observeStream ? observeShadowTextStream(upstream.body!, shadowCall!.protocol!, observe, streamFormat, undefined, upstream.headers) : upstream.body, {
         status: upstream.status,
         statusText: upstream.statusText,
         headers: responseHeaders(upstream.headers, pointsResult, refundedPointsRemaining, target),
@@ -266,7 +550,7 @@ async function proxySystemMediaRequest(request: Request, channel: SystemMediaCha
     if (request.method !== "GET" && request.method !== "HEAD") return NextResponse.json({ error: "Media proxy only supports GET and HEAD" }, { status: 405 });
     const rawUrl = new URL(request.url).searchParams.get("url") || "";
     if (!(await authorizeGenerationMediaProxyRequest(request, { userId, channelId: channel.id, url: rawUrl }))) return NextResponse.json({ error: "媒体路径未获任务授权" }, { status: 403 });
-    const target = mediaTargetRequest(channel.baseUrl, channel.apiFormat, rawUrl, isGlobalAiOpcChannel(channel.advancedConfig));
+    const target = mediaTargetRequest(channel.baseUrl, channel.apiFormat, rawUrl, isGlobalAiOpcChannel(channel.advancedConfig), channel.advancedConfig?.pathPrefix);
     if (!target) return NextResponse.json({ error: "Invalid media url" }, { status: 400 });
     if (!(await isSafeOutboundUrl(target.url, { allowCredentials: false }))) return NextResponse.json({ error: "媒体地址不允许访问内网或保留地址" }, { status: 400 });
     const range = normalizeMediaProxyRange(request.headers.get("range"));
@@ -338,7 +622,7 @@ function isRedirectStatus(status: number) {
     return [301, 302, 303, 307, 308].includes(status);
 }
 
-function mediaTargetRequest(baseUrl: string, apiFormat: ApiCallFormat, value: string, globalAiOpc = false): { url: string; includeAuth: boolean } | null {
+function mediaTargetRequest(baseUrl: string, apiFormat: ApiCallFormat, value: string, globalAiOpc = false, pathPrefix?: string): { url: string; includeAuth: boolean } | null {
     const mediaUrl = value.trim();
     if (!mediaUrl) return null;
     let apiBase: URL;
@@ -348,12 +632,12 @@ function mediaTargetRequest(baseUrl: string, apiFormat: ApiCallFormat, value: st
         return null;
     }
     try {
-        if (mediaUrl.startsWith("/")) return { url: new URL(mediaUrl, apiBase.origin).toString(), includeAuth: true };
+        if (mediaUrl.startsWith("/")) return { url: withChannelPathPrefix(new URL(mediaUrl, apiBase.origin).toString(), pathPrefix), includeAuth: true };
         const absolute = new URL(mediaUrl);
         if (!["http:", "https:"].includes(absolute.protocol)) return null;
         return { url: absolute.toString(), includeAuth: absolute.origin === apiBase.origin };
     } catch {
-        return { url: new URL(mediaUrl, directoryBaseUrl(apiBase)).toString(), includeAuth: true };
+        return { url: withChannelPathPrefix(new URL(mediaUrl, directoryBaseUrl(apiBase)).toString(), pathPrefix), includeAuth: true };
     }
 }
 
@@ -389,14 +673,59 @@ async function readProxyRequestBody(request: Request, isMultipart: boolean): Pro
 
     const formData = await new Request(request.url, { method: request.method, headers: { "Content-Type": request.headers.get("content-type") || "" }, body: bytes }).formData();
     const cloned = await cloneFormData(formData);
-    return { body: cloned.body, pointsPayload: formDataFields(formData), bodyDigest: cloned.bodyDigest };
+    return { body: cloned.body, pointsPayload: formDataFields(formData), bodyDigest: cloned.bodyDigest, imageValues: formData.getAll("image"), maskPresent: formData.has("mask"), multipartFieldNames: [...formData.keys()] };
+}
+
+async function inspectMultipartImageReferences(values?: FormDataEntryValue[]) {
+    if (!values) return undefined;
+    const dimensions: Array<{ width: number; height: number } | null> = [];
+    for (const value of values) {
+        if (typeof value === "string") {
+            dimensions.push(null);
+            continue;
+        }
+        try {
+            const { width, height } = await sharp(await value.arrayBuffer()).metadata();
+            dimensions.push(width && height ? { width, height } : null);
+        } catch {
+            dimensions.push(null);
+        }
+    }
+    return dimensions;
 }
 
 function formDataFields(formData: FormData): Record<string, string> {
     const fields: Record<string, string> = {};
-    for (const key of ["model", "n", "quality", "resolution_name", "resolution", "vquality", "seconds", "duration"]) {
-        const value = formData.get(key);
-        if (typeof value === "string" && value.trim()) fields[key] = value.trim();
+    for (const key of [
+        "model",
+        "prompt",
+        "n",
+        "quality",
+        "size",
+        "response_format",
+        "output_format",
+        "resolution_name",
+        "resolution",
+        "vquality",
+        "seconds",
+        "duration",
+        "inference_geo",
+        "service_tier",
+        "batch",
+        "background",
+        "async",
+        "stream",
+        "tools",
+        "functions",
+        "tool_choice",
+        "function_call",
+        "cachedContent",
+        "prompt_cache_key",
+    ]) {
+        const values = formData.getAll(key);
+        if (values.length > 1 || values.some((value) => typeof value !== "string")) throw new PricingInputError(`图片 multipart 字段 ${key} 重复或类型无效`);
+        const value = values[0];
+        if (typeof value === "string" && value.trim()) fields[key] = key === "prompt" ? value : value.trim();
     }
     return fields;
 }
@@ -436,7 +765,15 @@ function emptyBodyDigest() {
     return digestBytes(new Uint8Array());
 }
 
-function classifyPointsRequest(method: string, apiFormat: ApiCallFormat, path: string[], contentType: string | null, body?: ArrayBuffer | Record<string, unknown>, multipliers?: GenerationPointMultipliers): PointsRequest | null {
+function classifyPointsRequest(
+    method: string,
+    apiFormat: ApiCallFormat,
+    path: string[],
+    contentType: string | null,
+    body?: ArrayBuffer | Record<string, unknown>,
+    multipliers?: GenerationPointMultipliers,
+    protocol?: import("@/lib/auth/store").SystemChannelProtocol,
+): PointsRequest | null {
     if (method.toUpperCase() !== "POST") return null;
     const cleanPath = path[0] === "v1" || path[0] === "v1beta" ? path.slice(1) : path;
     const routePath = `/${cleanPath.join("/")}`.toLowerCase();
@@ -445,7 +782,7 @@ function classifyPointsRequest(method: string, apiFormat: ApiCallFormat, path: s
     if (!model) return null;
 
     if (routePath === "/images/generations" || routePath === "/images/edits") {
-        return { model, amount: readRequestCount(payload) * imageQualityMultiplier(payload, multipliers), usageKind: "image" };
+        return { model, amount: dataeyesFluxFixedImageUnits(protocol, readRequestCount(payload) * imageQualityMultiplier(payload, multipliers)), usageKind: "image" };
     }
     if (routePath === "/audio/speech") return { model, amount: 1, usageKind: "audio" };
     if (routePath === "/videos" || routePath === "/video/generations" || routePath === "/videos/generations" || routePath === "/videos/videos" || routePath === "/contents/generations/tasks") {
@@ -458,9 +795,15 @@ function classifyPointsRequest(method: string, apiFormat: ApiCallFormat, path: s
         const isImage = hasResponsesImageGenerationTool(payload);
         return { model, amount: isImage ? imageQualityMultiplier(payload, multipliers) : 1, usageKind: isImage ? "image" : "text" };
     }
-    if (routePath === "/chat/completions") return { model, amount: 1, usageKind: "text" };
-    if (apiFormat === "gemini" && routePath.includes(":streamgeneratecontent")) return { model, amount: 1, usageKind: "text" };
-    if (apiFormat === "gemini" && routePath.includes(":generatecontent")) return { model, amount: 1, usageKind: hasGeminiImageResponseModality(payload) ? "image" : "text" };
+    if (routePath === "/chat/completions") {
+        const audioOutput = isOpenAiChatAudioModel(model) && Array.isArray(payload.modalities) && payload.modalities.includes("audio");
+        return { model, amount: 1, usageKind: audioOutput ? "audio" : "text" };
+    }
+    if (routePath === "/messages" && protocol === "anthropic") return { model, amount: 1, usageKind: "text" };
+    if (apiFormat === "gemini" && (routePath.includes(":generatecontent") || routePath.includes(":streamgeneratecontent"))) {
+        const usageKind = hasGeminiResponseModality(payload, "AUDIO") ? "audio" : hasGeminiResponseModality(payload, "IMAGE") ? "image" : "text";
+        return { model, amount: usageKind === "image" ? imageQualityMultiplier(payload, multipliers) : 1, usageKind };
+    }
 
     return null;
 }
@@ -580,10 +923,10 @@ function normalizeVideoSecondsKey(value: unknown) {
     return String(Math.max(-1, Math.floor(seconds)));
 }
 
-function hasGeminiImageResponseModality(payload: Record<string, unknown>) {
+function hasGeminiResponseModality(payload: Record<string, unknown>, modality: string) {
     const generationConfig = payload.generationConfig && typeof payload.generationConfig === "object" && !Array.isArray(payload.generationConfig) ? (payload.generationConfig as Record<string, unknown>) : {};
     const modalityValues = [generationConfig.responseModalities, generationConfig.response_modalities, payload.responseModalities, payload.response_modalities];
-    return modalityValues.some((value) => Array.isArray(value) && value.some((item) => String(item).toLowerCase() === "image"));
+    return modalityValues.some((value) => Array.isArray(value) && value.some((item) => String(item).toUpperCase() === modality));
 }
 
 function hasResponsesImageGenerationTool(payload: Record<string, unknown>) {
@@ -605,7 +948,28 @@ function readRequestBody(contentType: string | null, body?: ArrayBuffer | Record
 
 function readMultipartFields(text: string): Record<string, string> {
     const fields: Record<string, string> = {};
-    for (const key of ["model", "n", "quality", "resolution_name", "resolution", "vquality", "seconds", "duration"]) {
+    for (const key of [
+        "model",
+        "n",
+        "quality",
+        "resolution_name",
+        "resolution",
+        "vquality",
+        "seconds",
+        "duration",
+        "inference_geo",
+        "service_tier",
+        "batch",
+        "background",
+        "async",
+        "stream",
+        "tools",
+        "functions",
+        "tool_choice",
+        "function_call",
+        "cachedContent",
+        "prompt_cache_key",
+    ]) {
         const match = text.match(new RegExp(`name="${key}"\\r?\\n\\r?\\n([^\\r\\n]+)`));
         if (match?.[1]) fields[key] = match[1].trim();
     }
@@ -613,7 +977,22 @@ function readMultipartFields(text: string): Record<string, string> {
 }
 
 function targetUrl(baseUrl: string, apiFormat: "openai" | "gemini", path: string[], search: string, globalAiOpc = false, protocol?: import("@/lib/auth/store").SystemChannelProtocol) {
-    const usesLiteralPath = protocol === "seedance-special" || protocol === "stable-diffusion" || protocol === "yumeng" || protocol === "custom";
+    const usesLiteralPath =
+        protocol === "dataeyes-seedance" ||
+        protocol === "dataeyes-seedream" ||
+        protocol === "seedance-special" ||
+        protocol === "stable-diffusion" ||
+        protocol === "yumeng" ||
+        protocol === "custom" ||
+        protocol === "zai-glm" ||
+        protocol === "alibaba-bailian" ||
+        protocol === "bfl" ||
+        protocol === "kling" ||
+        protocol === "vidu" ||
+        protocol === "minimax" ||
+        protocol === "anthropic" ||
+        protocol === "xai" ||
+        protocol === "volcengine-image";
     const cleanPath = !usesLiteralPath && (path[0] === "v1" || path[0] === "v1beta") ? path.slice(1) : path;
     const resolvedBaseUrl = protocol === "yumeng" ? normalizeYumengModelCenterBaseUrl(baseUrl) : baseUrl;
     if (isAgnesApiBaseUrl(resolvedBaseUrl) && cleanPath[0]?.toLowerCase() === "agnesapi") {

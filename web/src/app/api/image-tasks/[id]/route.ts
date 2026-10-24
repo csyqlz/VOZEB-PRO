@@ -73,12 +73,12 @@ export async function POST(request: Request, context: RouteContext) {
 
     const schedule = await getStoredGenerationTaskRecord("image", task.id);
     const upstreamTaskId = task.upstream?.id || schedule?.upstreamTaskId;
-    if (!upstreamTaskId) return NextResponse.json({ error: "原任务没有保存上游任务 ID，无法安全追回结果" }, { status: 409 });
+    if (!upstreamTaskId && task.billingMode !== "official-usage") return NextResponse.json({ error: "原任务没有保存上游任务 ID，无法安全追回结果" }, { status: 409 });
 
     const rearmed = await recoverGenerationTaskFromUpstream({
         type: "image",
         id: task.id,
-        upstreamTaskId,
+        upstreamTaskId: upstreamTaskId || "",
         channelId: task.config.channelId,
         provider: task.config.advancedConfig?.protocol || task.config.apiFormat,
         queryPath: task.upstream?.explicitPollUrl || schedule?.queryPath || task.config.advancedConfig?.queryPath,

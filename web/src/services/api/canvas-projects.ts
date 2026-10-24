@@ -1,5 +1,16 @@
 import type { CanvasProject, CanvasProjectMutation, CanvasProjectSaveAck, CanvasProjectSummaryPage, CreateCanvasProjectInput } from "@/lib/canvas-project-contract";
 
+export type CanvasProjectBillingSummary = {
+    actualPoints: number;
+    pendingHeldPoints: number;
+    charges: Array<{ type: "text" | "image" | "video" | "audio"; purpose: "generation" | "planning" | "review" | "analysis"; logicalModelId?: string; chargedPoints: number; refundedPoints: number; actualPoints: number }>;
+    pending: Array<{ type: "text" | "image" | "video" | "audio"; logicalModelId: string; heldPoints: number; count: number }>;
+};
+
+export function getCanvasProjectBilling(projectId: string) {
+    return request<{ summary: CanvasProjectBillingSummary }>(`/api/canvas/projects/${encodeURIComponent(projectId)}/billing`, { cache: "no-store" }).then((data) => data.summary);
+}
+
 export function listCanvasProjectSummaries(input: { page: number; pageSize: number }) {
     const query = new URLSearchParams({ page: String(input.page), pageSize: String(input.pageSize) });
     return request<CanvasProjectSummaryPage>(`/api/canvas/projects?${query}`, { cache: "no-store" });

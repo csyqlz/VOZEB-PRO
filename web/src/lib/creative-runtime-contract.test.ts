@@ -51,6 +51,15 @@ describe("normalizeCreativeRunRequest", () => {
         });
     });
 
+    it("preserves the explicit Seedream 2K image tier", () => {
+        expect(normalizeCreativeRunRequest({ clientRequestId: "seedream-2k", surface: "chat", prompt: "生成图片", assetIds: [], skillIds: [], modelIds: [], preferences: { mode: "image", image: { size: "2K" } } }).preferences?.image?.size).toBe("2K");
+    });
+
+    it("accepts text conversation mode without media generation settings", () => {
+        expect(normalizeCreativeRunRequest({ clientRequestId: "text-one", surface: "chat", prompt: "这张截图写了什么？", assetIds: ["image-one"], preferences: { mode: "text" } }).preferences).toEqual({ mode: "text" });
+        expect(() => normalizeCreativeRunRequest({ clientRequestId: "text-two", surface: "chat", prompt: "解读图表", preferences: { mode: "text", image: { size: "1:1" } } })).toThrow("默认文本模型");
+    });
+
     it("keeps all explicitly selected asset IDs instead of silently truncating them", () => {
         const assetIds = Array.from({ length: 24 }, (_, index) => `asset-${index}`);
         expect(normalizeCreativeRunRequest({ clientRequestId: "req-many-assets", surface: "chat", prompt: "继续使用这些素材", assetIds, skillIds: [], modelIds: [] }).assetIds).toEqual(assetIds);

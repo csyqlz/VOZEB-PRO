@@ -4,6 +4,16 @@ import { useUserStore, type LocalUser } from "@/stores/use-user-store";
 import type { PublicPointRecord } from "@/lib/auth/store-types";
 import { serializeApiParams } from "./request";
 import { expireClientSession } from "./session-expiration";
+import type { PricingWalletFilter, PricingWalletView } from "@/lib/server/model-pricing-wallet-view";
+export type { PricingWalletFilter, PricingWalletView } from "@/lib/server/model-pricing-wallet-view";
+
+export async function getPricingWallet(input: { page?: number; pageSize?: number; status?: PricingWalletFilter } = {}, signal?: AbortSignal): Promise<PricingWalletView> {
+    const response = await fetch(`/api/points/pricing?${serializeApiParams(input)}`, { cache: "no-store", signal });
+    const payload = (await response.json().catch(() => null)) as { code?: number; data?: PricingWalletView; msg?: string } | null;
+    if (response.status === 401) expireClientSession();
+    if (!response.ok || payload?.code !== 0 || !payload.data) throw new Error(payload?.msg || "计费记录加载失败");
+    return payload.data;
+}
 
 export type PointRecord = Pick<PublicPointRecord, "id" | "type" | "amount" | "balanceAfter" | "description" | "createdAt">;
 

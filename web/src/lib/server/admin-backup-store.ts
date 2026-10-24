@@ -1,4 +1,6 @@
 import { normalizeDb as normalizeAuthDb } from "@/lib/auth/store-normalizers";
+import { AUTH_DATA_FILE } from "@/lib/auth/store-foundation";
+import { withJsonDataFileLock } from "@/lib/server/data-adapter";
 import { readAuthDb, readPostgresAuthDb, writeAuthDb } from "@/lib/auth/store-repository";
 import { restorePostgresAuthSnapshot } from "@/lib/server/admin-backup-auth-restore";
 import { mergeAccountConfigBackup, type AdminBackupData } from "@/lib/server/admin-backup-merge";
@@ -21,20 +23,21 @@ export async function readAdminBackupData(): Promise<AdminBackupData> {
     return readFileBackupData();
 }
 
-export async function restoreAdminBackupData(data: AdminBackupData, options: { mode?: AdminBackupRestoreMode } = {}) {
+export async function restoreAdminBackupData(data: AdminBackupData, options: { mode?: AdminBackupRestoreMode; preserveCurrentAuth?: boolean } = {}) {
     const mode = options.mode || "account-config";
     if (mode === "disaster") throw new Error("当前业务 JSON 备份不包含完整数据库、媒体和对象存储清单，不能用于整库灾难恢复");
-    const imported = { ...data, auth: normalizeAuthDb(data.auth) };
+    const imported = options.preserveCurrentAuth ? data : { ...data, auth: normalizeAuthDb(data.auth) };
     if (getDatabaseProvider() === "postgres") {
         await ensurePostgresSchema();
         await withPostgresTransaction(async (client) => {
             await lockPostgresBackupTables(client);
-            const merged = mergeAccountConfigBackup(await readPostgresBackupData(client), imported);
-            await restorePostgresBackup(client, merged);
+            const current = await readPostgresBackupData(client);
+            const merged = mergeAccountConfigBackup(current, options.preserveCurrentAuth ? { ...imported, auth: current.auth } : imported);
+            await restorePostgresBackup(client, merged, options.preserveCurrentAuth);
         });
         return;
     }
-    const run = fileRestoreQueue.then(() => restoreFileBackup(imported));
+    const run = fileRestoreQueue.then(() => withJsonDataFileLock(AUTH_DATA_FILE, () => restoreFileBackup(imported, options.preserveCurrentAuth)));
     fileRestoreQueue = run.then(
         () => undefined,
         () => undefined,
@@ -52,35 +55,37 @@ async function readFileBackupData(): Promise<AdminBackupData> {
     return { auth, prompts, generationLogs, accountDeletionRequests };
 }
 
-async function restorePostgresBackup(client: QueryExecutor, data: AdminBackupData) {
-    await restorePostgresAuthSnapshot(client, data.auth);
+async function restorePostgresBackup(client: QueryExecutor, data: AdminBackupData, preserveCurrentAuth = false) {
+    if (!preserveCurrentAuth) await restorePostgresAuthSnapshot(client, data.auth);
     await upsertPostgresPromptDbWithExecutor(data.prompts, client);
     await upsertPostgresGenerationLogDbWithExecutor(data.generationLogs, client);
     await upsertAccountDeletionRequestBackup(data.accountDeletionRequests, client);
 }
 
-async function restoreFileBackup(imported: AdminBackupData) {
+async function restoreFileBackup(imported: AdminBackupData, preserveCurrentAuth = false) {
     const current = await readFileBackupData();
-    const merged = mergeAccountConfigBackup(current, imported);
+    const merged = mergeAccountConfigBackup(current, preserveCurrentAuth ? { ...imported, auth: current.auth } : imported);
     try {
-        await writeFileBackupData(merged);
+        await writeFileBackupData(merged, preserveCurrentAuth);
     } catch (restoreError) {
-        const rollbackErrors = await rollbackFileBackup(current);
+        const rollbackErrors = await rollbackFileBackup(current, preserveCurrentAuth);
         if (rollbackErrors.length) throw new AggregateError([restoreError, ...rollbackErrors], "备份恢复失败，且文件 Provider 未能完整回滚，请使用恢复前安全副本处理");
         throw restoreError;
     }
 }
 
-async function writeFileBackupData(data: AdminBackupData) {
-    await writeAuthDb(data.auth);
+async function writeFileBackupData(data: AdminBackupData, preserveCurrentAuth = false) {
+    if (!preserveCurrentAuth) await writeAuthDb(data.auth);
     await writePromptBackup(data.prompts);
     await writeGenerationLogDb(data.generationLogs);
     await writeAccountDeletionRequestBackup(data.accountDeletionRequests);
 }
 
-async function rollbackFileBackup(data: AdminBackupData) {
+async function rollbackFileBackup(data: AdminBackupData, preserveCurrentAuth = false) {
     const errors: unknown[] = [];
-    for (const write of [() => writeAuthDb(data.auth), () => writePromptBackup(data.prompts), () => writeGenerationLogDb(data.generationLogs), () => writeAccountDeletionRequestBackup(data.accountDeletionRequests)]) {
+    const writes = [() => writePromptBackup(data.prompts), () => writeGenerationLogDb(data.generationLogs), () => writeAccountDeletionRequestBackup(data.accountDeletionRequests)];
+    if (!preserveCurrentAuth) writes.unshift(() => writeAuthDb(data.auth));
+    for (const write of writes) {
         try {
             await write();
         } catch (error) {
@@ -94,7 +99,7 @@ async function lockPostgresBackupTables(client: QueryExecutor) {
     await client.query(`
         LOCK TABLE
             app_settings, entitlement_plans, system_model_channels, users, sessions, email_codes,
-            quota_usage, point_records, daily_plan_point_wallets, cdk_codes, cdk_redemptions,
+            quota_usage, point_records, daily_plan_point_wallets, model_pricing_wallet_accounts, model_pricing_wallet_reservations, model_pricing_wallet_refunds, cdk_codes, cdk_redemptions,
             announcements, prompts, prompt_seed_sources, generation_logs, generation_log_assets,
             account_deletion_requests
         IN SHARE ROW EXCLUSIVE MODE

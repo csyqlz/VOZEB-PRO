@@ -5,6 +5,38 @@ description: 当前接口响应事实与管理员敏感配置契约
 
 # 接口响应与敏感配置
 
+视频契约 `/api/admin/model-pricing/video-contracts` 现支持 H3 V2 与 Hailuo 2.3／Fast V1，选项返回明确 `protocol`、H3 `resolutions` 或 Hailuo `tiers`。POST 继续使用当前管理员 Session 与 `billing.manage`、真实启用型号／渠道和已审核付费价；客户端不能指定审核人。Hailuo 三个独立非零 `video / 1` 档位写入同一有界历史，过期 `expectedCurrentId` 返回 409，保存不启用影子或钱包。
+
+OpenAI 内部按量音频任务已复用签名系统代理、原任务一次性恢复和既有管理员账务核对接口。精确 `gpt-audio-1.5` 调用原生 Chat Completions，原响应只进入私有凭据；代理公开响应只回原结算状态和费用，完整 Base64、转写与冻结契约不外露。媒体按原冻结格式验证编码后交付，使用 Node 标准 MIME 解析取无参数媒体类型。补录／更正必须对应原任务及原提交，未知结果不会自动切备用或确认免费。公开创建仍不能请求启用按量。
+
+OpenAI Chat Audio 内部钱包已增加四价项预留、原计量结算／退款和私有原音频恢复服务，无新增公开接口。恢复格式取原请求冻结值，当前对应既有生成入口的 WAV／MP3／FLAC／Opus；未支持的恢复格式在预留前拒绝。缺失或矛盾计量保留预留和原凭据，不能据此确认免费。现有任务公开响应与固定积分保持原契约，OpenAI 内部签名任务、管理员补录／更正及安全备用已有后续接线。
+
+OpenAI `gpt-audio-1.5` 系统代理增加原请求四分项影子冻结与结算诊断，公开状态、媒体和固定积分头不变。音频任务读取可用原私有用量回执补齐中断的影子写入；恢复须匹配原用户、尝试、消费流水、渠道、型号和协议，不新增上游调用。固定退款按原影子价冲销。没有新增公开扣费参数或 OpenAI 按量启用接口。
+
+现有音频任务接口支持精确 `gpt-audio-1.5` 通过原生 OpenAI `/chat/completions` 生成文本／音频，沿用已有落盘、固定积分、重放身份及公开响应白名单；不会因共享 `/audio/speech` 默认预设而误走二进制 Speech 路径。原用量只留在服务端任务观察，公开响应不增加计量或私有文本字段。四分项契约已复用管理员 `/api/admin/model-pricing/audio-contracts` 的 GET／POST：返回真实启用绑定、四价项映射及审核历史，服务端重核配置并覆盖客户端审核人和时间，使用 `expectedCurrentId` 检测 409 冲突。沿用当前 Session、`billing.manage` 与脱敏审计，不新增公开按量参数，旧预览模型不自动替换。
+
+`POST /api/maintenance/data-lifecycle/run` 返回增加 `audioPricingMedia: { checked, archived, failed, orphanFilesDeleted }` 汇总；沿用既有维护 Bearer 令牌鉴权、管理员任务清理开关与批次，在任务删除完成后处理已结清音频。原响应／人工补录的音频字节清除后仅保留私有审计字段和清理标记，不开放媒体下载、重建或新公开计费参数。未结清请求及仍有原任务的媒体不清理。
+
+内部 Gemini TTS 按量音频支持持久安全备用：仅原尝试已明确未计费、无私有原音频／人工决定且释放完成后推进已保存的下一候选，并为新 attempt 使用新签名与独立冻结契约。未知提交及原媒体恢复不能重发，取消或管理员撤销／未计费处理结束原任务。没有新增公开启用参数或备用管理接口，公开音频仍使用固定积分。
+
+`GET/POST /api/admin/generation-operations/audio/{id}/billing-review` 沿用当前管理员 Session、`generation.manage` 与 `billing.manage` 双权限及脱敏审计。POST 接受原尝试的 `stop_preparation`（必填依据）、`resume_billing`、`confirm_no_charge`、`provide_metered_result` 和 `correct_metered_result`。未提交撤销先持久禁止准备／提交，再释放原预留；已有上游提交许可不能撤销。已提交审核必须关联原任务、准备和提交身份并附供应商证明；原媒体存在时拒绝未计费确认，补录／更正不能改换原字节、MIME、候选位置、型号、档位或冻结价格。完整响应沿用现有 JSON 请求体资源限制（4 MiB），过大请求返回 413，不改为截断或缺失补零。GET 只返回状态、能力标记及原价版本摘要，不返回原音频、私有准备凭据或审核依据。
+
+内部按量音频任务现已使用独立签名域绑定任务／attempt，代理在固定扣费前分支处理原准备、预留、唯一提交与持久原响应；缺失或变造签名、跨能力／用户／渠道身份不接受。公开创建仍过滤私有计费字段。`POST /api/audio-tasks/{id}` 的原任务检查可恢复已保存原响应，无上游 ID 时不会新建；已取消且账务未完成的内部任务也可检查原退款；检查完成后重新读取用户钱包，响应头立即反映原价结算或退款后的余额。计量未知或媒体落盘失败回到可再次检查状态并停止自动轮询。通用音频人工补结果／确认失败不得绕过原账务，专用管理员入口已支持撤销未提交准备与恢复已有原音频凭据；已提交请求已增加独立的持证未计费确认、完整响应补录及矛盾计量更正。
+
+音频原响应恢复只提供服务端内部函数：必须匹配原用户、请求指纹和提交认领；原字节与计量不可改写。保存后可恢复原计量和冻结价格结算，转码失败可再次读取原 PCM，不获取新的上游提交权限。内部任务已接入签名、调度与原响应恢复；公开创建仍未启用按量，已提交请求的专用凭据核对已有后续实现，没有新增媒体下载接口；私有凭据不得当成可直接交付给任意用户的资源。
+
+内部音频钱包增加请求上界预留及原提交计量结算，但没有新增公开扣费接口或切换 `/api/audio-tasks` 的收费方式。现有钱包列表继续通过白名单返回可公开的冻结价目计算与状态，不暴露音频契约、请求摘要、私有计量回执或媒体正文。音频内部任务及专用人工核对已有后续接线；音频审核必须经过原任务私有凭据验证，通用文本核对不能绕过该约束。
+
+Gemini TTS 系统代理在提交前冻结私有影子计价依据，在完整 JSON 响应后记录应收；原响应正文、状态及固定积分头不变。`GET /api/audio-tasks/{id}` 可从同一任务、同一尝试的私有回执恢复中断的影子提交，不能创建上游任务；公开 DTO 不新增用量、冻结版本或影子金额。诊断失败不改变媒体交付与固定退款。
+
+H3 标准生成已接通持久契约审核、调用前影子冻结、原上游任务异步报价及原额退款冲销；用户实际扣费仍沿用固定积分；内部钱包已具备视频预留、原创建任务确认、原终态结算和原价退款，内部视频任务已接受控提交、原凭据恢复、调度交付、取消退款及保留保护，专用人工核对已接入，安全备用接续已实现，公开准入尚未完成。官方免费事实与用户收费分开：图片按全部实际张数和常规单价计价，输入音频缺少常规付费单价时继续使用原模型固定积分，不能在任务提交后切换计费方式。
+
+视频内部预留复用既有钱包表，以受控提交凭据绑定原创建响应的上游任务 ID；`submitted` 为已确认创建但尚未结算的阶段，用户账务显示“生成中”，不返回原始任务凭据。失败、取消或缺失计量不会自动释放预留，视频人工核对复用原专用任务凭据并持久保存独立审核依据。
+
+文本／直接图片契约审核、影子报价和请求上界要求常规付费单价；官方零价事实仍可保存，未准入原因在调用前持久记录，内部按量任务在预留和上游调用前拒绝。公开接口仍使用原模型固定费用；已有请求只按原冻结价结算。售价预览遇到不可报价的旧版本时返回 `oldQuote: null`、`pointsDifference: null`，当前报价仍必须通过校验，不返回虚假的零价比较。
+
+图片按张账务核对支持 `correct_metered_result`：仅原任务和钱包都有无效原观察时返回可更正能力；请求必须提交完整供应商结果与明确依据，新响应按原冻结契约验证，原张数与 URL 不可改写。原钱包响应缺失时先恢复保存的原凭据；决定持久后只恢复原任务，取消业务按原价退款。公开接口仍不返回原媒体凭据或内部审核内容，无新增表。
+
 ## 当前响应规则
 
 现有 Next.js Route Handler 按业务返回 JSON，错误通常使用 `{ error: string }` 并配合对应 HTTP 状态码。项目正在渐进统一为 `{ code, data, msg }`，不能一次性改写现有消费者。公共 helper `apiSuccess()`、`apiError()` 和 `apiCompatError()` 分别提供标准成功、标准失败和同时保留旧 `error` 字段的兼容失败响应；新增或修改接口应在契约测试保护下选择对应 helper，并在边界校验身份、权限和外部输入。
@@ -30,6 +62,12 @@ description: 当前接口响应事实与管理员敏感配置契约
 管理员完成普通登录或可选 TOTP 登录挑战后，后台业务接口统一使用当前 Session、显式职责权限与脱敏审计，不再为支付、用户、系统设置、模型渠道与密钥、对象存储或业务备份逐次要求 `{ currentPassword, totpCode }`。权限注册表包含 13 项职责和 8 个预设；页面入口、可见字段、请求 payload 与 Route Handler 使用同一职责边界。管理员只能授予自身已有的职责，也不能修改或删除职责范围高于自己的管理员。
 
 `GET/PATCH /api/admin/settings` 的返回也按当前职责收敛：没有 `system.manage` 时不下发 SMTP 与数据维护配置，没有 `upstream.manage` 时不下发渠道地址、高级协议、内部 Skill 或成本保护配置；财务计价界面只获得列出模型所需的脱敏渠道摘要。
+
+`/api/admin/model-pricing` 统一返回 `{ code, data, msg }`。`GET` 允许 `upstream.manage` 或 `billing.manage`，接受 `modelId`、`candidatePage`、`officialPage`，按页返回候选和指定模型的官方版本，并单独返回当前销售版本及其已绑定官方版本；`POST action=candidate` 和 `PATCH action=review` 要求 `upstream.manage`，候选仅能审核一次；`POST action=preview` 与 `PATCH action=publish` 要求 `billing.manage`。预览返回官方分项价、逐模型倍率及其来源、唯一套餐系数命中层级、币种换算率、两位小数积分和可比旧售价差异。发布必须提交本次预览令牌与当时销售版本 ID；版本变化或重复审核返回 `409`，输入无效返回 `400`，未登录或缺少职责分别返回 `401/403`。所有写操作记录管理员审计；发布不会改写 `/api/admin/settings` 的固定积分配置。
+
+`/api/admin/model-pricing/video-contracts` 要求当前管理员 Session 与 `billing.manage`。GET 按 `officialVersionId` 返回支持的 H3 视频绑定、分辨率及数量规则来源，附 `channelId/requestedModel` 时返回该绑定的有界审核历史；不返回渠道密钥或上游 Base URL。POST 提交 `officialVersionId/contract/expectedCurrentId`，首次为 null；服务端核对已启用的实际视频协议、精确 SKU、所有非零常规价项及收费规则，并写入真实审核身份和时间。JSON／结构无效返回 400，超出既有请求体上限返回 413，版本冲突 409，身份／权限错误 401／403。审计只含契约和绑定版本身份；保存不发布价格或切换用户扣费，响应为 `{ code, data, msg }`。
+
+`/api/admin/model-pricing/image-contracts` 要求当前管理员 Session 和 `billing.manage`。GET 传 `officialVersionId` 读取已启用图片绑定及支持的模态字段；附 `channelId`、`requestedModel`、`operation=generations|edits` 读取该操作的契约历史。POST 传 `officialVersionId`、`contract` 和 `expectedCurrentId`（首次为 null），服务端校验全部官方分项、模态覆盖及精确绑定并写入实际审核人／时间；并发失配返回 409，无效参数 400，未登录／无权限 401／403。写入审计只含版本、渠道、型号、操作及前版本身份，不复制核对正文。返回仍为 `{ code, data, msg }`；不改固定积分或启用真实计费。
 
 - `POST /api/admin/backup/export`：要求 `system.manage`，无请求体，返回 `private, no-store` 的脱敏业务备份。
 - `POST /api/admin/backup`：要求 `system.manage`，multipart 只提交 JSON 备份文件；校验后解析和恢复业务数据。
@@ -188,7 +226,7 @@ Canvas 语义编辑通过 `PATCH /api/canvas/projects/{id}` 提交 compact mutat
 
 - `POST /api/maintenance/generation-tasks/run`：使用 `Authorization: Bearer <VOZEB_PRO_WORKER_TOKEN>` 领取一个有界恢复批次；可通过 `x-vozeb-pro-worker-id` 同步心跳。
 - `POST /api/maintenance/generation-tasks/heartbeat`：使用相同 Worker Bearer Token 和必填 `x-vozeb-pro-worker-id` 上报心跳。
-- `POST /api/maintenance/data-lifecycle/run`：使用 `Authorization: Bearer <VOZEB_PRO_MAINTENANCE_TOKEN>` 执行一个管理员配置的有界批次，只处理已过期 Session、已过期或已使用邮箱验证码、超过自身 `expires_at` 的生成任务，以及到期且全站引用数为零的临时媒体；返回各类删除数量、媒体字节数和被引用阻止的媒体摘要。
+- `POST /api/maintenance/data-lifecycle/run`：使用 `Authorization: Bearer <VOZEB_PRO_MAINTENANCE_TOKEN>` 执行一个管理员配置的有界批次，清理已过期 Session、已过期或已使用邮箱验证码、超过自身 `expires_at` 的生成任务，以及到期且全站引用数为零的临时媒体；同时按真实固定退款补偿尚未撤销的原生 Images／H3 视频影子账单。返回各类删除数量、媒体字节数、被引用阻止的媒体摘要及 `mediaShadowRefunds: { checked, reversed, failed }`；影子补偿独立于清理开关，沿用管理员批次大小，不改变用户钱包。
 - `POST /api/generation-webhooks/{channelId}`：接收不超过 1MB 的 JSON；要求稳定的 `x-vozeb-pro-event-id`、5 分钟误差内的 `x-vozeb-pro-timestamp` 和 `x-vozeb-pro-signature`。签名使用当前渠道独立密钥，对 `JSON.stringify([channelId, timestamp, eventId]) + "\n" + rawBody` 生成 HMAC-SHA256 十六进制摘要。
 - `POST /api/admin/generation-operations/{type}/{id}/review`：管理员处理 `needs_review` 的 `text/image/video/audio` 任务，动作仅允许 `resume_upstream`、`provide_result` 或 `confirm_failed`。
 
@@ -198,6 +236,14 @@ PostgreSQL Provider 在 Run、事件和助手消息的同一事务中写入 `pg_
 
 ## 模型路由设置快照
 
+### 内部文本任务计费关联
+
+文本任务创建上游请求时，在现有内部计费身份上附加 `x-vozeb-pro-text-task`，内容为任务 ID 与尝试序号的 Base64URL JSON。`systemAiBillingHeaders` 使用 v2 HMAC 将该字段与业务请求、逻辑模型及上游型号一起签名；字段仅在服务端生成，不属于用户可配置请求参数。App 和 Worker 必须使用相同签名版本与部署密钥。
+
+系统代理验证签名后，按当前登录／Worker 用户核对持久任务的当前 running 尝试、渠道和型号，在扣费或发送前保存计费请求关联。签名无效或无权访问返回 403，任务状态变化或同一尝试对应不同请求返回 409；关联保存失败不会继续扣费或发送上游。内部关联头不转发给供应商，公开任务响应不返回关联数据。此步骤不会启用按官方价扣费，也不是允许重复提交的凭据；实际提交许可须继续由预留账本认领控制。
+
+### 配置校验
+
 管理员更新系统渠道、逻辑模型或默认模型时，设置接口把 `{ systemChannels, logicalModels, defaultModels }` 视为同一配置快照：
 
 - 逻辑模型 ID 在同一快照内唯一；同一逻辑模型不能重复绑定同一渠道和上游模型。
@@ -205,3 +251,67 @@ PostgreSQL Provider 在 Run、事件和助手消息的同一事务中写入 `pg_
 - 默认模型必须是启用、能力匹配且至少有一个可用绑定的逻辑模型。
 - 删除渠道时客户端应同时移除关联绑定；仍存在悬空引用的快照返回 400，不写入部分配置。
 - 服务端保存前统一归一化优先级、模型名称和失效默认值，保存结果继续按敏感配置规则脱敏返回。
+
+
+### 用户按量账务查询
+
+`GET /api/points/pricing?page=1&pageSize=20&status=reserved` 使用当前用户 Session，忽略查询中的用户身份，不接受管理员代查。状态可省略或为 `reserved`、`settled`、`released`，分页沿用 Repository 的最多 100 条约束。返回 `{ code, data, msg }`，成功响应禁止缓存。
+
+`data.summary` 包含当前可用、日赠、永久积分，以及全部待结算预留金额、笔数和已失效日赠预留金额；汇总不随列表状态筛选变化。`data.items` 为当前用户分页记录，显示初始预留、实际扣除、未用退回、退款到账和失效日赠。已结算记录另外提供冻结的官方价版本、售价版本、分项用量、币种换算及唯一售价系数；不返回完整价格策略、渠道配置、管理员证据、请求指纹或上游内容。读取沿用已有钱包的日赠初始化规则，不创建消费或退款。
+
+客户端在“积分记录”展示账务状态及明细，页头积分弹层展示预留摘要。刷新和筛选重新请求服务端；迟到或已取消的响应不得覆盖新查询。该查询与展示不会开启任何模型的按量扣费。
+
+### 文本按量分支的内部响应与恢复
+
+仅服务端持久任务带 `billingMode: official-usage` 时，系统代理使用已审核契约预留并在唯一提交认领后发送请求。内部响应头 `x-vozeb-pro-pricing-state` 区分 `streaming`、`settled`、`pending`、`not-submitted` 和 `refunded`；状态头只供文本执行器判断，普通客户端不能用它或请求正文切换计费模式。`settled` 返回实际消费流水与扣分；`pending` 表示原预留仍待核对，执行器不得按普通 HTTP 失败切换另一次付费调用。
+
+保存的模型／渠道 `streaming.enabled` 启用后，内部按量文本执行器使用原生 Chat、Responses、Anthropic SSE 或 Gemini SSE／显式 NDJSON；Chat 请求 `stream_options.include_usage`，Gemini 使用 `streamGenerateContent`，SSE 添加 `alt=sse`，不添加 `stream` 请求字段。代理按需转发原始字节，返回 `streaming` 时尚不承诺已结算；执行器完整读取到 EOF 后从原任务恢复公开答案和账务。公开文本单独保存，推理内容与原始事件不进入任务或钱包。断流、取消、错误事件、用量缺失或越界保留原预留；保存答案后结算中断可从原凭据恢复，禁止重发。仅标准纯文本契约可进入此分支，未知自定义协议／工具费用继续阻止提交；公开创建接口尚未开放按量模式。
+
+`POST /api/text-tasks/{id}` 的既有 `action: recover` 对该内部模式从已保存公开答案和用量恢复原结算，不要求上游任务 ID，不发送新的上游创建请求。取消／失败后仍可核对原账本：用量未知时返回 `needsReview: true`，有完整证据时按原价退回。任务私有 `billingRequests`、`pricedResponses` 不在公开响应中返回。当前公开创建接口未启用此模式；传统固定积分路径与其他能力保持现状。
+
+
+按量文本任务在账务待完成时可以超过普通任务期限继续通过原任务 ID 查询／检查；`billingPending` 和预检认领仍属服务端私有字段，不增加公开 DTO 内容。生成历史／项目删除遇到保留任务时沿用 `CreativeEntityDeletionConflict` 的冲突响应，提示先检查任务状态，不会部分删除。未知结果不会因时间过去而自动清零、退款或重新提交。
+
+
+### 按量文本任务人工核对
+
+`GET/POST /api/admin/generation-operations/text/{id}/billing-review` 使用当前管理员 Session，同时要求 `generation.manage` 和 `billing.manage`。GET 返回当前 attempt、模型／渠道身份、预留金额、冻结版本及是否已有响应／审核记录；不返回原正文或完整账本。
+
+POST 的 `action` 为 `resume_billing`、`provide_metered_result` 或 `confirm_no_charge`，均携带当前 `attemptNo`。补录另需 `response`（供应商完整 JSON 响应字符串）和 `evidence`，确认未计费需 `evidence`；审核人从 Session 获取。返回 `executionPhase: completed | needs_review`，后者表示原预留或处理结果仍待核对，不能重新提交生成。无权限返回 403，旧尝试或矛盾凭据返回 409，缺失或不完整用量返回 400；状态与依据写入中断后使用原任务恢复。普通任务接管 `/review` 不接受内部按量文本或图片任务。
+
+GET 另返回 `canStopPreparation`。尚无上游提交许可且账务待核对时，可 POST `action: stop_preparation`、原 `attemptNo` 和排障 `evidence`，原子撤销准备权限后退回未提交预留；提交认领竞争成功则返回 409。该操作不能用来声明已提交请求未计费，完整停止决定由服务端 Session 留证，释放失败后仍使用 `resume_billing`。
+
+
+### 按量图片任务人工核对
+
+`GET/POST /api/admin/generation-operations/image/{id}/billing-review` 沿用文本账务核对的管理员 Session、`generation.manage`／`billing.manage` 双职责、无缓存读取和脱敏审计。所有操作携带原 `attemptNo`：`stop_preparation` 撤销未提交准备；`provide_metered_result` 另需供应商完整 JSON `response` 与非空 `evidence`；`confirm_no_charge` 需明确未计费 `evidence`；`resume_billing` 恢复原响应或持久决定。已认领提交不能撤销准备，图片 `correct_metered_result` 仍明确拒绝。
+
+补录要求原提交身份、预检完成状态及冻结图片契约；响应须有完整 URL 结果，数量、型号和原预留上界必须一致。已有完整响应只能恢复，已知数量／结果不能通过补录改写；已有任何响应凭据不得确认未计费。决定先保存再恢复钱包与原任务媒体交付，原响应不覆盖，不重新生成。交付沿用应用内部地址与既有媒体恢复路径；失败或取消按原价处理退款，返回 `executionPhase: completed | needs_review`。
+
+GET 的 `canReviewSubmission` 表示已有完整原提交身份且未停止准备；`canResumeBilling` 在已有原响应、人工决定或停止决定时为 true，`canCorrectUsage` 对图片始终为 false。`reviewed` 后不允许改写决定，只能恢复。后台列表保留图片按量标记，窗口按实际能力显示操作；完整响应、媒体 URL 与排障依据不进入普通审计日志。
+
+
+内部按量图片任务的自动备用不增加公开 API 参数：原尝试安全失败且账务已结束时，只使用任务已保存的剩余候选，保持同一任务／会话及独立 attempt、请求身份和冻结价目。提交结果未知、准备未完成或有人工决定时继续 `needs_review`，不重建上游请求；取消不会启用备用。公开创建仍不能指定 `official-usage`，真实逐模型准入尚未开启。
+
+
+MiniMax H3／H3 Max 的原 V2 任务查询会在服务端保存白名单终态计量，公开 `/api/video-tasks/{id}` 和创建响应继续只返回现有任务字段，不返回 `usageObservations`、计量秒数／图片数或私有消费关联。缺失、错误及互不一致的供应商事实不能改变公开任务结果；观察落盘失败不会触发重新生成或额外扣费。当前不新增视频按量参数或启用接口。
+
+
+内部按量视频系统代理使用独立签名 task／attempt 引用，不能替换为文本／图片引用；创建确认以原 `task_id` 写入任务和钱包后，返回私有 `x-vozeb-pro-pricing-state: submitted`。尚未提交的明确预检失败返回 `not-submitted`，提交或计费结果未知返回 `pending`，不得据普通 HTTP 错误切换渠道或释放原预留。此模式不由公开创建参数启用，客户端 `context` 只接受已有公共字段。
+
+`POST /api/video-tasks/{id}` 的 `recover` 对内部按量任务重放原创建／终态凭据，提交结果未知时保持待核对，不能重发。内部已持久保存创建参数且明确未提交、原账务已结束的失败尝试，可在原业务中接续保存的备用配置；不能重建业务任务或绕过人工决定。有原 ID 且尚在处理时只查询一次；取消且仍有未结算账务的内部任务允许再次检查，终态用量完整时按原价结算并退款。公开响应仍是已有视频 DTO，不返回计费签名、准备凭据、用量观察或私有媒体证据。通用管理员任务接管接口拒绝直接确认按量视频失败／补结果，专用视频账务核对接口已接入，规则见下文。
+
+
+`/api/admin/generation-operations/video/{id}/billing-review` 接受既有账务核对动作；GET 只返回原尝试、公开模型与版本、预留状态和可操作能力。`canProvideResult: false` 表示没有匹配的原创建确认，界面不展示补录入口；`canCorrectUsage` 仅在任务和钱包都有原无效观察且没有人工决定时为真。
+
+POST 继续要求当前管理员同时具有 `generation.manage`、`billing.manage`，拒绝客户端指定审核人。`stop_preparation` 撤销原未提交准备；`confirm_no_charge` 必须有明确证明且没有原响应；`provide_metered_result` 仅补齐原任务缺失事实；`correct_metered_result` 仅针对原无效观察，不能改变任务身份、终态、计费范围或媒体地址；`resume_billing` 重放已有决定，必要时对已知原上游任务查询一次。每个决定都校验原尝试与冻结契约，冲突返回 409，非法事实返回 400，处理失败保留原决定供恢复，审计不记录原始供应商响应或证据正文。
+
+
+视频创建的公开参数和响应不增加 `creation` 或 `candidateConfigs`。内部按量创建入口持久保存原参数后，使用任务／尝试组成的稳定计费请求，只有明确安全失败且账务结束才消费原候选；Worker 可继续中断的原业务，未知提交继续保留原预留。当前没有公开按量启用接口。
+
+
+OpenAI Chat Audio 与 Gemini／DataEyes Gemini TTS 同步 JSON 的计量观察仅供服务端核对。`POST /api/audio-tasks` 使用既有 Context 白名单，忽略客户端伪造的 `usageObservations`、`billing` 和 `upstream`；创建及 `/api/audio-tasks/{id}` 详情均不返回私有分项或消费关联。观察落盘失败不改变原音频交付及固定扣分，本轮不增加音频按量参数或启用接口。
+
+两个精确 Gemini TTS 型号及 `gpt-audio-1.5` 已提供管理员审核接口；标准价报价与请求上界仍不直接扣款，未新增公开生成参数或启用接口。真实计价分项及总量不完整、非标准服务档位或超过冻结请求上界时返回内部不可报价原因；现有公开音频任务仍按固定积分执行，不在已提交请求中切换收费方式。
+
+`GET /api/admin/model-pricing/audio-contracts` 由 `billing.manage` 管理员读取已审核价目的安全绑定选项，传入渠道和请求型号时读取定向历史；不返回渠道密钥或地址。`POST` 接收 `officialVersionId`、`contract` 和必填的 `expectedCurrentId`（首次为 null），使用当前管理员 Session 与服务端时间覆盖客户端审核身份，重新核对启用模型／绑定／渠道及实际协议。无权限返回 401／403，契约无效返回 400，并发版本过期返回 409；成功使用 `{ code, data, msg }` 返回新历史记录，审计仅保存价目、渠道、型号和前后版本 ID，不包含核对证据正文。

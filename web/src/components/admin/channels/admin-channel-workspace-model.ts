@@ -45,7 +45,11 @@ export function removeChannelFromWorkspace(settings: ChannelWorkspaceSettings, c
 }
 
 export function updateChannelInWorkspace(settings: ChannelWorkspaceSettings, channelId: string, patch: Partial<SystemModelChannel>): ChannelWorkspaceSettings {
-    const systemChannels = settings.systemChannels.map((channel) => (channel.id === channelId ? { ...channel, ...patch } : channel));
+    const systemChannels = settings.systemChannels.map((channel) => {
+        if (channel.id !== channelId) return channel;
+        const credentialsChanged = (patch.baseUrl !== undefined && patch.baseUrl !== channel.baseUrl) || (patch.apiKey !== undefined && patch.apiKey !== channel.apiKey) || patch.clearApiKey === true;
+        return { ...channel, ...patch, ...(credentialsChanged && channel.advancedConfig?.providerModels ? { advancedConfig: { ...channel.advancedConfig, providerModels: [] } } : {}) };
+    });
     return {
         ...settings,
         systemChannels,

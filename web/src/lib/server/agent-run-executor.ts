@@ -2,7 +2,7 @@ import { getAuthSettings } from "@/lib/auth/store";
 import { nanoid } from "nanoid";
 import { resolveLogicalModelCandidates } from "@/lib/server/logical-model-router";
 import { systemAiIdempotencyKey } from "@/lib/server/system-ai-billing";
-import { getAgentRun, updateAgentRunById, type AgentRun } from "@/lib/server/agent-run-store";
+import { getAgentRun, updateAgentRunById, type AgentRun, type AgentRunTask } from "@/lib/server/agent-run-store";
 import { agentPlannerSystemPrompt, agentPlanReply, buildAgentPlannerInput, conversationFallbackReply, plannerAgentSkills, prioritizeAgentPlannerModels, selectAgentSkills, taskPlanSummary } from "@/lib/server/agent-run-surface-policy";
 import { getCreativeAssetsByIds, getCreativeConversationContext, listRecentCreativeMediaAssets } from "@/lib/server/creative-runtime-store";
 import { toSafeGenerationErrorMessage } from "@/lib/server/generation-errors";
@@ -14,6 +14,7 @@ import { GenerationSubmissionUncertainError } from "@/lib/server/generation-subm
 import { rankTextPlanningCandidates } from "@/lib/server/text-planning-runtime";
 import { filterAgentPlannerModels } from "@/lib/server/agent-run-planning-profile";
 import { buildAgentRunPlannerAudit } from "@/lib/server/agent-run-audit";
+import { recordAgentAuxiliaryCharge } from "@/lib/server/generation-task-charge-attribution";
 import { agentRequestDigest, buildAgentRequest, serializeAgentRequest } from "@/lib/server/agent-prompt-json";
 import { orderCreativeAssetsByIds } from "@/lib/creative-asset-references";
 import { withDirectAgentExecutionContext } from "./agent-run-direct-context";
@@ -62,6 +63,25 @@ export async function executeAgentRun(run: AgentRun, origin: string, cookie: str
             usesMemoryCandidates ? listRecentCreativeMediaAssets(claimed.conversationId, claimed.userId, 6) : Promise.resolve([]),
         ]);
         const explicitAssets = orderCreativeAssetsByIds(loadedExplicitAssets, claimed.referencedAssetIds);
+        if (claimed.generationPreferences?.mode === "text") {
+            if (explicitAssets.length !== claimed.referencedAssetIds.length || explicitAssets.some((asset) => asset.conversationId !== claimed.conversationId || asset.status !== "ready" || (asset.type !== "image" && asset.type !== "text")))
+                throw new Error("文本对话只支持当前会话中可用的图片或文本素材");
+            const model = settings.defaultModels.textModel;
+            if (!model || !resolveLogicalModelCandidates(settings, "text", model).length) throw new Error("后台尚未配置可用的默认文本模型");
+            const task: AgentRunTask = { id: "text-answer", title: "文本回答", type: "text", model, prompt: claimed.prompt, count: 1, dependencies: [], status: "ready", attempts: 0 };
+            if (
+                !(await updateAgentRunById(
+                    run.id,
+                    { tasks: [task], reviewed: true, timings: { ...(claimed.timings || { requestAcceptedAt: claimed.createdAt }), planningCompletedAt: Date.now() } },
+                    { type: "run.planned", data: { reply: "我会结合本轮素材回答。", tasks: [taskPlanSummary(task)] } },
+                    ["running"],
+                    executionId,
+                ))
+            )
+                return;
+            await executeTasks(run.id, origin, cookie, executionId, settings);
+            return;
+        }
         const allModels = agentModelOptions(settings);
         const availableModels = prioritizeAgentPlannerModels(filterAgentPlannerModels(allModels, claimed), claimed, settings);
         const skillOptions = plannerAgentSkills(settings, claimed);
@@ -171,6 +191,7 @@ export async function executeAgentRun(run: AgentRun, origin: string, cookie: str
             }
         }
         if (!plan) throw latestPlanningError instanceof Error ? latestPlanningError : new Error("没有可用的文本模型渠道");
+        if (acceptedPlan?.call.pointsRecordId) await recordAgentAuxiliaryCharge({ userId: run.userId, runId: run.id, projectId: run.projectId, purpose: "planning", logicalModelId: model, pointsRecordId: acceptedPlan.call.pointsRecordId });
         if (claimed.surface === "canvas") plan = normalizeCanvasPlanForSelection(plan, claimed.snapshot, claimed.prompt);
         const plannerAudit = buildAgentRunPlannerAudit({
             mode: "model",

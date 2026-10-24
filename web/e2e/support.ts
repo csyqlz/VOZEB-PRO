@@ -10,7 +10,7 @@ export const E2E_ADMIN = {
 export const E2E_PROTOCOL_ORIGIN = `http://127.0.0.1:${Number(process.env.VOZEB_PRO_PROTOCOL_FIXTURE_PORT || 4010)}`;
 export const E2E_PAYMENT_WEBHOOK_SECRET = "vozeb-pro-e2e-payply-webhook-secret";
 
-const models = ["e2e-text", "e2e-text-fallback", "e2e-text-fail", "e2e-image", "e2e-image-fallback", "e2e-video", "e2e-video-fallback", "e2e-video-slow", "e2e-audio", "e2e-audio-fallback"];
+const models = ["e2e-text", "e2e-text-fallback", "e2e-text-fail", "e2e-image", "e2e-image-fallback", "e2e-video", "e2e-video-fallback", "e2e-video-slow", "e2e-audio", "e2e-audio-fallback", "gpt-4o-audio-preview", "gpt-audio-1.5"];
 
 const operations = {
     text: {
@@ -129,7 +129,7 @@ export async function protocolFixtureState(request: APIRequestContext) {
     const response = await request.get(`${E2E_PROTOCOL_ORIGIN}/__state`);
     if (!response.ok()) throw new Error(`Unable to inspect protocol fixture: ${response.status()}`);
     return (await response.json()) as {
-        requests: Array<{ method: string; path: string; authorization: string; contentType: string; bodyBytes: number; model: string }>;
+        requests: Array<{ method: string; path: string; authorization: string; contentType: string; bodyBytes: number; model: string; imageCount: number; messageCount: number }>;
         tasks: Array<{ id: string; status: string }>;
     };
 }

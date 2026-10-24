@@ -79,7 +79,18 @@ function restoreSourceTextCoverage(shots: DramaContentAnalysis["shots"], sourceS
     if (shots.length === 1) return [{ ...shots[0], sourceText: script }];
     if (script.length < shots.length) return shots;
 
-    const positions = locateShotPositions(script, shots);
+    const hasSourceGap =
+        shots
+            .map((shot) => shot.sourceText)
+            .join("")
+            .replace(/\s/gu, "") !== script.replace(/\s/gu, "");
+    const orderedPositions = hasSourceGap
+        ? findOrderedSourcePositions(
+              script,
+              shots.map((shot) => shot.sourceText),
+          )
+        : null;
+    const positions = orderedPositions ?? locateShotPositions(script, shots);
     const preferredCuts = Array.from(script.matchAll(/[。！？!?；;\n][”"」』]?/gu), (match) => (match.index || 0) + match[0].length);
     const cuts = [0];
     for (let index = 1; index < shots.length; index += 1) {
@@ -89,13 +100,40 @@ function restoreSourceTextCoverage(shots: DramaContentAnalysis["shots"], sourceS
         const located = positions[index];
         const target = located >= minimum && located <= maximum ? located : Math.max(minimum, Math.min(maximum, proportional));
         const preferred = preferredCuts.filter((cut) => cut >= minimum && cut <= maximum).sort((left, right) => Math.abs(left - target) - Math.abs(right - target))[0];
-        cuts.push(preferred ?? target);
+        cuts.push(orderedPositions && located >= minimum && located <= maximum ? located : (preferred ?? target));
     }
     cuts.push(script.length);
     return shots.map((shot, index) => ({
         ...shot,
         sourceText: script.slice(cuts[index], cuts[index + 1]).trim() || shot.sourceText,
     }));
+}
+
+export function hasOrderedDramaSourceAnchors(value: unknown, sourceScript: string) {
+    const shots = array(object(value).shots).map((shot) => text(object(shot).sourceText));
+    return shots.length > 0 && findOrderedSourcePositions(sourceScript.trim(), shots) !== null;
+}
+
+function findOrderedSourcePositions(script: string, sources: string[]) {
+    if (!script || !sources.length) return null;
+    const scriptPositions: number[] = [];
+    let compactScript = "";
+    for (let index = 0; index < script.length; index += 1) {
+        if (/\s/u.test(script[index])) continue;
+        compactScript += script[index];
+        scriptPositions.push(index);
+    }
+    let cursor = 0;
+    const positions: number[] = [];
+    for (const source of sources) {
+        const anchor = source.replace(/\s/gu, "");
+        if (!anchor) return null;
+        const position = compactScript.indexOf(anchor, cursor);
+        if (position < 0) return null;
+        positions.push(scriptPositions[position]);
+        cursor = position + anchor.length;
+    }
+    return positions;
 }
 
 function estimateDramaSpokenDuration(shot: DramaContentAnalysis["shots"][number]) {

@@ -46,9 +46,12 @@ export function mergeSystemChannelSecrets(channels: SystemModelChannel[], savedC
         const saved = savedById.get(channel.id);
         const submittedWebhookSecret = plainSecret(channel.webhookSecret);
         const merged = channelWithoutSecretControls(channel);
+        const apiKey = channel.clearApiKey ? "" : usableApiKey(channel.apiKey) || usableApiKey(saved?.apiKey);
+        const credentialsChanged = saved && (channel.baseUrl.trim() !== saved.baseUrl.trim() || apiKey !== usableApiKey(saved.apiKey));
         return {
             ...merged,
-            apiKey: channel.clearApiKey ? "" : usableApiKey(channel.apiKey) || usableApiKey(saved?.apiKey),
+            ...(credentialsChanged && merged.advancedConfig?.providerModels ? { advancedConfig: { ...merged.advancedConfig, providerModels: [] } } : {}),
+            apiKey,
             webhookSecret: channel.clearWebhookSecret ? "" : submittedWebhookSecret || usableWebhookSecret(saved?.webhookSecret),
         };
     });

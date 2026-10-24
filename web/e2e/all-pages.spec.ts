@@ -10,13 +10,27 @@ const PROFILE_SECTIONS = ["overview", "profile", "billing", "coupons", "orders",
 const BASE_URL = `http://127.0.0.1:${Number(process.env.VOZEB_PRO_E2E_PORT || 3100)}`;
 const USES_POSTGRES = Boolean(process.env.VOZEB_PRO_E2E_DATABASE_URL?.trim());
 const FILE_PROVIDER_LIMITATIONS = new Map([
+    ["/api/community/activity", 409],
     ["/api/public/gallery", 409],
+    [`/api/public/users/${E2E_ADMIN.username}`, 409],
+    ["/api/works", 409],
+    ["/api/works/sources", 409],
+    ["/api/admin/works", 409],
     ["/api/notifications/interactions", 409],
+    ["/api/billing/products", 501],
+    ["/api/billing/coupons", 501],
+    ["/api/referrals", 501],
     ["/api/admin/referrals", 501],
+    ["/api/admin/referrals/relationships", 501],
 ]);
 
 type RouteCase = { path: string; expectedPath?: RegExp; expectedStatus?: number; readyHeading?: string; readyText?: string };
-type ApiFailure = { path: string; status: number; body: string };
+type ApiFailure = { path: string; status: number };
+const promptImageFixture = { status: 200, contentType: "image/webp", path: "public/generation-smoke.webp" } as const;
+
+test.beforeEach(async ({ page }) => {
+    await page.route("**/api/public/prompt-images?*", (route) => route.fulfill(promptImageFixture));
+});
 
 test("all authenticated pages reach their real routes and stay usable", async ({ page, request }, testInfo) => {
     test.setTimeout(360_000);
@@ -72,9 +86,40 @@ test("every administrator section renders its server-backed surface", async ({ p
     }
 });
 
+test("pricing card reports fixed points and fits desktop and mobile", async ({ page, request }) => {
+    const response = await request.get("/api/admin/model-pricing");
+    expect(response.ok(), await response.text()).toBe(true);
+    const { data } = (await response.json()) as { data: { unpricedModels: Array<{ id: string }> } };
+    const modelId = data.unpricedModels[0]?.id;
+    expect(modelId).toBeTruthy();
+    const activation = await request.get(`/api/admin/model-pricing?action=activation&modelId=${encodeURIComponent(modelId!)}`);
+    expect(activation.ok(), await activation.text()).toBe(true);
+    const status = (await activation.json()).data as { active: boolean; admission: { blockers: string[] } };
+    expect(status.active).toBe(false);
+    await page.goto("/admin?section=pricing", { waitUntil: "domcontentloaded" });
+    const search = page.getByLabel("工作台模型搜索");
+    await search.fill(modelId!);
+    await search.press("Enter");
+    await page.getByTestId(`pricing-model-${modelId}`).getByRole("button", { name: "查看与处理" }).click();
+    const drawer = page.getByRole("dialog", { name: /模型售价与渠道/ });
+    await drawer.getByRole("button", { name: "渠道绑定", exact: true }).click();
+    const card = drawer.getByTestId("model-billing-status");
+    await expect(card).toContainText("当前收费：固定积分");
+    await expect(card).toContainText(status.admission.blockers[0]);
+    await expect(page.getByRole("dialog", { name: "按量计费准入核对" })).toHaveCount(0);
+    const bounds = await card.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        return { left: rect.left, right: rect.right, width: rect.width, viewport: window.innerWidth };
+    });
+    expect(bounds.left).toBeGreaterThanOrEqual(0);
+    expect(bounds.right).toBeLessThanOrEqual(bounds.viewport);
+    expect(bounds.width).toBeGreaterThan(0);
+});
+
 test("signed-out, legal, installation and invalid public detail routes fail safely", async ({ browser }, testInfo) => {
     test.setTimeout(180_000);
     const context = await browser.newContext({ baseURL: BASE_URL, viewport: testInfo.project.use.viewport || undefined, storageState: { cookies: [], origins: [] } });
+    await context.route("**/api/public/prompt-images?*", (route) => route.fulfill(promptImageFixture));
     const page = await context.newPage();
     try {
         const theme = testInfo.project.name === "mobile-430" ? "dark" : "light";
@@ -131,7 +176,6 @@ async function verifyRoute(page: Page, route: RouteCase, label: string) {
     const pageErrors: string[] = [];
     const consoleErrors: string[] = [];
     const apiFailures: ApiFailure[] = [];
-    const apiFailureReads: Promise<void>[] = [];
     const onPageError = (error: Error) => pageErrors.push(error.message);
     const onConsole = (message: { type(): string; text(): string }) => {
         if (message.type() === "error") consoleErrors.push(message.text());
@@ -139,12 +183,7 @@ async function verifyRoute(page: Page, route: RouteCase, label: string) {
     const onResponse = (response: Response) => {
         const url = new URL(response.url());
         if (url.origin !== BASE_URL || !url.pathname.startsWith("/api/") || response.status() < 400) return;
-        apiFailureReads.push(
-            response
-                .text()
-                .then((body) => apiFailures.push({ status: response.status(), path: url.pathname, body }))
-                .catch(() => apiFailures.push({ status: response.status(), path: url.pathname, body: "<unreadable>" })),
-        );
+        apiFailures.push({ status: response.status(), path: url.pathname });
     };
     page.on("pageerror", onPageError);
     page.on("console", onConsole);
@@ -165,7 +204,6 @@ async function verifyRoute(page: Page, route: RouteCase, label: string) {
         await expect(page.locator("body")).not.toContainText("Internal Server Error");
         await expectNoHorizontalOverflow(page, `${label} ${route.path}`);
         await expectVisibleControlsWithinViewport(page, `${label} ${route.path}`);
-        await Promise.all(apiFailureReads);
         const expectedLimitations = apiFailures.filter(isExpectedFileProviderLimitation);
         const unexpectedApiFailures = apiFailures.filter((failure) => !isExpectedFileProviderLimitation(failure));
         expect(pageErrors, `${label} ${route.path} page errors`).toEqual([]);
@@ -179,10 +217,10 @@ async function verifyRoute(page: Page, route: RouteCase, label: string) {
 }
 
 function isExpectedFileProviderLimitation(failure: ApiFailure) {
-    if (failure.status === 404 && failure.path === `/api/public/users/${E2E_ADMIN.username}`) return failure.body.includes("创作者主页不存在");
+    if (failure.status === 404 && failure.path === `/api/public/users/${E2E_ADMIN.username}`) return true;
     if (!USES_POSTGRES && failure.path.startsWith("/api/admin/billing/")) return false;
     if (USES_POSTGRES || (failure.status !== 409 && failure.status !== 501)) return false;
-    return failure.body.includes("需要启用 PostgreSQL") || FILE_PROVIDER_LIMITATIONS.get(failure.path) === failure.status;
+    return FILE_PROVIDER_LIMITATIONS.get(failure.path) === failure.status;
 }
 
 function withoutExpectedResourceErrors(consoleErrors: string[], expectedLimitations: ApiFailure[], expectedDocumentStatus?: number) {

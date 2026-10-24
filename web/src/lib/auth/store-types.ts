@@ -1,3 +1,4 @@
+import type { PricingWalletReservation, PricingWalletRefund } from "@/lib/server/model-pricing-wallet-service";
 export type UserRole = "admin" | "user";
 export type UserStatus = "active" | "disabled";
 export type { AdminPermission } from "@/lib/admin-permissions";
@@ -7,7 +8,35 @@ import type { RegistrationPolicyConsent } from "@/lib/registration-consent";
 import { VOZEB_QQ_GROUP_URL } from "@/constant/community";
 
 export type ApiCallFormat = "openai" | "gemini";
-export type SystemChannelProtocol = "auto" | "openai" | "yumeng" | "gemini" | "sub2api" | "newapi" | "vozeb-recommended" | "globalaiopc" | "seedance" | "stable-diffusion" | "volcengine-video" | "seedance-special" | "custom" | "compatible";
+export type SystemChannelProtocol =
+    | "auto"
+    | "openai"
+    | "yumeng"
+    | "gemini"
+    | "dataeyes-gemini"
+    | "dataeyes-flux"
+    | "dataeyes-seedream"
+    | "sub2api"
+    | "sub2api-grok"
+    | "newapi"
+    | "zai-glm"
+    | "alibaba-bailian"
+    | "bfl"
+    | "kling"
+    | "vidu"
+    | "minimax"
+    | "anthropic"
+    | "xai"
+    | "vozeb-recommended"
+    | "globalaiopc"
+    | "seedance"
+    | "dataeyes-seedance"
+    | "stable-diffusion"
+    | "volcengine-image"
+    | "volcengine-video"
+    | "seedance-special"
+    | "custom"
+    | "compatible";
 export type SystemChannelAuthMode = "none" | "bearer" | "x-api-key" | "custom-header";
 
 export type SystemChannelModelConfig = {
@@ -40,6 +69,10 @@ export type SystemChannelStreamingConfig = {
 
 export type SystemChannelAdvancedConfig = {
     protocol: SystemChannelProtocol;
+    pathPrefix?: string;
+    channelAuthMode?: SystemChannelAuthMode;
+    channelAuthHeader?: string;
+    channelAuthPrefix?: string;
     authMode?: SystemChannelAuthMode;
     authHeader?: string;
     authPrefix?: string;
@@ -64,6 +97,7 @@ export type SystemChannelAdvancedConfig = {
     supportsReferenceVideo: boolean;
     supportsReferenceAudio: boolean;
     modelCatalogPaths?: string[];
+    providerModels?: string[];
     modelCapabilities?: Record<string, LogicalModelCapability>;
     modelConfigs?: Record<string, SystemChannelModelConfig>;
     operationConfigs?: Partial<Record<LogicalModelCapability, SystemChannelModelConfig>>;
@@ -124,6 +158,7 @@ export type LogicalModelBinding = {
     channelId: string;
     upstreamModel: string;
     enabled: boolean;
+    acceptanceOnly?: boolean;
     priority: number;
     weight?: number;
     capabilityProfile?: LogicalModelCapabilityProfile;
@@ -132,6 +167,8 @@ export type LogicalModelBinding = {
 export type LogicalModel = {
     id: string;
     name: string;
+    manufacturer?: string;
+    series?: string;
     capability: LogicalModelCapability;
     enabled: boolean;
     bindings: LogicalModelBinding[];
@@ -487,6 +524,9 @@ export type AuthDatabase = {
     sessions: StoredSession[];
     quotaUsage: StoredQuotaUsage[];
     pointRecords: StoredPointRecord[];
+    pricingReservations: PricingWalletReservation[];
+    pricingAccruals: Array<{ userId: string; sourceKey: string; exactPoints: string }>;
+    pricingRefunds: PricingWalletRefund[];
     dailyPlanPointWallets: StoredDailyPlanPointWallet[];
     emailCodes: StoredEmailCode[];
     cdkCodes: StoredCdkCode[];

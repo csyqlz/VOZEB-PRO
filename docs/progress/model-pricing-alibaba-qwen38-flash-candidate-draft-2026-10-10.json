@@ -1,0 +1,41 @@
+{
+  "observedAt": "2026-10-10T14:03:38Z",
+  "status": "draft-pending-administrator-review",
+  "productionChanged": false,
+  "sourceUrl": "https://www.alibabacloud.com/help/en/model-studio/qwen3-8-flash",
+  "candidateInputs": [
+    {
+      "logicalModelId": "qwen3.8-flash",
+      "manufacturer": "Alibaba Cloud",
+      "series": "Qwen Flash",
+      "officialVersion": "qwen3.8-flash",
+      "sku": "qwen3.8-flash",
+      "tier": "paid",
+      "conditions": "Alibaba Cloud Model Studio original pay-as-you-go API list price; Singapore deployment, International scope, 0 < request input tokens <= 1000000. The five token meters are distinct: ordinary input, output, implicit cache hit, explicit cache creation, and explicit cache read. Cache modes and quantities must be verified from the real channel before usage pricing. International batch inference is unsupported. Promotional offers and free quota do not change the regular user-price baseline. Do not apply to an unverified proxy region.",
+      "sourceKind": "manual",
+      "sourceUrl": "https://www.alibabacloud.com/help/en/model-studio/qwen3-8-flash",
+      "evidence": "2026-10-10 exact model page: Singapore International original API rates per 1M tokens are input 0.15, output 0.47, implicit-cache input 0.016, explicit-cache creation 0.2, explicit-cache read 0.016 USD. The first two rates independently match the 2026-10-09 Alibaba comparison; the cache rates were read from the exact model page.",
+      "observedAt": "2026-10-10T14:03:38Z",
+      "items": [
+        { "key": "inputTokens", "unit": "token", "per": "1000000", "price": "0.15", "currency": "USD" },
+        { "key": "outputTokens", "unit": "token", "per": "1000000", "price": "0.47", "currency": "USD" },
+        { "key": "implicitCacheReadTokens", "unit": "token", "per": "1000000", "price": "0.016", "currency": "USD" },
+        { "key": "explicitCacheWriteTokens", "unit": "token", "per": "1000000", "price": "0.2", "currency": "USD" },
+        { "key": "explicitCacheReadTokens", "unit": "token", "per": "1000000", "price": "0.016", "currency": "USD" }
+      ]
+    }
+  ],
+  "alternativeOfficialScope": {
+    "deploymentScope": "Global",
+    "regions": ["Hong Kong (China)", "Germany (Frankfurt)", "Japan (Tokyo)", "US (Virginia)"],
+    "sourceUrl": "https://www.alibabacloud.com/help/en/model-studio/qwen3-8-flash",
+    "items": [
+      { "key": "inputTokens", "unit": "token", "per": "1000000", "price": "0.113", "currency": "USD" },
+      { "key": "outputTokens", "unit": "token", "per": "1000000", "price": "0.382", "currency": "USD" },
+      { "key": "implicitCacheReadTokens", "unit": "token", "per": "1000000", "price": "0.014", "currency": "USD" },
+      { "key": "explicitCacheWriteTokens", "unit": "token", "per": "1000000", "price": "0.177", "currency": "USD" },
+      { "key": "explicitCacheReadTokens", "unit": "token", "per": "1000000", "price": "0.014", "currency": "USD" }
+    ],
+    "reviewNote": "Separate official scope, not an automatically selected price candidate. Confirm the real channel deployment before a human chooses the applicable standard list price."
+  }
+}

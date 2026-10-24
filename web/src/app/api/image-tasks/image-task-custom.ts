@@ -66,7 +66,7 @@ export async function runCustomImageTask(task: ImageTask, origin: string, public
             ? buildYumengImageRequest({ model: config.model, prompt: values.prompt, images, aspectRatio: values.aspect_ratio, resolution: values.resolution, size })
             : buildProviderRequest(advanced.requestTemplate, values, values);
     const url = taskUrl(config, task.kind === "edit" ? advanced.editPath || advanced.createPath : advanced.createPath, origin);
-    const headers = taskHeaders(config, cookie, imagePointsIdempotencyKey(task));
+    const headers = taskHeaders(config, cookie, imagePointsIdempotencyKey(task), task);
     headers.set("content-type", "application/json");
     const response = await imageSubmissionFetch(config, url, { method: "POST", headers, body: JSON.stringify(payload), cache: "no-store" });
     if (!response.ok) throw imageSubmissionResponseError(response.status, await readFetchError(response, "自定义图片接口调用失败"));

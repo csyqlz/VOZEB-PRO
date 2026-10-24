@@ -47,7 +47,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Dependency audit
-        run: pnpm audit --audit-level moderate
+        run: pnpm run audit:release
       - name: ESLint
         run: pnpm run lint
       - name: Type check

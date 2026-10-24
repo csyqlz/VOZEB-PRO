@@ -8,6 +8,14 @@ import { mergeAccountConfigBackup, type AdminBackupData } from "./admin-backup-m
 const now = "2026-08-01T00:00:00.000Z";
 
 describe("admin account-config backup merge", () => {
+    it("refuses to merge account balances separately from live priced wallet state", () => {
+        const current = backup({ users: [user("user-a", "admin", 10)], prompts: [], logs: [], deletionRequests: [] });
+        const imported = backup({ users: [user("user-a", "admin", 20)], prompts: [], logs: [], deletionRequests: [] });
+        current.auth.pricingAccruals.push({ userId: "user-a", sourceKey: "permanent", exactPoints: "1/250" });
+        expect(() => mergeAccountConfigBackup(current, imported)).toThrow("完整数据库");
+        expect(() => mergeAccountConfigBackup(imported, current)).toThrow("完整数据库");
+        expect(current.auth.users[0].pointsBalance).toBe(10);
+    });
     it("updates imported records while retaining users and related data absent from the backup", () => {
         const current = backup({
             users: [user("user-a", "admin", 10), user("user-b", "member", 20)],

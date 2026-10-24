@@ -1,4 +1,4 @@
-import { cp, mkdir, readdir, stat } from "node:fs/promises";
+import { cp, lstat, mkdir, readdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
 
 export async function prepareStandaloneAssets({ webRoot, distDir = ".next" }) {
@@ -11,6 +11,7 @@ export async function prepareStandaloneAssets({ webRoot, distDir = ".next" }) {
     const targetPublic = path.join(standaloneRoot, "public");
 
     await assertFile(serverEntry, `Standalone server was not found: ${serverEntry}`);
+    await assertNoBundledData(standaloneRoot);
     const sharpRuntimePackages = await copySharpRuntimePackages(webRoot, standaloneRoot);
     const sourceStaticFiles = await listRelativeFiles(sourceStatic);
     if (!sourceStaticFiles.length) throw new Error(`Build static directory is empty: ${sourceStatic}`);
@@ -32,10 +33,22 @@ export async function prepareStandaloneAssets({ webRoot, distDir = ".next" }) {
     return { serverEntry, standaloneRoot, staticFiles: targetStaticFiles.length, publicFiles: targetPublicFiles.length, sharpRuntimePackages };
 }
 
+async function assertNoBundledData(standaloneRoot) {
+    try {
+        await lstat(path.join(standaloneRoot, ".data"));
+    } catch (error) {
+        if (error?.code === "ENOENT") return;
+        throw error;
+    }
+    throw new Error("Standalone build must not contain runtime .data files");
+}
+
 async function copySharpRuntimePackages(webRoot, standaloneRoot) {
     const sourcePnpmRoot = path.join(webRoot, "node_modules", ".pnpm");
     const targetPnpmRoot = path.join(standaloneRoot, "node_modules", ".pnpm");
-    const packages = (await readdir(sourcePnpmRoot, { withFileTypes: true })).filter((entry) => entry.isDirectory() && entry.name.startsWith("@img+sharp-"));
+    const runtimePackages = (await readdir(sourcePnpmRoot, { withFileTypes: true })).filter((entry) => entry.isDirectory());
+    const packages = runtimePackages.filter((entry) => entry.name.startsWith("@img+sharp-"));
+    const playwrightPackages = runtimePackages.filter((entry) => entry.name.startsWith("playwright-core@"));
     if (!packages.length) throw new Error(`Sharp runtime packages were not found: ${sourcePnpmRoot}`);
     if (process.platform === "linux" && !packages.some((entry) => entry.name.startsWith("@img+sharp-linux"))) {
         throw new Error(`Sharp native Linux runtime package was not found: ${sourcePnpmRoot}`);
@@ -43,9 +56,16 @@ async function copySharpRuntimePackages(webRoot, standaloneRoot) {
     if (process.platform === "linux" && !packages.some((entry) => entry.name.startsWith("@img+sharp-libvips-linux"))) {
         throw new Error(`Sharp libvips runtime package was not found: ${sourcePnpmRoot}`);
     }
+    if (!playwrightPackages.length) throw new Error(`Playwright runtime package was not found: ${sourcePnpmRoot}`);
 
     await mkdir(targetPnpmRoot, { recursive: true });
-    await Promise.all(packages.map((entry) => cp(path.join(sourcePnpmRoot, entry.name), path.join(targetPnpmRoot, entry.name), { recursive: true, force: true })));
+    await Promise.all(
+        [...packages, ...playwrightPackages].map(async (entry) => {
+            const target = path.join(targetPnpmRoot, entry.name);
+            await rm(target, { recursive: true, force: true });
+            await cp(path.join(sourcePnpmRoot, entry.name), target, { recursive: true, force: true, verbatimSymlinks: true });
+        }),
+    );
     return packages.map((entry) => entry.name).sort();
 }
 

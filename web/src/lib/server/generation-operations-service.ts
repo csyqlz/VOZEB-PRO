@@ -101,6 +101,7 @@ function taskSummary(record: StoredGenerationTaskRecord, user?: { accountId: str
         canCancel: record.status === "pending" || record.status === "running" || record.status === "paused",
         retryTaskId: record.type === "agent" ? text(failedTask?.id) || undefined : undefined,
         canReview: record.executionPhase === "needs_review" && (record.type === "text" || record.type === "image" || record.type === "video" || record.type === "audio"),
+        ...((record.type === "text" || record.type === "image" || record.type === "video" || record.type === "audio") && payload.billingMode === "official-usage" ? { billingMode: "official-usage" as const } : {}),
     };
 }
 

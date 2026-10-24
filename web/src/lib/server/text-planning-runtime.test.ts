@@ -17,7 +17,7 @@ describe("text planning runtime protocol matrix", () => {
         vi.useRealTimers();
     });
 
-    it.each(["openai", "sub2api", "newapi"] as const)("%s 严格预设直接使用基础 Chat", async (protocol) => {
+    it.each(["openai", "sub2api", "sub2api-grok", "newapi"] as const)("%s 严格预设直接使用基础 Chat", async (protocol) => {
         mockedFetch.mockResolvedValue(chatJsonResponse());
 
         const result = await requestStructuredText(requestInput(candidate(protocol, { createPath: "/responses" })));
@@ -373,7 +373,13 @@ describe("text planning runtime protocol matrix", () => {
     it("把超时转换为可读且可切换渠道的错误", async () => {
         mockedFetch.mockRejectedValue(Object.assign(new Error("timed out"), { name: "TimeoutError" }));
 
-        await expect(requestStructuredText(requestInput(candidate("newapi")))).rejects.toThrow("文本模型规划响应超时");
+        await expect(requestStructuredText(requestInput(candidate("newapi")))).rejects.toMatchObject({ message: "文本模型规划响应超时，正在切换备用渠道", transportCode: "TimeoutError" });
+    });
+
+    it("仅记录安全的传输错误代码", async () => {
+        mockedFetch.mockRejectedValueOnce(Object.assign(new Error("private request details"), { cause: { code: "UND_ERR_CONNECT_TIMEOUT" } }));
+
+        await expect(requestStructuredText(requestInput(candidate("newapi")))).rejects.toMatchObject({ reason: "transport", transportCode: "UND_ERR_CONNECT_TIMEOUT" });
     });
 
     it("所有文本规划候选都使用三分钟超时", async () => {
@@ -390,7 +396,11 @@ describe("text planning runtime protocol matrix", () => {
     it("增量解析 Chat SSE 中的结构化 JSON", async () => {
         mockedFetch.mockResolvedValue(new Response('data: {"choices":[{"delta":{"content":"{\\"result\\":\\"ok\\"}"}}]}\n\ndata: [DONE]\n\n', { headers: { "content-type": "text/event-stream" } }));
 
-        await expect(requestStructuredText({ ...requestInput(candidate("newapi")), stream: true })).resolves.toMatchObject({ arguments: '{"result":"ok"}' });
+        await expect(requestStructuredText({ ...requestInput(candidate("newapi")), stream: true })).resolves.toMatchObject({
+            arguments: '{"result":"ok"}',
+            responseComplete: true,
+            tokenUsage: { quantities: {}, missing: expect.arrayContaining(["prompt_tokens", "completion_tokens", "cached_tokens", "cache_write_tokens"]) },
+        });
         expect(requestBody()).toMatchObject({ stream: true });
     });
 
@@ -412,18 +422,30 @@ describe("text planning runtime protocol matrix", () => {
         await expect(requestStructuredText({ ...requestInput(candidate("newapi")), stream: true })).resolves.toMatchObject({ arguments: '{"result":"chunked"}' });
     });
 
+    it("结构化内容已返回但流式结束事件缺失时不标记完整响应", async () => {
+        mockedFetch.mockResolvedValue(
+            new Response('data: {"choices":[{"delta":{"content":"{}"}}],"usage":{"prompt_tokens":2,"completion_tokens":1,"prompt_tokens_details":{"cached_tokens":0,"cache_write_tokens":0}}}\n\n', { headers: { "content-type": "text/event-stream" } }),
+        );
+
+        await expect(requestStructuredText({ ...requestInput(candidate("newapi")), stream: true })).resolves.toMatchObject({
+            arguments: "{}",
+            responseComplete: false,
+            tokenUsage: { quantities: { inputTokens: "2", outputTokens: "1" } },
+        });
+    });
+
     it("增量解析 Responses 事件流和 Gemini NDJSON", async () => {
         mockedFetch
             .mockResolvedValueOnce(new Response('data: {"type":"response.output_text.delta","delta":"{\\"result\\":\\"responses\\"}"}\n\ndata: [DONE]\n\n', { headers: { "content-type": "text/event-stream" } }))
             .mockResolvedValueOnce(new Response('{"candidates":[{"content":{"parts":[{"text":"{\\"result\\":\\"gemini\\"}"}]}}]}\n', { headers: { "content-type": "application/x-ndjson" } }));
 
-        await expect(requestStructuredText({ ...requestInput(candidate("compatible", { createPath: "/responses" })), stream: true })).resolves.toMatchObject({ arguments: '{"result":"responses"}' });
+        await expect(requestStructuredText({ ...requestInput(candidate("compatible", { createPath: "/responses" })), stream: true })).resolves.toMatchObject({ arguments: '{"result":"responses"}', responseComplete: false });
         await expect(
             requestStructuredText({
                 ...requestInput(candidate("compatible", { apiFormat: "gemini", createPath: "/models/:model:generateContent", streaming: { enabled: true, path: "/models/:model:streamGenerateContent", format: "ndjson" } })),
                 stream: true,
             }),
-        ).resolves.toMatchObject({ arguments: '{"result":"gemini"}' });
+        ).resolves.toMatchObject({ arguments: '{"result":"gemini"}', responseComplete: false });
         expect(String(mockedFetch.mock.calls[1]?.[0])).toContain("/models/model-one:streamGenerateContent");
     });
 

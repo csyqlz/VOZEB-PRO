@@ -42,6 +42,11 @@ export class ProtocolDocumentFetchError extends Error {
     }
 }
 
+export async function readProtocolPageText(url: string) {
+    const page = await fetchProtocolPage(url);
+    return { url: page.url, text: page.html ? extractProtocolHtmlDocument(page.text, page.url).text : page.text };
+}
+
 export async function readProtocolDocumentSource(documentationUrl: string): Promise<ProtocolDocumentSource> {
     const root = await fetchProtocolPage(documentationUrl);
     if (!root.html) {

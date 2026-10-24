@@ -45,6 +45,7 @@ import {
     roundAmount,
     sanitizeJson,
 } from "@/lib/server/billing-service-helpers";
+import { normalizePage, normalizePageSize } from "@/lib/server/database/repository-shared";
 
 export { BillingInputError, isBillingInputError };
 export { expirePendingBillingOrders };
@@ -133,6 +134,7 @@ export async function deleteBillingProduct(id: string) {
 }
 
 export async function listUserBillingOrders(userId: string, input: { page?: number; pageSize?: number; status?: BillingOrderStatus } = {}) {
+    if (!isPostgresDatabaseEnabled()) return { items: [], total: 0, page: normalizePage(input.page), pageSize: normalizePageSize(input.pageSize) };
     await expirePendingBillingOrders();
     return createPostgresRepositories().billing.listOrders({ ...input, userId });
 }

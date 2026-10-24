@@ -2,12 +2,13 @@
 
 import { Button, Popover } from "antd";
 import { Check, Orbit } from "lucide-react";
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { CreativeGenerationMode, CreativeGenerationPreferences } from "@/lib/creative-runtime-contract";
+import type { CreativeCostPreview, CreativeGenerationMode, CreativeGenerationPreferences } from "@/lib/creative-runtime-contract";
 import { cn } from "@/lib/utils";
+import { getCreativeCostPreview } from "@/services/api/creative";
 
-import { creativeComposerPopoverOverflow, type CreativeComposerPopoverPlacement } from "@/components/creative-composer-popover";
+import { creativeComposerPopoverOverflow, creativeComposerPopoverPanelMaxHeight, type CreativeComposerPopoverPlacement } from "@/components/creative-composer-popover";
 import { creativeComposerToolButtonClass } from "@/components/creative-composer-styles";
 import { CreativeGenerationPreferences as GenerationPreferencesControl, mediaCapabilityLabel, type MediaCapability } from "@/components/creative-generation-preferences";
 import { creativeSelectedModelProfile, type CreativeModelCapabilityOption } from "@/lib/creative-model-capabilities";
@@ -20,6 +21,7 @@ export function CreativeGenerationControls({
     smartPlanning,
     creationMode,
     generationPreferences,
+    hasImageReferences,
     placement,
     onToggleModel,
     onClearModels,
@@ -32,6 +34,7 @@ export function CreativeGenerationControls({
     smartPlanning: boolean;
     creationMode: "agent" | CreativeGenerationMode;
     generationPreferences: CreativeGenerationPreferences;
+    hasImageReferences: boolean;
     placement: CreativeComposerPopoverPlacement;
     onToggleModel: (model: CreativeModelOption) => void;
     onClearModels: () => void;
@@ -40,12 +43,56 @@ export function CreativeGenerationControls({
     onChangeGenerationPreference: (capability: MediaCapability, patch: Record<string, string | number | boolean>) => void;
 }) {
     const [modelPickerOpen, setModelPickerOpen] = useState(false);
+    const [modelPanelMaxHeight, setModelPanelMaxHeight] = useState<number>();
+    const [costPreview, setCostPreview] = useState<{ key: string; value?: CreativeCostPreview; error?: string } | null>(null);
     const [preferredCapability, setPreferredCapability] = useState<MediaCapability>("image");
+    const modelTriggerRef = useRef<HTMLButtonElement>(null);
     const modelCapabilities = creationMode === "agent" ? (["image", "video", "audio"] as const).filter((capability) => models.some((model) => model.capability === capability)) : [creationMode];
     const activeCapability = creationMode === "agent" ? (modelCapabilities.includes(preferredCapability) ? preferredCapability : selectedModels[0]?.capability || modelCapabilities[0] || "image") : creationMode;
     const preferenceCapabilities = creationMode === "agent" ? (modelCapabilities.length ? modelCapabilities : [activeCapability]) : [creationMode];
     const capabilityProfile = creativeSelectedModelProfile(selectedModels, activeCapability);
     const modelSummary = selectedModels.length === 0 ? (smartPlanning ? "智能模型" : "选择模型") : selectedModels.length === 1 ? selectedModels[0].name : `${selectedModels[0].name} +${selectedModels.length - 1}`;
+    const previewKey = JSON.stringify({ modelIds: selectedModels.map((model) => model.id), preferences: generationPreferences, hasImageReferences });
+    const currentPreview = costPreview?.key === previewKey ? costPreview : null;
+    const allocations = currentPreview?.value?.lines || [];
+    const allocationTotal = currentPreview?.value?.totalCount || 0;
+    const visibleModelSummary = allocationTotal > 1 ? `${modelSummary} · ${allocationTotal}份` : modelSummary;
+
+    const measureModelPanel = useCallback(() => {
+        const trigger = modelTriggerRef.current;
+        if (!trigger) return;
+        const viewport = window.visualViewport;
+        const top = viewport?.offsetTop || 0;
+        setModelPanelMaxHeight(creativeComposerPopoverPanelMaxHeight(placement, trigger.getBoundingClientRect(), { top, bottom: top + (viewport?.height || window.innerHeight) }, 520));
+    }, [placement]);
+
+    useEffect(() => {
+        if (!modelPickerOpen) return;
+        const viewport = window.visualViewport;
+        window.addEventListener("resize", measureModelPanel);
+        viewport?.addEventListener("resize", measureModelPanel);
+        return () => {
+            window.removeEventListener("resize", measureModelPanel);
+            viewport?.removeEventListener("resize", measureModelPanel);
+        };
+    }, [measureModelPanel, modelPickerOpen]);
+
+    useEffect(() => {
+        if (smartPlanning || !selectedModels.length) return;
+        let active = true;
+        const controller = new AbortController();
+        void getCreativeCostPreview(JSON.parse(previewKey), controller.signal)
+            .then((value) => {
+                if (active) setCostPreview({ key: previewKey, value });
+            })
+            .catch((error) => {
+                if (active) setCostPreview({ key: previewKey, error: error instanceof Error ? error.message : "费用预览暂不可用" });
+            });
+        return () => {
+            active = false;
+            controller.abort();
+        };
+    }, [modelPickerOpen, previewKey, selectedModels.length, smartPlanning]);
 
     return (
         <>
@@ -54,10 +101,15 @@ export function CreativeGenerationControls({
                 placement={placement}
                 autoAdjustOverflow={creativeComposerPopoverOverflow(placement)}
                 arrow={false}
+                styles={{ container: { padding: 8 } }}
                 open={modelPickerOpen}
-                onOpenChange={setModelPickerOpen}
+                onOpenChange={(open) => {
+                    if (open) measureModelPanel();
+                    setModelPickerOpen(open);
+                    if (open) setCostPreview(null);
+                }}
                 content={
-                    <div className="hide-scrollbar max-h-[calc(100vh-96px)] w-[calc(100vw-40px)] max-w-[360px] overflow-y-auto py-1">
+                    <div className="hide-scrollbar w-[calc(100vw-40px)] max-w-[360px] overflow-y-auto py-1" style={{ maxHeight: modelPanelMaxHeight === undefined ? "min(520px, calc(100dvh - 96px))" : modelPanelMaxHeight }}>
                         <div className="flex items-center justify-between gap-3 px-1 pb-3">
                             <div className="min-w-0">
                                 <p className="text-sm font-semibold text-[#20242a] dark:text-[#f3f5f7]">选择模型</p>
@@ -142,6 +194,38 @@ export function CreativeGenerationControls({
                                 })}
                         </div>
                         {!smartPlanning && selectedModels.length ? (
+                            <div className="mt-2 rounded-xl border border-[#e3e7ec] bg-[#f7f8fa] p-2.5 text-xs text-[#475467] dark:border-[#414853] dark:bg-[#252a31] dark:text-[#c2c9d1]" aria-label="提交前模型数量分配">
+                                {currentPreview?.error ? (
+                                    <p className="text-red-600 dark:text-red-300">{currentPreview.error}</p>
+                                ) : currentPreview?.value ? (
+                                    <>
+                                        <p className="mb-1 font-semibold text-[#20242a] dark:text-white">本轮共 {allocationTotal} 份</p>
+                                        {allocations.map((line) => (
+                                            <div key={line.modelId} className="py-0.5">
+                                                <p className="flex justify-between gap-2">
+                                                    <span className="min-w-0 truncate">{line.modelName}</span>
+                                                    <span className="shrink-0">× {line.count}</span>
+                                                </p>
+                                                <p className="text-[11px] text-[#667085] dark:text-[#a0a9b4]">{line.estimatedPoints !== undefined ? `固定积分预览约 ${line.estimatedPoints} 积分` : line.note}</p>
+                                            </div>
+                                        ))}
+                                        <p className="mt-1 text-[#667085] dark:text-[#a0a9b4]">
+                                            {allocations.some((line) => line.estimatedPoints !== undefined) ? `可预览固定部分合计约 ${currentPreview.value.fixedEstimatedPoints} 积分；` : ""}预览不是最终费用或整轮预留。
+                                        </p>
+                                        {(["image", "video"] as const).some((capability) => {
+                                            const selected = selectedModels.filter((model) => model.capability === capability);
+                                            const requested = capability === "image" ? generationPreferences.image?.count : generationPreferences.video?.count;
+                                            return selected.length > 1 && requested !== undefined && requested < selected.length;
+                                        }) ? (
+                                            <p className="mt-1 text-[#667085] dark:text-[#a0a9b4]">每个所选模型至少生成 1 份，因此实际总数高于所填数量。</p>
+                                        ) : null}
+                                    </>
+                                ) : (
+                                    <p className="text-[#667085] dark:text-[#a0a9b4]">正在核对数量与费用预览…</p>
+                                )}
+                            </div>
+                        ) : null}
+                        {!smartPlanning && selectedModels.length ? (
                             <button
                                 type="button"
                                 className="mt-2 w-full rounded-lg px-2 py-2 text-xs font-medium text-[#6d7784] transition hover:bg-[#f3f5f7] hover:text-[#20242a] dark:text-[#98a2ae] dark:hover:bg-[#252a31] dark:hover:text-white"
@@ -153,8 +237,16 @@ export function CreativeGenerationControls({
                     </div>
                 }
             >
-                <Button type="text" className={creativeComposerToolButtonClass(modelPickerOpen)} icon={<Orbit className="size-4" />} aria-label={`生成模型：${modelSummary}`} aria-haspopup="menu" aria-expanded={modelPickerOpen}>
-                    <span className="max-w-[126px] truncate text-xs font-medium sm:max-w-[172px]">{modelSummary}</span>
+                <Button
+                    ref={modelTriggerRef}
+                    type="text"
+                    className={creativeComposerToolButtonClass(modelPickerOpen)}
+                    icon={<Orbit className="size-4" />}
+                    aria-label={`生成模型：${visibleModelSummary}`}
+                    aria-haspopup="menu"
+                    aria-expanded={modelPickerOpen}
+                >
+                    <span className="max-w-[126px] truncate text-xs font-medium sm:max-w-[172px]">{visibleModelSummary}</span>
                 </Button>
             </Popover>
             <GenerationPreferencesControl

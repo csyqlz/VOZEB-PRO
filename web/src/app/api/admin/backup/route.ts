@@ -1,4 +1,4 @@
-import { hasAdminPermission } from "@/lib/admin-permissions";
+import { ALL_ADMIN_PERMISSIONS, hasAdminPermission, hasAllAdminPermissions } from "@/lib/admin-permissions";
 import { NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/auth/session";
@@ -58,6 +58,9 @@ export async function POST(request: Request) {
     } catch (error) {
         return NextResponse.json({ error: error instanceof Error ? error.message : "备份文件格式不正确" }, { status: 400 });
     }
+    if (files.auth !== undefined && files.auth !== null && !hasAllAdminPermissions(currentUser, ALL_ADMIN_PERMISSIONS)) {
+        return NextResponse.json({ error: "导入用户账户备份需要全权限管理员" }, { status: 403 });
+    }
     const currentData = await readAdminBackupData();
     const currentAuth = files.auth === undefined || files.auth === null ? null : currentData.auth;
     const entries = Object.entries(RESTORE_FILE_MAP)
@@ -88,7 +91,7 @@ export async function POST(request: Request) {
                 generationLogs: (valueByKey.get("generationLogs") ?? currentData.generationLogs) as AdminBackupData["generationLogs"],
                 accountDeletionRequests: (valueByKey.get("accountDeletionRequests") ?? currentData.accountDeletionRequests) as AdminBackupData["accountDeletionRequests"],
             },
-            { mode: "account-config" },
+            { mode: "account-config", preserveCurrentAuth: !valueByKey.has("auth") },
         );
         removedSafetyBackups = await pruneRestoreImportBackups();
         await safeRecordAuditLog({

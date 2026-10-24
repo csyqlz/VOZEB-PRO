@@ -1,9 +1,16 @@
+import { MIMEType } from "node:util";
+import { OPENAI_PRICED_AUDIO_MODEL } from "./model-pricing-openai-audio-request";
+import { PricingConflictError } from "@/lib/model-pricing";
+import { readAudioPriceReview } from "./model-pricing-audio-response-store";
 import { getAuthSettings, refundUserPoints } from "@/lib/auth/store";
+import { protocolAuthHeaders } from "@/lib/channel-protocol-registry";
 import { fileTypeFromBuffer } from "file-type";
 import { mediaTaskSource } from "@/lib/media-management-contract";
+import { buildOpenAiChatAudioRequest, isOpenAiChatAudioModel, OPENAI_CHAT_AUDIO_PATH } from "@/lib/openai-chat-audio";
 import { audioTaskRefundIdempotencyKey, refundAudioTask } from "@/lib/server/audio-task-refund";
 import { getAudioTask, transitionAudioTask, updateAudioTask, type AudioTask } from "@/lib/server/audio-task-store";
 import { generationModelId, systemGenerationChannelId } from "@/lib/server/generation-channel";
+import { geminiAudioRequest, geminiAudioResult } from "@/lib/server/gemini-audio-provider";
 import { generationMediaProxyHeaders } from "@/lib/server/generation-media-authorization";
 import { finishGenerationAttempt, startGenerationAttempt } from "@/lib/server/generation-attempt";
 import { fetchInternalApi, isInternalApiBaseUrl } from "@/lib/server/internal-origin";
@@ -13,21 +20,58 @@ import { buildProviderRequest, isProviderBusinessError, providerQueryPaths, read
 import { writePersistentMediaDataUrl } from "@/lib/server/reference-asset-store";
 import { registerGenerationTaskAssetsForUser } from "@/lib/server/creative-runtime-service";
 import { scheduleGenerationTask } from "@/lib/server/generation-task-scheduler";
+import { interpolateModelPath } from "@/lib/server/text-protocol-resolver";
 import { GenerationSubmissionSafeFailure, GenerationSubmissionUncertainError, generationSubmissionResponseError, generationSubmissionUncertainError } from "@/lib/server/generation-submission-error";
-import { systemAiBillingHeaders } from "@/lib/server/system-ai-billing";
+import { systemAiBillingHeaders, SYSTEM_AI_PRICING_STATE_HEADER } from "@/lib/server/system-ai-billing";
 import { fetchSafeOutbound } from "@/lib/server/safe-outbound-fetch";
+import { buildSub2apiGrokTtsRequest } from "@/lib/sub2api-grok-protocol";
+import { observeAudioTaskUsage } from "./model-pricing-audio-usage";
+import { recoverAudioShadowResult } from "./model-pricing-shadow-audio-call";
+import { advancePricedAudioTask, refundPricedAudioTask, audioPricingPendingMessage, recoverPricedAudioTask } from "./model-pricing-audio-task";
+import { isGeminiTtsModel } from "./model-pricing-audio-request";
 
 export type AudioUpstreamStep =
+    | { state: "needs_review"; reason: string }
     | { state: "pending"; status: string; upstreamTaskId: string; createPath: string; pointsCost?: number; pointsRecordId?: string }
     | { state: "result_ready"; status: string; resultUrl: string; pointsCost?: number; pointsRecordId?: string }
     | { state: "completed" }
     | { state: "failed"; status: string; error: string };
 
 export async function createAudioTaskUpstreamStep(task: AudioTask, origin: string, cookie = "", workerUserId = ""): Promise<AudioUpstreamStep> {
+    for (;;) {
+        const current = await getAudioTask(task.id);
+        if (!current || current.billingMode !== "official-usage") return createAudioAttempt(task, origin, cookie, workerUserId);
+        if (current.status === "success") return { state: "completed" };
+        if (current.status === "cancelled" || current.status === "error") {
+            await refundPricedAudioTask(current);
+            return { state: "failed", status: current.status, error: current.error || "音频任务已结束" };
+        }
+        const reference = current.billingRequests?.find((item) => item.attemptNo === current.attemptNo);
+        if (current.attempts?.find((item) => item.attemptNo === current.attemptNo)?.status === "failed" && current.candidateConfigs?.length) {
+            if (reference?.preparationStop || (reference && (await readAudioPriceReview(current.userId, reference.requestId)))) return createAudioAttempt(current, origin, cookie, workerUserId);
+            const recovered = reference ? await resumePricedAudioTaskStep(current, origin) : null;
+            if (recovered && recovered.state !== "failed") return recovered;
+            try {
+                await advancePricedAudioTask(current.id, current.attemptNo!);
+            } catch (error) {
+                if (!(error instanceof PricingConflictError)) throw error;
+                return { state: "needs_review", reason: error.message };
+            }
+            continue;
+        }
+        const step = await createAudioAttempt(current, origin, cookie, workerUserId);
+        if (step.state !== "failed") return step;
+        const latest = await getAudioTask(task.id);
+        if (!latest?.candidateConfigs?.length || latest.status !== "running" || latest.attempts?.find((item) => item.attemptNo === latest.attemptNo)?.status !== "failed") return step;
+    }
+}
+
+async function createAudioAttempt(task: AudioTask, origin: string, cookie: string, workerUserId: string): Promise<AudioUpstreamStep> {
     const current = await getAudioTask(task.id);
     if (!current || current.status === "cancelled") return { state: "failed", status: "cancelled", error: "任务已取消" };
     const running = current.status === "pending" ? await transitionAudioTask(current, ["pending"], { status: "running" }) : current;
     if (!running) return { state: "failed", status: "conflict", error: "音频任务状态已变化" };
+    if (running.billingMode === "official-usage") return createPricedAudioTaskStep(running, origin, cookie, workerUserId);
     if (running.upstream?.id) return queryAudioTaskUpstreamStep(running, origin, cookie, workerUserId);
 
     const candidates = [running.config, ...(running.candidateConfigs || [])];
@@ -54,7 +98,15 @@ export async function createAudioTaskUpstreamStep(task: AudioTask, origin: strin
             };
             let payload: Record<string, unknown>;
             try {
-                payload = buildProviderRequest(config.advancedConfig?.requestTemplate, defaults, defaults);
+                payload = isOpenAiChatAudioTask(config)
+                    ? buildOpenAiChatAudioRequest({ model: config.model, prompt: candidate.prompt, voice: config.voice, format: config.format, speed: config.speed, instructions: config.instructions })
+                    : config.advancedConfig?.protocol === "sub2api-grok" || config.advancedConfig?.protocol === "xai"
+                      ? buildSub2apiGrokTtsRequest({ text: candidate.prompt, voice: config.voice || "alloy", format: config.format || "mp3", speed: Number(config.speed) || 1 })
+                      : config.advancedConfig?.protocol === "gemini" || config.advancedConfig?.protocol === "dataeyes-gemini"
+                        ? geminiAudioRequest(candidate.prompt, config.voice)
+                        : config.advancedConfig?.protocol === "minimax"
+                          ? buildProviderRequest(config.advancedConfig?.requestTemplate, defaults, { ...defaults, voice: config.voice === "alloy" ? "male-qn-qingse" : config.voice })
+                          : buildProviderRequest(config.advancedConfig?.requestTemplate, defaults, defaults);
             } catch (error) {
                 throw new GenerationSubmissionSafeFailure(error instanceof Error ? error.message : "音频请求模板无效");
             }
@@ -78,6 +130,53 @@ export async function createAudioTaskUpstreamStep(task: AudioTask, origin: strin
                 throw new GenerationSubmissionUncertainError("音频接口返回了无效 JSON，创建结果待确认");
             }
             if (isProviderBusinessError(data)) throw new GenerationSubmissionSafeFailure(readProviderError(data) || "音频接口返回失败");
+            if (isOpenAiChatAudioTask(config)) {
+                await observeAudioTaskUsage(candidate, response, data, path, "openai-chat-audio");
+                const audio = data && typeof data === "object" && "choices" in data && Array.isArray(data.choices) ? (data.choices[0] as { message?: { audio?: { data?: unknown } } } | undefined)?.message?.audio?.data : undefined;
+                if (typeof audio !== "string" || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(audio)) {
+                    throw new GenerationSubmissionSafeFailure("GPT-4o Audio 未返回有效的语音数据，请确认中转站支持 Chat Completions 音频输出");
+                }
+                const completed = await persistAudioBytes(candidate, origin, Buffer.from(audio, "base64"), mimeFromFormat(config.format || "mp3"));
+                if (completed?.status === "success") {
+                    await markAudioAttemptSucceeded(candidate, billing);
+                    return { state: "completed" };
+                }
+                return { state: "failed", status: completed?.status || "cancelled", error: completed?.error || "任务已取消" };
+            }
+            if (config.advancedConfig?.protocol === "gemini" || config.advancedConfig?.protocol === "dataeyes-gemini") {
+                await observeAudioTaskUsage(candidate, response, data, path, "gemini-tts");
+                try {
+                    await recoverAudioShadowResult(await getAudioTask(candidate.id));
+                } catch (error) {
+                    console.error("Audio shadow task recovery unavailable", { taskId: candidate.id, errorType: error instanceof Error ? error.name : "unknown" });
+                }
+                const audio = await geminiAudioResult(data, config.format);
+                const completed = await persistAudioBytes(candidate, origin, audio.bytes, audio.mimeType);
+                if (completed?.status === "success") {
+                    await markAudioAttemptSucceeded(candidate, billing);
+                    return { state: "completed" };
+                }
+                return { state: "failed", status: completed?.status || "cancelled", error: completed?.error || "任务已取消" };
+            }
+            if ((config.advancedConfig?.protocol === "sub2api-grok" || config.advancedConfig?.protocol === "xai") && data && typeof data === "object" && typeof (data as { audio?: unknown }).audio === "string") {
+                const audio = (data as { audio: string; content_type?: string }).audio;
+                const completed = await persistAudioBytes(candidate, origin, Buffer.from(audio, "base64"), (data as { content_type?: string }).content_type || "");
+                if (completed?.status === "success") {
+                    await markAudioAttemptSucceeded(candidate, billing);
+                    return { state: "completed" };
+                }
+                return { state: "failed", status: completed?.status || "cancelled", error: completed?.error || "任务已取消" };
+            }
+            if (config.advancedConfig?.protocol === "minimax") {
+                const hex = data && typeof data === "object" && "data" in data && data.data && typeof data.data === "object" && "audio" in data.data ? data.data.audio : undefined;
+                if (typeof hex !== "string" || !/^(?:[0-9a-f]{2})+$/i.test(hex)) throw new GenerationSubmissionSafeFailure("MiniMax 未返回有效的十六进制音频");
+                const completed = await persistAudioBytes(candidate, origin, Buffer.from(hex, "hex"), `audio/${config.format === "wav" ? "wav" : config.format === "pcm" ? "L16" : "mpeg"}`);
+                if (completed?.status === "success") {
+                    await markAudioAttemptSucceeded(candidate, billing);
+                    return { state: "completed" };
+                }
+                return { state: "failed", status: completed?.status || "cancelled", error: completed?.error || "任务已取消" };
+            }
             const directUrl = readProviderString(data, config.advancedConfig?.resultField, AUDIO_KEYS);
             if (directUrl) {
                 const submittedAt = Date.now();
@@ -116,6 +215,86 @@ export async function createAudioTaskUpstreamStep(task: AudioTask, origin: strin
         }
     }
     return { state: "failed", status: "failed", error: latestError };
+}
+
+async function resumePricedAudioTaskStep(task: AudioTask, origin: string): Promise<AudioUpstreamStep | null> {
+    const result = await recoverPricedAudioTask(task);
+    if (!result || result.state === "needs_review") return result;
+    if (result.state === "failed") return { ...result, status: "failed" };
+    const current = await getAudioTask(task.id);
+    if (!current || current.status === "cancelled" || current.status === "error") {
+        if (current) await refundAudioTask(current);
+        return { state: "failed", status: current?.status || "missing", error: "音频任务已结束" };
+    }
+    if (current.status === "success") return { state: "completed" };
+    const delivering = await transitionAudioTask(current, ["running"], { status: "running", billing: { pointsCost: result.pointsCost, pointsRecordId: result.pointsRecordId, refunded: false } });
+    if (!delivering) {
+        const latest = await getAudioTask(task.id);
+        if (latest) await refundAudioTask(latest);
+        return { state: "failed", status: "cancelled", error: "音频任务已结束" };
+    }
+    try {
+        const audio =
+            result.protocol === "openai-chat-audio"
+                ? { bytes: Buffer.from(result.audio[0].data, "base64"), mimeType: result.audio[0].mimeType }
+                : await geminiAudioResult({ candidates: [{ content: { parts: result.audio.map((inlineData) => ({ inlineData })) } }] }, current.config.format);
+        if (result.protocol === "openai-chat-audio" && (!result.responseFormat || (await fileTypeFromBuffer(audio.bytes))?.ext !== result.responseFormat)) throw new Error("原音频文件与冻结请求格式不一致");
+        const completed = await persistAudioBytes(current, origin, audio.bytes, audio.mimeType);
+        if (completed?.status === "success") {
+            await markAudioAttemptSucceeded(current, result);
+            return { state: "completed" };
+        }
+        return { state: "failed", status: completed?.status || "missing", error: completed?.error || "音频任务已结束" };
+    } catch (error) {
+        console.error("Priced audio media recovery incomplete", { taskId: task.id, errorType: error instanceof Error ? error.name : "unknown" });
+        return { state: "needs_review", reason: "原音频结果已保存，本次未能完成媒体落盘；请检查原任务状态继续保存" };
+    }
+}
+
+async function createPricedAudioTaskStep(task: AudioTask, origin: string, cookie: string, workerUserId: string): Promise<AudioUpstreamStep> {
+    const failed = task.attempts?.find((item) => item.attemptNo === task.attemptNo);
+    if (failed?.status === "failed" && !task.billingRequests?.some((item) => item.attemptNo === task.attemptNo)) return { state: "failed", status: "not_submitted", error: failed.error || "原音频尝试未提交" };
+    const recovered = await resumePricedAudioTaskStep(task, origin);
+    if (recovered) {
+        if (recovered.state === "failed" && failed?.status === "running") await updateAudioTask(task.id, { attempts: finishGenerationAttempt(task.attempts || [], task.attemptNo!, { status: "failed", error: recovered.error }) }, task.attemptNo);
+        return recovered;
+    }
+    const config = task.config;
+    let candidate = task;
+    try {
+        if (!task.attempts?.some((attempt) => attempt.attemptNo === task.attemptNo)) {
+            const started = startGenerationAttempt(task.attempts || [], { channelId: config.channelId, model: generationModelId(config), capability: "audio" });
+            candidate = { ...task, attempts: started.attempts, attemptNo: started.attempt.attemptNo };
+            await updateAudioTask(task.id, { attempts: candidate.attempts, attemptNo: candidate.attemptNo }, task.attemptNo || 0);
+        }
+        if (
+            !config.baseUrl.startsWith("/api/ai/system/") ||
+            !config.channelId ||
+            !((isGeminiTtsModel(config.model) && ["gemini", "dataeyes-gemini"].includes(config.advancedConfig?.protocol || "")) || (config.model === OPENAI_PRICED_AUDIO_MODEL && isOpenAiChatAudioTask(config)))
+        )
+            throw new GenerationSubmissionSafeFailure("该音频调用尚无已验证的按量契约");
+        let payload: Record<string, unknown>;
+        try {
+            payload = isOpenAiChatAudioTask(config)
+                ? buildOpenAiChatAudioRequest({ model: config.model, prompt: candidate.prompt, voice: config.voice, format: config.format, speed: config.speed, instructions: config.instructions })
+                : geminiAudioRequest(candidate.prompt, config.voice);
+        } catch (error) {
+            throw new GenerationSubmissionSafeFailure(error instanceof Error ? error.message : "音频参数无效");
+        }
+        await scheduleGenerationTask("audio", task.id, { executionPhase: "submitting", nextPollAt: Date.now(), channelId: config.channelId, provider: config.advancedConfig?.protocol, lastUpstreamStatus: "submitting" });
+        const { response } = await createAudioUpstream(candidate, origin, cookie, workerUserId, payload);
+        await response.body?.cancel();
+        const current = await getAudioTask(task.id);
+        return (current && (await resumePricedAudioTaskStep(current, origin))) || { state: "needs_review", reason: audioPricingPendingMessage };
+    } catch (error) {
+        if (error instanceof GenerationSubmissionSafeFailure) {
+            const attempts = finishGenerationAttempt(candidate.attempts || [], candidate.attemptNo || 1, { status: "failed", error: error.message });
+            await updateAudioTask(task.id, { attempts }, candidate.attemptNo);
+            return { state: "failed", status: "not_submitted", error: error.message };
+        }
+        console.error("Priced audio submission needs recovery", { taskId: task.id, errorType: error instanceof Error ? error.name : "unknown" });
+        return { state: "needs_review", reason: audioPricingPendingMessage };
+    }
 }
 
 export async function queryAudioTaskUpstreamStep(task: AudioTask, origin: string, cookie = "", workerUserId = ""): Promise<AudioUpstreamStep> {
@@ -173,16 +352,20 @@ export async function markAudioTaskFailed(task: AudioTask, error: string) {
 async function createAudioUpstream(task: AudioTask, origin: string, cookie: string, workerUserId: string, payload: Record<string, unknown>) {
     let lastError = "";
     const idempotencyKey = `audio-task:${task.id}:attempt:${task.attemptNo || 1}`;
-    for (const path of resolvedProviderCreatePaths(task.config.advancedConfig, "audio", ["/audio/speech"])) {
+    const paths = isOpenAiChatAudioTask(task.config) ? [OPENAI_CHAT_AUDIO_PATH] : resolvedProviderCreatePaths(task.config.advancedConfig, "audio", ["/audio/speech"]);
+    for (const path of paths) {
+        const createPath = interpolateModelPath(path, task.config.model);
         let response: Response;
         try {
-            response = await providerFetch(task, origin, cookie, workerUserId, path, {
+            response = await providerFetch(task, origin, cookie, workerUserId, createPath, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
                     "Idempotency-Key": idempotencyKey,
                     "X-Client-Request-Id": idempotencyKey,
-                    ...(task.config.baseUrl.startsWith("/") ? systemAiBillingHeaders(generationModelId(task.config), idempotencyKey, task.config.model) : {}),
+                    ...(task.config.baseUrl.startsWith("/")
+                        ? systemAiBillingHeaders(generationModelId(task.config), idempotencyKey, task.config.model, undefined, undefined, undefined, task.billingMode === "official-usage" ? { taskId: task.id, attemptNo: task.attemptNo || 1 } : undefined)
+                        : {}),
                 },
                 body: JSON.stringify(payload),
                 signal: AbortSignal.timeout(resolveModelRequestTimeoutMs(task.config, "audio")),
@@ -190,12 +373,24 @@ async function createAudioUpstream(task: AudioTask, origin: string, cookie: stri
         } catch (error) {
             throw generationSubmissionUncertainError(error, "音频任务创建结果未知");
         }
-        if (response.ok) return { response, path };
+        if (task.billingMode === "official-usage") {
+            const pricingState = response.headers.get(SYSTEM_AI_PRICING_STATE_HEADER);
+            if (pricingState === "not-submitted") throw new GenerationSubmissionSafeFailure(readAudioError(await response.text(), response.status));
+            if (!response.ok || pricingState !== "settled") {
+                await response.body?.cancel();
+                throw new GenerationSubmissionUncertainError(audioPricingPendingMessage);
+            }
+        }
+        if (response.ok) return { response, path: createPath };
         lastError = readAudioError(await response.text(), response.status);
         const responseError = generationSubmissionResponseError(response.status, lastError);
         if (responseError instanceof GenerationSubmissionUncertainError) throw responseError;
     }
     throw new GenerationSubmissionSafeFailure(lastError || "没有可用的音频创建接口");
+}
+
+function isOpenAiChatAudioTask(config: AudioTask["config"]) {
+    return config.advancedConfig?.protocol === "openai" && isOpenAiChatAudioModel(config.model);
 }
 
 async function refundAudioCandidate(task: AudioTask) {
@@ -208,7 +403,7 @@ async function refundAudioCandidate(task: AudioTask) {
 async function persistAudioBytes(task: AudioTask, origin: string, bytes: Buffer, responseMime: string) {
     if (!bytes.length || bytes.length > 30 * 1024 * 1024) throw new Error("音频结果为空或超过 30MB 限制");
     const detected = await fileTypeFromBuffer(bytes);
-    const detectedMime = detected?.mime.startsWith("audio/") ? detected.mime : "";
+    const detectedMime = detected?.mime.startsWith("audio/") ? new MIMEType(detected.mime).essence : "";
     const declaredMime = responseMime.toLowerCase().startsWith("audio/") ? responseMime.toLowerCase() : "";
     if (!detectedMime && (!declaredMime || looksLikeTextResponse(bytes))) throw new GenerationSubmissionSafeFailure("音频接口返回的不是有效音频文件");
     const mimeType = detectedMime || declaredMime || mimeFromFormat(task.config.format || "mp3");
@@ -227,7 +422,13 @@ async function completeAudioTask(task: AudioTask, url: string, mimeType: string)
         if (current?.status === "cancelled") await refundAudioTask(current);
         return current;
     }
-    const completed = await transitionAudioTask(current, ["pending", "running"], { status: "success", result: { url, mimeType }, config: { ...current.config, apiKey: "" }, billing: current.billing });
+    const completed = await transitionAudioTask(current, ["pending", "running"], {
+        status: "success",
+        result: { url, mimeType },
+        config: { ...current.config, apiKey: "" },
+        billing: current.billing,
+        ...(current.billingMode === "official-usage" ? { billingPending: false } : {}),
+    });
     if (!completed) {
         const latest = await getAudioTask(task.id);
         if (latest?.status === "cancelled") await refundAudioTask(latest);
@@ -244,7 +445,7 @@ async function completeAudioTask(task: AudioTask, url: string, mimeType: string)
 
 async function markAudioAttemptSucceeded(task: AudioTask, billing: { pointsCost?: number; pointsRecordId?: string }) {
     const current = await getAudioTask(task.id);
-    if (!current) return;
+    if (!current || current.status !== "success" || current.attemptNo !== task.attemptNo) return;
     const attempts = finishGenerationAttempt(current.attempts || [], current.attemptNo || 1, { status: "succeeded", pointsCost: billing.pointsCost, pointsRecordId: billing.pointsRecordId });
     await updateAudioTask(task.id, { attempts, attemptNo: attempts.at(-1)?.attemptNo, candidateConfigs: [], billing: billing.pointsRecordId ? { pointsCost: billing.pointsCost ?? 0, pointsRecordId: billing.pointsRecordId, refunded: false } : undefined });
 }
@@ -258,7 +459,7 @@ function providerFetch(task: AudioTask, origin: string, cookie: string, workerUs
     const mediaUrl = task.config.baseUrl.startsWith("/") ? mediaUrlFromProxyPath(path) : "";
     const channelId = task.config.channelId || systemGenerationChannelId(task.config.baseUrl);
     if (mediaUrl && channelId) Object.entries(generationMediaProxyHeaders({ userId: task.userId, taskType: "audio", taskId: task.id, channelId, upstreamModel: task.config.model, url: mediaUrl })).forEach(([key, value]) => headers.set(key, value));
-    if (!task.config.baseUrl.startsWith("/")) headers.set(task.config.apiFormat === "gemini" ? "x-goog-api-key" : "authorization", task.config.apiFormat === "gemini" ? task.config.apiKey : `Bearer ${task.config.apiKey}`);
+    if (!task.config.baseUrl.startsWith("/")) Object.entries(protocolAuthHeaders(task.config.apiKey, task.config.advancedConfig, task.config.apiFormat)).forEach(([key, value]) => headers.set(key, value));
     return isInternalApiBaseUrl(task.config.baseUrl) ? fetchInternalApi(url, { ...init, headers }) : fetchSafeOutbound(url, { ...init, headers });
 }
 

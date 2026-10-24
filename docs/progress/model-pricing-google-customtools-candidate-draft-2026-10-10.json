@@ -1,0 +1,30 @@
+{
+  "observedAt": "2026-10-10T13:53:41Z",
+  "status": "draft-pending-administrator-review",
+  "productionChanged": false,
+  "sourceUrl": "https://ai.google.dev/gemini-api/docs/pricing#gemini-3.1-pro-preview",
+  "candidateInputs": [
+    {
+      "logicalModelId": "gemini-3.1-pro-preview-customtools",
+      "manufacturer": "Google",
+      "series": "Gemini 3.1 Pro Preview",
+      "officialVersion": "gemini-3.1-pro-preview-customtools",
+      "sku": "gemini-3.1-pro-preview-customtools",
+      "tier": "paid",
+      "conditions": "Gemini Developer API paid Standard tier for the exact Custom Tools model. The entire request uses the <=200k or >200k prompt-token tier; output includes thinking tokens. Cache storage is billed separately per token-hour. Search, Maps, other tool charges, Batch/Flex/Priority, multimodal usage and real channel mapping still require separate review; this draft alone does not permit usage billing.",
+      "sourceKind": "manual",
+      "sourceUrl": "https://ai.google.dev/gemini-api/docs/pricing#gemini-3.1-pro-preview",
+      "evidence": "2026-10-10 official Gemini 3.1 Pro Preview Standard table lists gemini-3.1-pro-preview-customtools beside the base ID; Custom Tools endpoint row says same model pricing. Prices independently cross-checked against the 2026-10-09 Google comparison row.",
+      "observedAt": "2026-10-10T13:53:41Z",
+      "items": [
+        { "key": "inputTokensUpTo200k", "unit": "token", "per": "1000000", "price": "2", "currency": "USD" },
+        { "key": "outputTokensUpTo200k", "unit": "token", "per": "1000000", "price": "12", "currency": "USD" },
+        { "key": "cachedInputTokensUpTo200k", "unit": "token", "per": "1000000", "price": "0.2", "currency": "USD" },
+        { "key": "inputTokensOver200k", "unit": "token", "per": "1000000", "price": "4", "currency": "USD" },
+        { "key": "outputTokensOver200k", "unit": "token", "per": "1000000", "price": "18", "currency": "USD" },
+        { "key": "cachedInputTokensOver200k", "unit": "token", "per": "1000000", "price": "0.4", "currency": "USD" },
+        { "key": "cacheStorageTokenHours", "unit": "token-hour", "per": "1000000", "price": "4.5", "currency": "USD" }
+      ]
+    }
+  ]
+}

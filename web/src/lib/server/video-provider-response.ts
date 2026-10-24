@@ -4,7 +4,7 @@ export const VIDEO_PROVIDER_ID_KEYS = ["task_id", "taskId", "id", "job_id", "job
 export const VIDEO_PROVIDER_STATUS_KEYS = ["status", "state", "task_status", "taskStatus"];
 export const VIDEO_PROVIDER_MEDIA_KEYS = ["video_url", "videoUrl", "media_url", "mediaUrl", "content_url", "contentUrl", "output_url", "outputUrl", "result_url", "resultUrl", "url", "uri"];
 export const VIDEO_PROVIDER_SUCCESS = new Set(["completed", "complete", "succeeded", "success", "done", "finished"]);
-export const VIDEO_PROVIDER_FAILED = new Set(["failed", "failure", "error", "cancelled", "canceled", "expired"]);
+export const VIDEO_PROVIDER_FAILED = new Set(["fail", "failed", "failure", "error", "cancelled", "canceled", "expired"]);
 
 export function parseVideoProviderJson(value: string) {
     try {
@@ -22,7 +22,8 @@ export function readVideoProviderHttpError(value: string, status: number) {
     }
 }
 
-export function readVideoProviderId(value: unknown) {
+export function readVideoProviderId(value: unknown, protocol?: string) {
+    if (protocol === "kling") return readProviderString(value, "data.task_id", []);
     return readProviderString(value, undefined, VIDEO_PROVIDER_ID_KEYS);
 }
 

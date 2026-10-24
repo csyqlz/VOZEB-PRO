@@ -1,18 +1,20 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { App, Button, Drawer, Empty, Input, Select, Space, Switch, Tag } from "antd";
 import { ArrowLeft, Check, CircleDollarSign, Info, Link2, PlugZap, RefreshCw, Save, WandSparkles } from "lucide-react";
 
 import { AdminChannelProtocolSetup } from "@/components/admin/admin-channel-protocol-setup";
+import { AdminChannelTransportFields } from "@/components/admin/admin-channel-transport-fields";
 import { LabeledControl } from "@/components/admin/admin-settings-controls";
 import { createSystemChannel } from "@/components/admin/admin-dashboard-elements";
 import type { LogicalModelCapability, SystemChannelAuthMode, SystemChannelProtocol, SystemModelChannel } from "@/lib/auth/store";
-import { applyChannelProtocol, channelConnectionReady, channelProtocolDefinition, channelProtocolOptions, channelRequiresApiKey, channelSupportsModelCatalog, protocolModelConfig, resolveChannelAuthMode } from "@/lib/channel-protocol-registry";
+import { applyChannelProtocol, channelConnectionReady, channelProtocolDefinition, channelRequiresApiKey, channelSupportsModelCatalog, protocolModelConfig, resolveChannelAuthMode } from "@/lib/channel-protocol-registry";
 import { inferModelCapability, normalizeModelId } from "@/lib/model-capability";
 import { capabilityLabel, channelModelCapability, synchronizeLogicalModelsWithChannels } from "@/lib/model-routing-config";
 
 import { defaultModelField, removeChannelFromWorkspace, type ChannelWorkspaceSettings } from "./admin-channel-workspace-model";
+import { ProtocolCatalogFilters, protocolCatalogDescription, visibleProtocolGroups, type ProtocolCapabilityFilter } from "./admin-channel-protocol-catalog";
 
 type Props = {
     open: boolean;
@@ -48,7 +50,6 @@ export function AdminChannelOnboardingDrawer({ open, initialProtocol, settings, 
         setSetAsDefault(true);
     }, [initialProtocol, open]);
 
-    const protocolOptions = useMemo(() => channelProtocolOptions().filter((item) => !["auto", "compatible"].includes(item.value)), []);
     const updateChannel = (patch: Partial<SystemModelChannel>) => {
         if (!draftId) return;
         onChange({ ...settings, systemChannels: settings.systemChannels.map((item) => (item.id === draftId ? { ...item, ...patch } : item)) });
@@ -109,7 +110,7 @@ export function AdminChannelOnboardingDrawer({ open, initialProtocol, settings, 
     };
 
     const renderStep = () => {
-        if (step === 0) return <ProtocolSelection protocols={protocolOptions} selected={selectedProtocol} onSelect={setSelectedProtocol} />;
+        if (step === 0) return <ProtocolSelection selected={selectedProtocol} onSelect={setSelectedProtocol} />;
         if (!channel) return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="渠道草稿不存在" />;
         if (step === 1) return <ConnectionStep channel={channel} onChange={updateChannel} />;
         if (step === 2) return <ModelStep channel={channel} fetching={fetchingModelId === channel.id} onChange={updateChannel} onFetch={() => void onFetchModels(channel)} />;
@@ -216,41 +217,75 @@ function OnboardingProgress({ current }: { current: number }) {
     );
 }
 
-function ProtocolSelection({ protocols, selected, onSelect }: { protocols: ReturnType<typeof channelProtocolOptions>; selected: SystemChannelProtocol; onSelect: (protocol: SystemChannelProtocol) => void }) {
+function ProtocolSelection({ selected, onSelect }: { selected: SystemChannelProtocol; onSelect: (protocol: SystemChannelProtocol) => void }) {
+    const [query, setQuery] = useState("");
+    const [capability, setCapability] = useState<ProtocolCapabilityFilter>("all");
+    const groups = visibleProtocolGroups(query, capability);
     return (
         <div>
-            <div className="mb-3 text-sm font-semibold text-stone-950 dark:text-stone-100">选择上游协议</div>
-            <div className="grid gap-2 sm:grid-cols-2">
-                {protocols.map((protocol) => {
-                    const definition = channelProtocolDefinition(protocol.value);
-                    const active = selected === protocol.value;
-                    return (
-                        <button
-                            key={protocol.value}
-                            type="button"
-                            aria-pressed={active}
-                            className={`min-w-0 rounded-md border p-3 text-left transition ${active ? "!border-stone-950 !bg-stone-50 !text-stone-950 ring-1 ring-inset ring-stone-950 dark:!border-stone-100 dark:!bg-stone-900 dark:!text-stone-100 dark:ring-stone-100" : "border-stone-200 bg-white text-stone-950 hover:border-stone-400 hover:bg-stone-50 dark:border-stone-800 dark:bg-stone-950 dark:text-stone-100 dark:hover:border-stone-600 dark:hover:bg-stone-900"}`}
-                            onClick={() => onSelect(protocol.value)}
-                        >
-                            <div className="flex items-center justify-between gap-2">
-                                <span className="text-sm font-semibold">{protocol.label}</span>
-                                {active ? <Check className="size-4 shrink-0" aria-hidden /> : protocol.value === "custom" ? <WandSparkles className="size-4 shrink-0" aria-hidden /> : <PlugZap className="size-4 shrink-0" aria-hidden />}
-                            </div>
-                            <div className={`mt-1 text-xs leading-5 ${active ? "text-stone-600 dark:text-stone-300" : "text-stone-500 dark:text-stone-400"}`}>{protocol.description}</div>
-                            <div className="mt-2 flex flex-wrap gap-1">
-                                {definition.capabilities.map((capability) => (
-                                    <span
-                                        key={capability}
-                                        className={`rounded border px-1.5 py-0.5 text-[11px] ${active ? "border-stone-400 bg-white text-stone-800 dark:border-stone-600 dark:bg-stone-950 dark:text-stone-200" : "border-stone-200 text-stone-700 dark:border-stone-700 dark:text-stone-300"}`}
-                                    >
-                                        {capabilityLabel(capability)}
-                                    </span>
-                                ))}
-                            </div>
-                        </button>
-                    );
-                })}
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                    <div className="text-sm font-semibold text-stone-950 dark:text-stone-100">选择上游协议</div>
+                    <div className="mt-1 text-xs text-stone-500 dark:text-stone-400">当前选择：{channelProtocolDefinition(selected).label}</div>
+                </div>
+                <Button
+                    size="small"
+                    icon={<WandSparkles className="size-4" />}
+                    aria-pressed={selected === "custom"}
+                    className={
+                        selected === "custom"
+                            ? "!border-stone-950 !bg-stone-950 !text-white hover:!border-stone-700 hover:!bg-stone-700 dark:!border-stone-100 dark:!bg-stone-100 dark:!text-stone-950 dark:hover:!border-stone-300 dark:hover:!bg-stone-300"
+                            : ""
+                    }
+                    onClick={() => onSelect("custom")}
+                >
+                    自定义协议
+                </Button>
             </div>
+            <ProtocolCatalogFilters query={query} onQueryChange={setQuery} capability={capability} onCapabilityChange={setCapability} />
+            {groups.length ? (
+                groups.map((group) => (
+                    <section key={group.id} data-protocol-group={group.id} className="mb-5">
+                        <div className="mb-2 flex items-center justify-between border-b border-stone-200 pb-2 dark:border-stone-800">
+                            <div className="text-sm font-semibold text-stone-950 dark:text-stone-100">{group.title}</div>
+                            <div className="text-xs text-stone-500 dark:text-stone-400">{group.definitions.length} 个协议</div>
+                        </div>
+                        <div className="grid gap-2 sm:grid-cols-2">
+                            {group.definitions.map((definition) => {
+                                const active = selected === definition.id;
+                                return (
+                                    <button
+                                        key={definition.id}
+                                        type="button"
+                                        data-protocol-id={definition.id}
+                                        aria-pressed={active}
+                                        className={`min-w-0 rounded-md border p-3 text-left transition ${active ? "!border-stone-950 !bg-stone-50 !text-stone-950 ring-1 ring-inset ring-stone-950 dark:!border-stone-100 dark:!bg-stone-900 dark:!text-stone-100 dark:ring-stone-100" : "border-stone-200 bg-white text-stone-950 hover:border-stone-400 hover:bg-stone-50 dark:border-stone-800 dark:bg-stone-950 dark:text-stone-100 dark:hover:border-stone-600 dark:hover:bg-stone-900"}`}
+                                        onClick={() => onSelect(definition.id)}
+                                    >
+                                        <div className="flex items-center justify-between gap-2">
+                                            <span className="text-sm font-semibold">{definition.label}</span>
+                                            {active ? <Check className="size-4 shrink-0" aria-hidden /> : <PlugZap className="size-4 shrink-0" aria-hidden />}
+                                        </div>
+                                        <div className={`mt-1 text-xs leading-5 ${active ? "text-stone-600 dark:text-stone-300" : "text-stone-500 dark:text-stone-400"}`}>{protocolCatalogDescription(definition)}</div>
+                                        <div className="mt-2 flex flex-wrap gap-1">
+                                            {definition.capabilities.map((item) => (
+                                                <span
+                                                    key={item}
+                                                    className={`rounded border px-1.5 py-0.5 text-[11px] ${active ? "border-stone-400 bg-white text-stone-800 dark:border-stone-600 dark:bg-stone-950 dark:text-stone-200" : "border-stone-200 text-stone-700 dark:border-stone-700 dark:text-stone-300"}`}
+                                                >
+                                                    {capabilityLabel(item)}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </section>
+                ))
+            ) : (
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有匹配的协议" />
+            )}
         </div>
     );
 }
@@ -269,6 +304,9 @@ function ConnectionStep({ channel, onChange }: { channel: SystemModelChannel; on
                 <LabeledControl label="Base URL">
                     <Input value={channel.baseUrl} placeholder="https://api.example.com" onChange={(event) => onChange({ baseUrl: event.target.value })} />
                 </LabeledControl>
+                <div className="sm:col-span-2">
+                    <AdminChannelTransportFields channel={channel} onChange={onChange} />
+                </div>
                 {custom ? (
                     <LabeledControl label="鉴权方式">
                         <Select className="w-full" value={authMode} options={authModeOptions} onChange={(value: SystemChannelAuthMode) => updateAuth({ authMode: value, ...(value !== "custom-header" ? { authHeader: "", authPrefix: "" } : {}) })} />

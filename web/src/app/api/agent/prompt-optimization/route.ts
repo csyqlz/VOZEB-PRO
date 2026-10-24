@@ -4,7 +4,7 @@ import { readJsonBody } from "@/lib/auth/request";
 import { getCurrentUser } from "@/lib/auth/session";
 import { isAuthInputError } from "@/lib/auth/store";
 import { CREATE_AGENT_PROMPT_MAX_LENGTH } from "@/lib/create-agent-prompt";
-import type { CreativeGenerationMode } from "@/lib/creative-runtime-contract";
+import type { CreativeCreationMode } from "@/lib/creative-runtime-contract";
 import { resolveInternalOrigin } from "@/lib/server/internal-origin";
 import { optimizeCreativePrompt, PromptOptimizationError } from "@/lib/server/prompt-optimization-service";
 import { checkGenerationRateLimit, rateLimitHeaders } from "@/lib/server/security";
@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 2400;
 
 type PromptOptimizationBody = { requestId?: unknown; prompt?: unknown; mode?: unknown };
-const modes = new Set(["agent", "image", "video", "audio"]);
+const modes = new Set(["agent", "text", "image", "video", "audio"]);
 
 export async function POST(request: Request) {
     const user = await getCurrentUser(request);
@@ -31,7 +31,7 @@ export async function POST(request: Request) {
     }
     const requestId = text(body.requestId, 160);
     const prompt = text(body.prompt, CREATE_AGENT_PROMPT_MAX_LENGTH);
-    const mode = modes.has(String(body.mode || "")) ? (body.mode as "agent" | CreativeGenerationMode) : "agent";
+    const mode = modes.has(String(body.mode || "")) ? (body.mode as CreativeCreationMode) : "agent";
     if (!requestId || !prompt) return NextResponse.json({ code: 400, data: null, msg: "请先输入需要优化的提示词" }, { status: 400 });
 
     try {

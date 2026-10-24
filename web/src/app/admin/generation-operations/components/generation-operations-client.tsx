@@ -11,6 +11,7 @@ import type { AdminGenerationOperationsPayload, AdminGenerationTask } from "@/li
 import { GenerationChannelStatus } from "./generation-channel-status";
 import { AgentFailureSummary, AgentPlannerAuditSummary, executionPhaseLabel, GenerationTaskRuntimeSummary, generationTaskPointsLabel } from "./generation-operation-task-details";
 import { generationOperationStatusTagClass, generationOperationThemeClasses } from "./generation-operations-theme";
+import { PricingTaskReviewModal } from "./pricing-task-review-modal";
 
 const PAGE_SIZE = 20;
 
@@ -327,7 +328,7 @@ export function GenerationOperationsClient() {
             </div>
 
             <Modal
-                open={Boolean(reviewingTask)}
+                open={Boolean(reviewingTask && reviewingTask.billingMode !== "official-usage")}
                 title="接管待确认任务"
                 centered
                 width="min(520px, calc(100vw - 24px))"
@@ -372,6 +373,7 @@ export function GenerationOperationsClient() {
                     </div>
                 </div>
             </Modal>
+            {reviewingTask?.billingMode === "official-usage" ? <PricingTaskReviewModal key={reviewingTask.id} task={reviewingTask} onClose={() => setReviewingTask(undefined)} onComplete={load} /> : null}
         </>
     );
 }

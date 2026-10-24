@@ -7,11 +7,17 @@ import { readPostgresAuthSettings } from "./store-repository";
 import type { AuthSettings } from "./store-types";
 
 export async function updatePostgresAuthSettings(patch: Partial<AuthSettings>) {
+    return updatePostgresAuthSettingsWith(() => patch);
+}
+
+export async function updatePostgresAuthSettingsWith(createPatch: (current: AuthSettings) => Partial<AuthSettings>) {
     await ensurePostgresSchema();
     return withPostgresTransaction(async (client) => {
         const settingsRepository = createPostgresRepositories(client).settings;
         await settingsRepository.lock();
-        const settings = normalizeSettings({ ...(await readPostgresAuthSettings(client)), ...patch });
+        const current = await readPostgresAuthSettings(client);
+        const patch = createPatch(current);
+        const settings = normalizeSettings({ ...current, ...patch });
         const encrypted = encryptAuthSettingsSecrets(settings);
 
         if (patch.entitlements !== undefined) {

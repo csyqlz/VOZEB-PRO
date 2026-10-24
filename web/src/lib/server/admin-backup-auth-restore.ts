@@ -18,6 +18,7 @@ import type { QueryExecutor } from "@/lib/server/database";
 /** Upserts an account/config snapshot without deleting entities absent from the backup. */
 export async function restorePostgresAuthSnapshot(client: QueryExecutor, db: AuthDatabase) {
     const normalized = encryptAuthDbSecretsForStorage(db);
+    if (normalized.pricingRefunds.length || normalized.pricingReservations.length || normalized.pricingAccruals.length) throw new Error("按用量计费钱包必须通过完整数据库灾难恢复，不能合并账户配置快照");
     const userIds = new Set(normalized.users.map((user) => user.id));
     const cdkCodes = normalized.cdkCodes.map((code) => ({ ...code, redemptions: code.redemptions.filter((redemption) => userIds.has(redemption.userId)) }));
 

@@ -1,3 +1,6 @@
+import { canRequeryIncompletePricedVideoTask, observePricedVideoTaskResult, recoverPricedVideoTask } from "./model-pricing-video-task";
+import { observeVideoShadowResult, recoverVideoShadowResult } from "./model-pricing-shadow-video-call";
+import { observeVideoTaskUsage } from "./model-pricing-video-usage";
 import { resolveGlobalAiOpcPreset } from "@/lib/globalaiopc-catalog";
 import { generationModelId, systemGenerationChannelId } from "@/lib/server/generation-channel";
 import { generationMediaProxyHeaders } from "@/lib/server/generation-media-authorization";
@@ -15,7 +18,7 @@ import { systemAiBillingHeaders } from "@/lib/server/system-ai-billing";
 import { refundVideoTask } from "@/lib/server/video-task-refund";
 import { geminiVideoQueryPath, parseGeminiVideoOperation } from "@/lib/server/gemini-video-provider";
 
-export type VideoUpstreamStep = { state: "pending"; status: string } | { state: "result_ready"; status: string; resultUrl: string } | { state: "failed"; status: string; error: string };
+export type VideoUpstreamStep = { state: "needs_review"; status: string; reason: string } | { state: "pending"; status: string } | { state: "result_ready"; status: string; resultUrl: string } | { state: "failed"; status: string; error: string };
 
 export async function refreshVideoTaskFromUpstream(task: VideoTask, origin: string, cookie: string) {
     const polling = taskPollingPolicy(task);
@@ -29,9 +32,18 @@ export async function refreshVideoTaskFromUpstream(task: VideoTask, origin: stri
 }
 
 export async function queryVideoTaskUpstream(task: VideoTask, origin: string, cookie = "", workerUserId = ""): Promise<VideoUpstreamStep> {
-    if (task.upstream.resultUrl) return { state: "result_ready", status: "completed", resultUrl: task.upstream.resultUrl };
+    if (task.billingMode === "official-usage") {
+        const recovered = await recoverPricedVideoTask(task);
+        task = (await getVideoTask(task.id)) || task;
+        if (recovered && recovered.state !== "pending" && !(recovered.state === "needs_review" && canRequeryIncompletePricedVideoTask(task))) return recovered;
+        return (await observePricedVideoTaskResult(task, await queryVideoTaskPayload(task, origin, cookie, workerUserId)))!;
+    }
+    if (task.upstream.resultUrl) {
+        await recoverVideoShadowResult(task);
+        return { state: "result_ready", status: "completed", resultUrl: task.upstream.resultUrl };
+    }
     if (isGeminiVideoTask(task)) return queryGeminiVideoUpstream(task, origin, cookie, workerUserId);
-    const data = await queryVideoUpstream(task, origin, cookie, workerUserId);
+    const data = await queryVideoTaskPayload(task, origin, cookie, workerUserId);
     const status = readVideoProviderStatus(data, task.config.advancedConfig?.statusField);
     const resultUrl = readVideoProviderUrl(data, task.config.advancedConfig?.resultField);
     if (resultUrl || VIDEO_PROVIDER_SUCCESS.has(status)) {
@@ -82,6 +94,11 @@ async function completeVideoTask(task: VideoTask, resultUrl: string, origin: str
         return beforePersistence;
     }
     task = beforePersistence;
+    if (task.billingMode === "official-usage") {
+        const recovered = await recoverPricedVideoTask(task);
+        if (recovered?.state !== "result_ready" || recovered.resultUrl !== resultUrl) throw new Error("原视频计费尚未完成核对，不能保存结果");
+        task = (await getVideoTask(task.id)) || task;
+    } else await recoverVideoShadowResult(task);
     const attempts = finishGenerationAttempt(task.attempts || [], task.attempts?.at(-1)?.attemptNo || 1, {
         status: "succeeded",
         pointsCost: task.upstream.pointsCost,
@@ -90,6 +107,9 @@ async function completeVideoTask(task: VideoTask, resultUrl: string, origin: str
     await updateVideoTask(task.id, { attempts });
     const channelId = task.config.channelId || systemGenerationChannelId(task.config.baseUrl);
     const workerHeaders = new Headers(workerUserId ? maintenanceWorkerHeaders(workerUserId) : undefined);
+    if (systemGenerationChannelId(task.config.baseUrl)) {
+        Object.entries(systemAiBillingHeaders(generationModelId(task.config), undefined, task.config.model)).forEach(([key, value]) => workerHeaders.set(key, value));
+    }
     if (/^https?:\/\//i.test(resultUrl) && channelId) {
         Object.entries(generationMediaProxyHeaders({ userId: task.userId, taskType: "video", taskId: task.id, channelId, upstreamModel: task.config.model, url: resultUrl })).forEach(([key, value]) => workerHeaders.set(key, value));
     }
@@ -142,7 +162,7 @@ async function registerVideoAsset(task: VideoTask) {
     }).catch((error) => console.error("Creative video asset registration failed", error));
 }
 
-async function queryVideoUpstream(task: VideoTask, origin: string, cookie: string, workerUserId = "") {
+export async function queryVideoTaskPayload(task: VideoTask, origin: string, cookie: string, workerUserId = "") {
     const createPath = task.upstream.pollPath || "/video/generations";
     const preset = globalAiOpcPreset(task);
     const seedanceSpecial = task.config.advancedConfig?.protocol === "seedance-special";
@@ -172,7 +192,10 @@ async function queryVideoUpstream(task: VideoTask, origin: string, cookie: strin
             continue;
         }
         try {
-            return parseVideoProviderJson(text);
+            const data = parseVideoProviderJson(text);
+            await observeVideoTaskUsage(task, data, path);
+            await observeVideoShadowResult(task, data, path);
+            return data;
         } catch (error) {
             if (!seedanceSpecial) throw error;
             lastError = "视频查询接口返回了非 JSON 内容";

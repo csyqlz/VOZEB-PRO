@@ -23,7 +23,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     if (!user || !task || (task.userId !== user.id && user.role !== "admin")) return NextResponse.json({ error: "视频任务不存在" }, { status: user ? 404 : 401 });
     const schedule = await getStoredGenerationTaskRecord("video", task.id);
     const executionPhase = schedule?.executionPhase || settledExecutionPhase(task.status);
-    const shouldRefund = Boolean(task.upstream.pointsRecordId && !task.upstream.refunded && task.status === "error");
+    const shouldRefund = Boolean((task.billingMode === "official-usage" || task.upstream.pointsRecordId) && !task.upstream.refunded && task.status === "error");
     const settledTask = shouldRefund ? await refundVideoTask(task) : task;
     const refreshedUser = shouldRefund ? await getCurrentUser(request) : user;
     return NextResponse.json(
@@ -40,15 +40,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (!parsed.ok) return NextResponse.json({ error: parsed.message }, { status: parsed.status });
     if (parsed.data.action !== "recover") return NextResponse.json({ error: "不支持的视频任务操作" }, { status: 400 });
     if (task.status === "success") return NextResponse.json({ task: publicTask(task) }, { headers: pointsResponseHeaders(user) });
-    if (task.status !== "running") return NextResponse.json({ error: "当前视频任务无法继续检查" }, { status: 409 });
+    if (task.status !== "running" && !(task.status === "cancelled" && task.billingMode === "official-usage" && task.billingPending)) return NextResponse.json({ error: "当前视频任务无法继续检查" }, { status: 409 });
 
     const schedule = await getStoredGenerationTaskRecord("video", task.id);
     const upstreamTaskId = task.upstream.id || schedule?.upstreamTaskId;
-    if (!upstreamTaskId) return NextResponse.json({ error: "原任务没有保存上游任务 ID，无法安全追回结果" }, { status: 409 });
+    if (!upstreamTaskId && task.billingMode !== "official-usage") return NextResponse.json({ error: "原任务没有保存上游任务 ID，无法安全追回结果" }, { status: 409 });
     const recovered = await recoverGenerationTaskFromUpstream({
         type: "video",
         id: task.id,
-        upstreamTaskId,
+        cancelled: task.status === "cancelled",
+        upstreamTaskId: upstreamTaskId || "",
         channelId: task.config.channelId,
         provider: task.config.advancedConfig?.protocol || task.config.apiFormat,
         queryPath: task.upstream.queryPath || schedule?.queryPath || task.config.advancedConfig?.queryPath,

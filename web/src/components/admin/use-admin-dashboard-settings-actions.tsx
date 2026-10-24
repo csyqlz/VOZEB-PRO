@@ -273,7 +273,8 @@ export function useAdminDashboardSettingsActions({ state, data }: { state: Admin
             updateChannel(channel.id, adminModelsChannelPatch(channel, result));
             const discovered = result.discoveredCount ?? result.models.length;
             const total = result.totalCount ?? result.models.length;
-            message.success(`${channel.name || "渠道"} 本次发现 ${discovered} 个模型，合并后共 ${total} 个${result.warning ? `；${result.warning}` : ""}`);
+            const retained = result.providerModels ? `，本地保留 ${Math.max(0, total - result.providerModels.length)} 个未返回模型` : `，合并后共 ${total} 个`;
+            message.success(`${channel.name || "渠道"} 本次发现 ${discovered} 个模型${retained}${result.warning ? `；${result.warning}` : ""}`);
         } catch (error) {
             message.error(error instanceof Error ? error.message : "拉取模型失败");
         } finally {
@@ -354,6 +355,7 @@ function adminModelsChannelPatch(channel: SystemModelChannel, result: AdminModel
             advancedConfig: {
                 ...advanced,
                 ...(result.recommendedConfig || {}),
+                ...(result.providerModels ? { providerModels: result.providerModels } : {}),
                 modelCapabilities,
                 modelConfigs,
             },

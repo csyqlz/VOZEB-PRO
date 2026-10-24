@@ -1,8 +1,8 @@
 import type { ImageTaskMediaResult, ImageTaskResult } from "@/app/api/image-tasks/image-task-types";
 import { directRemoteImageResult, imageReferenceToDataUrl, inlineRemoteImageResult, resolveProxiedMediaSource } from "@/app/api/image-tasks/image-task-support";
-import { resolveResultSize } from "@/app/api/image-tasks/image-task-size";
+import { resolveRequestSize, resolveResultSize } from "@/app/api/image-tasks/image-task-size";
 import { dedupeImageResults } from "@/lib/image-result-dedupe";
-import { generationModelId, systemGenerationChannelId } from "@/lib/server/generation-channel";
+import { systemGenerationChannelId } from "@/lib/server/generation-channel";
 import { generationMediaProxyHeaders } from "@/lib/server/generation-media-authorization";
 import { deleteLocalAsset, normalizeAssets } from "@/lib/server/generation-log-repository";
 import { validateImageLayerOutputs } from "@/lib/server/image-layer-output";
@@ -13,7 +13,7 @@ export async function prepareImageTaskResults(task: ImageTask, result: ImageTask
     const preserveLayers = task.config.outputMode === "layers";
     const settled = await Promise.allSettled(imageTaskMediaResults(result, preserveLayers).map((item) => normalizeSafeImageResult(task, item, origin, authContext)));
     const normalized = settled.flatMap((item) => (item.status === "fulfilled" && item.value?.dataUrl ? [item.value] : []));
-    let safeResults = preserveLayers ? normalized : dedupeImageResults(normalized);
+    let safeResults = preserveLayers || result.results?.length ? normalized : dedupeImageResults(normalized);
 
     if (preserveLayers) {
         const rejected = firstRejected(settled);
@@ -56,6 +56,7 @@ export function deletePreparedImageTaskResults(results: StoredImageTaskMediaResu
 
 async function persistPreparedResults(task: ImageTask, results: ImageTaskMediaResult[], requireAll: boolean) {
     const targetSize = task.config.outputMode === "layers" ? undefined : resolveResultSize(task.config.quality, task.config.size || "auto");
+    const requestedSize = task.config.outputMode === "layers" ? undefined : resolveRequestSize(task.config.quality, task.config.size || "auto");
     const settled = await Promise.allSettled(
         results.map((item, index) =>
             normalizeAssets([{ type: "image", url: item.dataUrl, remoteUrl: item.remoteUrl, targetSize }], {
@@ -75,9 +76,22 @@ async function persistPreparedResults(task: ImageTask, results: ImageTaskMediaRe
             serverUrl: asset.serverUrl,
             width: asset.width,
             height: asset.height,
+            sourceWidth: asset.sourceWidth,
+            sourceHeight: asset.sourceHeight,
             bytes: asset.bytes,
             mimeType: asset.mimeType,
         }));
+    if (task.billingMode === "official-usage" && requestedSize && /^\d+x\d+$/.test(requestedSize))
+        stored.forEach((asset, index) => {
+            if (asset.sourceWidth && asset.sourceHeight && `${asset.sourceWidth}x${asset.sourceHeight}` !== requestedSize)
+                console.warn("Image output pixels differ from request", {
+                    taskId: task.id,
+                    channelId: task.config.channelId || systemGenerationChannelId(task.config.baseUrl),
+                    resultIndex: index,
+                    requestedSize,
+                    sourceSize: `${asset.sourceWidth}x${asset.sourceHeight}`,
+                });
+        });
     if (requireAll && stored.length !== results.length) {
         await deletePreparedImageTaskResults(stored);
         throw firstRejected(settled) || new Error("上游分层图片保存失败");
@@ -88,7 +102,7 @@ async function persistPreparedResults(task: ImageTask, results: ImageTaskMediaRe
 
 function imageTaskMediaResults(result: ImageTaskResult, preserveDuplicates: boolean): ImageTaskMediaResult[] {
     const values = result.results?.length ? result.results : result.dataUrl || result.remoteUrl ? [{ dataUrl: result.dataUrl, remoteUrl: result.remoteUrl }] : [];
-    return preserveDuplicates ? values : dedupeImageResults(values);
+    return preserveDuplicates || result.results?.length ? values : dedupeImageResults(values);
 }
 
 async function normalizeSafeImageResult(task: ImageTask, result: ImageTaskMediaResult, origin: string, authContext: string): Promise<ImageTaskMediaResult> {
@@ -96,7 +110,7 @@ async function normalizeSafeImageResult(task: ImageTask, result: ImageTaskMediaR
     const proxiedMedia = resolveProxiedMediaSource(result.dataUrl || "", origin);
     const proxiedRemoteUrl = proxiedMedia.remoteUrl;
     const channelId = task.config.channelId || systemGenerationChannelId(task.config.baseUrl);
-    const mediaHeaders = proxiedRemoteUrl && channelId ? generationMediaProxyHeaders({ userId: task.userId, taskType: "image", taskId: task.id, channelId, upstreamModel: generationModelId(task.config), url: proxiedRemoteUrl }) : undefined;
+    const mediaHeaders = proxiedRemoteUrl && channelId ? generationMediaProxyHeaders({ userId: task.userId, taskType: "image", taskId: task.id, channelId, upstreamModel: task.config.model, url: proxiedRemoteUrl }) : undefined;
     const inlineResult = proxiedMedia.proxyUrl ? await inlineRemoteImageResult(result.dataUrl, origin, authContext, remoteUrl, mediaHeaders) : null;
     if (proxiedMedia.proxyUrl && !inlineResult?.dataUrl?.startsWith("data:image/")) throw new Error("上游图片无法通过授权媒体路径读取");
     if (task.config.outputMode === "layers") {

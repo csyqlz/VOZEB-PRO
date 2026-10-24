@@ -5,6 +5,25 @@ import { resolveLogicalBillingModel, resolveLogicalModel, resolveLogicalModelCan
 const channel = (id: string, models: string[], enabled = true) => ({ id, name: id, baseUrl: `https://${id}.example.com`, apiKey: "secret", apiFormat: "openai" as const, models, enabled });
 
 describe("resolveLogicalModel", () => {
+    it("keeps a pending Anthropic binding out of ordinary routing while allowing an exact directed test", () => {
+        const settings = {
+            systemChannels: [channel("old", ["claude-fable-5"]), channel("new", ["claude-fable-5"])],
+            logicalModels: [
+                {
+                    id: "claude-fable-5",
+                    name: "Claude",
+                    capability: "text" as const,
+                    enabled: true,
+                    bindings: [
+                        { id: "old", channelId: "old", upstreamModel: "claude-fable-5", enabled: true, priority: 2 },
+                        { id: "new", channelId: "new", upstreamModel: "claude-fable-5", enabled: true, acceptanceOnly: true, priority: 1 },
+                    ],
+                },
+            ],
+        };
+        expect(resolveLogicalModelCandidates(settings, "text", "claude-fable-5").map((item) => item.channelId)).toEqual(["old"]);
+        expect(resolveLogicalModelCandidates(settings, "text", "claude-fable-5", "", true).map((item) => item.channelId)).toEqual(["new", "old"]);
+    });
     it("deduplicates a logical model while routing to its highest priority enabled binding", () => {
         const settings = {
             systemChannels: [channel("primary", ["vendor/gpt-4o"], false), channel("backup", ["gpt-4o-proxy"])],
@@ -72,6 +91,20 @@ describe("resolveLogicalModel", () => {
             logicalModels: [{ id: "voice", name: "Voice", capability: "audio" as const, enabled: true, bindings: [{ id: "one", channelId: "one", upstreamModel: "voice-upstream", enabled: true, priority: 1 }] }],
         };
         expect(resolveLogicalModel(settings, "audio", "voice")).toBeNull();
+    });
+
+    it("retains an old DataEyes binding but excludes it from current routing", () => {
+        const supplier = { ...channel("seed", ["ByteDance-Seed-1.6", "doubao-seed-2-1-pro-260915"]), baseUrl: "https://studio.dataeyes.ai", advancedConfig: { providerModels: ["doubao-seed-2-1-pro-260915"] } } as never;
+        const settings = {
+            systemChannels: [supplier],
+            logicalModels: [
+                { id: "old", name: "旧型号", capability: "text" as const, enabled: true, bindings: [{ id: "old", channelId: "seed", upstreamModel: "ByteDance-Seed-1.6", enabled: true, priority: 1 }] },
+                { id: "current", name: "当前型号", capability: "text" as const, enabled: true, bindings: [{ id: "current", channelId: "seed", upstreamModel: "doubao-seed-2-1-pro-260915", enabled: true, priority: 1 }] },
+            ],
+        };
+        expect(resolveLogicalModel(settings, "text", "old")).toBeNull();
+        expect(resolveLogicalModel(settings, "text", "current")?.upstreamModel).toBe("doubao-seed-2-1-pro-260915");
+        expect(settings.logicalModels[0].bindings[0].enabled).toBe(true);
     });
 
     it("rejects raw upstream model names when a logical catalog exists", () => {

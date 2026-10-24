@@ -27,9 +27,11 @@ import { creativeAssetLayout } from "./creative-asset-layout";
 import { creativeConversationEntries, isMediaCreativeRound, type CreativeConversationEntry } from "./creative-conversation-rounds";
 import { CreativeGenerationWaiting } from "./creative-generation-waiting";
 import { CreativeMediaResult } from "./creative-media-result";
+import { CreativeRunBilling } from "./creative-run-billing";
 import { formatCreativeMessageTime } from "./creative-result-presentation";
 import { creativeRunDuration, creativeRunMode, creativeRunPresentation } from "./creative-run-presentation";
 import { CreativeVideoResult } from "./creative-video-result";
+import { CreativeTaskId } from "./creative-task-id";
 
 export function CreativeMessages({
     messages,
@@ -47,6 +49,8 @@ export function CreativeMessages({
     olderLoading,
     onLoadOlder,
     followLatest = true,
+    resumableRunId,
+    onResumeRun,
 }: {
     messages: CreativeMessage[];
     assets: CreativeAsset[];
@@ -63,6 +67,8 @@ export function CreativeMessages({
     olderLoading?: boolean;
     onLoadOlder?: () => void;
     followLatest?: boolean;
+    resumableRunId?: string;
+    onResumeRun?: () => Promise<void>;
 }) {
     const endRef = useRef<HTMLDivElement>(null);
     const site = usePublicSessionStore((state) => state.payload?.settings?.site) || { title: DEFAULT_SITE_TITLE, logoUrl: "/logo.svg" };
@@ -140,6 +146,7 @@ export function CreativeMessages({
                             onRetryMessage={onRetryMessage}
                             selectedAssetIds={selectedAssetIds}
                             onToggleAsset={onToggleAsset}
+                            onResume={mediaRound.run?.id === resumableRunId ? onResumeRun : undefined}
                         />
                     );
                 }
@@ -162,7 +169,7 @@ export function CreativeMessages({
                         <div className={cn("min-w-0", item.role === "user" ? "max-w-[520px] text-right" : "min-w-0 flex-1")}>
                             {item.role === "user" && itemAssets.length ? <CreativeRoundReferenceStrip assets={itemAssets} /> : null}
                             {item.role === "assistant" && item.status === "running" ? (
-                                <CreativeGenerationWaiting run={run} message={item} />
+                                <CreativeGenerationWaiting run={run} message={item} onResume={run?.id === resumableRunId ? onResumeRun : undefined} />
                             ) : textAssetContent && item.role === "assistant" && item.status === "completed" ? null : (
                                 <div
                                     className={cn(
@@ -177,6 +184,8 @@ export function CreativeMessages({
                                 </div>
                             )}
                             {item.role === "user" ? <CreativeUserMessageMeta message={item} /> : null}
+                            {item.role === "assistant" && item.status !== "running" ? <CreativeTaskId id={item.runId || run?.id} className="mt-1.5" /> : null}
+                            {item.role === "assistant" ? <CreativeRunBilling runId={item.runId || run?.id} modelNames={modelNames} /> : null}
                             {item.role !== "user" && itemAssets.length ? <CreativeAssetResults assets={itemAssets} messageText={displayContent} selectedAssetIds={selectedAssetIds} onToggleAsset={onToggleAsset} /> : null}
                             {handoff ? (
                                 <ProjectHandoffAction
@@ -213,6 +222,7 @@ function CreativeMediaRound({
     onRetryMessage,
     selectedAssetIds,
     onToggleAsset,
+    onResume,
 }: {
     userMessage: CreativeMessage;
     assistantMessage: CreativeMessage;
@@ -227,6 +237,7 @@ function CreativeMediaRound({
     onRetryMessage: (message: CreativeMessage, run?: CreativeAgentRun) => Promise<boolean | void>;
     selectedAssetIds: string[];
     onToggleAsset: (id: string) => void;
+    onResume?: () => Promise<void>;
 }) {
     const siteLogoUrl = usePublicSessionStore((state) => state.payload?.settings?.site?.logoUrl || "/logo.svg");
     const displayContent = assistantMessage.status === "failed" ? friendlyAgentError(assistantMessage.content) : formatAgentMessageText(assistantMessage.content);
@@ -270,13 +281,18 @@ function CreativeMediaRound({
                                     <CreativeRunTiming run={run} time={assistantMessage.createdAt} />
                                 </div>
                                 <CreativeRunSummary run={run} modelNames={modelNames} />
+                                <CreativeTaskId id={assistantMessage.runId || run?.id} className="mt-1.5" />
                             </>
                         ) : null}
+                        <CreativeRunBilling runId={assistantMessage.runId || run?.id} modelNames={modelNames} />
                         <div data-testid="creative-result-group" className="mt-3 flex w-fit max-w-full flex-col items-start">
                             {isFailedMediaRound ? (
-                                <CreativeGenerationFailure message={failedTasks.length === 1 ? failedTasks[0]?.error || displayContent : displayContent} onRetry={() => onRetryMessage(assistantMessage, run)} />
+                                <>
+                                    <CreativeGenerationFailure message={failedTasks.length === 1 ? failedTasks[0]?.error || displayContent : displayContent} onRetry={() => onRetryMessage(assistantMessage, run)} />
+                                    <CreativeTaskId id={assistantMessage.runId || run?.id} className="mt-1.5" />
+                                </>
                             ) : assistantMessage.status === "running" ? (
-                                <CreativeGenerationWaiting run={run} message={assistantMessage} />
+                                <CreativeGenerationWaiting run={run} message={assistantMessage} onResume={onResume} />
                             ) : showAssistantText ? (
                                 <div
                                     className={cn(

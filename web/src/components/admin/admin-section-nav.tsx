@@ -179,6 +179,7 @@ export const adminSections: AdminSection[] = [
     { key: "logs", label: "调用记录", description: "追踪用户生成任务、模型调用、入口来源和失败原因。", shortDescription: "生成与模型", icon: <Film className="size-4" /> },
     { key: "generationOperations", label: "生成运维", description: "统一排查生成任务、会话、项目、渠道健康、失败原因和积分成本。", shortDescription: "任务排障", icon: <Activity className="size-4" /> },
     { key: "products", label: "套餐管理", description: "配置充值中心展示的套餐、价格、积分权益和有效期。", shortDescription: "商品与权益", icon: <CreditCard className="size-4" /> },
+    { key: "pricing", label: "模型售价", description: "管理模型工作台，审核官方价、发布售价并核对渠道按量准入。", shortDescription: "价目、售价与渠道", icon: <CircleDollarSign className="size-4" /> },
     { key: "promotions", label: "促销活动", description: "配置限时活动价、促销标签、生效时间和适用商品。", shortDescription: "活动价", icon: <BadgePercent className="size-4" /> },
     { key: "coupons", label: "优惠券", description: "管理优惠券规则、领取库存、适用商品和定向发放。", shortDescription: "领券与核销", icon: <TicketPercent className="size-4" /> },
     { key: "referrals", label: "邀请奖励", description: "配置邀请码、首单奖励、冷静期、风控与结算。", shortDescription: "拉新与奖励", icon: <UserPlus className="size-4" /> },
@@ -204,7 +205,7 @@ export const adminSections: AdminSection[] = [
 
 export const adminSectionGroups: AdminSectionGroup[] = [
     { title: "经营分析", items: sectionsFor(["overview", "users", "logs", "generationOperations"]) },
-    { title: "商品运营", items: sectionsFor(["products", "orders"]) },
+    { title: "商品运营", items: sectionsFor(["products", "pricing", "orders"]) },
     { title: "营销推广", items: sectionsFor(["promotions", "coupons", "referrals"]) },
     { title: "财务管理", items: sectionsFor(["points", "payments", "cdk", "wallet"]) },
     { title: "上游配置", items: sectionsFor(["channels", "skills"]) },

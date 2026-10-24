@@ -10,10 +10,12 @@ import {
     ImageQueryContractError,
     imageRequestAspectRatio,
     imagePointsIdempotencyKey,
+    imageUnits,
     imageTaskPollAttempts,
     imageTaskPollUrls,
     imageTaskRequestTimeoutMs,
     inlineRemoteImageResult,
+    normalizeQuality,
     openAiImageTaskPath,
     parseImagePayloadOrPoll,
     parseImagePayloadCompat,
@@ -31,6 +33,18 @@ const config = {
     apiFormat: "openai",
     advancedConfig: { protocol: "globalaiopc", globalAiOpcPreset: "image-gpt-image-2", createPath: "/image2/images", queryPath: "/result/:task_id" },
 } as never;
+
+describe("GPT Image 2.5 quality", () => {
+    it("preserves xhigh and max only for the documented model IDs", () => {
+        for (const model of ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst"]) {
+            expect(normalizeQuality("XHIGH", model)).toBe("xhigh");
+            expect(normalizeQuality("max", model)).toBe("max");
+        }
+        expect(normalizeQuality("xhigh", "gpt-image-2")).toBeUndefined();
+        expect(normalizeQuality("max", "gpt-image-1.5")).toBeUndefined();
+        expect(normalizeQuality("high", "gpt-image-2")).toBe("high");
+    });
+});
 
 describe("GlobalAiOpc image task paths", () => {
     afterEach(() => {
@@ -65,6 +79,11 @@ describe("GlobalAiOpc image task paths", () => {
         expect(imagePointsIdempotencyKey(task, "base64")).toBe("image-task:image-task-one:attempt:2:base64");
     });
 
+    it("keeps DataEyes FLUX refund units aligned with its one-image charge", () => {
+        expect(imageUnits("high", { high: 2 }, "dataeyes-flux")).toBe(1);
+        expect(imageUnits("high", { high: 2 }, "openai")).toBe(2);
+    });
+
     it("upscales small exact dimensions for the provider instead of rejecting the task", () => {
         expect(resolveRequestSize(undefined, "400x600")).toBe("672x1008");
         expect(resolveRequestSize(undefined, "512x512")).toBe("816x816");
@@ -73,6 +92,11 @@ describe("GlobalAiOpc image task paths", () => {
     it("passes exact dimensions through without a platform resolution ceiling", () => {
         expect(resolveRequestSize(undefined, "5000x5000")).toBe("5000x5000");
         expect(resolveRequestSize(undefined, "1200x7200")).toBe("1200x7200");
+    });
+
+    it("preserves an explicit 2K provider tier without inventing output dimensions", () => {
+        expect(resolveRequestSize(undefined, "2K")).toBe("2K");
+        expect(resolveResultSize(undefined, "2K")).toBeUndefined();
     });
 
     it("normalizes ratio results to the exact upstream request while restoring custom output dimensions", () => {
@@ -158,6 +182,12 @@ describe("GlobalAiOpc image task paths", () => {
 
         expect(result?.dataUrl).toBe("https://cdn.example.com/first.png");
         expect(result?.results?.map((item) => item.dataUrl)).toEqual(["https://cdn.example.com/first.png", "https://cdn.example.com/second.png"]);
+    });
+
+    it("keeps distinct result-array entries that contain identical base64 bytes", () => {
+        const payload = { data: [{ b64_json: "iVBORw0KGgo=" }, { b64_json: "iVBORw0KGgo=" }] };
+        const result = parseImagePayloadCompat(payload, "https://provider.example/v1/images/generations", { baseUrl: "https://provider.example/v1", model: "gpt-image-1", apiFormat: "openai" } as never);
+        expect(result?.results).toHaveLength(2);
     });
 
     it("classifies an HTML polling response as an invalid query contract", async () => {

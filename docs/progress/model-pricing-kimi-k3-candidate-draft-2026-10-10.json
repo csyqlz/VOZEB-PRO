@@ -1,0 +1,29 @@
+{
+  "observedAt": "2026-10-10T12:00:58Z",
+  "status": "draft-pending-administrator-review",
+  "productionChanged": false,
+  "sourceReviewRequired": "Kimi 官方型号目录确认精确 API ID kimi-k3；官方价按普通未缓存输入、缓存命中输入、5 分钟缓存写入、1 小时缓存写入和输出分别列价。当前平台虽有启用逻辑模型及同名绑定，但非官方代理尚无原型号、服务档、缓存 TTL 和逐次计量凭据；本地已接原响应头的 TTL 拆分与总量核对，缺头时保留待核对并支持管理员凭原供应商证据补齐，尚未证明真实代理返回这两个响应头。官方快速入门明确 max_completion_tokens 默认 131072，本地缺省请求按此预留；视觉输入的实际 Token 用量、工具调用及真实渠道输入硬上界未验收。本草案不得直接用于按量准入。",
+  "requestBoundEvidence": { "url": "https://platform.kimi.ai/docs/guide/kimi-k3-quickstart", "observedAt": "2026-10-10", "finding": "官方明确 max_completion_tokens 默认 131072，可配置到 1048576；本地缺省请求不得以低于默认值的合成契约预留。仅解决默认输出数量，不证明真实代理输入硬上界。" },
+  "candidateInputs": [
+    {
+      "logicalModelId": "kimi-k3",
+      "manufacturer": "Moonshot",
+      "series": "Kimi K3",
+      "officialVersion": "kimi-k3",
+      "sku": "kimi-k3",
+      "tier": "paid",
+      "conditions": "Kimi 国际标准实时 API；每百万 Token：普通未缓存输入、缓存命中输入、5 分钟缓存写入、1 小时缓存写入及输出分别计价。默认缓存写入 TTL 为 5 分钟，显式 1 小时为独立价格；不含 Batch 或工具额外收费。视觉输入仍需核对实际 Token 用量与预留上界。仅为待审价目，不能替代渠道用量与钱包准入。",
+      "sourceKind": "manual",
+      "sourceUrl": "https://platform.kimi.ai/docs/pricing/chat",
+      "evidence": "2026-10-10 官方型号目录 https://platform.kimi.ai/docs/models 列 kimi-k3；官方价格说明和缓存指南 https://platform.kimi.ai/docs/guide/context-caching 列普通输入 3.00、缓存命中 0.30、缓存写入 5 分钟 3.00／1 小时 6.00 USD/百万 Token；官方首页 https://platform.kimi.ai/ 列输出 15.00 USD/百万 Token。缓存指南说明 Chat 流式最终用量与按 TTL 拆分的响应头。",
+      "observedAt": "2026-10-10T12:00:58Z",
+      "items": [
+        { "key": "ordinaryInput", "unit": "token", "per": "1000000", "price": "3", "currency": "USD" },
+        { "key": "cachedInput", "unit": "token", "per": "1000000", "price": "0.30", "currency": "USD" },
+        { "key": "cacheWrite5m", "unit": "token", "per": "1000000", "price": "3", "currency": "USD" },
+        { "key": "cacheWrite1h", "unit": "token", "per": "1000000", "price": "6", "currency": "USD" },
+        { "key": "output", "unit": "token", "per": "1000000", "price": "15", "currency": "USD" }
+      ]
+    }
+  ]
+}

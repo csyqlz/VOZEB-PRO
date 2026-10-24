@@ -10,6 +10,7 @@ vi.mock("@/lib/server/database", () => ({
 }));
 
 vi.mock("@/lib/server/data-adapter", () => ({
+    withJsonDataFileLock: async (_file: string, action: () => Promise<unknown>) => action(),
     readJsonDataFile: vi.fn(async (_fileName: string, fallback: unknown) => memory.value ?? fallback),
     writeJsonDataFile: vi.fn(async (_fileName: string, value: unknown) => {
         memory.value = structuredClone(value);
@@ -17,6 +18,7 @@ vi.mock("@/lib/server/data-adapter", () => ({
 }));
 
 import { createFirstAdmin, createUserByAdmin, deleteUserByAdmin, updateUserByAdmin } from "./store";
+import { readAuthDb, mutateAuthDb } from "./store-repository";
 
 const INSTALL_TOKEN = "install-token-".padEnd(48, "x");
 
@@ -27,6 +29,19 @@ describe("administrator user-management duties", () => {
     });
 
     afterEach(() => vi.unstubAllEnvs());
+
+    it("removes only the deleted user's exact pricing account", async () => {
+        const owner = await createFirstAdmin({ username: "owner", password: "password123", installToken: INSTALL_TOKEN });
+        const member = await createUserByAdmin({ actorId: owner.id, username: "member", password: "password123", role: "user" });
+        await mutateAuthDb((db) => {
+            db.pricingAccruals = [
+                { userId: owner.id, sourceKey: "permanent", exactPoints: "1/250" },
+                { userId: member.id, sourceKey: "permanent", exactPoints: "2/125" },
+            ];
+        });
+        await deleteUserByAdmin(owner.id, member.id);
+        expect((await readAuthDb()).pricingAccruals).toEqual([{ userId: owner.id, sourceKey: "permanent", exactPoints: "1/250" }]);
+    });
 
     it("prevents a limited administrator from managing a broader administrator", async () => {
         const owner = await createFirstAdmin({ username: "owner", password: "password123", installToken: INSTALL_TOKEN });

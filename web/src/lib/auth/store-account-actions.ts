@@ -382,6 +382,9 @@ export async function deleteUserByAdmin(actorId: string, userId: string, options
         if (user.role === "admin" && countActiveAdmins(db, user.id) === 0) throw new AuthInputError("至少需要保留一个管理员");
         if (isFullAdminPermissions(user.adminPermissions) && countActiveFullAdmins(db, user.id) === 0) throw new AuthInputError("至少需要保留一个可用的全权限管理员");
         db.users = db.users.filter((item) => item.id !== user.id);
+        db.pricingReservations = db.pricingReservations.filter((item) => item.userId !== user.id);
+        db.pricingAccruals = db.pricingAccruals.filter((item) => item.userId !== user.id);
+        db.pricingRefunds = db.pricingRefunds.filter((item) => item.userId !== user.id);
         db.sessions = db.sessions.filter((session) => session.userId !== user.id);
         db.quotaUsage = db.quotaUsage.filter((usage) => !usage || typeof usage !== "object" || (usage as { userId?: unknown }).userId !== user.id);
         db.emailCodes = db.emailCodes.filter((code) => code.userId !== user.id);

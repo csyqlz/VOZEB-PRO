@@ -71,11 +71,7 @@ function reconcileMediaPreferences<T extends { size?: string; quality?: string; 
 function reconcileSizeValue(value: string | undefined, supported: string[] | undefined) {
     if (!supported) return value;
     const dimensions = value?.match(/^(\d+)x(\d+)$/i);
-    if (dimensions) {
-        const divisor = greatestCommonDivisor(Number(dimensions[1]), Number(dimensions[2]));
-        const ratio = `${Number(dimensions[1]) / divisor}:${Number(dimensions[2]) / divisor}`;
-        if (supported.some((item) => normalizedText(item) === normalizedText(ratio))) return value;
-    }
+    if (dimensions) return value;
     return reconcileTextValue(value, supported);
 }
 
@@ -144,11 +140,4 @@ function compactProfile(profile: CreativeModelCapabilityProfile) {
 
 function normalizedText(value: string) {
     return value.trim().replace(/p$/i, "").toLowerCase();
-}
-
-function greatestCommonDivisor(left: number, right: number): number {
-    let a = Math.abs(left);
-    let b = Math.abs(right);
-    while (b) [a, b] = [b, a % b];
-    return a || 1;
 }

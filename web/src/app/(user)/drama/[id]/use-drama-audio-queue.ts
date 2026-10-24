@@ -4,6 +4,7 @@ import type { AiConfig } from "@/stores/use-config-store";
 import { createAudioGenerationTask, readAudioGenerationTask } from "@/services/api/audio";
 import { GENERATION_TASK_NEEDS_REVIEW_MESSAGE } from "@/services/api/generation-task-state";
 import type { DramaEpisode, DramaProject, DramaShot } from "../types";
+import { estimateTaskPoints } from "./drama-shot-generation-utils";
 
 type UpdateShot = (projectId: string, episodeId: string, shotId: string, patch: Partial<DramaShot>) => void;
 
@@ -62,7 +63,7 @@ export function useDramaAudioQueue(project: DramaProject, episode: DramaEpisode,
                 projectId: project.id,
                 episodeId: episode.id,
                 shotId: next.id,
-                estimatedPoints: Number(config.modelPointCosts[config.audioModel] || 0),
+                estimatedPoints: estimateTaskPoints(config, "audio"),
                 attemptNo,
                 clientRequestId: `drama-audio:${project.id}:${episode.id}:${next.id}:attempt-${attemptNo}`,
             },

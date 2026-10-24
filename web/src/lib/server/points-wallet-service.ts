@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import Fraction from "fraction.js";
 
 import dayjs from "dayjs";
 import timezone from "dayjs/plugin/timezone";
@@ -10,6 +11,9 @@ import { normalizePointAmount, resolveDefaultPlan, resolveUserPlan } from "@/lib
 import type { AuthDatabase, PointUsageKind, PublicPointRecord, StoredDailyPlanPointWallet, StoredPointRecord, StoredUser } from "@/lib/auth/store-types";
 import { createPostgresRepositories, ensurePostgresSchema, isPostgresDatabaseEnabled, withPostgresTransaction, type QueryExecutor } from "@/lib/server/database";
 import type { AppSettingsRecord, EntitlementPlanRecord, JsonValue, UserPlanAssignmentRecord, UserRecord } from "@/lib/server/database/repository-shared";
+import { ModelPricingWalletRepository } from "./database/model-pricing-wallet-repository";
+import { pricingWalletNumber } from "./model-pricing-reservation";
+import type { PricingWalletReservation, PricingWalletRefund } from "./model-pricing-wallet-service";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -20,6 +24,7 @@ export type PointsWalletSnapshot = {
     permanentPoints: number;
     dailyPoints: number;
     totalPoints: number;
+    debtPoints: number;
     dailyDate: string;
     dailyExpiresAt: string;
     activePlanId?: string;
@@ -105,6 +110,109 @@ type PostgresWalletContext = {
     clock: WalletClock;
 };
 
+export type PricingWalletTransaction = {
+    executor?: QueryExecutor;
+    active: boolean;
+    now: string;
+    quotaTracked: boolean;
+    snapshot(): PointsWalletSnapshot;
+    dailyWallet(): StoredDailyPlanPointWallet | null;
+    getReservation(requestId: string): Promise<PricingWalletReservation | undefined>;
+    saveReservation(value: PricingWalletReservation): Promise<void>;
+    getExactPoints(sourceKey: string): Promise<string>;
+    setExactPoints(sourceKey: string, value: string): Promise<void>;
+    getRefund(requestId: string, refundId: string): Promise<PricingWalletRefund | undefined>;
+    saveRefund(value: PricingWalletRefund): Promise<void>;
+    assertQuota(kind: PointUsageKind, units: number, points: number): Promise<void>;
+    adjustQuota(date: string, kind: PointUsageKind, units: number, points: number): Promise<void>;
+    adjustBalances(dailyDelta: string, permanentDelta: string, options?: { allowDebt?: boolean }): Promise<void>;
+    addRecord(record: StoredPointRecord): Promise<unknown>;
+};
+
+/** Shared wallet lock/transaction: reservations and legacy debits spend the same balances. */
+export async function mutatePricingWallet<T>(userId: string, input: WalletClockInput, action: (tx: PricingWalletTransaction) => Promise<T>): Promise<T> {
+    const clock = walletClock(input);
+    if (!isPostgresDatabaseEnabled())
+        return mutateAuthDb(async (db) => {
+            const user = db.users.find((item) => item.id === userId);
+            if (!user) throw new AuthInputError("用户不存在");
+            const wallet = settleFileDailyWallet(db, user, clock);
+            return action({
+                active: user.status === "active",
+                now: clock.now.toISOString(),
+                quotaTracked: db.settings.entitlements.enabled || costControlEnabled(db.settings.generationCostControl),
+                snapshot: () => buildSnapshot(user.pointsBalance, wallet, clock),
+                dailyWallet: () => wallet,
+                getReservation: async (requestId) => db.pricingReservations.find((item) => item.userId === userId && item.requestId === requestId),
+                saveReservation: async (value) => {
+                    db.pricingReservations = [...db.pricingReservations.filter((item) => item.userId !== userId || item.requestId !== value.requestId), value];
+                },
+                getExactPoints: async (sourceKey) => db.pricingAccruals.find((item) => item.userId === userId && item.sourceKey === sourceKey)?.exactPoints || "0",
+                setExactPoints: async (sourceKey, exactPoints) => {
+                    db.pricingAccruals = [...db.pricingAccruals.filter((item) => item.userId !== userId || item.sourceKey !== sourceKey), { userId, sourceKey, exactPoints }];
+                },
+                getRefund: async (requestId, refundId) => db.pricingRefunds.find((item) => item.userId === userId && item.requestId === requestId && item.refundId === refundId),
+                saveRefund: async (value) => {
+                    db.pricingRefunds.push(value);
+                },
+                assertQuota: async (kind, units, points) => assertFileQuota(db, user, clock.date, kind, units, points),
+                adjustQuota: async (date, kind, units, points) => updateFileQuota(db, date, userId, kind, units, points, clock.now.toISOString(), true),
+                adjustBalances: async (dailyDelta, permanentDelta, options) => {
+                    const priorPermanent = user.pointsBalance;
+                    if (wallet) wallet.remainingPoints = pricingWalletNumber(new Fraction(String(wallet.remainingPoints)).add(dailyDelta).toString(2));
+                    else if (!new Fraction(dailyDelta).equals(0)) throw new AuthInputError("日赠钱包不存在");
+                    user.pointsBalance = pricingWalletNumber(new Fraction(String(user.pointsBalance)).add(permanentDelta).toString(2));
+                    if ((!options?.allowDebt && user.pointsBalance < 0 && user.pointsBalance < priorPermanent) || (wallet && (wallet.remainingPoints < 0 || wallet.remainingPoints > wallet.grantedPoints)))
+                        throw new AuthInputError("预留余额更新超出可用范围");
+                    user.updatedAt = clock.now.toISOString();
+                    if (wallet) wallet.updatedAt = user.updatedAt;
+                },
+                addRecord: async (record) => {
+                    if (db.pointRecords.some((item) => item.id === record.id || item.idempotencyKey === record.idempotencyKey)) throw new PointsWalletConflictError("结算流水身份已存在");
+                    db.pointRecords.push(record);
+                },
+            });
+        });
+    await ensurePostgresSchema();
+    return withPostgresTransaction(async (client) => {
+        const repos = createPostgresRepositories(client);
+        const user = await repos.users.getById(userId, true);
+        if (!user) throw new AuthInputError("用户不存在");
+        const context = await settlePostgresWallet(client, user, clock);
+        const pricing = new ModelPricingWalletRepository(client);
+        return action({
+            executor: client,
+            active: user.status === "active",
+            now: clock.now.toISOString(),
+            quotaTracked: Boolean(context.settings?.entitlementsEnabled || costControlEnabled(generationCostControl(context.settings?.generationCostControl))),
+            snapshot: () => postgresSnapshot(context),
+            dailyWallet: () => context.wallet,
+            getReservation: (requestId) => pricing.get(userId, requestId),
+            saveReservation: (value) => pricing.save(value),
+            getExactPoints: (sourceKey) => pricing.getExact(userId, sourceKey),
+            setExactPoints: (sourceKey, value) => pricing.setExact(userId, sourceKey, value),
+            getRefund: (requestId, refundId) => pricing.getRefund(userId, requestId, refundId),
+            saveRefund: (value) => pricing.saveRefund(value),
+            assertQuota: (kind, units, points) => assertPostgresQuota(client, context, kind, units, points),
+            adjustQuota: (date, kind, units, points) => updatePostgresQuota(client, context.settings, date, userId, kind, units, points, clock.now.toISOString(), true),
+            adjustBalances: async (dailyDelta, permanentDelta, options) => {
+                if (context.wallet) {
+                    const remaining = pricingWalletNumber(new Fraction(String(context.wallet.remainingPoints)).add(dailyDelta).toString(2));
+                    const updated = await repos.pointsWallet.updateRemaining(userId, context.wallet.date, remaining);
+                    if (!updated) throw new AuthInputError("日赠余额更新超出可用范围");
+                    context.wallet = updated;
+                } else if (!new Fraction(dailyDelta).equals(0)) throw new AuthInputError("日赠钱包不存在");
+                const remaining = pricingWalletNumber(new Fraction(String(context.user.pointsBalance)).add(permanentDelta).toString(2));
+                if (remaining < 0 && remaining < context.user.pointsBalance && !options?.allowDebt) throw new AuthInputError("永久积分余额不足");
+                const updated = await repos.users.update(userId, { pointsBalance: remaining });
+                if (!updated) throw new AuthInputError("用户不存在");
+                context.user = updated;
+            },
+            addRecord: (record) => repos.points.addRecord(record),
+        });
+    });
+}
+
 class PointsWalletConflictError extends AuthInputError {
     status = 409;
 }
@@ -134,6 +242,52 @@ export function splitPointConsumption(dailyPoints: number, permanentPoints: numb
 export async function getPointsWalletSnapshot(userId: string, input: WalletClockInput = {}) {
     if (isPostgresDatabaseEnabled()) return getPostgresSnapshot(userId, input);
     return mutateAuthDb((db) => snapshotFileWallet(db, userId, walletClock(input)));
+}
+
+/** Uses the same lock and daily-grant reconciliation as the existing balance read. */
+export async function readPricingWalletPage(userId: string, input: WalletClockInput & { page: number; pageSize: number; status?: PricingWalletReservation["status"] }) {
+    const clock = walletClock(input);
+    const source = (wallet: StoredDailyPlanPointWallet | null) => (wallet ? { date: wallet.date, planId: wallet.planId, assignmentId: wallet.assignmentId || "" } : undefined);
+    if (isPostgresDatabaseEnabled()) {
+        await ensurePostgresSchema();
+        return withPostgresTransaction(async (client) => {
+            const user = await createPostgresRepositories(client).users.getById(userId, true);
+            if (!user || user.status !== "active") throw new AuthInputError("用户不可用");
+            const context = await settlePostgresWallet(client, user, clock);
+            const page = await new ModelPricingWalletRepository(client).page(userId, input, source(context.wallet));
+            return { ...page, snapshot: postgresSnapshot(context) };
+        });
+    }
+    return mutateAuthDb((db) => {
+        const user = db.users.find((item) => item.id === userId);
+        if (!user || user.status !== "active") throw new AuthInputError("用户不可用");
+        const wallet = settleFileDailyWallet(db, user, clock);
+        const dailySource = source(wallet);
+        const records = db.pricingReservations.filter((item) => item.userId === userId);
+        const pending = records.filter((item) => item.status === "reserved");
+        const sum = (values: string[]) => values.reduce((total, value) => total.add(value), new Fraction(0)).toString(2);
+        const selected = records.filter((item) => !input.status || item.status === input.status).sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.requestId.localeCompare(a.requestId));
+        const items = selected.slice((input.page - 1) * input.pageSize, input.page * input.pageSize).map((data) => {
+            const refunds = db.pricingRefunds.filter((item) => item.userId === userId && item.requestId === data.requestId);
+            return { data, refundedPoints: sum(refunds.flatMap((item) => [item.calculation.release.permanentRestored, item.calculation.release.dailyRestored])), expiredRefundPoints: sum(refunds.map((item) => item.calculation.release.dailyExpired)) };
+        });
+        return {
+            items,
+            total: selected.length,
+            page: input.page,
+            pageSize: input.pageSize,
+            snapshot: buildSnapshot(user.pointsBalance, wallet, clock),
+            summary: {
+                pendingCount: pending.length,
+                pendingPoints: sum(pending.map((item) => item.allocation.heldPoints)),
+                inactiveDailyPoints: sum(
+                    pending
+                        .filter(({ allocation: { dailySource: original } }) => !dailySource || !original || original.date !== dailySource.date || original.planId !== dailySource.planId || original.assignmentId !== dailySource.assignmentId)
+                        .map((item) => item.allocation.dailyHeld),
+                ),
+            },
+        };
+    });
 }
 
 export async function creditPermanentPoints(input: CreditPermanentPointsInput): Promise<PointsWalletMutationResult> {
@@ -194,8 +348,16 @@ export async function consumePoints(input: ConsumePointsInput): Promise<PointsWa
 export async function refundPoints(input: RefundPointsInput): Promise<PointsWalletRefundResult> {
     const idempotencyKey = requiredIdempotencyKey(input.idempotencyKey);
     if (!input.sourceRecordId?.trim() && !input.sourceIdempotencyKey?.trim()) throw new AuthInputError("退款缺少原消费记录");
-    if (isPostgresDatabaseEnabled()) return refundPostgresPoints({ ...input, idempotencyKey });
-    return mutateAuthDb((db) => refundFilePoints(db, { ...input, idempotencyKey }, walletClock(input)));
+    const result = isPostgresDatabaseEnabled() ? await refundPostgresPoints({ ...input, idempotencyKey }) : await mutateAuthDb((db) => refundFilePoints(db, { ...input, idempotencyKey }, walletClock(input)));
+    if ((input.usageKind === "image" || input.usageKind === "video" || input.usageKind === "audio") && result.record.sourceRecordId) {
+        try {
+            const { observeFixedMediaRefund } = await import("./model-pricing-shadow-refund");
+            await observeFixedMediaRefund(input.userId, result.record.sourceRecordId);
+        } catch (error) {
+            console.error("Media shadow refund observer unavailable", { userId: input.userId, errorType: error instanceof Error ? error.name : "unknown" });
+        }
+    }
+    return result;
 }
 
 export async function adjustPermanentPointsInPostgresTransaction(client: QueryExecutor, input: PostgresPermanentAdjustmentInput): Promise<PointsWalletMutationResult | null> {
@@ -290,6 +452,7 @@ async function consumePostgresPoints(input: ConsumePointsInput & { amount: numbe
             assertMatchingConsumption(existing, input);
             return existingMutation(existing, context, input.userId, "consume");
         }
+        if (user.pointsBalance < 0) throw new QuotaExceededError("存在待补扣积分，请补足后再发起付费调用");
 
         const split = splitPointConsumption(context.wallet?.remainingPoints || 0, user.pointsBalance, input.amount);
         await assertPostgresQuota(client, context, input.usageKind, input.units, split.cost);
@@ -335,6 +498,7 @@ async function refundPostgresPoints(input: RefundPointsInput & { idempotencyKey:
         const existing = await repos.points.getRecordByIdempotencyKey(input.idempotencyKey);
         const source = input.sourceRecordId?.trim() ? await repos.points.getRecordById(input.sourceRecordId.trim()) : await repos.points.getRecordByIdempotencyKey(input.sourceIdempotencyKey!.trim());
         if (!source || source.userId !== input.userId || source.type !== "consume") throw new AuthInputError("原消费记录不存在");
+        if (await new ModelPricingWalletRepository(client).ownsCharge(input.userId, source.id)) throw new AuthInputError("按用量结算的流水须使用专用退款流程");
         const priorRefund = await repos.points.getRefundRecordBySourceRecordId(source.id);
         const context = await settlePostgresWallet(client, user, walletClock(input));
         if (existing) return existingRefund(existing, context, input.userId);
@@ -497,6 +661,7 @@ function consumeFilePoints(db: AuthDatabase, input: ConsumePointsInput & { amoun
         assertMatchingConsumption(existing, input);
         return existingFileMutation(existing, snapshotBefore, user.id, "consume");
     }
+    if (user.pointsBalance < 0) throw new QuotaExceededError("存在待补扣积分，请补足后再发起付费调用");
 
     assertFileQuota(db, user, clock.date, input.usageKind, input.units, input.amount);
     const wallet = settleFileDailyWallet(db, user, clock);
@@ -536,6 +701,7 @@ function refundFilePoints(db: AuthDatabase, input: RefundPointsInput & { idempot
     const existing = db.pointRecords.find((record) => record.idempotencyKey === input.idempotencyKey);
     const source = input.sourceRecordId?.trim() ? db.pointRecords.find((record) => record.id === input.sourceRecordId?.trim()) : db.pointRecords.find((record) => record.idempotencyKey === input.sourceIdempotencyKey?.trim());
     if (!source || source.userId !== input.userId || source.type !== "consume") throw new AuthInputError("原消费记录不存在");
+    if (db.pricingReservations.some((item) => item.userId === input.userId && item.chargeRecordId === source.id)) throw new AuthInputError("按用量结算的流水须使用专用退款流程");
     const priorRefund = db.pointRecords.find((record) => record.type === "refund" && record.sourceRecordId === source.id);
     const snapshotBefore = snapshotFileWallet(db, user.id, clock);
     if (existing) return existingFileRefund(existing, snapshotBefore, user.id);
@@ -601,6 +767,7 @@ function buildSnapshot(permanentPoints: number, wallet: StoredDailyPlanPointWall
         permanentPoints: permanent,
         dailyPoints: daily,
         totalPoints: Math.max(0, normalizePointAmount(permanent + daily, 0)),
+        debtPoints: Math.max(0, -permanent),
         dailyDate: clock.date,
         dailyExpiresAt: clock.expiresAt,
         activePlanId: plan?.id,
@@ -680,8 +847,8 @@ async function assertPostgresQuota(client: QueryExecutor, context: PostgresWalle
     assertLimit(planLimits[usageLimitKey(usageKind)], (usage?.units || 0) + nonNegativePoints(units), usageLimitLabel(usageKind));
 }
 
-async function updatePostgresQuota(client: QueryExecutor, settings: AppSettingsRecord | undefined, date: string, userId: string, usageKind: PointUsageKind, unitsDelta: number, pointsDelta: number, updatedAt: string) {
-    if (!settings?.entitlementsEnabled && !costControlEnabled(generationCostControl(settings?.generationCostControl))) return;
+async function updatePostgresQuota(client: QueryExecutor, settings: AppSettingsRecord | undefined, date: string, userId: string, usageKind: PointUsageKind, unitsDelta: number, pointsDelta: number, updatedAt: string, force = false) {
+    if (!force && !settings?.entitlementsEnabled && !costControlEnabled(generationCostControl(settings?.generationCostControl))) return;
     const repos = createPostgresRepositories(client);
     const usage = await repos.points.getQuotaUsage(userId, date, usageKind);
     await repos.points.upsertQuotaUsage({
@@ -708,8 +875,8 @@ function assertFileQuota(db: AuthDatabase, user: StoredUser, date: string, usage
     assertLimit(plan.limits[usageLimitKey(usageKind)], (usage?.units || 0) + nonNegativePoints(units), usageLimitLabel(usageKind));
 }
 
-function updateFileQuota(db: AuthDatabase, date: string, userId: string, usageKind: PointUsageKind, unitsDelta: number, pointsDelta: number, updatedAt: string) {
-    if (!db.settings.entitlements.enabled && !costControlEnabled(db.settings.generationCostControl)) return;
+function updateFileQuota(db: AuthDatabase, date: string, userId: string, usageKind: PointUsageKind, unitsDelta: number, pointsDelta: number, updatedAt: string, force = false) {
+    if (!force && !db.settings.entitlements.enabled && !costControlEnabled(db.settings.generationCostControl)) return;
     let usage = db.quotaUsage.find((item) => item.userId === userId && item.date === date && item.usageKind === usageKind);
     if (!usage) {
         usage = { userId, date, usageKind, pointsSpent: 0, units: 0, updatedAt };

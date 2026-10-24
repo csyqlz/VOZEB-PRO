@@ -93,6 +93,26 @@ describe("admin backup store", () => {
         expect(mocks.upsertPostgresPromptDbWithExecutor).toHaveBeenCalledWith(expect.objectContaining({ prompts: [expect.objectContaining({ id: "prompt-b" }), expect.objectContaining({ id: "prompt-a" })] }), mocks.client);
     });
 
+    it.each(["postgres", "file"] as const)("preserves the latest auth snapshot for non-auth %s imports", async (provider) => {
+        mocks.provider = provider;
+        const current = emptyBackup();
+        current.auth.users = [{ ...storedUser("user-a", 10), role: "user", adminPermissions: [] }];
+        setReadSnapshot(current);
+        const imported = emptyBackup();
+        imported.auth.users = [storedUser("user-a", 10)];
+        imported.prompts.prompts = [storedPrompt("prompt-a")];
+
+        await restoreAdminBackupData(imported, { mode: "account-config", preserveCurrentAuth: true });
+
+        expect(mocks.restorePostgresAuthSnapshot).not.toHaveBeenCalled();
+        expect(mocks.writeAuthDb).not.toHaveBeenCalled();
+        if (provider === "postgres") {
+            expect(mocks.upsertPostgresPromptDbWithExecutor).toHaveBeenCalledWith(expect.objectContaining({ prompts: [expect.objectContaining({ id: "prompt-a" })] }), mocks.client);
+        } else {
+            expect(mocks.writePromptBackup).toHaveBeenCalledWith(expect.objectContaining({ prompts: [expect.objectContaining({ id: "prompt-a" })] }));
+        }
+    });
+
     it("stops the PostgreSQL transaction when one section fails", async () => {
         const data = emptyBackup();
         mocks.upsertPostgresPromptDbWithExecutor.mockRejectedValueOnce(new Error("prompt restore failed"));

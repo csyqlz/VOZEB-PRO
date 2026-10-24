@@ -2,6 +2,7 @@ import type { LogicalModel, LogicalModelBinding, LogicalModelCapability, Logical
 import { resolveGlobalAiOpcPreset } from "@/lib/globalaiopc-catalog";
 import { inferModelCapability, isCreativeGenerationModel, normalizeModelId } from "@/lib/model-capability";
 import { channelConnectionReady, protocolCatalogCapability, resolveChannelModelConfig } from "@/lib/channel-protocol-registry";
+import { currentChannelModels } from "@/lib/channel-model-availability";
 
 const CAPABILITY_DEFAULT_KEYS = {
     text: "textModel",
@@ -46,34 +47,44 @@ export function synchronizeLogicalModelsWithChannels(existingModels: LogicalMode
 
     const usedExistingIds = new Set<string>();
     const usedModelIds = new Set<string>();
-    return Array.from(catalog.entries()).map(([modelKey, catalogModel]) => {
+    return Array.from(catalog.entries()).flatMap(([modelKey, catalogModel]) => {
         const matchingModels = existingModels.filter((model) => model.bindings?.some((binding) => normalizeModelName(binding.upstreamModel) === modelKey));
-        const existing = matchingModels.find((model) => normalizeModelName(model.id) === modelKey && !usedExistingIds.has(model.id.toLowerCase())) || matchingModels.find((model) => !usedExistingIds.has(model.id.toLowerCase()));
-        if (existing) usedExistingIds.add(existing.id.toLowerCase());
-        const id = uniqueLogicalModelId(existing?.id || catalogModel.upstreamModel, usedModelIds);
-        const bindings = catalogModel.bindings
-            .map(({ channel, channelIndex, upstreamModel }) => {
-                const stored = findStoredBinding(existingModels, channel.id, upstreamModel);
-                const capabilityProfile = normalizeStoredCapabilityProfile(stored?.capabilityProfile);
-                const weight = clampWeight(stored?.weight);
-                return {
-                    id: text(stored?.id, 120) || `${channel.id}:${rawModelName(upstreamModel)}`,
-                    channelId: channel.id,
-                    upstreamModel,
-                    enabled: stored?.enabled !== false,
-                    priority: clampPriority(stored?.priority, channelIndex + 1),
-                    ...(weight !== undefined ? { weight } : {}),
-                    ...(capabilityProfile ? { capabilityProfile } : {}),
-                };
-            })
-            .sort((left, right) => left.priority - right.priority || left.id.localeCompare(right.id));
-        return {
-            id,
-            name: text(existing?.name, 120) || catalogModel.upstreamModel,
-            capability: catalogModel.authoritative || !existing ? catalogModel.capability : normalizeCapability(existing.capability),
-            enabled: existing?.enabled !== false,
-            bindings,
-        };
+        const availableModels = matchingModels.filter((model) => !usedExistingIds.has(model.id.toLowerCase()));
+        const currentModels = availableModels.filter((model) => model.bindings.some((binding) => catalogModel.bindings.some((item) => item.channel.id === binding.channelId && normalizeModelName(binding.upstreamModel) === modelKey)));
+        const variants = currentModels.length ? currentModels : [availableModels.find((model) => normalizeModelName(model.id) === modelKey) || availableModels[0]];
+        return variants.map((existing) => {
+            if (existing) usedExistingIds.add(existing.id.toLowerCase());
+            const id = uniqueLogicalModelId(existing?.id || catalogModel.upstreamModel, usedModelIds);
+            const channelBindings =
+                currentModels.length > 1 ? catalogModel.bindings.filter((item) => existing?.bindings.some((binding) => binding.channelId === item.channel.id && normalizeModelName(binding.upstreamModel) === modelKey)) : catalogModel.bindings;
+            const bindings = channelBindings
+                .map(({ channel, channelIndex, upstreamModel }) => {
+                    const stored = currentModels.length > 1 ? existing?.bindings.find((binding) => binding.channelId === channel.id && normalizeModelName(binding.upstreamModel) === modelKey) : findStoredBinding(existingModels, channel.id, upstreamModel);
+                    const capabilityProfile = normalizeStoredCapabilityProfile(stored?.capabilityProfile);
+                    const weight = clampWeight(stored?.weight);
+                    const protocol = resolveChannelModelConfig(channel.advancedConfig, upstreamModel)?.protocol || channel.advancedConfig?.protocol;
+                    return {
+                        id: text(stored?.id, 120) || `${channel.id}:${rawModelName(upstreamModel)}`,
+                        channelId: channel.id,
+                        upstreamModel,
+                        enabled: stored?.enabled !== false,
+                        ...(stored?.acceptanceOnly === true || (!stored && catalogModel.capability === "text" && protocol === "anthropic") ? { acceptanceOnly: true } : {}),
+                        priority: clampPriority(stored?.priority, channelIndex + 1),
+                        ...(weight !== undefined ? { weight } : {}),
+                        ...(capabilityProfile ? { capabilityProfile } : {}),
+                    };
+                })
+                .sort(compareLogicalModelBindings);
+            return {
+                id,
+                name: text(existing?.name, 120) || catalogModel.upstreamModel,
+                ...(text(existing?.manufacturer, 80) ? { manufacturer: text(existing?.manufacturer, 80) } : {}),
+                ...(text(existing?.series, 80) ? { series: text(existing?.series, 80) } : {}),
+                capability: catalogModel.authoritative || !existing ? catalogModel.capability : normalizeCapability(existing.capability),
+                enabled: existing?.enabled !== false,
+                bindings,
+            };
+        });
     });
 }
 
@@ -99,12 +110,16 @@ export function isLogicalModelResolvable(logicalModels: LogicalModel[], channels
 export function resolveLogicalModelConfig(logicalModels: LogicalModel[], channels: SystemModelChannel[], capability: LogicalModelCapability, modelId: string) {
     const logical = logicalModels.find((model) => model.enabled && model.capability === capability && model.id.toLowerCase() === rawModelName(modelId).toLowerCase());
     if (!logical) return null;
-    const bindings = [...logical.bindings].filter((binding) => binding.enabled).sort((left, right) => left.priority - right.priority || left.id.localeCompare(right.id));
+    const bindings = [...logical.bindings].filter((binding) => binding.enabled).sort(compareLogicalModelBindings);
     for (const binding of bindings) {
-        const channel = channels.find((item) => item.id === binding.channelId && item.enabled && channelConnectionReady(item) && channelSupportsModel(item, binding.upstreamModel));
+        const channel = channels.find((item) => item.id === binding.channelId && item.enabled && channelConnectionReady(item) && channelSupportsModel({ models: currentChannelModels(item) }, binding.upstreamModel));
         if (channel) return { logicalModel: logical, binding, channel };
     }
     return null;
+}
+
+export function compareLogicalModelBindings(left: Pick<LogicalModelBinding, "priority" | "weight" | "id">, right: Pick<LogicalModelBinding, "priority" | "weight" | "id">) {
+    return left.priority - right.priority || (right.weight || 100) - (left.weight || 100) || left.id.localeCompare(right.id);
 }
 
 export function modelRoutingValidationErrors(logicalModels: LogicalModel[], channels: SystemModelChannel[], defaults: SystemDefaultModels) {
@@ -154,8 +169,12 @@ function resolveChannelModelCapability(channel: Pick<SystemModelChannel, "advanc
     return configured ? { capability: configured, authoritative: true } : { capability: inferred, authoritative: false };
 }
 
-export function channelDetectedCapabilities(channel: Pick<SystemModelChannel, "advancedConfig" | "models">) {
-    return new Set(channel.models.filter(isCreativeGenerationModel).map((model) => channelModelCapability(channel, model)));
+export function channelDetectedCapabilities(channel: Pick<SystemModelChannel, "baseUrl" | "advancedConfig" | "models">) {
+    return new Set(
+        currentChannelModels(channel)
+            .filter(isCreativeGenerationModel)
+            .map((model) => channelModelCapability(channel, model)),
+    );
 }
 
 export function resolveLogicalModelCapabilityProfile(binding: Pick<LogicalModelBinding, "capabilityProfile">, capability: LogicalModelCapability, channel?: Pick<SystemModelChannel, "advancedConfig">, upstreamModel = "") {

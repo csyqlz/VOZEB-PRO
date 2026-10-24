@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "antd";
 import { Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -7,12 +8,14 @@ import type { CreativeMessage } from "@/lib/creative-runtime-contract";
 import type { CreativeAgentRun } from "@/services/api/creative";
 
 import { creativeRunMode } from "./creative-run-presentation";
+import { CreativeTaskId } from "./creative-task-id";
 
 const LONG_WAIT_MESSAGES = ["主人，久等了，辛苦你再陪我一会儿，我一直在这里守着这次创作。", "主人，别担心，创作还在继续，不用重复发送，先放松一下，这里交给我守着吧。", "主人，作品正在慢慢雕琢，可能比平时久一点，但我没有离开。"] as const;
 
-export function CreativeGenerationWaiting({ run, message }: { run?: CreativeAgentRun; message: Pick<CreativeMessage, "content" | "createdAt"> }) {
+export function CreativeGenerationWaiting({ run, message, onResume }: { run?: CreativeAgentRun; message: Pick<CreativeMessage, "content" | "createdAt" | "runId">; onResume?: () => Promise<void> }) {
     const startedAt = run?.createdAt || message.createdAt;
     const [now, setNow] = useState(() => Date.now());
+    const [resuming, setResuming] = useState(false);
 
     useEffect(() => {
         const update = () => setNow(Date.now());
@@ -35,6 +38,20 @@ export function CreativeGenerationWaiting({ run, message }: { run?: CreativeAgen
                     <p data-testid="creative-generation-elapsed" className="mt-0.5 text-[11px] tabular-nums leading-4 text-[#98a2b3] dark:text-[#7f8996]">
                         已等待 {formatCreativeWaitingTime(elapsedSeconds)}
                     </p>
+                    <CreativeTaskId id={message.runId || run?.id} className="mt-1" />
+                    {run?.status === "paused" && onResume ? (
+                        <Button
+                            size="small"
+                            loading={resuming}
+                            className="mt-2"
+                            onClick={() => {
+                                setResuming(true);
+                                void onResume().finally(() => setResuming(false));
+                            }}
+                        >
+                            继续原任务
+                        </Button>
+                    ) : null}
                 </div>
             </div>
         </div>

@@ -9,15 +9,18 @@ type NormalizedGeneratedImage = {
     mimeType: string;
     width?: number;
     height?: number;
+    sourceWidth?: number;
+    sourceHeight?: number;
 };
 
 export async function normalizeGeneratedImageBytes(bytes: Buffer, mimeType: string, targetSize?: string): Promise<NormalizedGeneratedImage> {
     const metadata = await sharp(bytes, { failOn: "error", limitInputPixels: MAX_INPUT_PIXELS }).metadata();
     const dimensions = orientedDimensions(metadata);
+    const sourceDimensions = { sourceWidth: dimensions.width, sourceHeight: dimensions.height };
     const target = targetSize ? parseImageDimensions(targetSize) : null;
-    if (!target) return { bytes, mimeType: imageMimeType(metadata.format, mimeType), ...dimensions };
+    if (!target) return { bytes, mimeType: imageMimeType(metadata.format, mimeType), ...dimensions, ...sourceDimensions };
     assertTargetDimensions(target.width, target.height);
-    if (dimensions.width === target.width && dimensions.height === target.height) return { bytes, mimeType: imageMimeType(metadata.format, mimeType), ...dimensions };
+    if (dimensions.width === target.width && dimensions.height === target.height) return { bytes, mimeType: imageMimeType(metadata.format, mimeType), ...dimensions, ...sourceDimensions };
 
     const result = await sharp(bytes, { failOn: "error", limitInputPixels: MAX_INPUT_PIXELS }).rotate().resize(target.width, target.height, { fit: "cover", position: "centre" }).toBuffer({ resolveWithObject: true });
     return {
@@ -25,6 +28,7 @@ export async function normalizeGeneratedImageBytes(bytes: Buffer, mimeType: stri
         mimeType: imageMimeType(result.info.format, mimeType),
         width: result.info.width,
         height: result.info.height,
+        ...sourceDimensions,
     };
 }
 

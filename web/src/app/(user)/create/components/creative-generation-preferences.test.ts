@@ -39,6 +39,9 @@ describe("generationPreferenceSummary", () => {
 
     it("keeps high-resolution image presets for a declared image ratio", () => {
         expect(generationRatioOptions("image", { aspectRatios: ["16:9"] }).map((option) => option.value)).toEqual(["auto", "16:9", "2048x1152", "3840x2160"]);
+        expect(generationRatioOptions("image", { aspectRatios: ["2K"] }).map((option) => option.value)).toEqual(["auto", "2K"]);
+        expect(generationRatioOptions("image", { aspectRatios: ["1:1", "16:9", "9:16", "2K"] }).map((option) => option.value)).toEqual(["auto", "1:1", "16:9", "9:16", "2K", "2048x2048", "2048x1152", "1152x2048"]);
+        expect(generationPreferenceSummary("image", { image: { size: "2K", quality: "auto" } })).toContain("2K");
     });
 
     it("exposes the same positive custom pixel editor for images and videos", async () => {

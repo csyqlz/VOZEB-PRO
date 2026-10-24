@@ -1,3 +1,9 @@
+import { audioPricingPendingMessage, refundPricedAudioTask } from "./model-pricing-audio-task";
+import { getStoredGenerationTaskRecord } from "./generation-task-store";
+import { GenerationSubmissionSafeFailure } from "./generation-submission-error";
+import { createPricedVideoUpstream } from "./video-task-submission";
+import { refundPricedVideoTask, videoPricingPendingMessage } from "./model-pricing-video-task";
+import { refundPricedImageTask } from "./model-pricing-image-task";
 import { randomUUID } from "node:crypto";
 
 import { generationTaskNextPollAt, claimDueGenerationTasks, releaseGenerationTaskLease, renewGenerationTaskLeases, scheduleGenerationTask, type GenerationTaskLease } from "@/lib/server/generation-task-scheduler";
@@ -8,7 +14,7 @@ import { getAudioTask, updateAudioTask, type AudioTask } from "@/lib/server/audi
 import { createImageTaskUpstreamStep, markImageTaskFailed, persistImageTaskResult, prepareImageTaskAutomaticRetry, queryCancelledImageTaskUpstreamStep, queryImageTaskUpstreamStep } from "@/lib/server/image-task-runtime";
 import { getImageTask, updateImageTask, type ImageTask } from "@/lib/server/image-task-store";
 import { getTextTask, updateTextTask } from "@/lib/server/text-task-store";
-import { queryCancelledTextTaskUpstreamStep, runTextTaskStep } from "@/lib/server/text-task-runtime";
+import { queryCancelledTextTaskUpstreamStep, recoverPricedTextTaskStep, runTextTaskStep } from "@/lib/server/text-task-runtime";
 import { maintenanceWorkerContext } from "@/lib/server/maintenance-auth";
 import { executeAgentRun } from "@/lib/server/agent-run-executor";
 import { processAgentRunReview } from "@/lib/server/agent-run-execution";
@@ -60,6 +66,79 @@ async function processGenerationTaskLease(lease: GenerationTaskLease, workerId: 
 }
 
 async function processCancelledLease(lease: GenerationTaskLease, workerId: string, origin: string): Promise<RecoveryResult> {
+    if (lease.type === "audio") {
+        const task = await getAudioTask(lease.id);
+        if (task?.billingMode === "official-usage") {
+            const refunded = await refundPricedAudioTask(task);
+            await releaseGenerationTaskLease(
+                "audio",
+                lease.id,
+                workerId,
+                { executionPhase: refunded ? "completed" : "needs_review", nextPollAt: undefined, lastUpstreamStatus: refunded ? "cancelled_refunded" : "cancelled_metering_unknown", resultPayload: reviewPayload(lease, audioPricingPendingMessage) },
+                { cancellation: true },
+            );
+            return refunded ? "completed" : "needs_review";
+        }
+    }
+    if (lease.type === "video") {
+        let task = await getVideoTask(lease.id);
+        if (task?.billingMode === "official-usage") {
+            let refunded = await refundPricedVideoTask(task);
+            if (!refunded && task.upstream.id) {
+                try {
+                    const target = await cancelledTaskTarget(lease);
+                    if (target && lease.executionPhase === "cancel_requested") await requestUpstreamGenerationCancellation(target, origin, "", task.userId);
+                    await queryVideoTaskUpstream(task, origin, "", task.userId);
+                    task = (await getVideoTask(task.id)) || task;
+                    refunded = await refundPricedVideoTask(task);
+                } catch (error) {
+                    console.warn("Cancelled video metering needs recovery", { taskId: task.id, errorType: error instanceof Error ? error.name : "unknown" });
+                }
+            }
+            await releaseGenerationTaskLease(
+                "video",
+                lease.id,
+                workerId,
+                { executionPhase: refunded ? "completed" : "needs_review", nextPollAt: undefined, lastUpstreamStatus: refunded ? "cancelled_refunded" : "cancelled_metering_unknown", resultPayload: reviewPayload(lease, videoPricingPendingMessage) },
+                { cancellation: true },
+            );
+            return refunded ? "completed" : "needs_review";
+        }
+    }
+    if (lease.type === "image") {
+        const task = await getImageTask(lease.id);
+        if (task?.billingMode === "official-usage") {
+            const refunded = await refundPricedImageTask(task);
+            await releaseGenerationTaskLease(
+                "image",
+                lease.id,
+                workerId,
+                { executionPhase: refunded ? "completed" : "needs_review", nextPollAt: undefined, lastUpstreamStatus: refunded ? "cancelled_refunded" : "cancelled_metering_unknown", resultPayload: reviewPayload(lease, "原图片计费结果待核对") },
+                { cancellation: true },
+            );
+            return refunded ? "completed" : "needs_review";
+        }
+    }
+    if (lease.type === "text") {
+        const task = await getTextTask(lease.id);
+        if (task?.billingMode === "official-usage") {
+            const result = await recoverPricedTextTaskStep(task);
+            const refunded = result?.state === "failed";
+            await releaseGenerationTaskLease(
+                "text",
+                lease.id,
+                workerId,
+                {
+                    executionPhase: refunded ? "completed" : "needs_review",
+                    nextPollAt: undefined,
+                    lastUpstreamStatus: refunded ? "cancelled_refunded" : "cancelled_metering_unknown",
+                    resultPayload: reviewPayload(lease, result && "error" in result ? result.error : "原文本计费结果待核对"),
+                },
+                { cancellation: true },
+            );
+            return refunded ? "completed" : "needs_review";
+        }
+    }
     const target = await cancelledTaskTarget(lease);
     if (!target) {
         await releaseGenerationTaskLease(lease.type, lease.id, workerId, { executionPhase: "completed", nextPollAt: undefined, lastUpstreamStatus: "cancelled_task_missing" }, { cancellation: true });
@@ -320,7 +399,7 @@ async function processTextLease(lease: GenerationTaskLease, workerId: string, or
         await releaseGenerationTaskLease("text", lease.id, workerId, { executionPhase: "completed", nextPollAt: undefined });
         return task?.status === "success" ? "completed" : "failed";
     }
-    if (lease.executionPhase === "submitting" && task.status === "running" && !task.upstream?.id) {
+    if (lease.executionPhase === "submitting" && task.status === "running" && !task.upstream?.id && task.billingMode !== "official-usage") {
         await releaseGenerationTaskLease("text", lease.id, workerId, {
             executionPhase: "needs_review",
             nextPollAt: undefined,
@@ -419,6 +498,16 @@ async function processImageLease(lease: GenerationTaskLease, workerId: string, o
         await releaseGenerationTaskLease("image", lease.id, workerId, { executionPhase: "completed", nextPollAt: undefined });
         return "completed";
     }
+    if (task.status === "error" && task.billingMode === "official-usage") {
+        const refunded = await refundPricedImageTask(task);
+        await releaseGenerationTaskLease("image", task.id, workerId, {
+            executionPhase: refunded ? "completed" : "needs_review",
+            nextPollAt: undefined,
+            lastUpstreamStatus: refunded ? "failed_refunded" : "failed_metering_unknown",
+            resultPayload: reviewPayload(lease, "原图片计费结果待核对"),
+        });
+        return refunded ? "failed" : "needs_review";
+    }
     if (!task.upstream?.id && lease.upstreamTaskId) {
         const providerBase = task.config.baseUrl.startsWith("/") ? new URL(task.config.baseUrl, origin).toString() : task.config.baseUrl;
         const restored = await updateImageTask(task.id, {
@@ -440,7 +529,7 @@ async function processImageLease(lease: GenerationTaskLease, workerId: string, o
         }
         task = restored;
     }
-    if (lease.executionPhase === "submitting" && !lease.upstreamTaskId && task.status === "running") {
+    if (lease.executionPhase === "submitting" && !lease.upstreamTaskId && task.status === "running" && task.billingMode !== "official-usage") {
         if (task.upstream?.id) {
             const submittedAt = lease.submittedAt || Date.now();
             await releaseGenerationTaskLease("image", lease.id, workerId, {
@@ -589,8 +678,13 @@ async function persistImageLease(task: ImageTask, lease: GenerationTaskLease, wo
     try {
         const completed = await persistImageTaskResult(task, origin, resultUrl, cookie, cookie ? "" : task.userId);
         if (completed?.status === "error") {
-            await releaseGenerationTaskLease("image", task.id, workerId, { executionPhase: "completed", nextPollAt: undefined, lastUpstreamStatus: "transparent_output_invalid" });
-            return "failed";
+            const pendingBilling = completed.billingMode === "official-usage" && completed.billingPending;
+            await releaseGenerationTaskLease("image", task.id, workerId, {
+                executionPhase: pendingBilling ? "needs_review" : "completed",
+                nextPollAt: undefined,
+                lastUpstreamStatus: pendingBilling ? "failed_metering_unknown" : "transparent_output_invalid",
+            });
+            return pendingBilling ? "needs_review" : "failed";
         }
         if (!completed || completed.status !== "success") throw new Error("图片结果保存后未进入成功状态");
         await releaseGenerationTaskLease("image", task.id, workerId, { executionPhase: "completed", nextPollAt: undefined, lastUpstreamStatus: "persisted" });
@@ -625,7 +719,7 @@ async function processAudioLease(lease: GenerationTaskLease, workerId: string, o
         await releaseGenerationTaskLease("audio", lease.id, workerId, { executionPhase: "completed", nextPollAt: undefined });
         return "completed";
     }
-    if (lease.executionPhase === "submitting" && !lease.upstreamTaskId && task.status === "running") {
+    if (lease.executionPhase === "submitting" && !lease.upstreamTaskId && task.status === "running" && task.billingMode !== "official-usage") {
         if (task.upstream?.id) {
             const submittedAt = lease.submittedAt || Date.now();
             await releaseGenerationTaskLease("audio", lease.id, workerId, {
@@ -652,6 +746,10 @@ async function processAudioLease(lease: GenerationTaskLease, workerId: string, o
     try {
         const step = task.upstream?.id ? await queryAudioTaskUpstreamStep(task, origin, cookie, cookie ? "" : task.userId) : await createAudioTaskUpstreamStep(task, origin, cookie, cookie ? "" : task.userId);
         const now = Date.now();
+        if (step.state === "needs_review") {
+            await releaseGenerationTaskLease("audio", task.id, workerId, { executionPhase: "needs_review", nextPollAt: undefined, lastPollAt: now, lastUpstreamStatus: "audio_pricing_pending", resultPayload: reviewPayload(lease, step.reason) });
+            return "needs_review";
+        }
         if (step.state === "failed") {
             await markAudioTaskFailed(task, step.error);
             await releaseGenerationTaskLease("audio", task.id, workerId, { executionPhase: "completed", nextPollAt: undefined, lastPollAt: now, lastUpstreamStatus: step.status });
@@ -764,12 +862,12 @@ async function persistAudioLease(task: AudioTask, lease: GenerationTaskLease, wo
 }
 
 async function processVideoLease(lease: GenerationTaskLease, workerId: string, origin: string, cookie: string, userRequested: boolean): Promise<RecoveryResult> {
-    const task = await getVideoTask(lease.id);
+    let task = await getVideoTask(lease.id);
     if (!task || task.status === "success" || task.status === "cancelled") {
         await releaseGenerationTaskLease("video", lease.id, workerId, { executionPhase: "completed", nextPollAt: undefined });
         return "completed";
     }
-    if (lease.executionPhase === "submitting" && !lease.upstreamTaskId) {
+    if (lease.executionPhase === "submitting" && !lease.upstreamTaskId && task.billingMode !== "official-usage") {
         if (task.upstream.id) {
             const submittedAt = lease.submittedAt || Date.now();
             await releaseGenerationTaskLease("video", lease.id, workerId, {
@@ -787,11 +885,31 @@ async function processVideoLease(lease: GenerationTaskLease, workerId: string, o
         await releaseGenerationTaskLease("video", lease.id, workerId, { executionPhase: "needs_review", nextPollAt: undefined, lastUpstreamStatus: "submission_outcome_unknown" });
         return "needs_review";
     }
+    if (task.billingMode === "official-usage" && task.creation && !task.upstream.id) {
+        try {
+            await createPricedVideoUpstream(task.id, task.userId, origin, cookie || maintenanceWorkerContext(task.userId));
+            task = (await getVideoTask(task.id))!;
+            const latestSchedule = await getStoredGenerationTaskRecord("video", task.id);
+            lease = { ...lease, submittedAt: latestSchedule?.submittedAt || lease.submittedAt };
+        } catch (error) {
+            if (error instanceof GenerationSubmissionSafeFailure) {
+                await failVideoTaskFromWorker(task, error.message, true);
+                await releaseGenerationTaskLease("video", task.id, workerId, { executionPhase: "completed", nextPollAt: undefined, lastUpstreamStatus: "not_submitted" });
+                return "failed";
+            }
+            await releaseGenerationTaskLease("video", task.id, workerId, { executionPhase: "needs_review", nextPollAt: undefined, lastUpstreamStatus: "submission_outcome_unknown", resultPayload: reviewPayload(lease, videoPricingPendingMessage) });
+            return "needs_review";
+        }
+    }
     if (needsPersistence(lease)) return persistVideoLease(task, lease, workerId, origin, cookie, userRequested);
 
     try {
         const step = await queryVideoTaskUpstream(task, origin, cookie, cookie ? "" : task.userId);
         const now = Date.now();
+        if (step.state === "needs_review") {
+            await releaseGenerationTaskLease("video", task.id, workerId, { executionPhase: "needs_review", nextPollAt: undefined, lastPollAt: now, lastUpstreamStatus: step.status, resultPayload: reviewPayload(lease, step.reason) });
+            return "needs_review";
+        }
         if (step.state === "failed") {
             await failVideoTaskFromWorker(task, step.error, true);
             await releaseGenerationTaskLease("video", task.id, workerId, { executionPhase: "completed", nextPollAt: undefined, lastPollAt: now, lastUpstreamStatus: step.status });

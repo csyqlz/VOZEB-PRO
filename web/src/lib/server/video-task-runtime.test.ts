@@ -30,7 +30,7 @@ vi.mock("@/lib/server/video-task-store", () => ({
 }));
 vi.mock("@/lib/server/generation-media-authorization", () => ({ generationMediaProxyHeaders: vi.fn(() => ({ "x-media-auth": "signed" })) }));
 
-import { queryVideoTaskUpstream, refreshVideoTaskFromUpstream } from "./video-task-runtime";
+import { persistVideoTaskResult, queryVideoTaskUpstream, refreshVideoTaskFromUpstream } from "./video-task-runtime";
 import type { VideoTask } from "./video-task-store";
 import { createProtocolFixtureServer } from "../../../scripts/protocol-fixture-server.mjs";
 
@@ -60,6 +60,23 @@ describe("video task upstream reconciliation", () => {
         expect(headers.get("authorization")).toBe(`Bearer ${token}`);
         expect(headers.get("x-vozeb-pro-worker-user-id")).toBe(task.userId);
         expect(headers.has("cookie")).toBe(false);
+    });
+
+    it("includes the model when saving a relative Grok video through the system proxy", async () => {
+        const task = videoTask({ config: { ...videoTask().config, model: "grok-imagine-video-1.5" } });
+        const completed = { ...task, status: "success" as const, result: { url: "/api/reference-assets/result.mp4", mimeType: "video/mp4" } };
+        vi.stubEnv("VOZEB_PRO_MAINTENANCE_TOKEN", "maintenance-token-for-video-result-test");
+        vi.stubEnv("VOZEB_PRO_WORKER_TOKEN", "worker-token-for-video-result-test-123");
+        mocks.get.mockResolvedValue(task);
+        mocks.complete.mockResolvedValue(completed);
+
+        await expect(persistVideoTaskResult(task, `/v1/videos/${task.upstream.id}/content`, "http://localhost", "", task.userId)).resolves.toEqual(completed);
+
+        const input = mocks.normalize.mock.calls[0]?.[0] as { url: string; internalHeaders: Headers };
+        expect(input.url).toBe(`${task.config.baseUrl}/v1/videos/${task.upstream.id}/content`);
+        const headers = new Headers(input.internalHeaders);
+        expect(headers.get("x-vozeb-pro-upstream-model")).toBe(task.config.model);
+        expect(headers.get("x-vozeb-pro-worker-user-id")).toBe(task.userId);
     });
 
     it("recovers a locally timed-out task after the provider later returns a video", async () => {

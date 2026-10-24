@@ -21,12 +21,14 @@ services:
   app:
     image: vozeb-pro:local
     build:
-      context: .
+      context: ${VOZEB_PRO_BUILD_CONTEXT:-.}
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}
     env_file:
       - .env
     ports:
-      - "3000:3000"
+      - "${VOZEB_PRO_APP_BIND:-0.0.0.0}:3000:3000"
     volumes:
       - vozeb-pro-data:/app/web/.data
     environment:
@@ -38,7 +40,7 @@ services:
       VOZEB_PRO_DATABASE_POOL_MAX: ${VOZEB_PRO_DATABASE_POOL_MAX:-10}
       VOZEB_PRO_DATABASE_SSL: "0"
       VOZEB_PRO_ENCRYPTION_KEY: ${VOZEB_PRO_ENCRYPTION_KEY:?请在 .env 中配置 VOZEB_PRO_ENCRYPTION_KEY}
-      VOZEB_PRO_INSTALL_TOKEN: ${VOZEB_PRO_INSTALL_TOKEN:?请在 .env 中配置至少 32 位一次性安装令牌}
+      VOZEB_PRO_INSTALL_TOKEN: ${VOZEB_PRO_INSTALL_TOKEN-}
       VOZEB_PRO_MAINTENANCE_TOKEN: ${VOZEB_PRO_MAINTENANCE_TOKEN:?请在 .env 中配置至少 32 位维护令牌}
       VOZEB_PRO_WORKER_TOKEN: ${VOZEB_PRO_WORKER_TOKEN:?请在 .env 中配置独立的至少 32 位 Worker 令牌}
     depends_on:

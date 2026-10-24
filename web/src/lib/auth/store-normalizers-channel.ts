@@ -1,9 +1,39 @@
 import { safeProtocolDocumentationUrl } from "@/lib/channel-protocol-security";
+import { validChannelPathPrefix } from "@/lib/channel-path-prefix";
 import { isGlobalAiOpcPreset } from "@/lib/globalaiopc-catalog";
 
 import type { LogicalModelCapability, SystemChannelAdvancedConfig, SystemChannelProtocol } from "./store-types";
 
-const CHANNEL_PROTOCOLS: SystemChannelProtocol[] = ["auto", "openai", "yumeng", "gemini", "sub2api", "newapi", "vozeb-recommended", "globalaiopc", "seedance", "stable-diffusion", "volcengine-video", "seedance-special", "custom", "compatible"];
+const CHANNEL_PROTOCOLS: SystemChannelProtocol[] = [
+    "auto",
+    "openai",
+    "yumeng",
+    "gemini",
+    "dataeyes-gemini",
+    "dataeyes-flux",
+    "dataeyes-seedream",
+    "sub2api",
+    "sub2api-grok",
+    "newapi",
+    "zai-glm",
+    "alibaba-bailian",
+    "bfl",
+    "kling",
+    "vidu",
+    "minimax",
+    "anthropic",
+    "xai",
+    "vozeb-recommended",
+    "globalaiopc",
+    "seedance",
+    "dataeyes-seedance",
+    "stable-diffusion",
+    "volcengine-image",
+    "volcengine-video",
+    "seedance-special",
+    "custom",
+    "compatible",
+];
 
 export function normalizeSystemChannelAdvancedConfig(config: Partial<SystemChannelAdvancedConfig> | undefined): SystemChannelAdvancedConfig | undefined {
     if (!config || typeof config !== "object") return undefined;
@@ -16,6 +46,10 @@ export function normalizeSystemChannelAdvancedConfig(config: Partial<SystemChann
     const modelCatalogPaths = Array.from(new Set((Array.isArray(config.modelCatalogPaths) ? config.modelCatalogPaths : []).map(normalizeApiPath).filter(Boolean))).slice(0, 12);
     return {
         protocol,
+        ...(validChannelPathPrefix(config.pathPrefix) && config.pathPrefix ? { pathPrefix: config.pathPrefix } : {}),
+        ...(config.channelAuthMode === "none" || config.channelAuthMode === "bearer" || config.channelAuthMode === "x-api-key" || config.channelAuthMode === "custom-header" ? { channelAuthMode: config.channelAuthMode } : {}),
+        ...(textOrEmpty(config.channelAuthHeader, 120) ? { channelAuthHeader: textOrEmpty(config.channelAuthHeader, 120) } : {}),
+        ...(textOrEmpty(config.channelAuthPrefix, 120) ? { channelAuthPrefix: textOrEmpty(config.channelAuthPrefix, 120) } : {}),
         ...(config.authMode === "none" || config.authMode === "bearer" || config.authMode === "x-api-key" || config.authMode === "custom-header" ? { authMode: config.authMode } : {}),
         ...(textOrEmpty(config.authHeader, 120) ? { authHeader: textOrEmpty(config.authHeader, 120) } : {}),
         ...(textOrEmpty(config.authPrefix, 120) ? { authPrefix: textOrEmpty(config.authPrefix, 120) } : {}),
@@ -45,6 +79,18 @@ export function normalizeSystemChannelAdvancedConfig(config: Partial<SystemChann
         ...(normalizeStreamingConfig(config.streaming) ? { streaming: normalizeStreamingConfig(config.streaming) } : {}),
         ...(normalizePositiveInteger(config.contextWindowTokens) ? { contextWindowTokens: normalizePositiveInteger(config.contextWindowTokens) } : {}),
         ...(modelCatalogPaths.length ? { modelCatalogPaths } : {}),
+        ...(Array.isArray(config.providerModels)
+            ? {
+                  providerModels: Array.from(
+                      new Set(
+                          config.providerModels
+                              .filter((model): model is string => typeof model === "string")
+                              .map((model) => model.trim())
+                              .filter(Boolean),
+                      ),
+                  ),
+              }
+            : {}),
         ...(Object.keys(modelCapabilities).length ? { modelCapabilities } : {}),
         ...(Object.keys(modelConfigs).length ? { modelConfigs } : {}),
         ...(Object.keys(operationConfigs).length ? { operationConfigs } : {}),

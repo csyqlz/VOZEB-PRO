@@ -5,6 +5,8 @@ import { RefreshCw } from "lucide-react";
 
 import { SystemChannelEditor } from "@/components/admin/admin-system-channel-editor";
 import type { SystemModelChannel } from "@/lib/auth/store";
+import { currentChannelModels, isDataEyesCatalogUrl } from "@/lib/channel-model-availability";
+import { normalizeModelId } from "@/lib/model-capability";
 import { channelProtocolDefinition, channelRequiresApiKey, channelSupportsModelCatalog } from "@/lib/channel-protocol-registry";
 import { capabilityLabel, channelModelCapability } from "@/lib/model-routing-config";
 
@@ -25,6 +27,7 @@ type Props = {
 export function AdminChannelDetailDrawer({ open, channel, settings, fetching, onClose, onChange, onDelete, onFetchModels }: Props) {
     if (!channel) return null;
     const status = channelWorkspaceStatus(channel);
+    const currentModels = currentChannelModels(channel);
     return (
         <Drawer title={channel.name || "渠道详情"} size={720} styles={{ wrapper: { maxWidth: "100vw" } }} open={open} destroyOnHidden onClose={onClose}>
             <Tabs
@@ -49,7 +52,7 @@ export function AdminChannelDetailDrawer({ open, channel, settings, fetching, on
                             />
                         ),
                     },
-                    { key: "models", label: `上游模型 ${channel.models.length}`, children: <ChannelModels channel={channel} /> },
+                    { key: "models", label: `上游模型 ${currentModels.length}`, children: <ChannelModels channel={channel} /> },
                 ]}
             />
         </Drawer>
@@ -59,6 +62,8 @@ export function AdminChannelDetailDrawer({ open, channel, settings, fetching, on
 function ChannelOverview({ channel, settings, status, onFetchModels, fetching }: { channel: SystemModelChannel; settings: ChannelWorkspaceSettings; status: ReturnType<typeof channelWorkspaceStatus>; onFetchModels: () => void; fetching: boolean }) {
     const capabilities = channelCapabilityLabels(channel);
     const canSync = channelSupportsModelCatalog(channel);
+    const currentCount = currentChannelModels(channel).length;
+    const hasProviderSnapshot = isDataEyesCatalogUrl(channel.baseUrl) && Array.isArray(channel.advancedConfig?.providerModels);
     return (
         <div className="space-y-5">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-200 pb-4 dark:border-stone-800">
@@ -81,9 +86,11 @@ function ChannelOverview({ channel, settings, status, onFetchModels, fetching }:
             </div>
             <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
                 <OverviewValue label="Base URL" value={channel.baseUrl || "未配置"} />
+                <OverviewValue label="渠道前缀" value={channel.advancedConfig?.pathPrefix || "无（官方原路径）"} />
                 <OverviewValue label="凭据" value={channelRequiresApiKey(channel) ? (channel.apiKey || channel.hasApiKey ? "已安全保存" : "未配置") : "无需凭据"} />
                 <OverviewValue label="协议" value={channelProtocolLabel(channel)} />
-                <OverviewValue label="上游模型" value={`${channel.models.length} 个`} />
+                <OverviewValue label={hasProviderSnapshot ? "当前密钥可用模型" : "上游模型"} value={`${currentCount} 个`} />
+                {hasProviderSnapshot ? <OverviewValue label="本地保留的历史模型" value={`${channel.models.length - currentCount} 个（当前不参与调用）`} /> : null}
                 <OverviewValue label="逻辑绑定" value={`${channelBindingCount(channel.id, settings)} 个`} />
                 <OverviewValue label="验证方式" value="用户工作台真实调用" />
             </div>
@@ -108,14 +115,36 @@ function ChannelOverview({ channel, settings, status, onFetchModels, fetching }:
 }
 
 function ChannelModels({ channel }: { channel: SystemModelChannel }) {
+    const currentModels = currentChannelModels(channel);
+    const currentKeys = new Set(currentModels.map(normalizeModelId));
+    const retainedModels = channel.models.filter((model) => !currentKeys.has(normalizeModelId(model)));
     return (
-        <div className="divide-y divide-stone-200 border-y border-stone-200 dark:divide-stone-800 dark:border-stone-800">
-            {channel.models.map((model) => (
-                <div key={model} className="flex min-w-0 items-center justify-between gap-3 py-3">
-                    <span className="min-w-0 truncate text-sm font-medium text-stone-950 dark:text-stone-100">{model}</span>
-                    <Tag className="m-0">{capabilityLabel(channelModelCapability(channel, model))}</Tag>
+        <div>
+            {retainedModels.length ? (
+                <p className="mb-3 text-xs text-stone-500 dark:text-stone-400">
+                    当前密钥返回 {currentModels.length} 个模型；另有 {retainedModels.length} 个本地历史模型仅保留配置与引用，不参与新调用。
+                </p>
+            ) : null}
+            <div className="divide-y divide-stone-200 border-y border-stone-200 dark:divide-stone-800 dark:border-stone-800">
+                {currentModels.map((model) => (
+                    <div key={model} className="flex min-w-0 items-center justify-between gap-3 py-3">
+                        <span className="min-w-0 truncate text-sm font-medium text-stone-950 dark:text-stone-100">{model}</span>
+                        <Tag className="m-0">{capabilityLabel(channelModelCapability(channel, model))}</Tag>
+                    </div>
+                ))}
+            </div>
+            {retainedModels.length ? (
+                <div className="mt-5">
+                    <div className="mb-1 text-sm font-semibold text-stone-700 dark:text-stone-300">本地保留 · 当前密钥未返回</div>
+                    <div className="divide-y divide-stone-200 border-y border-stone-200 dark:divide-stone-800 dark:border-stone-800">
+                        {retainedModels.map((model) => (
+                            <div key={model} className="py-2.5 text-sm text-stone-500 dark:text-stone-400">
+                                {model}
+                            </div>
+                        ))}
+                    </div>
                 </div>
-            ))}
+            ) : null}
             {!channel.models.length ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有上游模型" /> : null}
         </div>
     );

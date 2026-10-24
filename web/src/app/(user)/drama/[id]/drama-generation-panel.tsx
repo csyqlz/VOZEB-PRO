@@ -6,6 +6,7 @@ import { ArrowRight, Captions, CircleAlert, CircleCheck, CircleDashed, Download,
 import { useRouter } from "next/navigation";
 
 import { createAgentPromptHref } from "@/lib/create-agent-prompt";
+import { formatCreditAmount } from "@/constant/credits";
 import { compileDramaShotPrompts } from "@/lib/drama-prompt-compiler";
 import { mediaDownloadFileName } from "@/lib/media-file";
 import { originalMediaDownloadUrl } from "@/lib/media-image-url";
@@ -32,7 +33,8 @@ export function DramaGenerationPanel({ project, episode, onStageChange, onOpenAs
     const updateShot = useDramaStore((state) => state.updateShot);
     const queueShots = useDramaStore((state) => state.queueShots);
     const queueAudio = useDramaStore((state) => state.queueAudio);
-    const [costSummary, setCostSummary] = useState<DramaCostSummary | null>(null);
+    const [billingState, setBillingState] = useState<{ projectId: string; summary: DramaCostSummary } | null>(null);
+    const costSummary = billingState?.projectId === project.id ? billingState.summary : null;
     const [renderReady, setRenderReady] = useState<boolean | null>(null);
     const [reviewingVisuals, setReviewingVisuals] = useState(false);
     const [jianyingOpen, setJianyingOpen] = useState(false);
@@ -70,9 +72,10 @@ export function DramaGenerationPanel({ project, episode, onStageChange, onOpenAs
 
     useEffect(() => {
         let active = true;
+        setBillingState(null);
         void getDramaProjectCosts(project.id)
-            .then((value) => active && setCostSummary(value))
-            .catch(() => active && setCostSummary(null));
+            .then((value) => active && setBillingState({ projectId: project.id, summary: value }))
+            .catch(() => active && setBillingState(null));
         return () => {
             active = false;
         };
@@ -259,13 +262,52 @@ export function DramaGenerationPanel({ project, episode, onStageChange, onOpenAs
                               { label: "镜头", value: `${readiness.completedVideoCount}/${readiness.totalShots}` },
                               { label: "配音", value: readiness.voiceoverShotIds.length ? `${readiness.completedAudioCount}/${readiness.voiceoverShotIds.length}` : "无需" },
                               { label: "预计", value: `${estimateEpisodePoints(config, project, episode.shots)} 积分` },
-                              { label: "实际", value: `${costSummary?.actualPoints || 0} 积分` },
+                              { label: "项目已结", value: `${formatCreditAmount(costSummary?.actualPoints || 0)} 积分` },
+                              ...(costSummary?.pendingHeldPoints ? [{ label: "未结预留", value: `${formatCreditAmount(costSummary.pendingHeldPoints)} 积分` }] : []),
                               { label: "任务", value: costSummary?.taskCount || 0 },
                           ]
                         : []
                 }
                 action={primaryAction}
             />
+
+            {costSummary && (costSummary.charges.length || costSummary.pending.length) ? (
+                <details className="mt-3 rounded-xl border border-border bg-card p-3 text-xs" data-drama-project-billing>
+                    <summary className="cursor-pointer font-medium">
+                        项目费用明细 · 已结 {formatCreditAmount(costSummary.actualPoints)} 积分{costSummary.pending.length ? ` · 未结预留 ${formatCreditAmount(costSummary.pendingHeldPoints)} 积分` : ""}
+                    </summary>
+                    <div className="mt-3 space-y-3 border-t border-border pt-3">
+                        {costSummary.charges.length ? (
+                            <ul className="space-y-1.5" aria-label="已结费用">
+                                {costSummary.charges.map((charge, index) => (
+                                    <li key={`${charge.type}:${charge.purpose}:${charge.logicalModelId || ""}:${index}`} className="flex flex-wrap justify-between gap-x-3 gap-y-1">
+                                        <span className="min-w-0 break-words">
+                                            {charge.logicalModelId || "模型未记录"} · {{ text: "文本", image: "图片", video: "视频", audio: "音频" }[charge.type]} ·{" "}
+                                            {{ generation: "生成", planning: "规划", review: "复盘", analysis: "分析" }[charge.purpose]}
+                                        </span>
+                                        <span className="shrink-0 tabular-nums">
+                                            已扣 {formatCreditAmount(charge.chargedPoints)} · 已退 {formatCreditAmount(charge.refundedPoints)} · 净额 {formatCreditAmount(charge.actualPoints)} 积分
+                                        </span>
+                                    </li>
+                                ))}
+                            </ul>
+                        ) : null}
+                        {costSummary.pending.length ? (
+                            <ul className="space-y-1.5 border-t border-border pt-3" aria-label="未结预留">
+                                {costSummary.pending.map((hold, index) => (
+                                    <li key={`${hold.type}:${hold.logicalModelId}:${index}`} className="flex flex-wrap justify-between gap-x-3 gap-y-1">
+                                        <span className="min-w-0 break-words">
+                                            {hold.logicalModelId} · {{ text: "文本", image: "图片", video: "视频", audio: "音频" }[hold.type]} × {hold.count}
+                                        </span>
+                                        <span className="shrink-0 tabular-nums">{formatCreditAmount(hold.heldPoints)} 积分</span>
+                                    </li>
+                                ))}
+                            </ul>
+                        ) : null}
+                        <p className="text-muted-foreground">未结预留不计入已结净额。</p>
+                    </div>
+                </details>
+            ) : null}
 
             {readiness.totalShots ? (
                 <div className="mt-3 flex items-center gap-3" aria-label="镜头完成进度">

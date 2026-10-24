@@ -17,6 +17,7 @@ import { AdminMfaPanel } from "./admin-mfa-panel";
 import { LoginSecurityPanel } from "./login-security-panel";
 import { CouponWalletSection } from "./profile-coupon-wallet";
 import { ProfileReferralCenter } from "./profile-referral-center";
+import { ProfilePricingWallet } from "./profile-pricing-wallet";
 
 import {
     ProfileSectionKey,
@@ -56,6 +57,7 @@ export default function ProfilePage() {
     const [sendingCode, setSendingCode] = useState(false);
     const [savingPassword, setSavingPassword] = useState(false);
     const [exportingData, setExportingData] = useState(false);
+    const [pricingRefreshVersion, setPricingRefreshVersion] = useState(0);
     const { products, coupons, orders, points, consumption, loading: accountLoading, refresh: refreshAccount } = useProfileData(activeSection);
 
     const boundEmail = user?.email || "";
@@ -182,7 +184,16 @@ export default function ProfilePage() {
                         <p className="mt-2 hidden max-w-2xl text-sm leading-6 text-stone-500 sm:block dark:text-stone-400">个人资料、套餐优惠、订单记录、消费记录和积分流水统一放在一个用户后台里。</p>
                     </div>
                     <div className="flex shrink-0 gap-2">
-                        <Button size="small" className={profileSecondaryButtonClass} icon={<RefreshCw className="size-3.5 sm:size-4" />} loading={accountLoading} onClick={() => void refreshAccount()}>
+                        <Button
+                            size="small"
+                            className={profileSecondaryButtonClass}
+                            icon={<RefreshCw className="size-3.5 sm:size-4" />}
+                            loading={accountLoading}
+                            onClick={() => {
+                                setPricingRefreshVersion((value) => value + 1);
+                                void refreshAccount();
+                            }}
+                        >
                             <span className="sm:hidden">刷新</span>
                             <span className="hidden sm:inline">刷新记录</span>
                         </Button>
@@ -282,18 +293,21 @@ export default function ProfilePage() {
                         ) : null}
 
                         {activeSection === "points" ? (
-                            <AccountPanel title="积分记录" description="每日积分、充值赠送、管理员调整和失败退回都会出现在这里。">
-                                {points.loading ? (
-                                    <LoadingBlock />
-                                ) : points.items.length ? (
-                                    <>
-                                        <RecordList records={points.items} />
-                                        {points.total > RECORD_PAGE_SIZE ? <Pagination size="small" current={points.page} pageSize={RECORD_PAGE_SIZE} total={points.total} showSizeChanger={false} onChange={points.setPage} /> : null}
-                                    </>
-                                ) : (
-                                    <CompactEmptyState title="暂无积分记录" description="积分变化会按时间记录在这里。" />
-                                )}
-                            </AccountPanel>
+                            <>
+                                {user ? <ProfilePricingWallet key={user.id} refreshVersion={pricingRefreshVersion} /> : null}
+                                <AccountPanel title="积分记录" description="每日积分、充值赠送、管理员调整和失败退回都会出现在这里。">
+                                    {points.loading ? (
+                                        <LoadingBlock />
+                                    ) : points.items.length ? (
+                                        <>
+                                            <RecordList records={points.items} />
+                                            {points.total > RECORD_PAGE_SIZE ? <Pagination size="small" current={points.page} pageSize={RECORD_PAGE_SIZE} total={points.total} showSizeChanger={false} onChange={points.setPage} /> : null}
+                                        </>
+                                    ) : (
+                                        <CompactEmptyState title="暂无积分记录" description="积分变化会按时间记录在这里。" />
+                                    )}
+                                </AccountPanel>
+                            </>
                         ) : null}
 
                         {activeSection === "security" ? (

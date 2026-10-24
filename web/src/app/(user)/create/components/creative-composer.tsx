@@ -5,7 +5,7 @@ import type { TextAreaRef } from "antd/es/input/TextArea";
 import { ArrowUp, AtSign, Boxes, Check, ChevronDown, ChevronLeft, ChevronRight, FileAudio, FileVideo, ImageIcon, Plus, Sparkles, Square, WandSparkles, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type MouseEventHandler, type PointerEventHandler, type RefObject, type WheelEvent } from "react";
 
-import type { CreativeAsset, CreativeGenerationMode, CreativeGenerationPreferences } from "@/lib/creative-runtime-contract";
+import type { CreativeAsset, CreativeCreationMode, CreativeGenerationPreferences } from "@/lib/creative-runtime-contract";
 import { creativeAssetReferenceAliases } from "@/lib/creative-asset-references";
 import { clipboardImageFiles } from "@/lib/clipboard-image-files";
 import { imagePreviewUrl } from "@/lib/media-image-url";
@@ -89,7 +89,7 @@ export function CreativeComposer({
     models: CreativeModelOption[];
     selectedModels: CreativeModelOption[];
     smartPlanning: boolean;
-    creationMode: "agent" | CreativeGenerationMode;
+    creationMode: CreativeCreationMode;
     generationPreferences: CreativeGenerationPreferences;
     uploading: boolean;
     onRemoveAttachment: (id: string) => void;
@@ -99,7 +99,7 @@ export function CreativeComposer({
     onToggleModel: (model: CreativeModelOption) => void;
     onClearModels: () => void;
     onToggleSmartPlanning: () => void;
-    onChangeCreationMode: (mode: "agent" | CreativeGenerationMode) => void;
+    onChangeCreationMode: (mode: CreativeCreationMode) => void;
     onChangeGenerationCapability: (capability: CreativeModelOption["capability"]) => void;
     onChangeGenerationPreference: (capability: CreativeModelOption["capability"], patch: Record<string, string | number | boolean>) => void;
     onSelectVideoFrame: (role: Extract<VideoReferenceRole, "first_frame" | "last_frame">, assetId: string) => void;
@@ -130,6 +130,7 @@ export function CreativeComposer({
     const mentionCandidates = useMemo(() => creativeAssetMentionCandidates(referenceAssets, mentionQuery || ""), [mentionQuery, referenceAssets]);
     const referenceAliasAssets = useMemo(() => Array.from(new Map([...referenceAssets, ...attachments].map((asset) => [asset.id, asset])).values()), [attachments, referenceAssets]);
     const referenceAssetsById = useMemo(() => new Map(referenceAliasAssets.map((asset) => [asset.id, asset])), [referenceAliasAssets]);
+    const hasImageReferences = attachments.some((asset) => asset.type === "image") || selectedAssetIds.some((id) => referenceAssetsById.get(id)?.type === "image");
     const referenceAliases = useMemo(() => creativeAssetReferenceAliases(referenceAliasAssets, selectedAssetIds), [referenceAliasAssets, selectedAssetIds]);
     const mentionSegments = useMemo(() => creativeAssetMentionSegments(value, referenceAliases), [referenceAliases, value]);
     const hasMentionReferences = mentionSegments.some((segment) => segment.referenced);
@@ -213,7 +214,7 @@ export function CreativeComposer({
                         "creative-composer-input relative z-[1] min-w-0 !border-0 !bg-transparent !px-1 !py-1 !text-[15px] !leading-7 !shadow-none !outline-none sm:!px-2",
                         hasMentionReferences && "!text-transparent caret-[#20242a] dark:caret-[#f3f5f7]",
                     )}
-                    placeholder={compactMode ? "输入你的创作想法" : "输入你的创作想法、脚本或画面要求"}
+                    placeholder={creationMode === "text" ? "提问，或上传截图进行解读" : compactMode ? "输入你的创作想法" : "输入你的创作想法、脚本或画面要求"}
                     onFocus={() => {
                         if (compactMode) onExpand?.();
                     }}
@@ -463,19 +464,24 @@ export function CreativeComposer({
                                 <ChevronDown className="hidden size-3.5 sm:block" />
                             </Button>
                         </Popover>
-                        <CreativeGenerationControls
-                            models={models}
-                            selectedModels={selectedModels}
-                            smartPlanning={smartPlanning}
-                            creationMode={creationMode}
-                            generationPreferences={generationPreferences}
-                            placement={composerPopoverPlacement}
-                            onToggleModel={onToggleModel}
-                            onClearModels={onClearModels}
-                            onToggleSmartPlanning={onToggleSmartPlanning}
-                            onCapabilityChange={onChangeGenerationCapability}
-                            onChangeGenerationPreference={onChangeGenerationPreference}
-                        />
+                        {creationMode === "text" ? (
+                            <span className="px-2 text-xs text-[#66717e] dark:text-[#a3acb7]">默认文本模型</span>
+                        ) : (
+                            <CreativeGenerationControls
+                                models={models}
+                                selectedModels={selectedModels}
+                                smartPlanning={smartPlanning}
+                                creationMode={creationMode}
+                                generationPreferences={generationPreferences}
+                                hasImageReferences={hasImageReferences}
+                                placement={composerPopoverPlacement}
+                                onToggleModel={onToggleModel}
+                                onClearModels={onClearModels}
+                                onToggleSmartPlanning={onToggleSmartPlanning}
+                                onCapabilityChange={onChangeGenerationCapability}
+                                onChangeGenerationPreference={onChangeGenerationPreference}
+                            />
+                        )}
                         <Tooltip title="引用当前对话资产">
                             <Button
                                 type="text"
@@ -488,104 +494,106 @@ export function CreativeComposer({
                                 <span className="hidden text-xs font-medium sm:inline">引用</span>
                             </Button>
                         </Tooltip>
-                        <Popover
-                            trigger="click"
-                            placement={composerPopoverPlacement}
-                            autoAdjustOverflow={creativeComposerPopoverOverflow(composerPopoverPlacement)}
-                            arrow={false}
-                            open={skillPickerOpen}
-                            onOpenChange={setSkillPickerOpen}
-                            content={
-                                <div className="w-[calc(100vw-56px)] max-w-[300px] py-1 sm:w-80 sm:max-w-none">
-                                    <p className="px-2 pb-2 text-sm font-semibold text-[#20242a] dark:text-[#f3f5f7]">选择创作 Skill</p>
-                                    {skillsLoading ? <p className="px-2 py-3 text-xs text-[#8b949f] dark:text-[#7f8996]">正在加载...</p> : null}
-                                    {!skillsLoading && !skills.length ? <p className="px-2 py-3 text-xs text-[#8b949f] dark:text-[#7f8996]">暂无可用 Skill</p> : null}
-                                    {skills.length ? (
-                                        <div className="mb-2 grid grid-cols-[28px_minmax(0,1fr)_28px] items-center gap-1">
-                                            <button
-                                                type="button"
-                                                className="grid size-7 place-items-center rounded-md text-[#7c8794] transition hover:bg-[#eef1f4] hover:text-[#20242a] disabled:cursor-default disabled:opacity-30 dark:text-[#929ca8] dark:hover:bg-[#292f37] dark:hover:text-white"
-                                                onClick={() => skillCategoryScrollRef.current?.scrollBy({ left: -180, behavior: "smooth" })}
-                                                aria-label="向左查看更多 Skill 分类"
-                                            >
-                                                <ChevronLeft className="size-4" />
-                                            </button>
-                                            <div
-                                                ref={skillCategoryScrollRef}
-                                                className="hide-scrollbar flex min-w-0 cursor-grab snap-x gap-1.5 overflow-x-auto overscroll-x-contain px-0.5 [touch-action:pan-x] active:cursor-grabbing"
-                                                onWheel={scrollHorizontalCategories}
-                                                {...skillCategoryDragScrollProps}
-                                                role="tablist"
-                                                aria-label="Skill 分类，可左右滑动查看更多"
-                                            >
-                                                {skillCategories.map((category) => (
-                                                    <button
-                                                        key={category.id}
-                                                        type="button"
-                                                        role="tab"
-                                                        aria-selected={skillCategory === category.id}
-                                                        className={cn(
-                                                            "h-8 min-w-[72px] shrink-0 snap-start whitespace-nowrap rounded-lg border px-3 text-xs font-medium transition",
-                                                            skillCategory === category.id
-                                                                ? "border-[#c9d7e2] bg-[#edf3f7] text-[#315d78] dark:border-[#466175] dark:bg-[#273742] dark:text-[#a8c8dc]"
-                                                                : "border-[#e0e4e8] bg-white text-[#66717e] hover:border-[#cbd2d9] hover:bg-[#f5f7f8] hover:text-[#20242a] dark:border-[#343a42] dark:bg-[#1d2127] dark:text-[#a3acb7] dark:hover:border-[#49515b] dark:hover:bg-[#292f37] dark:hover:text-white",
-                                                        )}
-                                                        onClick={() => setSkillCategory(category.id)}
-                                                    >
-                                                        {category.label} · {category.count}
-                                                    </button>
-                                                ))}
+                        {creationMode !== "text" ? (
+                            <Popover
+                                trigger="click"
+                                placement={composerPopoverPlacement}
+                                autoAdjustOverflow={creativeComposerPopoverOverflow(composerPopoverPlacement)}
+                                arrow={false}
+                                open={skillPickerOpen}
+                                onOpenChange={setSkillPickerOpen}
+                                content={
+                                    <div className="w-[calc(100vw-56px)] max-w-[300px] py-1 sm:w-80 sm:max-w-none">
+                                        <p className="px-2 pb-2 text-sm font-semibold text-[#20242a] dark:text-[#f3f5f7]">选择创作 Skill</p>
+                                        {skillsLoading ? <p className="px-2 py-3 text-xs text-[#8b949f] dark:text-[#7f8996]">正在加载...</p> : null}
+                                        {!skillsLoading && !skills.length ? <p className="px-2 py-3 text-xs text-[#8b949f] dark:text-[#7f8996]">暂无可用 Skill</p> : null}
+                                        {skills.length ? (
+                                            <div className="mb-2 grid grid-cols-[28px_minmax(0,1fr)_28px] items-center gap-1">
+                                                <button
+                                                    type="button"
+                                                    className="grid size-7 place-items-center rounded-md text-[#7c8794] transition hover:bg-[#eef1f4] hover:text-[#20242a] disabled:cursor-default disabled:opacity-30 dark:text-[#929ca8] dark:hover:bg-[#292f37] dark:hover:text-white"
+                                                    onClick={() => skillCategoryScrollRef.current?.scrollBy({ left: -180, behavior: "smooth" })}
+                                                    aria-label="向左查看更多 Skill 分类"
+                                                >
+                                                    <ChevronLeft className="size-4" />
+                                                </button>
+                                                <div
+                                                    ref={skillCategoryScrollRef}
+                                                    className="hide-scrollbar flex min-w-0 cursor-grab snap-x gap-1.5 overflow-x-auto overscroll-x-contain px-0.5 [touch-action:pan-x] active:cursor-grabbing"
+                                                    onWheel={scrollHorizontalCategories}
+                                                    {...skillCategoryDragScrollProps}
+                                                    role="tablist"
+                                                    aria-label="Skill 分类，可左右滑动查看更多"
+                                                >
+                                                    {skillCategories.map((category) => (
+                                                        <button
+                                                            key={category.id}
+                                                            type="button"
+                                                            role="tab"
+                                                            aria-selected={skillCategory === category.id}
+                                                            className={cn(
+                                                                "h-8 min-w-[72px] shrink-0 snap-start whitespace-nowrap rounded-lg border px-3 text-xs font-medium transition",
+                                                                skillCategory === category.id
+                                                                    ? "border-[#c9d7e2] bg-[#edf3f7] text-[#315d78] dark:border-[#466175] dark:bg-[#273742] dark:text-[#a8c8dc]"
+                                                                    : "border-[#e0e4e8] bg-white text-[#66717e] hover:border-[#cbd2d9] hover:bg-[#f5f7f8] hover:text-[#20242a] dark:border-[#343a42] dark:bg-[#1d2127] dark:text-[#a3acb7] dark:hover:border-[#49515b] dark:hover:bg-[#292f37] dark:hover:text-white",
+                                                            )}
+                                                            onClick={() => setSkillCategory(category.id)}
+                                                        >
+                                                            {category.label} · {category.count}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    className="grid size-7 place-items-center rounded-md text-[#7c8794] transition hover:bg-[#eef1f4] hover:text-[#20242a] dark:text-[#929ca8] dark:hover:bg-[#292f37] dark:hover:text-white"
+                                                    onClick={() => skillCategoryScrollRef.current?.scrollBy({ left: 180, behavior: "smooth" })}
+                                                    aria-label="向右查看更多 Skill 分类"
+                                                >
+                                                    <ChevronRight className="size-4" />
+                                                </button>
                                             </div>
-                                            <button
-                                                type="button"
-                                                className="grid size-7 place-items-center rounded-md text-[#7c8794] transition hover:bg-[#eef1f4] hover:text-[#20242a] dark:text-[#929ca8] dark:hover:bg-[#292f37] dark:hover:text-white"
-                                                onClick={() => skillCategoryScrollRef.current?.scrollBy({ left: 180, behavior: "smooth" })}
-                                                aria-label="向右查看更多 Skill 分类"
-                                            >
-                                                <ChevronRight className="size-4" />
-                                            </button>
-                                        </div>
-                                    ) : null}
-                                    <div className="relative">
-                                        <div className="hide-scrollbar max-h-[142px] space-y-1 overflow-y-auto overscroll-contain [scrollbar-width:none] sm:max-h-[154px] [&::-webkit-scrollbar]:hidden">
-                                            {!skillsLoading && skills.length && !visibleSkills.length ? <p className="px-2 py-5 text-center text-xs text-[#8b949f] dark:text-[#7f8996]">当前分类暂无可用 Skill</p> : null}
-                                            {visibleSkills.map((skill) => {
-                                                const selected = selectedSkill?.id === skill.id;
-                                                const visual = skillOptionVisual(skill);
-                                                const Icon = visual.icon;
-                                                return (
-                                                    <button
-                                                        key={skill.id}
-                                                        type="button"
-                                                        className={cn(
-                                                            "flex w-full items-start gap-2 rounded-lg px-2 py-2 text-left transition",
-                                                            selected ? "bg-[#eef1f4] text-[#20242a] dark:bg-[#292f37] dark:text-white" : "text-[#4d5662] hover:bg-[#f4f6f8] dark:text-[#c2c9d1] dark:hover:bg-[#242930]",
-                                                        )}
-                                                        onClick={() => {
-                                                            onSelectSkill(skill);
-                                                            setSkillPickerOpen(false);
-                                                        }}
-                                                    >
-                                                        <span className={cn("mt-0.5 grid size-7 shrink-0 place-items-center rounded-lg", visual.surfaceClass)}>
-                                                            <Icon className={cn("size-3.5", visual.iconClass)} />
-                                                        </span>
-                                                        <span className="min-w-0 flex-1">
-                                                            <span className="block truncate text-xs font-medium">{skill.name}</span>
-                                                            <span className="mt-0.5 line-clamp-2 block text-[11px] leading-4 text-[#8b949f] dark:text-[#7f8996]">{skill.description}</span>
-                                                        </span>
-                                                        {selected ? <Check className="mt-0.5 size-4 shrink-0" /> : null}
-                                                    </button>
-                                                );
-                                            })}
+                                        ) : null}
+                                        <div className="relative">
+                                            <div className="hide-scrollbar max-h-[142px] space-y-1 overflow-y-auto overscroll-contain [scrollbar-width:none] sm:max-h-[154px] [&::-webkit-scrollbar]:hidden">
+                                                {!skillsLoading && skills.length && !visibleSkills.length ? <p className="px-2 py-5 text-center text-xs text-[#8b949f] dark:text-[#7f8996]">当前分类暂无可用 Skill</p> : null}
+                                                {visibleSkills.map((skill) => {
+                                                    const selected = selectedSkill?.id === skill.id;
+                                                    const visual = skillOptionVisual(skill);
+                                                    const Icon = visual.icon;
+                                                    return (
+                                                        <button
+                                                            key={skill.id}
+                                                            type="button"
+                                                            className={cn(
+                                                                "flex w-full items-start gap-2 rounded-lg px-2 py-2 text-left transition",
+                                                                selected ? "bg-[#eef1f4] text-[#20242a] dark:bg-[#292f37] dark:text-white" : "text-[#4d5662] hover:bg-[#f4f6f8] dark:text-[#c2c9d1] dark:hover:bg-[#242930]",
+                                                            )}
+                                                            onClick={() => {
+                                                                onSelectSkill(skill);
+                                                                setSkillPickerOpen(false);
+                                                            }}
+                                                        >
+                                                            <span className={cn("mt-0.5 grid size-7 shrink-0 place-items-center rounded-lg", visual.surfaceClass)}>
+                                                                <Icon className={cn("size-3.5", visual.iconClass)} />
+                                                            </span>
+                                                            <span className="min-w-0 flex-1">
+                                                                <span className="block truncate text-xs font-medium">{skill.name}</span>
+                                                                <span className="mt-0.5 line-clamp-2 block text-[11px] leading-4 text-[#8b949f] dark:text-[#7f8996]">{skill.description}</span>
+                                                            </span>
+                                                            {selected ? <Check className="mt-0.5 size-4 shrink-0" /> : null}
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                            }
-                        >
-                            <Button type="text" className={creativeComposerToolButtonClass(skillPickerOpen)} icon={<Boxes className="size-4" />} aria-label="选择创作 Skill" aria-haspopup="menu" aria-expanded={skillPickerOpen}>
-                                <span className="hidden text-xs font-medium sm:inline">使用 Skill</span>
-                            </Button>
-                        </Popover>
+                                }
+                            >
+                                <Button type="text" className={creativeComposerToolButtonClass(skillPickerOpen)} icon={<Boxes className="size-4" />} aria-label="选择创作 Skill" aria-haspopup="menu" aria-expanded={skillPickerOpen}>
+                                    <span className="hidden text-xs font-medium sm:inline">使用 Skill</span>
+                                </Button>
+                            </Popover>
+                        ) : null}
                         <Tooltip title="优化提示词">
                             <Button
                                 type="text"

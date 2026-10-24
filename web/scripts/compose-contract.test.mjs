@@ -34,11 +34,25 @@ describe("Docker Compose contracts", () => {
         expect(() => validateComposeContract(source, profile)).toThrow("app 必须使用当前发布版本的明确镜像");
     });
 
+    it("keeps the local Dockerfile build context configurable for the installer", () => {
+        const profile = composeProfiles.find(({ file }) => file === "docker-compose.local.yml");
+        const source = readFileSync(path.join(repoRoot, profile.file), "utf8").replace("${VOZEB_PRO_BUILD_CONTEXT:-.}", ".");
+
+        expect(() => validateComposeContract(source, profile)).toThrow("本地拓扑必须从根目录 Dockerfile 构建");
+    });
+
     it("rejects a Worker that imports the application secret environment", () => {
         const profile = composeProfiles.find(({ file }) => file === "docker-compose.external-db.yml");
         const source = readFileSync(path.join(repoRoot, profile.file), "utf8").replace('    command: ["node", "/app/web/scripts/generation-worker.mjs"]', '    command: ["node", "/app/web/scripts/generation-worker.mjs"]\n    env_file:\n      - .env');
 
         expect(() => validateComposeContract(source, profile)).toThrow("generation-worker 不得读取包含安装令牌和业务密钥的 .env");
+    });
+
+    it("allows removing the installation token after the first admin is created", () => {
+        const profile = composeProfiles.find(({ file }) => file === "docker-compose.yml");
+        const source = readFileSync(path.join(repoRoot, profile.file), "utf8").replace("${VOZEB_PRO_INSTALL_TOKEN-}", "${VOZEB_PRO_INSTALL_TOKEN:?请在 .env 中配置至少 32 位一次性安装令牌}");
+
+        expect(() => validateComposeContract(source, profile)).toThrow("app 未声明可在安装后移除的一次性安装令牌");
     });
 
     it("rejects exposing the external maintenance token to the Worker", () => {

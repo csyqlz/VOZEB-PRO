@@ -1,7 +1,15 @@
 import type { ApiCallFormat, LogicalModelCapability, SystemChannelAdvancedConfig, SystemChannelAuthMode, SystemChannelModelConfig, SystemChannelProtocol, SystemModelChannel } from "@/lib/auth/store-types";
+import { dataeyesSeedanceProtocol } from "@/lib/dataeyes-seedance-protocol";
+import { dataeyesFluxProtocol } from "@/lib/dataeyes-flux-protocol";
+import { dataeyesSeedreamProtocol } from "@/lib/dataeyes-seedream-protocol";
+import { validChannelPathPrefix } from "@/lib/channel-path-prefix";
+import { geminiChannelProtocols } from "@/lib/gemini-channel-protocol";
 import { inferModelCapability, normalizeModelId } from "@/lib/model-capability";
+import { isOpenAiChatAudioModel, OPENAI_CHAT_AUDIO_PATH } from "@/lib/openai-chat-audio";
 import { SEEDANCE_SPECIAL_MODELS } from "@/lib/seedance-special";
+import { sub2apiGrokProtocol } from "@/lib/sub2api-grok-protocol";
 import { normalizeYumengModelCenterBaseUrl, YUMENG_DEFAULT_IMAGE_OPERATION, YUMENG_DEFAULT_VIDEO_OPERATION, YUMENG_MODEL_CENTER_BASE_URL, YUMENG_MODEL_CENTER_MODELS } from "@/lib/yumeng-model-center";
+import { hailuo23VideoOperation, isHailuo23Model, officialProviderProtocols } from "@/lib/official-provider-protocols";
 
 type ProtocolOperation = Omit<SystemChannelModelConfig, "capability" | "source" | "protocol" | "apiFormat"> & {
     capability: LogicalModelCapability;
@@ -13,6 +21,7 @@ export type ChannelProtocolDefinition = {
     description: string;
     apiFormat: ApiCallFormat;
     authMode: SystemChannelAuthMode;
+    authHeader?: string;
     defaultBaseUrl?: string;
     modelCatalogPaths: string[];
     capabilities: LogicalModelCapability[];
@@ -47,20 +56,11 @@ const openAiOperations: ChannelProtocolDefinition["operations"] = {
     audio: { capability: "audio", createPath: "/audio/speech", requestTemplate: '{"model":"{{model}}","input":"{{prompt}}","voice":"alloy","response_format":"mp3"}', resultField: "binary" },
 };
 
-const geminiVideoOperation: ProtocolOperation = {
-    capability: "video",
-    createPath: "/models/:model:predictLongRunning",
-    imageToVideoPath: "/models/:model:predictLongRunning",
-    queryPath: "/models/:model/operations/:task_id",
-    requestTemplate:
-        '{"instances":[{"prompt":"{{prompt}}","image":"{{image}}","lastFrame":"{{last_frame}}","referenceImages":"{{references}}"}],"parameters":{"durationSeconds":"{{duration}}","aspectRatio":"{{ratio}}","resolution":"{{resolution}}","generateAudio":"{{generate_audio}}"}}',
-    resultField: "response.generateVideoResponse.generatedSamples[0].video.uri",
-    statusField: "done",
-    durationRange: "4、6、8 秒",
-    referenceRule: "服务端将参考图片转为 inlineData；支持普通参考图、首帧和尾帧，不支持参考视频或参考音频。",
-    supportsReferenceImage: true,
-    supportsReferenceVideo: false,
-    supportsReferenceAudio: false,
+const openAiChatAudioOperation: ProtocolOperation = {
+    capability: "audio",
+    createPath: OPENAI_CHAT_AUDIO_PATH,
+    requestTemplate: '{"model":"{{model}}","modalities":["text","audio"],"audio":{"voice":"{{voice}}","format":"{{format}}"},"messages":[{"role":"user","content":"{{prompt}}"}],"stream":false}',
+    resultField: "choices[0].message.audio.data",
 };
 
 const seedanceOperation: ProtocolOperation = {
@@ -144,18 +144,10 @@ export const registeredChannelProtocolDefinitions: ChannelProtocolDefinition[] =
         operations: { image: YUMENG_DEFAULT_IMAGE_OPERATION, video: YUMENG_DEFAULT_VIDEO_OPERATION },
         strict: true,
     },
-    {
-        id: "gemini",
-        label: "Google Gemini / Veo",
-        description: "Google Gemini API 的 Veo 异步视频协议，使用 predictLongRunning 与 operation 轮询。",
-        apiFormat: "gemini",
-        authMode: "custom-header",
-        defaultBaseUrl: "https://generativelanguage.googleapis.com",
-        modelCatalogPaths: ["/v1beta/models"],
-        capabilities: ["video"],
-        operations: { video: geminiVideoOperation },
-        strict: true,
-    },
+    ...geminiChannelProtocols,
+    dataeyesFluxProtocol,
+    dataeyesSeedreamProtocol,
+    ...officialProviderProtocols,
     {
         id: "seedance",
         label: "Seedance 2.0 / SD2",
@@ -167,6 +159,7 @@ export const registeredChannelProtocolDefinitions: ChannelProtocolDefinition[] =
         operations: { video: seedanceOperation },
         strict: true,
     },
+    dataeyesSeedanceProtocol,
     {
         id: "stable-diffusion",
         label: "Stable Diffusion（SD）",
@@ -176,6 +169,28 @@ export const registeredChannelProtocolDefinitions: ChannelProtocolDefinition[] =
         modelCatalogPaths: ["/sdapi/v1/sd-models"],
         capabilities: ["image"],
         operations: { image: stableDiffusionOperation },
+        strict: true,
+    },
+    {
+        id: "volcengine-image",
+        label: "火山方舟图片（Seedream）",
+        description: "火山方舟 Seedream 图片生成与参考图编辑，模型 ID 需按官方文档填写。",
+        apiFormat: "openai",
+        authMode: "bearer",
+        defaultBaseUrl: "https://ark.cn-beijing.volces.com",
+        modelCatalogPaths: [],
+        capabilities: ["image"],
+        operations: {
+            image: {
+                capability: "image",
+                createPath: "/api/v3/images/generations",
+                editPath: "/api/v3/images/generations",
+                requestTemplate: '{"model":"{{model}}","prompt":"{{prompt}}","image":"{{images}}","size":"{{size}}","response_format":"url"}',
+                resultField: "data[0].url",
+                referenceRule: "参考图编辑使用同一 JSON 接口的 image 字段，支持单张 URL 或多张 URL 数组。",
+                supportsReferenceImage: true,
+            },
+        },
         strict: true,
     },
     {
@@ -209,6 +224,7 @@ export const registeredChannelProtocolDefinitions: ChannelProtocolDefinition[] =
         },
         strict: true,
     },
+    sub2apiGrokProtocol,
     {
         id: "newapi",
         label: "New API",
@@ -317,7 +333,14 @@ export function protocolCatalogCapability(protocol: SystemChannelProtocol): Logi
 export function protocolModelConfig(protocol: SystemChannelProtocol, capability: LogicalModelCapability, model?: string): SystemChannelModelConfig | undefined {
     const definition = channelProtocolDefinition(protocol);
     const builtIn = model ? definition.builtInModels?.find((item) => normalizeModelId(item.id) === normalizeModelId(model)) : undefined;
-    const operation = builtIn?.capability === capability && builtIn.operation ? builtIn.operation : definition.operations[capability];
+    const operation =
+        protocol === "minimax" && capability === "video" && model && isHailuo23Model(model)
+            ? hailuo23VideoOperation
+            : protocol === "openai" && capability === "audio" && model && isOpenAiChatAudioModel(model)
+              ? openAiChatAudioOperation
+              : builtIn?.capability === capability && builtIn.operation
+                ? builtIn.operation
+                : definition.operations[capability];
     if (!operation) return undefined;
     return { ...operation, capability, source: "manual", protocol, apiFormat: definition.apiFormat };
 }
@@ -336,8 +359,10 @@ export function resolveChannelModelConfig(config: SystemChannelAdvancedConfig | 
     if (!config) return undefined;
     const key = normalizeModelId(model);
     const modelConfig = config.modelConfigs?.[key];
+    const capability = modelConfig?.capability || protocolCatalogCapability(config.protocol) || config.modelCapabilities?.[key] || inferModelCapability(model);
+    if ((modelConfig?.protocol || config.protocol) === "minimax" && capability === "video" && isHailuo23Model(model)) return { ...modelConfig, ...protocolModelConfig("minimax", "video", model)! };
+    if ((modelConfig?.protocol || config.protocol) === "openai" && capability === "audio" && isOpenAiChatAudioModel(model)) return protocolModelConfig("openai", "audio", model);
     if (modelConfig) return modelConfig;
-    const capability = protocolCatalogCapability(config.protocol) || config.modelCapabilities?.[key] || inferModelCapability(model);
     return config.operationConfigs?.[capability];
 }
 
@@ -380,6 +405,7 @@ export function applyChannelProtocol(channel: SystemModelChannel, protocol: Syst
             ...advanced,
             protocol,
             authMode: definition.authMode,
+            authHeader: definition.authHeader || "",
             modelCatalogPaths: definition.modelCatalogPaths,
             ...primaryAdvanced,
             modelConfigs,
@@ -389,23 +415,42 @@ export function applyChannelProtocol(channel: SystemModelChannel, protocol: Syst
     };
 }
 
-export function protocolAuthHeaders(apiKey: string, input: Pick<SystemChannelAdvancedConfig, "protocol" | "authMode" | "authHeader" | "authPrefix"> | undefined, fallback: ApiCallFormat = "openai"): Record<string, string> {
+export function protocolAuthHeaders(
+    apiKey: string,
+    input: Pick<SystemChannelAdvancedConfig, "protocol" | "authMode" | "authHeader" | "authPrefix" | "channelAuthMode" | "channelAuthHeader" | "channelAuthPrefix"> | undefined,
+    fallback: ApiCallFormat = "openai",
+): Record<string, string> {
+    if (input?.channelAuthMode) {
+        const mode = input.channelAuthMode;
+        const headers: Record<string, string> =
+            mode === "none"
+                ? {}
+                : mode === "bearer"
+                  ? { authorization: `Bearer ${apiKey}` }
+                  : mode === "x-api-key"
+                    ? { "x-api-key": apiKey }
+                    : { [input.channelAuthHeader?.trim() || "x-api-key"]: `${input.channelAuthPrefix?.trim() ? `${input.channelAuthPrefix.trim()} ` : ""}${apiKey}` };
+        if (input.protocol === "anthropic") headers["anthropic-version"] = "2023-06-01";
+        return headers;
+    }
     if (input?.protocol === "gemini") return { "x-goog-api-key": apiKey };
+    if (input?.protocol === "anthropic") return { "x-api-key": apiKey, "anthropic-version": "2023-06-01" };
+    if (input?.protocol === "vidu") return { authorization: `Token ${apiKey}` };
     const mode = resolveChannelAuthMode(input);
     if (mode === "none") return {};
-    if (fallback === "gemini" && !input?.authMode) return { "x-goog-api-key": apiKey };
+    if (fallback === "gemini" && !input?.authMode && (!input?.protocol || input.protocol === "auto")) return { "x-goog-api-key": apiKey };
     if (mode === "x-api-key") return { "x-api-key": apiKey };
     if (mode === "custom-header") {
-        const name = input?.authHeader?.trim() || "x-api-key";
+        const name = input?.authHeader?.trim() || channelProtocolDefinition(input?.protocol || "auto").authHeader || "x-api-key";
         const prefix = input?.authPrefix?.trim();
         return { [name]: prefix ? `${prefix} ${apiKey}` : apiKey };
     }
     return { authorization: `Bearer ${apiKey}` };
 }
 
-export function resolveChannelAuthMode(input: Pick<SystemChannelAdvancedConfig, "protocol" | "authMode"> | undefined): SystemChannelAuthMode {
+export function resolveChannelAuthMode(input: Pick<SystemChannelAdvancedConfig, "protocol" | "authMode" | "channelAuthMode"> | undefined): SystemChannelAuthMode {
     const definition = channelProtocolDefinition(input?.protocol || "auto");
-    return definition.strict ? definition.authMode : input?.authMode || definition.authMode;
+    return input?.channelAuthMode || (definition.strict ? definition.authMode : input?.authMode || definition.authMode);
 }
 
 export function channelRequiresApiKey(channel: Pick<SystemModelChannel, "advancedConfig">) {
@@ -424,9 +469,20 @@ export function channelProtocolValidationErrors(channel: SystemModelChannel) {
     const advanced = channel.advancedConfig;
     if (!advanced) return [];
     const errors: string[] = [];
+    if (!validChannelPathPrefix(advanced.pathPrefix || "")) errors.push(`${channel.name || "渠道"} 的渠道前缀必须是以 / 开头的安全路径，例如 /kling`);
+    if (advanced.pathPrefix) {
+        try {
+            const base = new URL(channel.baseUrl);
+            if (base.pathname !== "/" || base.search || base.hash || base.username || base.password) errors.push(`${channel.name || "渠道"} 使用渠道前缀时，Base URL 必须只填写根域名`);
+        } catch {
+            errors.push(`${channel.name || "渠道"} 的 Base URL 无效`);
+        }
+    }
+    if (advanced.channelAuthMode === "custom-header" && !isSafeAuthHeaderName(advanced.channelAuthHeader || "")) errors.push(`${channel.name || "渠道"} 的渠道鉴权请求头名称无效`);
+    if (/[\r\n]/.test(advanced.channelAuthPrefix || "")) errors.push(`${channel.name || "渠道"} 的渠道鉴权值前缀无效`);
     const definition = channelProtocolDefinition(advanced.protocol);
     if (definition.strict && advanced.authMode && advanced.authMode !== definition.authMode) errors.push(`${channel.name || "渠道"} 的鉴权方式必须使用 ${definition.label} 协议预设`);
-    if (advanced.authMode === "custom-header" && !isSafeAuthHeaderName(advanced.authHeader)) errors.push(`${channel.name || "渠道"} 的自定义鉴权请求头名称无效`);
+    if (advanced.authMode === "custom-header" && !isSafeAuthHeaderName(advanced.authHeader || definition.authHeader)) errors.push(`${channel.name || "渠道"} 的自定义鉴权请求头名称无效`);
     for (const model of channel.models) {
         const key = normalizeModelId(model);
         const config = resolveChannelModelConfig(advanced, model);
@@ -440,6 +496,10 @@ export function channelProtocolValidationErrors(channel: SystemModelChannel) {
         }
         if (!definition.strict) continue;
         const capability = config?.capability || advanced.modelCapabilities?.[key] || inferModelCapability(model);
+        if (protocol === "alibaba-bailian" && capability === "image" && !/^qwen-image-3\.0(?:-pro)?$/i.test(model)) {
+            errors.push(`${model} 不属于此预设已验证的 Qwen Image 3.0 接口`);
+            continue;
+        }
         const expected = protocolModelConfig(protocol, capability, model);
         if (!expected) {
             errors.push(`${definition.label} 不支持 ${capability} 模型 ${model}`);

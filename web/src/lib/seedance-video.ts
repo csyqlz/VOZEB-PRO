@@ -65,8 +65,8 @@ export function isSeedanceVideoConfig(config: AiConfig | Pick<AiConfig, "model" 
         const logical = config.logicalModels.find((model) => normalizeModelId(model.id) === normalizeModelId(modelOptionName(selectedModel)));
         const binding = logical?.bindings.filter((item) => item.enabled && item.channelId === channel.id).sort((left, right) => left.priority - right.priority)[0];
         const modelProtocol = channel.advancedConfig?.modelConfigs?.[normalizeModelId(binding?.upstreamModel || selectedModel)]?.protocol;
-        if (modelProtocol && modelProtocol !== "auto") return modelProtocol === "seedance" || modelProtocol === "volcengine-video";
-        if (channel.advancedConfig?.protocol === "seedance" || channel.advancedConfig?.protocol === "volcengine-video") return true;
+        if (modelProtocol && modelProtocol !== "auto") return modelProtocol === "seedance" || modelProtocol === "dataeyes-seedance" || modelProtocol === "volcengine-video";
+        if (channel.advancedConfig?.protocol === "seedance" || channel.advancedConfig?.protocol === "dataeyes-seedance" || channel.advancedConfig?.protocol === "volcengine-video") return true;
     }
     return isSeedanceVideoModelName(modelOptionName(requestConfig.model || requestConfig.videoModel)) || isArkPlanBaseUrl(requestConfig.baseUrl);
 }

@@ -1,0 +1,32 @@
+{
+  "observedAt": "2026-10-10T14:01:24Z",
+  "status": "draft-pending-administrator-review",
+  "productionChanged": false,
+  "sourceUrl": "https://www.alibabacloud.com/help/en/model-studio/qwen-image-max",
+  "candidateInputs": [
+    {
+      "logicalModelId": "qwen-image-max",
+      "manufacturer": "Alibaba Cloud",
+      "series": "Qwen Image",
+      "officialVersion": "qwen-image-max",
+      "sku": "qwen-image-max",
+      "tier": "paid",
+      "conditions": "Alibaba Cloud Model Studio original pay-as-you-go API list price; Singapore deployment, International scope, image generation output per successfully generated image. Limited-time promotions and free quota do not change this user-price baseline. The current alias is documented as functionally equivalent to qwen-image-max-2025-12-30. Do not apply to an unverified proxy region or infer image count from a converted response.",
+      "sourceKind": "manual",
+      "sourceUrl": "https://www.alibabacloud.com/help/en/model-studio/qwen-image-max",
+      "evidence": "2026-10-10 exact model page: Singapore International original API price is USD 0.075 per generated image; China Beijing is separately USD 0.071677. Text input/image output, no context caching or batch inference. Independently matched the 2026-10-09 Alibaba comparison.",
+      "observedAt": "2026-10-10T14:01:24Z",
+      "items": [
+        { "key": "outputImageCount", "unit": "image", "per": "1", "price": "0.075", "currency": "USD" }
+      ]
+    }
+  ],
+  "alternativeOfficialScope": {
+    "deploymentScope": "China (Beijing)",
+    "sourceUrl": "https://www.alibabacloud.com/help/en/model-studio/qwen-image-max",
+    "items": [
+      { "key": "outputImageCount", "unit": "image", "per": "1", "price": "0.071677", "currency": "USD" }
+    ],
+    "reviewNote": "Separate official region, not the selected International candidate. Verify the real proxy deployment before choosing a price baseline."
+  }
+}

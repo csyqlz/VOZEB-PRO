@@ -16,7 +16,8 @@ export function dedupeImageResults<T extends ImageResultIdentity>(items: T[]) {
 }
 
 function imageResultIdentities(item: ImageResultIdentity) {
-    return Array.from(new Set([item.storageKey, item.serverUrl, item.remoteUrl, item.dataUrl].flatMap(mediaAliases).filter(Boolean)));
+    const sourceIdentities = [item.storageKey, item.serverUrl, item.remoteUrl].flatMap(mediaAliases).filter(Boolean);
+    return Array.from(new Set(sourceIdentities.length ? sourceIdentities : mediaAliases(item.dataUrl).filter(Boolean)));
 }
 
 function mediaAliases(value?: string) {

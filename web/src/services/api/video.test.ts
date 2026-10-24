@@ -14,6 +14,7 @@ vi.mock("@/stores/use-config-store", () => ({
 
 import type { AiConfig } from "@/stores/use-config-store";
 import type { ReferenceImage } from "@/types/image";
+import { emptyAdvancedConfig, protocolModelConfig } from "@/lib/channel-protocol-registry";
 import { cancelServerVideoGenerationTask, createServerVideoGenerationTask, createVideoGenerationTask, pollVideoGenerationTask, recoverVideoGenerationTask } from "./video";
 import { createUpstreamVideoGenerationTask } from "./video-core";
 import { buildCompatibleVideoPayloadVariants, compatibleVideoCreatePaths, compatibleVideoPollPaths, isGlobalAiOpcVideoConfig } from "./video-providers";
@@ -35,6 +36,27 @@ describe("video API service", () => {
     afterEach(() => {
         vi.unstubAllGlobals();
         vi.clearAllMocks();
+    });
+
+    it.each([
+        ["alibaba-bailian", "wan3.0-video", "/api/v1/services/aigc/video-generation/video-synthesis"],
+        ["kling", "kling-v3", "/v1/videos/text2video"],
+        ["vidu", "viduq3-pro", "/ent/v2/text2video"],
+        ["minimax", "MiniMax-H3", "/v2/video_generation"],
+        ["xai", "grok-imagine-video-1.5", "/v1/videos/generations"],
+    ] as const)("uses the official %s path and request body from the browser video service", async (protocol, model, path) => {
+        const selected = { ...config, model, videoModel: model, baseUrl: `/api/ai/system/${protocol}`, apiKey: "system", advancedConfig: { ...emptyAdvancedConfig(), ...protocolModelConfig(protocol, "video", model) } } as AiConfig;
+        const post = vi.spyOn(axios, "post").mockResolvedValue({ data: { task_id: "official-task" }, headers: {} });
+        expect(compatibleVideoCreatePaths(selected, model)).toEqual([path]);
+        await expect(createUpstreamVideoGenerationTask(selected, "animate a kite")).resolves.toMatchObject({ id: "official-task", pollPath: path });
+        expect(post).toHaveBeenCalledWith(`${selected.baseUrl}${path}`, expect.objectContaining(protocol === "kling" ? { model_name: model } : { model }), expect.any(Object));
+        expect(compatibleVideoPollPaths(selected, { id: "official-task", model, pollPath: path, provider: "generation" })).toEqual([protocol === "kling" ? path : selected.advancedConfig!.queryPath]);
+        const image = { id: "official-image", name: "first.png", type: "image/png", dataUrl: "", url: "https://cdn.example.com/first.png", videoRole: "first_frame" } as ReferenceImage;
+        const imagePath = selected.advancedConfig!.imageToVideoPath || path;
+        expect(compatibleVideoCreatePaths(selected, model, true)).toEqual([imagePath]);
+        await expect(createUpstreamVideoGenerationTask(selected, "animate the first frame", [image])).resolves.toMatchObject({ id: "official-task", pollPath: imagePath });
+        expect(post).toHaveBeenLastCalledWith(`${selected.baseUrl}${imagePath}`, expect.any(Object), expect.any(Object));
+        expect(JSON.stringify(post.mock.lastCall?.[1])).toContain("https://cdn.example.com/first.png");
     });
 
     it("submits the original public image source instead of the local asset preview", async () => {

@@ -61,6 +61,18 @@ describe("creative entity deletion file provider", () => {
         expect(file<Array<{ id: string }>>("generation-tasks.json").map((item) => item.id)).toEqual(["run-two"]);
     });
 
+    it("preserves the entire conversation or project when a descendant task still has pending billing", async () => {
+        const tasks = file<Array<Record<string, unknown>>>("generation-tasks.json");
+        tasks.push({ id: "priced-child", userId: "user-one", type: "text", parentTaskId: "run-one", runId: "run-one", payload: { billingMode: "official-usage", billingPending: true } });
+        const before = structuredClone(mocks.files);
+        await expect(deleteCreativeConversationAggregates("user-one", ["conversation-one"])).rejects.toThrow("待结算");
+        await expect(deleteCanvasProjectAggregates("user-one", ["canvas-one"])).rejects.toThrow("待结算");
+        expect(mocks.files).toEqual(before);
+        tasks.at(-1)!.payload = { billingMode: "official-usage", billingPending: false };
+        expect(await deleteCreativeConversationAggregates("user-one", ["conversation-one"])).toMatchObject({ deletedConversations: 1 });
+        expect(file<Array<{ id: string }>>("generation-tasks.json").map((item) => item.id)).toEqual(["run-two"]);
+    });
+
     it("deletes a directly requested Canvas assistant conversation without deleting its project", async () => {
         const runtime = file<{ conversations: Array<Record<string, unknown>> }>("creative-runtime.json");
         runtime.conversations[0] = { ...runtime.conversations[0], surface: "canvas", projectId: "canvas-one" };

@@ -12,6 +12,7 @@ export function normalizeImageSizeValue(value: unknown) {
     const text = value.trim().replace(/[：；;]/g, ":");
     if (!text) return "";
     if (text.toLowerCase() === "auto") return "auto";
+    if (text.toLowerCase() === "2k") return "2K";
     const dimensions = parseImageDimensions(text);
     if (dimensions) return `${dimensions.width}x${dimensions.height}`;
     return /^\d+(?:\.\d+)?:\d+(?:\.\d+)?$/.test(text) ? text : "";

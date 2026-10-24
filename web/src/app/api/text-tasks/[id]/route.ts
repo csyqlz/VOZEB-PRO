@@ -11,6 +11,8 @@ import { cancellationExecutionPatch, type GenerationCancellationTarget } from "@
 import { refundTextTask } from "@/lib/server/text-task-refund";
 import { getStoredGenerationTaskRecord } from "@/lib/server/generation-task-store";
 import { recoverGenerationTaskFromUpstream } from "@/lib/server/generation-task-user-recovery";
+import { recoverPricedTextTaskStep } from "@/lib/server/text-task-runtime";
+import { scheduleGenerationTask } from "@/lib/server/generation-task-scheduler";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -42,7 +44,7 @@ export async function GET(request: Request, context: RouteContext) {
                 result: settledTask.result,
                 error: settledTask.error,
                 needsReview: executionPhase === "needs_review",
-                reviewReason: executionPhase === "needs_review" ? task.reviewReason : undefined,
+                reviewReason: executionPhase === "needs_review" ? task.billingReviewReason || task.reviewReason : undefined,
                 executionPhase,
             },
         },
@@ -57,7 +59,17 @@ export async function POST(request: Request, context: RouteContext) {
     const parsed = await readJsonBodyResult<{ action?: string }>(request);
     if (!parsed.ok) return NextResponse.json({ error: parsed.message }, { status: parsed.status });
     if (parsed.data.action !== "recover") return NextResponse.json({ error: "不支持的文本任务操作" }, { status: 400 });
-    if (task.status === "success") return NextResponse.json({ task: publicTask(task) }, { headers: pointsResponseHeaders(user) });
+    if (task.status === "success" && !task.billingPending) return NextResponse.json({ task: publicTask(task) }, { headers: pointsResponseHeaders(user) });
+    if (task.billingMode === "official-usage") {
+        const result = await recoverPricedTextTaskStep(task);
+        const latest = await getTextTask(task.id);
+        if (!latest) return NextResponse.json({ error: "任务不存在或已过期" }, { status: 404 });
+        const completed = !latest.billingPending && ["success", "error", "cancelled"].includes(latest.status);
+        const reason = result && "error" in result ? result.error : "原请求尚无完整响应，保留原预留，请稍后检查状态";
+        const executionPhase = completed ? "completed" : "needs_review";
+        await scheduleGenerationTask("text", task.id, { executionPhase, nextPollAt: undefined, resultPayload: { reviewReason: completed ? undefined : reason } }, { cancellation: latest.status === "cancelled" });
+        return NextResponse.json({ task: { ...publicTask(latest), needsReview: !completed, reviewReason: completed ? undefined : reason, executionPhase } }, { headers: pointsResponseHeaders(await getCurrentUser(request)) });
+    }
     if (task.status !== "running") return NextResponse.json({ error: "当前文本任务无法继续检查" }, { status: 409 });
 
     const schedule = await getStoredGenerationTaskRecord("text", task.id);

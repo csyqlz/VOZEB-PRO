@@ -12,6 +12,7 @@ import type { AgentRunPlannerAudit } from "./agent-run-audit";
 import { AGENT_REQUEST_SCHEMA } from "./agent-prompt-json";
 import { normalizeAgentRunCanvasSnapshot, selectedCanvasNodeIds } from "./agent-run-canvas-snapshot";
 import { getDramaProject } from "./drama-project-store";
+import { capturePublishedPricingIdentity } from "./model-pricing-service";
 
 export type AgentRunStatus = "planning" | "running" | "paused" | "completed" | "failed" | "cancelled";
 export type AgentRunReviewStatus = "review_pending" | "reviewing" | "review_completed" | "review_unavailable";
@@ -78,6 +79,7 @@ export type AgentRun = {
     referencedAssetIds: string[];
     selectedSkillIds?: string[];
     requestedModelIds?: string[];
+    pricingSnapshot?: Awaited<ReturnType<typeof capturePublishedPricingIdentity>>;
     requestedImageSize?: string;
     generationPreferences?: CreativeGenerationPreferences;
     assetIds: string[];
@@ -134,6 +136,7 @@ export async function createAgentRun(userId: string, input: CreativeRunRequest) 
     const now = Date.now();
     const conversationId = input.conversationId || `conversation-${nanoid()}`;
     const snapshot = input.surface === "canvas" ? normalizeAgentRunCanvasSnapshot(input.snapshot, input.projectId) : input.surface === "drama" && input.projectId ? await resolveDramaRunSnapshot(userId, input.projectId, input.snapshot) : input.snapshot;
+    const pricingSnapshot = await capturePublishedPricingIdentity(userId, input.modelIds[0]);
     const run: AgentRun = {
         id: `agent-${nanoid()}`,
         userId,
@@ -151,6 +154,7 @@ export async function createAgentRun(userId: string, input: CreativeRunRequest) 
         referencedAssetIds: input.assetIds,
         selectedSkillIds: input.skillIds,
         ...(input.modelIds.length ? { requestedModelIds: input.modelIds } : {}),
+        ...(pricingSnapshot ? { pricingSnapshot } : {}),
         requestedImageSize: extractImageSizeFromPrompt(input.prompt) || undefined,
         ...(input.preferences ? { generationPreferences: input.preferences } : {}),
         assetIds: [],

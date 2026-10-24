@@ -85,6 +85,7 @@ export type AdminModelsResult = {
     models: string[];
     modelCapabilities?: SystemChannelAdvancedConfig["modelCapabilities"];
     modelConfigs?: SystemChannelAdvancedConfig["modelConfigs"];
+    providerModels?: string[];
     recommendedConfig?: Partial<SystemChannelAdvancedConfig>;
     discoveredCount?: number;
     totalCount?: number;
@@ -106,6 +107,9 @@ export async function requestAdminModels(channel: SystemModelChannel): Promise<A
             authMode: advanced?.authMode,
             authHeader: advanced?.authHeader,
             authPrefix: advanced?.authPrefix,
+            channelAuthMode: advanced?.channelAuthMode,
+            channelAuthHeader: advanced?.channelAuthHeader,
+            channelAuthPrefix: advanced?.channelAuthPrefix,
             globalAiOpcPreset: advanced?.globalAiOpcPreset,
             globalAiOpcPresets: advanced?.globalAiOpcPresets,
             createPath: advanced?.createPath,

@@ -12,6 +12,7 @@ import { capabilityLabel, channelDetectedCapabilities, channelModelCapability } 
 import { normalizeModelId } from "@/lib/model-capability";
 import { revealAdminChannelApiKey } from "@/services/api/admin-settings";
 import { AdminChannelProtocolSetup } from "@/components/admin/admin-channel-protocol-setup";
+import { AdminChannelTransportFields } from "@/components/admin/admin-channel-transport-fields";
 import { applyModelProtocol, channelProtocolDefinition, channelProtocolOptions, channelRequiresApiKey, channelSupportsModelCatalog, emptyAdvancedConfig } from "@/lib/channel-protocol-registry";
 
 const protocolOptions = channelProtocolOptions().map(({ value, label }) => ({ value, label }));
@@ -158,6 +159,9 @@ export function SystemChannelEditor({ channel, fetching, onChange, onDelete, onF
                     <LabeledControl label="Base URL">
                         <Input value={channel.baseUrl} placeholder="https://api.example.com/v1" onChange={(event) => onChange({ baseUrl: event.target.value })} />
                     </LabeledControl>
+                    <div className="md:col-span-2">
+                        <AdminChannelTransportFields channel={channel} onChange={onChange} />
+                    </div>
                     {requiresApiKey ? (
                         <LabeledControl label="API Key">
                             <div className="flex min-w-0 items-center gap-2">

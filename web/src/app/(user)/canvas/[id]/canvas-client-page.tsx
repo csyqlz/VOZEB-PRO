@@ -312,6 +312,8 @@ function VozebProCanvasPage() {
             />
             <section className="relative min-w-0 max-w-full flex-1 overflow-hidden">
                 <CanvasTopBar
+                    key={projectId}
+                    projectId={projectId}
                     title={currentProject?.title || "未命名画布"}
                     titleDraft={titleDraft}
                     isTitleEditing={titleEditing}

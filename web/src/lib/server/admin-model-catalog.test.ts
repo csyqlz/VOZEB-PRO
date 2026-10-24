@@ -16,6 +16,34 @@ import {
 } from "./admin-model-catalog";
 
 describe("admin model catalog", () => {
+    it("keeps only Gemini and Veo models from the shared DataEyes directory", () => {
+        const payload = { data: [{ id: "gpt-4.1" }, { id: "gemini-2.5-flash" }, { id: "gemini-3-pro-image" }, { id: "gemini-3.1-flash-tts-preview" }, { id: "veo-3.1-generate-preview" }] };
+        expect(parseModelCatalog(payload, "provider", "dataeyes-gemini").map((item) => [item.id, item.capability])).toEqual([
+            ["gemini-2.5-flash", "text"],
+            ["gemini-3-pro-image", "image"],
+            ["gemini-3.1-flash-tts-preview", "audio"],
+            ["veo-3.1-generate-preview", "video"],
+        ]);
+        expect(Object.keys(parseModelConfigs(payload, "dataeyes-gemini"))).not.toContain("gpt-4.1");
+    });
+    it("keeps only FLUX images from the shared DataEyes directory", () => {
+        const payload = { data: [{ id: "flux-2-pro" }, { id: "flux-kontext-max" }, { id: "gpt-image-1" }, { id: "kling-v3" }] };
+        expect(parseModelCatalog(payload, "provider", "dataeyes-flux").map((item) => [item.id, item.capability])).toEqual([
+            ["flux-2-pro", "image"],
+            ["flux-kontext-max", "image"],
+        ]);
+        expect(Object.keys(parseModelConfigs(payload, "dataeyes-flux"))).toEqual(["flux-2-pro", "flux-kontext-max"]);
+    });
+
+    it("keeps Seedream images even when DataEyes labels their endpoint openai", () => {
+        const payload = { data: [{ id: "ByteDance-Seedream-5.0-pro", supported_endpoint_types: ["openai"] }, { id: "doubao-seedream-4-5-251128" }, { id: "gpt-4.1" }] };
+        expect(parseModelCatalog(payload, "provider", "dataeyes-seedream").map((item) => [item.id, item.capability])).toEqual([
+            ["ByteDance-Seedream-5.0-pro", "image"],
+            ["doubao-seedream-4-5-251128", "image"],
+        ]);
+        expect(Object.keys(parseModelConfigs(payload, "dataeyes-seedream"))).toEqual(["bytedance-seedream-5.0-pro", "doubao-seedream-4-5-251128"]);
+    });
+
     it("builds OpenAI and Gemini model URLs", () => {
         expect(buildModelsUrl("https://api.example.com/v1", "openai")).toBe("https://api.example.com/v1/models");
         expect(buildModelsUrl("https://generativelanguage.googleapis.com/v1beta", "gemini")).toBe("https://generativelanguage.googleapis.com/v1beta/models");

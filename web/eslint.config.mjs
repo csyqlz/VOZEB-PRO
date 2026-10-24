@@ -16,5 +16,5 @@ export default defineConfig([
             "react-hooks/use-memo": "off",
         },
     },
-    globalIgnores([".next/**", ".next-*/**", "coverage/**", "node_modules/**", "public/**"]),
+    globalIgnores([".next/**", ".next-*/**", ".e2e-artifacts/**", ".e2e-data/**", "coverage/**", "node_modules/**", "public/**"]),
 ]);

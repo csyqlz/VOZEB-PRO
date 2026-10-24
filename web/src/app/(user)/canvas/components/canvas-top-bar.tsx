@@ -2,14 +2,17 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Dropdown, Modal } from "antd";
-import { BookOpen, Bot, LibraryBig, Menu, Redo2, Sparkles, Trash2, Undo2, Upload } from "lucide-react";
+import { BookOpen, Bot, LibraryBig, Menu, ReceiptText, Redo2, Sparkles, Trash2, Undo2, Upload } from "lucide-react";
 
 import { UserStatusActions } from "@/components/layout/user-status-actions";
+import { formatCreditAmount } from "@/constant/credits";
 import { canvasThemes } from "@/lib/canvas-theme";
+import { getCanvasProjectBilling, type CanvasProjectBillingSummary } from "@/services/api/canvas-projects";
 import { useThemeStore } from "@/stores/use-theme-store";
 import type { CanvasProjectSaveState } from "../stores/use-canvas-store";
 
 export function CanvasTopBar({
+    projectId,
     title,
     titleDraft,
     isTitleEditing,
@@ -31,6 +34,7 @@ export function CanvasTopBar({
     compactAgentStatus,
     onToggleAgent,
 }: {
+    projectId: string;
     title: string;
     titleDraft: string;
     isTitleEditing: boolean;
@@ -58,6 +62,36 @@ export function CanvasTopBar({
     const menuTriggerRef = useRef<HTMLButtonElement>(null);
     const [shortcutsOpen, setShortcutsOpen] = useState(false);
     const [menuOpen, setMenuOpen] = useState(false);
+    const [billingOpen, setBillingOpen] = useState(false);
+    const [billingLoading, setBillingLoading] = useState(false);
+    const [billing, setBilling] = useState<CanvasProjectBillingSummary | null>(null);
+    const [billingError, setBillingError] = useState("");
+    const billingRequestId = useRef(0);
+
+    useEffect(
+        () => () => {
+            billingRequestId.current += 1;
+        },
+        [projectId],
+    );
+
+    const openBilling = () => {
+        const requestId = ++billingRequestId.current;
+        setBillingOpen(true);
+        setBillingLoading(true);
+        setBilling(null);
+        setBillingError("");
+        void getCanvasProjectBilling(projectId)
+            .then((summary) => {
+                if (billingRequestId.current === requestId) setBilling(summary);
+            })
+            .catch((error) => {
+                if (billingRequestId.current === requestId) setBillingError(error instanceof Error ? error.message : "费用读取失败");
+            })
+            .finally(() => {
+                if (billingRequestId.current === requestId) setBillingLoading(false);
+            });
+    };
 
     useEffect(() => {
         if (!isTitleEditing) return;
@@ -96,6 +130,7 @@ export function CanvasTopBar({
                                 { key: "docs", icon: <BookOpen className="size-4" />, label: "使用帮助", onClick: () => window.location.assign("/help?section=canvas") },
                                 { type: "divider" },
                                 { key: "import", icon: <Upload className="size-4" />, label: "导入素材", onClick: onImportImage },
+                                { key: "billing", icon: <ReceiptText className="size-4" />, label: "项目费用", onClick: openBilling },
                                 { type: "divider" },
                                 { key: "undo", disabled: !canUndo, icon: <Undo2 className="size-4" />, label: <MenuLabel text="撤销" shortcut="⌘ Z" />, onClick: onUndo },
                                 { key: "redo", disabled: !canRedo, icon: <Redo2 className="size-4" />, label: <MenuLabel text="重做" shortcut="⌘ ⇧ Z / ⌘ Y" />, onClick: onRedo },
@@ -165,6 +200,64 @@ export function CanvasTopBar({
                     ) : null}
                 </div>
             </div>
+            <Modal
+                title="项目已结费用"
+                open={billingOpen}
+                onCancel={() => {
+                    billingRequestId.current += 1;
+                    setBillingOpen(false);
+                }}
+                footer={null}
+                width="min(520px, calc(100vw - 24px))"
+            >
+                {billingLoading ? (
+                    <p role="status">正在读取费用…</p>
+                ) : billingError ? (
+                    <p role="alert" className="text-red-600 dark:text-red-300">
+                        {billingError}
+                    </p>
+                ) : billing ? (
+                    <div className="space-y-3 text-sm">
+                        <p className="rounded-lg bg-black/5 p-3 font-semibold dark:bg-white/10">已结净额：{formatCreditAmount(billing.actualPoints)} 积分</p>
+                        {billing.charges.length ? (
+                            <ul className="max-h-[min(50vh,360px)] space-y-2 overflow-y-auto">
+                                {billing.charges.map((charge, index) => (
+                                    <li key={`${charge.type}:${charge.purpose}:${charge.logicalModelId || ""}:${index}`} className="flex justify-between gap-3 border-b border-black/10 pb-2 dark:border-white/10">
+                                        <span className="min-w-0 break-words">
+                                            {charge.logicalModelId || "模型未记录"} · {{ text: "文本", image: "图片", video: "视频", audio: "音频" }[charge.type]} ·{" "}
+                                            {{ generation: "生成", planning: "规划", review: "复盘", analysis: "分析" }[charge.purpose]}
+                                        </span>
+                                        <span className="shrink-0 text-right">
+                                            {formatCreditAmount(charge.actualPoints)} 积分{charge.refundedPoints > 0 ? <small className="block opacity-70">已退 {formatCreditAmount(charge.refundedPoints)}</small> : null}
+                                        </span>
+                                    </li>
+                                ))}
+                            </ul>
+                        ) : (
+                            <p>暂无可归属的已结账务记录。</p>
+                        )}
+                        {billing.pending.length ? (
+                            <div className="border-t border-black/10 pt-3 dark:border-white/10">
+                                <p className="mb-2 flex justify-between gap-3 font-semibold">
+                                    <span>未结预留</span>
+                                    <span>{formatCreditAmount(billing.pendingHeldPoints)} 积分</span>
+                                </p>
+                                <ul className="space-y-1">
+                                    {billing.pending.map((hold, index) => (
+                                        <li key={`${hold.type}:${hold.logicalModelId}:${index}`} className="flex justify-between gap-3">
+                                            <span className="min-w-0 break-words">
+                                                {hold.logicalModelId} · {{ text: "文本", image: "图片", video: "视频", audio: "音频" }[hold.type]} × {hold.count}
+                                            </span>
+                                            <span className="shrink-0">{formatCreditAmount(hold.heldPoints)} 积分</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        ) : null}
+                        <p className="text-xs opacity-70">已结费用来自本项目消费与已确认退款；未结预留单独列示，不计入净额。</p>
+                    </div>
+                ) : null}
+            </Modal>
             <Modal title="快捷键" open={shortcutsOpen} onCancel={() => setShortcutsOpen(false)} footer={null} centered width={640}>
                 <div className="max-h-[min(72vh,620px)] space-y-0.5 overflow-y-auto border-t pt-3 text-sm" style={{ borderColor: theme.node.stroke }}>
                     <Shortcut keys={["拖动画布"]} value="平移视图" theme={theme} />

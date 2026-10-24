@@ -1,9 +1,13 @@
+import { PricingConflictError } from "@/lib/model-pricing";
+import { recoverPricedImageTask, refundPricedImageTask } from "./model-pricing-image-task";
+import { supportsImageCountContract } from "./model-pricing-image-contract";
 import { runCustomImageTask, pollCustomImageTask } from "@/app/api/image-tasks/image-task-custom";
 import { runGeminiImageTask } from "@/app/api/image-tasks/image-task-gemini";
 import { runOpenAiImageTask } from "@/app/api/image-tasks/image-task-openai";
 import { imageUnits, ImageQueryContractError, ImageUpstreamTerminalError, pollOpenAiImageTask } from "@/app/api/image-tasks/image-task-support";
 import type { ImageTaskRunResult } from "@/app/api/image-tasks/image-task-types";
 import { stableMediaUrl, writeImageGenerationLog } from "@/app/api/image-tasks/image-task-runner";
+import { listImagePriceContracts } from "./model-pricing-image-contract-store";
 import { getAuthSettings, refundUserPoints } from "@/lib/auth/store";
 import { registerGenerationTaskAssetsForUser } from "@/lib/server/creative-runtime-service";
 import { finishGenerationAttempt, startGenerationAttempt } from "@/lib/server/generation-attempt";
@@ -12,7 +16,7 @@ import { refundImageTask } from "@/lib/server/image-task-refund";
 import { deletePreparedImageTaskResults, persistedImageTaskResults, prepareImageTaskResults } from "@/lib/server/image-task-result-service";
 import { scheduleGenerationTask } from "@/lib/server/generation-task-scheduler";
 import { GenerationSubmissionSafeFailure, generationSubmissionUncertainError } from "@/lib/server/generation-submission-error";
-import { getImageTask, transitionImageTask, updateImageTask, type ImageTask, type StoredImageTaskMediaResult } from "@/lib/server/image-task-store";
+import { advancePricedImageTask, getImageTask, transitionImageTask, updateImageTask, type ImageTask, type StoredImageTaskMediaResult } from "@/lib/server/image-task-store";
 import { maintenanceWorkerContext } from "@/lib/server/maintenance-auth";
 import { resolveModelRequestTimeoutMs } from "@/lib/server/model-request-policy";
 
@@ -24,10 +28,67 @@ export type ImageUpstreamStep =
     | { state: "failed"; error: string; status: string; retryReason?: "upstream_failed" };
 
 export async function createImageTaskUpstreamStep(task: ImageTask, origin: string, publicOrigin: string, cookie = "", workerUserId = ""): Promise<ImageUpstreamStep> {
+    for (;;) {
+        const current = await getImageTask(task.id);
+        if (!current || current.billingMode !== "official-usage") return createImageAttempt(task, origin, publicOrigin, cookie, workerUserId);
+        if (current.status === "success") return { state: "completed" };
+        if (current.status === "cancelled" || current.status === "error") {
+            await refundPricedImageTask(current);
+            return { state: "failed", error: current.error || "图片任务已结束", status: current.status };
+        }
+        const reference = current.billingRequests?.find((item) => item.attemptNo === current.attemptNo);
+        const failed = current.attempts?.find((item) => item.attemptNo === current.attemptNo)?.status === "failed";
+        if (failed && current.candidateConfigs?.length && !reference?.review && !reference?.preparationStop) {
+            if (reference?.preparation?.phase === "preparing") return { state: "needs_review", reason: "原图片计费准备尚未结束，已保留原尝试和备用渠道", status: "metering_unknown" };
+            try {
+                if (!(await refundPricedImageTask({ ...current, status: "error" }))) return { state: "needs_review", reason: "原图片渠道账务尚未结束，已保留原尝试和备用渠道", status: "metering_unknown" };
+                await advancePricedImageTask(current.id, current.attemptNo!);
+            } catch (error) {
+                if (!(error instanceof PricingConflictError)) throw error;
+                return { state: "needs_review", reason: error.message, status: "attempt_conflict" };
+            }
+        }
+        const step = await createImageAttempt(current, origin, publicOrigin, cookie, workerUserId);
+        if (step.state !== "failed") return step;
+        const latest = await getImageTask(task.id);
+        const latestReference = latest?.billingRequests?.find((item) => item.attemptNo === latest.attemptNo);
+        if (!latest?.candidateConfigs?.length || latest.status !== "running" || latestReference?.review || latestReference?.preparationStop || latest.attempts?.find((item) => item.attemptNo === latest.attemptNo)?.status !== "failed") return step;
+    }
+}
+
+async function createImageAttempt(task: ImageTask, origin: string, publicOrigin: string, cookie: string, workerUserId: string): Promise<ImageUpstreamStep> {
     const current = await getImageTask(task.id);
     if (!current || current.status === "cancelled") return { state: "failed", error: "任务已取消", status: "cancelled" };
     const running = current.status === "pending" ? await transitionImageTask(current, ["pending"], { status: "running" }) : current;
     if (!running) return { state: "failed", error: "图片任务状态已变化", status: "conflict" };
+    let unsupportedPricing = false;
+    if (running.billingMode === "official-usage") {
+        const recovered = await recoverPricedImageTask(running);
+        if (recovered?.state === "needs_review") return { ...recovered, status: "metering_unknown" };
+        if (recovered?.state === "failed") {
+            if (running.attempts?.find((item) => item.attemptNo === running.attemptNo)?.status === "running") {
+                const attempts = finishGenerationAttempt(running.attempts, running.attemptNo!, { status: "failed", error: recovered.error });
+                await updateImageTask(running.id, { attempts }, running.attemptNo);
+            }
+            return { ...recovered, status: "failed" };
+        }
+        if (recovered?.state === "completed") {
+            await updateImageTask(running.id, { billing: { pointsCost: recovered.pointsCost, pointsRecordId: recovered.pointsRecordId, refunded: false } });
+            const persisted = persistedImageTaskResults(running);
+            if (persisted.length) return readyImageStep(running, persisted[0].serverUrl || persisted[0].dataUrl);
+            return handleImageProviderResult(
+                running,
+                { ...recovered.results[0], results: recovered.results, pointsCost: recovered.pointsCost, pointsRecordId: recovered.pointsRecordId },
+                origin,
+                cookie || maintenanceWorkerContext(workerUserId || task.userId),
+            );
+        }
+        const operation = running.kind === "edit" ? "edits" : "generations";
+        const tokenContract = running.billingApproval?.officialVersionId
+            ? (await listImagePriceContracts(running.billingApproval.officialVersionId, running.config.channelId || "", running.config.model, operation)).some((item) => item.current && item.scope === "global-standard-direct-image-tokens")
+            : false;
+        unsupportedPricing = running.config.apiFormat !== "openai" || !/^\/api\/ai\/system\/[^/]+$/.test(running.config.baseUrl) || (!supportsImageCountContract(running.config.advancedConfig?.protocol, running.config.model, operation) && !tokenContract);
+    }
     const prepared = persistedImageTaskResults(running);
     if (prepared.length) return readyImageStep(running, prepared[0].serverUrl || prepared[0].dataUrl);
     if (running.upstream?.id) return queryImageTaskUpstreamStep(running, origin, cookie, workerUserId);
@@ -35,10 +96,16 @@ export async function createImageTaskUpstreamStep(task: ImageTask, origin: strin
     const authContext = cookie || maintenanceWorkerContext(workerUserId || task.userId);
     const config = running.config;
     let attempts = running.attempts || [];
-    const started = startGenerationAttempt(attempts, { channelId: config.channelId, model: generationModelId(config), capability: "image" });
+    const resumed = running.billingMode === "official-usage" ? attempts.find((item) => item.attemptNo === running.attemptNo && item.status === "running") : undefined;
+    const started = resumed ? { attempt: resumed, attempts } : startGenerationAttempt(attempts, { channelId: config.channelId, model: generationModelId(config), capability: "image" });
     attempts = started.attempts;
     const candidate = { ...running, config, attempts, attemptNo: started.attempt.attemptNo, upstream: undefined, billing: undefined };
-    await updateImageTask(task.id, { config, attempts, attemptNo: candidate.attemptNo, upstream: undefined, billing: undefined });
+    try {
+        await updateImageTask(task.id, { config, attempts, attemptNo: candidate.attemptNo, upstream: undefined, billing: undefined }, running.billingMode === "official-usage" ? running.attemptNo || 0 : undefined);
+    } catch (error) {
+        if (!(error instanceof PricingConflictError)) throw error;
+        return { state: "needs_review", reason: error.message, status: "attempt_conflict" };
+    }
     const submissionStartedAt = Date.now();
     await scheduleGenerationTask("image", task.id, {
         executionPhase: "submitting",
@@ -49,6 +116,7 @@ export async function createImageTaskUpstreamStep(task: ImageTask, origin: strin
         lastUpstreamStatus: "submitting",
     });
     try {
+        if (unsupportedPricing) throw new GenerationSubmissionSafeFailure("该图片协议尚无受控按张计费契约");
         const result = usesDeclarativeImageProtocol(config.advancedConfig?.protocol)
             ? await runCustomImageTask(candidate, origin, publicOrigin, authContext, true)
             : config.apiFormat === "gemini"
@@ -60,8 +128,8 @@ export async function createImageTaskUpstreamStep(task: ImageTask, origin: strin
         if (!(error instanceof GenerationSubmissionSafeFailure)) throw generationSubmissionUncertainError(error, "图片任务创建结果未知");
         attempts = finishGenerationAttempt(attempts, candidate.attemptNo, { status: "failed", error: error.message });
         await refundImageCandidate(candidate);
-        await updateImageTask(task.id, { attempts, attemptNo: candidate.attemptNo, upstream: undefined, billing: undefined });
-        return { state: "failed", error: error.message, status: "failed" };
+        await updateImageTask(task.id, { attempts, attemptNo: candidate.attemptNo, upstream: undefined, billing: undefined }, running.billingMode === "official-usage" ? candidate.attemptNo : undefined);
+        return { state: "failed", error: error.message, status: unsupportedPricing ? "unsupported_pricing" : "failed" };
     }
 }
 
@@ -87,6 +155,7 @@ export async function queryImageTaskUpstreamStep(task: ImageTask, origin: string
 export async function prepareImageTaskAutomaticRetry(task: ImageTask, error: string) {
     const current = (await getImageTask(task.id)) || task;
     if (current.status !== "pending" && current.status !== "running") return null;
+    if (current.billingMode === "official-usage") return null;
     const attemptNo = current.attemptNo || current.attempts?.at(-1)?.attemptNo || 1;
     if (attemptNo >= 2) return null;
     const attempts = finishGenerationAttempt(current.attempts || [], attemptNo, {
@@ -246,6 +315,7 @@ function persistReadyImageSchedule(task: ImageTask, resultUrl: string) {
 
 async function refundImageCandidate(task: ImageTask) {
     const current = await getImageTask(task.id);
+    if (current?.billingMode === "official-usage") return;
     const billing = current?.billing;
     if (!billing?.pointsRecordId || billing.refunded) return;
     const settings = await getAuthSettings();
@@ -254,7 +324,7 @@ async function refundImageCandidate(task: ImageTask) {
         generationModelId(task.config),
         billing.pointsCost,
         "image",
-        imageUnits(task.config.quality, settings.generationPointMultipliers.imageQuality),
+        imageUnits(task.config.quality, settings.generationPointMultipliers.imageQuality, task.config.advancedConfig?.protocol),
         `image-task:${task.id}:attempt:${task.attemptNo || 1}:refund`,
         billing.pointsRecordId,
     );
@@ -277,6 +347,7 @@ async function completeImageResult(task: ImageTask, safeResults: StoredImageTask
         result: { ...safeResults[0], results: safeResults },
         pointsRemaining: task.pointsRemaining,
         retryable: false,
+        ...(current.billingMode === "official-usage" ? { billingPending: false } : {}),
     });
     if (!completed) {
         const latest = await getImageTask(task.id);

@@ -1,8 +1,13 @@
 import { refundUserPoints } from "@/lib/auth/store";
 import { getAudioTask, transitionAudioTask, type AudioTask } from "@/lib/server/audio-task-store";
 import { generationModelId } from "@/lib/server/generation-channel";
+import { refundPricedAudioTask } from "./model-pricing-audio-task";
 
 export async function refundAudioTask(task: AudioTask) {
+    if (task.billingMode === "official-usage") {
+        await refundPricedAudioTask(task);
+        return (await getAudioTask(task.id)) || task;
+    }
     const billing = task.billing;
     if ((task.status !== "error" && task.status !== "cancelled") || !billing?.pointsRecordId || billing.refunded) return task;
 

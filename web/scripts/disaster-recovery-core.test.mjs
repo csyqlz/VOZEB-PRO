@@ -5,8 +5,14 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { copyDirectorySnapshot, createRecoveryPointId, ensureNewDirectory, hashFile, parseCliArguments, readRecoveryManifest, resolveWithin, verifyRecoveryPoint, writeJsonAtomic } from "./disaster-recovery-core.mjs";
+import { requiresObjectBackup } from "./disaster-object-storage.mjs";
 
 describe("disaster recovery core", () => {
+    it("keeps historical object media even after external storage is disabled", () => {
+        expect(requiresObjectBackup({ enabled: false, hasReferencedObjects: true })).toBe(true);
+        expect(requiresObjectBackup({ enabled: true, hasReferencedObjects: false })).toBe(true);
+        expect(requiresObjectBackup({ enabled: false, hasReferencedObjects: false })).toBe(false);
+    });
     it("creates a bounded recovery point identity and parses explicit confirmations", () => {
         expect(createRecoveryPointId(new Date("2026-08-01T00:00:00.000Z"))).toMatch(/^2026-08-01T00-00-00-000Z-[a-f0-9]{8}$/);
         expect(parseCliArguments(["--input", "backup", "--confirm=id", "--confirm-offline"])).toMatchObject({ input: "backup", confirm: "id", "confirm-offline": true });

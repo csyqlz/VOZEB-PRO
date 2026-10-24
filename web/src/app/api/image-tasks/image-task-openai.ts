@@ -7,6 +7,7 @@ import { configureServerProxyDispatcher } from "@/lib/server/proxy-dispatcher";
 import { fetchInternalApi, isInternalApiBaseUrl, resolveInternalOrigin } from "@/lib/server/internal-origin";
 import { resolveGeneratedMediaUrl } from "@/lib/media-url";
 import { buildGlobalAiOpcImageRequest } from "@/lib/globalaiopc-catalog";
+import { isDataeyesSeedream5 } from "@/lib/dataeyes-seedream-protocol";
 import { toSafeGenerationErrorMessage } from "@/lib/server/generation-errors";
 import { generationModelId, toSystemGenerationChannel } from "@/lib/server/generation-channel";
 import { finishGenerationAttempt, startGenerationAttempt } from "@/lib/server/generation-attempt";
@@ -127,16 +128,21 @@ import {
 
 export async function runOpenAiImageTask(task: ImageTask, origin: string, publicOrigin: string, cookie: string, singleStep = false): Promise<ImageTaskRunResult> {
     const config = task.config;
-    const quality = normalizeQuality(config.quality || "");
+    if (task.kind === "edit" && config.advancedConfig?.protocol === "minimax") throw new GenerationSubmissionSafeFailure("MiniMax 图片预设当前仅支持文生图");
+    const quality = normalizeQuality(config.quality || "", config.model);
     const requestSize = resolveRequestSize(quality, config.size || "auto");
+    if (isDataeyesSeedream5(config.advancedConfig?.protocol, config.model) && !requestSize) throw new GenerationSubmissionSafeFailure("DataEyes Seedream 5.0 Pro 需要明确尺寸，请选择已验证的 2K 档位或配置受支持的精确尺寸");
     const globalPreset = globalAiOpcImagePreset(config);
     if (globalPreset) return runGlobalAiOpcImageTask(task, origin, publicOrigin, cookie, quality, requestSize, singleStep);
     const path = await openAiImageTaskPath(config, task.kind);
     const url = taskUrl(config, path, origin);
-    const headers = taskHeaders(config, cookie, imagePointsIdempotencyKey(task));
+    const headers = taskHeaders(config, cookie, imagePointsIdempotencyKey(task), task);
     const responseFormat = await preferredImageResponseFormat(config);
     const allowProtocolFallback = allowsImageProtocolFallback(config);
     const useJsonImageEdit = task.kind === "edit" && (await shouldUseJsonImageEdit(config));
+    if (useJsonImageEdit && (config.advancedConfig?.protocol === "alibaba-bailian" || config.advancedConfig?.protocol === "bfl" || config.advancedConfig?.protocol === "volcengine-image" || config.advancedConfig?.protocol === "dataeyes-seedream")) {
+        return runOfficialImageEditTask(task, url, origin, publicOrigin, cookie, requestSize, singleStep);
+    }
     if (useJsonImageEdit) return runOpenAiJsonImageEditTask(task, url, origin, publicOrigin, quality, requestSize, cookie, responseFormat, singleStep);
     let response: Response;
 
@@ -160,14 +166,31 @@ export async function runOpenAiImageTask(task: ImageTask, origin: string, public
         response = await imageSubmissionFetch(config, url, {
             method: "POST",
             headers,
-            body: JSON.stringify({
-                model: config.model,
-                prompt: withSystemPrompt(config, withImageOutputInstructions(config, task.prompt)),
-                ...(config.outputMode === "layers" ? {} : { n: 1 }),
-                ...(quality ? { quality } : {}),
-                ...(requestSize ? { size: requestSize } : {}),
-                ...(allowProtocolFallback ? { response_format: responseFormat, output_format: IMAGE_OUTPUT_FORMAT } : {}),
-            }),
+            body: JSON.stringify(
+                config.advancedConfig?.protocol === "bfl"
+                    ? { prompt: withSystemPrompt(config, withImageOutputInstructions(config, task.prompt)), ...(parseImageDimensions(requestSize || "") || {}) }
+                    : config.advancedConfig?.protocol === "minimax"
+                      ? {
+                            model: config.model,
+                            prompt: withSystemPrompt(config, withImageOutputInstructions(config, task.prompt)),
+                            response_format: "url",
+                            n: 1,
+                            ...(imageRequestAspectRatio(config.size || "auto") ? { aspect_ratio: imageRequestAspectRatio(config.size || "auto") } : {}),
+                        }
+                      : config.advancedConfig?.protocol === "volcengine-image" || config.advancedConfig?.protocol === "dataeyes-seedream"
+                        ? { model: config.model, prompt: withSystemPrompt(config, withImageOutputInstructions(config, task.prompt)), response_format: "url", ...(requestSize ? { size: requestSize } : {}) }
+                        : config.advancedConfig?.protocol === "alibaba-bailian"
+                          ? { model: config.model, prompt: withSystemPrompt(config, withImageOutputInstructions(config, task.prompt)), n: 1, ...(requestSize ? { size: requestSize } : {}) }
+                          : {
+                                model: config.model,
+                                prompt: withSystemPrompt(config, withImageOutputInstructions(config, task.prompt)),
+                                ...(config.outputMode === "layers" ? {} : { n: 1 }),
+                                ...(config.advancedConfig?.protocol === "sub2api-grok" || config.advancedConfig?.protocol === "xai"
+                                    ? grokImageOptions(config.model, quality, config.size || "")
+                                    : { ...(quality ? { quality } : {}), ...(requestSize ? { size: requestSize } : {}) }),
+                                ...(allowProtocolFallback ? { response_format: responseFormat, output_format: IMAGE_OUTPUT_FORMAT } : {}),
+                            },
+            ),
             cache: "no-store",
         });
         if (!response.ok) {
@@ -179,7 +202,7 @@ export async function runOpenAiImageTask(task: ImageTask, origin: string, public
     }
 
     if (!response.ok) throw imageSubmissionResponseError(response.status, await readFetchError(response, "图片生成失败"));
-    const payload = await parseImageSubmissionJson<ImageApiResponse>(task, response);
+    const payload = await parseImageSubmissionJson<ImageApiResponse>(task, response, url);
     const resultBaseUrl = response.headers.get("x-vozeb-pro-upstream-url") || url;
     const result = await parseChargedImageResponse(task, response, () => parseImagePayloadOrPoll(config, payload, resultBaseUrl, cookie, url, singleStep));
     if (allowProtocolFallback && responseFormat === "url" && shouldRetryInternalImageUrlAsBase64(result)) {
@@ -195,7 +218,7 @@ async function runGlobalAiOpcImageTask(task: ImageTask, origin: string, publicOr
     if (!preset) throw new GenerationSubmissionSafeFailure("GlobalAiOpc 图片预设未配置");
     const path = preset.createPath;
     const url = taskUrl(config, path, origin);
-    const headers = taskHeaders(config, cookie, imagePointsIdempotencyKey(task));
+    const headers = taskHeaders(config, cookie, imagePointsIdempotencyKey(task), task);
     headers.set("content-type", "application/json");
     const referenceContext = { ownerUserId: task.userId, taskId: task.id };
     const imageUrls = (await Promise.all(task.references.map((reference) => publicImageReferenceRequestUrl(reference, origin, publicOrigin, referenceContext)))).filter(Boolean);
@@ -218,7 +241,7 @@ async function runGlobalAiOpcImageTask(task: ImageTask, origin: string, publicOr
         cache: "no-store",
     });
     if (!response.ok) throw imageSubmissionResponseError(response.status, await readFetchError(response, "图片生成失败"));
-    const payload = await parseImageSubmissionJson<ImageApiResponse>(task, response);
+    const payload = await parseImageSubmissionJson<ImageApiResponse>(task, response, url);
     const resultBaseUrl = response.headers.get("x-vozeb-pro-upstream-url") || url;
     return parseChargedImageResponse(task, response, () => parseImagePayloadOrPoll(config, payload, resultBaseUrl, cookie, url, singleStep));
 }
@@ -240,10 +263,13 @@ export async function runOpenAiJsonImageEditTask(
     const apiBase = await resolveConfiguredApiBaseUrl(task.config.baseUrl).catch(() => task.config.baseUrl);
     const referenceMode = configuredImageEditReferenceMode(config);
     const imageUrlObjectOnlyMode = shouldUseSub2ApiImageEdit(config, apiBase);
+    const grokEdit = config.advancedConfig?.protocol === "sub2api-grok" || config.advancedConfig?.protocol === "xai";
     const allowProtocolFallback = allowsImageProtocolFallback(config);
-    const publicUrlReferenceMode = imageUrlObjectOnlyMode || referenceMode === "public-url";
-    for (const [index, body] of (await buildJsonImageEditBodies(task, quality, requestSize, responseFormat, origin, publicOrigin, publicUrlReferenceMode, imageUrlObjectOnlyMode, allowProtocolFallback)).entries()) {
-        const headers = taskHeaders(config, cookie, imagePointsIdempotencyKey(task, index === 0 ? billingVariant : `${billingVariant}-${index + 1}`));
+    const publicUrlReferenceMode = grokEdit || imageUrlObjectOnlyMode || referenceMode === "public-url";
+    const bodies = await buildJsonImageEditBodies(task, quality, requestSize, responseFormat, origin, publicOrigin, publicUrlReferenceMode, imageUrlObjectOnlyMode, allowProtocolFallback);
+    for (const [index, sourceBody] of bodies.entries()) {
+        const body = grokEdit ? grokImageEditBody(sourceBody, config.model, quality, config.size || "") : sourceBody;
+        const headers = taskHeaders(config, cookie, imagePointsIdempotencyKey(task, index === 0 ? billingVariant : `${billingVariant}-${index + 1}`), task);
         headers.set("content-type", "application/json");
         const response = await imageSubmissionFetch(config, url, { method: "POST", headers, body: JSON.stringify(body), cache: "no-store" });
         if (!response.ok) {
@@ -258,7 +284,7 @@ export async function runOpenAiJsonImageEditTask(
             if (allowProtocolFallback && shouldFallbackToResponsesImage(response.status, message)) return runOpenAiResponsesImageTask(task, origin, cookie, singleStep, "responses");
             throw imageSubmissionResponseError(response.status, message);
         }
-        const payload = await parseImageSubmissionJson<ImageApiResponse>(task, response);
+        const payload = await parseImageSubmissionJson<ImageApiResponse>(task, response, url);
         const resultBaseUrl = response.headers.get("x-vozeb-pro-upstream-url") || url;
         const result = await parseChargedImageResponse(task, response, () => parseImagePayloadOrPoll(config, payload, resultBaseUrl, cookie, url, singleStep));
         if (allowProtocolFallback && responseFormat === "url" && shouldRetryInternalImageUrlAsBase64(result)) {
@@ -274,14 +300,56 @@ export async function runOpenAiJsonImageEditTask(
     throw new GenerationSubmissionSafeFailure(lastMessage || "图片生成失败");
 }
 
+async function runOfficialImageEditTask(task: ImageTask, url: string, origin: string, publicOrigin: string, cookie: string, requestSize: string | undefined, singleStep: boolean): Promise<ImageTaskRunResult> {
+    const protocol = task.config.advancedConfig?.protocol;
+    const context = { ownerUserId: task.userId, taskId: task.id };
+    const images = (await Promise.all(task.references.map((reference) => publicImageReferenceRequestUrl(reference, origin, publicOrigin, context)))).filter(Boolean);
+    if (!images.length) throw new GenerationSubmissionSafeFailure("图片编辑缺少可用的参考图");
+    if (protocol === "bfl" && images.length !== 1) throw new GenerationSubmissionSafeFailure("BFL 当前图片预设只接受一张参考图");
+    const body =
+        protocol === "bfl"
+            ? { prompt: withSystemPrompt(task.config, withImageOutputInstructions(task.config, task.prompt)), input_image: images[0], ...(parseImageDimensions(requestSize || "") || {}) }
+            : {
+                  model: task.config.model,
+                  prompt: withSystemPrompt(task.config, withImageOutputInstructions(task.config, task.prompt)),
+                  image: images.length === 1 ? images[0] : images,
+                  ...(protocol === "volcengine-image" || protocol === "dataeyes-seedream" ? { response_format: "url" } : { n: 1 }),
+                  ...(requestSize ? { size: requestSize } : {}),
+              };
+    const headers = taskHeaders(task.config, cookie, imagePointsIdempotencyKey(task), task);
+    headers.set("content-type", "application/json");
+    const response = await imageSubmissionFetch(task.config, url, { method: "POST", headers, body: JSON.stringify(body), cache: "no-store" });
+    if (!response.ok) throw imageSubmissionResponseError(response.status, await readFetchError(response, "图片编辑失败"));
+    const payload = await parseImageSubmissionJson<ImageApiResponse>(task, response, url);
+    const mediaBaseUrl = response.headers.get("x-vozeb-pro-upstream-url") || url;
+    return parseChargedImageResponse(task, response, () => parseImagePayloadOrPoll(task.config, payload, mediaBaseUrl, cookie, url, singleStep));
+}
+
+function grokImageEditBody(source: Record<string, unknown>, model: string, quality: string | undefined, size: string) {
+    const images = Array.isArray(source.images) ? source.images : [];
+    const urls = images.flatMap((item) => (item && typeof item === "object" && typeof (item as { image_url?: unknown }).image_url === "string" ? [(item as { image_url: string }).image_url] : []));
+    const { images: _images, ref_assets: _assets, image_urls: _urls, image_url: _imageUrl, input_image: _inputImage, size: _size, quality: _quality, ...rest } = source;
+    if (!urls.length) throw new GenerationSubmissionSafeFailure("Grok 图片编辑需要有效的参考图 URL");
+    return { ...rest, ...grokImageOptions(model, quality, size), ...(urls.length === 1 ? { image: { url: urls[0], type: "image_url" } } : { images: urls.map((url) => ({ url, type: "image_url" })) }) };
+}
+
+function grokImageOptions(model: string, quality: string | undefined, size: string) {
+    const aspectRatio = imageRequestAspectRatio(size);
+    return {
+        ...(aspectRatio ? { aspect_ratio: aspectRatio } : {}),
+        ...(quality && quality !== "auto" ? { resolution: quality === "high" ? "2k" : "1k" } : {}),
+        ...(model.includes("image-2.0") && (quality === "low" || quality === "medium") ? { quality } : {}),
+    };
+}
+
 export async function runOpenAiImageTaskWithBase64Response(task: ImageTask, origin: string, publicOrigin: string, cookie: string, singleStep = false, billingVariant = "base64"): Promise<ImageTaskRunResult> {
     const config = task.config;
-    const quality = normalizeQuality(config.quality || "");
+    const quality = normalizeQuality(config.quality || "", config.model);
     const requestSize = resolveRequestSize(quality, config.size || "auto");
     const path = await openAiImageTaskPath(config, task.kind);
     const url = taskUrl(config, path, origin);
     const allowProtocolFallback = allowsImageProtocolFallback(config);
-    const headers = taskHeaders(config, cookie, imagePointsIdempotencyKey(task, billingVariant));
+    const headers = taskHeaders(config, cookie, imagePointsIdempotencyKey(task, billingVariant), task);
 
     if (task.kind === "edit") {
         let formData: FormData;
@@ -297,7 +365,7 @@ export async function runOpenAiImageTaskWithBase64Response(task: ImageTask, orig
             if (allowProtocolFallback && shouldFallbackToResponsesImage(response.status, message)) return runOpenAiResponsesImageTask(task, origin, cookie, singleStep, `${billingVariant}-responses`);
             throw imageSubmissionResponseError(response.status, message);
         }
-        const payload = await parseImageSubmissionJson<ImageApiResponse>(task, response);
+        const payload = await parseImageSubmissionJson<ImageApiResponse>(task, response, url);
         const resultBaseUrl = response.headers.get("x-vozeb-pro-upstream-url") || url;
         return parseChargedImageResponse(task, response, () => parseImagePayloadOrPoll(config, payload, resultBaseUrl, cookie, url, singleStep));
     }
@@ -322,7 +390,7 @@ export async function runOpenAiImageTaskWithBase64Response(task: ImageTask, orig
         if (allowProtocolFallback && shouldFallbackToResponsesImage(response.status, message)) return runOpenAiResponsesImageTask(task, origin, cookie, singleStep, `${billingVariant}-responses`);
         throw imageSubmissionResponseError(response.status, message);
     }
-    const payload = await parseImageSubmissionJson<ImageApiResponse>(task, response);
+    const payload = await parseImageSubmissionJson<ImageApiResponse>(task, response, url);
     const resultBaseUrl = response.headers.get("x-vozeb-pro-upstream-url") || url;
     return parseChargedImageResponse(task, response, () => parseImagePayloadOrPoll(config, payload, resultBaseUrl, cookie, url, singleStep));
 }
@@ -334,7 +402,7 @@ export async function runOpenAiResponsesImageTask(task: ImageTask, origin: strin
 
     const bodies = allowsImageProtocolFallback(config) ? buildResponsesImageBodies(task, origin) : [buildResponsesImageBodies(task, origin)[0]];
     for (const [index, body] of bodies.entries()) {
-        const headers = taskHeaders(config, cookie, imagePointsIdempotencyKey(task, index === 0 ? billingVariant : `${billingVariant}-${index + 1}`));
+        const headers = taskHeaders(config, cookie, imagePointsIdempotencyKey(task, index === 0 ? billingVariant : `${billingVariant}-${index + 1}`), task);
         headers.set("content-type", "application/json");
         const response = await imageSubmissionFetch(config, url, { method: "POST", headers, body: JSON.stringify(body), cache: "no-store" });
         if (!response.ok) {
@@ -342,7 +410,7 @@ export async function runOpenAiResponsesImageTask(task: ImageTask, origin: strin
             if (response.status === 400 || response.status === 422) continue;
             throw imageSubmissionResponseError(response.status, lastError);
         }
-        const payload = await parseImageSubmissionJson<ImageApiResponse>(task, response);
+        const payload = await parseImageSubmissionJson<ImageApiResponse>(task, response, url);
         const resultBaseUrl = response.headers.get("x-vozeb-pro-upstream-url") || url;
         return parseChargedImageResponse(task, response, () => parseImagePayloadOrPoll(config, payload, resultBaseUrl, cookie, url, singleStep));
     }

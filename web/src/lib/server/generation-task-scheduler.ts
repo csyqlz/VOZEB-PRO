@@ -1,3 +1,4 @@
+import { generationTaskAvailableSql, isGenerationTaskAvailable } from "./generation-task-retention";
 import { getDatabaseProvider, ensurePostgresSchema, postgresQuery, withPostgresTransaction } from "@/lib/server/database";
 import { listStoredGenerationTaskRecords, withGenerationTaskFileMutation, type GenerationTaskType, type StoredGenerationTaskRecord } from "@/lib/server/generation-task-store";
 
@@ -32,6 +33,7 @@ const SCHEDULABLE_TYPES = new Set<GenerationTaskType>(["image", "video", "audio"
 const ACTIVE_PHASES = new Set<GenerationTaskExecutionPhase>(["created", "submitting", "submitted", "polling", "result_ready", "persisting"]);
 const REVIEW_PHASES = new Set<GenerationTaskExecutionPhase>(["review_pending", "reviewing"]);
 const CANCELLATION_PHASES = new Set<GenerationTaskExecutionPhase>(["cancel_requested", "cancel_polling"]);
+const completedTextBillingSql = "(task_type = 'text' AND status IN ('success', 'error', 'cancelled') AND payload->>'billingMode' = 'official-usage' AND payload->>'billingPending' = 'false')";
 
 export async function scheduleGenerationTask(type: GenerationTaskType, id: string, patch: GenerationTaskSchedulePatch, options: GenerationTaskScheduleOptions = {}) {
     const normalized = normalizePatch(patch);
@@ -39,7 +41,7 @@ export async function scheduleGenerationTask(type: GenerationTaskType, id: strin
         await ensurePostgresSchema();
         const result = await postgresQuery<Record<string, unknown>>(
             `UPDATE generation_tasks
-             SET execution_phase = COALESCE($3, execution_phase), upstream_task_id = COALESCE($4, upstream_task_id),
+             SET execution_phase = CASE WHEN $3 = 'needs_review' AND ${completedTextBillingSql} THEN 'completed' ELSE COALESCE($3, execution_phase) END, upstream_task_id = COALESCE($4, upstream_task_id),
                  channel_id = COALESCE($5, channel_id), provider = COALESCE($6, provider), query_path = COALESCE($7, query_path),
                  submitted_at = COALESCE($8, submitted_at), next_poll_at = $9, last_poll_at = COALESCE($10, last_poll_at),
                  last_upstream_status = COALESCE($11, last_upstream_status), result_payload = COALESCE($12::jsonb, result_payload)
@@ -82,7 +84,7 @@ export async function claimDueGenerationTasks(input: { workerId: string; now?: n
                       OR (task_type = 'agent' AND status = 'success' AND execution_phase IN ('review_pending', 'reviewing'))
                       OR (status = 'cancelled' AND execution_phase IN ('cancel_requested', 'cancel_polling')))
                       AND task_type = ANY($6::text[])
-                      AND expires_at > $1
+                      AND ${generationTaskAvailableSql("$1")}
                       AND next_poll_at IS NOT NULL AND next_poll_at <= $1
                       AND (lease_until IS NULL OR lease_until <= $1)
                       AND (cardinality($4::text[]) = 0 OR id = ANY($4::text[]))
@@ -122,7 +124,7 @@ export async function getNextGenerationTaskDueAt(now = Date.now()) {
                     OR (task_type = 'agent' AND status = 'success' AND execution_phase IN ('review_pending', 'reviewing'))
                     OR (status = 'cancelled' AND execution_phase IN ('cancel_requested', 'cancel_polling')))
                AND task_type = ANY($1::text[])
-               AND expires_at > $2
+               AND ${generationTaskAvailableSql("$2")}
                AND next_poll_at IS NOT NULL`,
             [[...SCHEDULABLE_TYPES], new Date(now)],
         );
@@ -166,7 +168,7 @@ export async function releaseGenerationTaskLease(type: GenerationTaskType, id: s
         await ensurePostgresSchema();
         const result = await postgresQuery<Record<string, unknown>>(
             `UPDATE generation_tasks
-             SET execution_phase = COALESCE($4, execution_phase), upstream_task_id = CASE WHEN $15::boolean THEN NULL ELSE COALESCE($5, upstream_task_id) END,
+             SET execution_phase = CASE WHEN $4 = 'needs_review' AND ${completedTextBillingSql} THEN 'completed' ELSE COALESCE($4, execution_phase) END, upstream_task_id = CASE WHEN $15::boolean THEN NULL ELSE COALESCE($5, upstream_task_id) END,
                  channel_id = COALESCE($6, channel_id), provider = COALESCE($7, provider), query_path = CASE WHEN $15::boolean THEN NULL ELSE COALESCE($8, query_path) END,
                  submitted_at = CASE WHEN $15::boolean THEN NULL ELSE COALESCE($9, submitted_at) END, next_poll_at = $10,
                  last_poll_at = CASE WHEN $15::boolean THEN NULL ELSE COALESCE($11, last_poll_at) END,
@@ -241,9 +243,10 @@ function normalizePatch(patch: GenerationTaskSchedulePatch): GenerationTaskSched
 }
 
 function applyPatch(task: StoredGenerationTaskRecord, patch: GenerationTaskSchedulePatch): StoredGenerationTaskRecord {
+    const completedBilling = task.type === "text" && ["success", "error", "cancelled"].includes(task.status) && task.payload.billingMode === "official-usage" && task.payload.billingPending === false;
     return {
         ...task,
-        ...(patch.executionPhase ? { executionPhase: patch.executionPhase } : {}),
+        ...(patch.executionPhase ? { executionPhase: patch.executionPhase === "needs_review" && completedBilling ? "completed" : patch.executionPhase } : {}),
         ...(patch.upstreamTaskId ? { upstreamTaskId: patch.upstreamTaskId } : {}),
         ...(patch.channelId ? { channelId: patch.channelId } : {}),
         ...(patch.provider ? { provider: patch.provider } : {}),
@@ -264,7 +267,7 @@ function isSchedulable(task: StoredGenerationTaskRecord, now: number) {
     const active = (task.status === "pending" || task.status === "running") && ACTIVE_PHASES.has(task.executionPhase || "created");
     const review = task.type === "agent" && task.status === "success" && REVIEW_PHASES.has(task.executionPhase || "created");
     const cancellation = task.status === "cancelled" && CANCELLATION_PHASES.has(task.executionPhase || "created");
-    return SCHEDULABLE_TYPES.has(task.type) && (active || review || cancellation) && task.expiresAt > now && Number(task.nextPollAt || 0) > 0;
+    return SCHEDULABLE_TYPES.has(task.type) && (active || review || cancellation) && isGenerationTaskAvailable(task, now) && Number(task.nextPollAt || 0) > 0;
 }
 
 function canApplySchedulePatch(task: StoredGenerationTaskRecord, options: GenerationTaskScheduleOptions) {

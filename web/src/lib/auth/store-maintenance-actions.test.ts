@@ -38,6 +38,9 @@ describe("expired authentication record cleanup", () => {
             ],
             quotaUsage: [],
             pointRecords: [],
+            pricingReservations: [],
+            pricingAccruals: [],
+            pricingRefunds: [],
             dailyPlanPointWallets: [],
             emailCodes: [
                 { id: "consumed", purpose: "register", email: "one@example.com", codeHash: "one", createdAt: "2026-08-01T00:00:00.000Z", expiresAt: "2026-08-10T00:00:00.000Z", consumedAt: "2026-08-06T00:00:00.000Z" },

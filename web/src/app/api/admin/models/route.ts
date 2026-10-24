@@ -7,6 +7,7 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { getAuthSettings } from "@/lib/auth/store";
 import { buildGlobalAiOpcSelection, getGlobalAiOpcPresetForModel, isGlobalAiOpcBaseUrl, resolveGlobalAiOpcCatalogPresets } from "@/lib/globalaiopc-catalog";
 import { inferModelCapability, normalizeModelId } from "@/lib/model-capability";
+import { isDataEyesCatalogUrl } from "@/lib/channel-model-availability";
 import { isProviderTimeoutError, resolveAdminChannelCredentials, sanitizeProviderMessage } from "@/lib/server/admin-channel-config";
 import {
     buildModelCatalogUrls,
@@ -44,6 +45,9 @@ type ModelsPayload = {
     authMode?: unknown;
     authHeader?: unknown;
     authPrefix?: unknown;
+    channelAuthMode?: unknown;
+    channelAuthHeader?: unknown;
+    channelAuthPrefix?: unknown;
     globalAiOpcPreset?: unknown;
     globalAiOpcPresets?: unknown;
     createPath?: unknown;
@@ -80,6 +84,9 @@ export async function POST(request: Request) {
         ...(body.authMode !== undefined ? { authMode: body.authMode } : {}),
         ...(body.authHeader !== undefined ? { authHeader: body.authHeader } : {}),
         ...(body.authPrefix !== undefined ? { authPrefix: body.authPrefix } : {}),
+        ...(body.channelAuthMode !== undefined ? { channelAuthMode: body.channelAuthMode } : {}),
+        ...(body.channelAuthHeader !== undefined ? { channelAuthHeader: body.channelAuthHeader } : {}),
+        ...(body.channelAuthPrefix !== undefined ? { channelAuthPrefix: body.channelAuthPrefix } : {}),
         ...(body.globalAiOpcPreset !== undefined ? { globalAiOpcPreset: body.globalAiOpcPreset } : {}),
         ...(body.globalAiOpcPresets !== undefined ? { globalAiOpcPresets: body.globalAiOpcPresets } : {}),
         ...(body.createPath !== undefined ? { createPath: body.createPath } : {}),
@@ -152,6 +159,7 @@ export async function POST(request: Request) {
         const providerCatalog = [] as ReturnType<typeof parseModelCatalog>;
         let providerConfigs = {} as ReturnType<typeof parseModelConfigs>;
         let catalogSucceeded = false;
+        let catalogComplete = true;
         const visited = new Set<string>();
 
         for (const catalogUrl of modelCatalogUrls) {
@@ -173,8 +181,9 @@ export async function POST(request: Request) {
                 const pageCatalog = parseModelCatalog(payload, "provider", protocol);
                 providerCatalog.splice(0, providerCatalog.length, ...mergeModelCatalogEntries(providerCatalog, pageCatalog));
                 providerConfigs = { ...providerConfigs, ...parseModelConfigs(payload, protocol) };
-                nextUrl = nextModelsPageUrl(nextUrl, payload, apiFormat, pageCatalog.at(-1)?.id || providerCatalog.at(-1)?.id || "");
+                nextUrl = nextModelsPageUrl(nextUrl, payload, apiFormat, parseModelCatalog(payload).at(-1)?.id || "");
             }
+            if (nextUrl) catalogComplete = false;
         }
 
         const officialCatalog = officialModelCatalog(baseUrl);
@@ -184,6 +193,10 @@ export async function POST(request: Request) {
             modelFetchCooldowns.delete(cooldownKey);
             if (!catalogSucceeded) return NextResponse.json({ error: "该上游未提供模型列表接口，请在高级设置的“模型列表”手动填写模型名称；手工模型会在后续拉取时保留。" }, { status: 422 });
             return NextResponse.json({ error: "接口请求成功，但返回内容中没有识别到模型列表" }, { status: 502 });
+        }
+        if (isDataEyesCatalogUrl(baseUrl) && catalogSucceeded && !providerCatalog.length) {
+            modelFetchCooldowns.delete(cooldownKey);
+            return NextResponse.json({ error: "当前密钥的模型目录为空，已保留原渠道配置" }, { status: 502 });
         }
 
         const agnes = isAgnesApiBaseUrl(baseUrl);
@@ -204,6 +217,7 @@ export async function POST(request: Request) {
             discoveredCount: discovered.length,
             totalCount: merged.length,
             catalogSupported: catalogSucceeded,
+            ...(isDataEyesCatalogUrl(baseUrl) && catalogSucceeded && catalogComplete ? { providerModels: providerCatalog.map((entry) => entry.id) } : {}),
             ...(!catalogSucceeded ? { warning: "上游未公开模型目录，已保留现有手工模型。" } : {}),
             ...(agnes ? { provider: "agnes", recommendedConfig: AGNES_RECOMMENDED_CONFIG } : {}),
         });

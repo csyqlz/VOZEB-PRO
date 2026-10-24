@@ -1,0 +1,47 @@
+{
+  "observedAt": "2026-10-10T14:05:52Z",
+  "status": "draft-pending-administrator-review",
+  "productionChanged": false,
+  "candidateInputs": [
+    {
+      "logicalModelId": "qwen3.8-max",
+      "manufacturer": "Alibaba Cloud",
+      "series": "Qwen Max",
+      "officialVersion": "qwen3.8-max",
+      "sku": "qwen3.8-max",
+      "tier": "paid",
+      "conditions": "Alibaba Cloud Model Studio original pay-as-you-go API list price; Singapore deployment, International scope, 0 < request input tokens <= 1000000. Ordinary input, output, implicit cache hit, explicit cache creation, and explicit cache read are separate token meters. International batch inference is unsupported. Promotional offers and free quota do not reduce the regular user-price baseline. Actual proxy region, cache mode, response meters and request bound require separate review.",
+      "sourceKind": "manual",
+      "sourceUrl": "https://www.alibabacloud.com/help/en/model-studio/qwen3-8-max",
+      "evidence": "2026-10-10 exact model page: Singapore International original API prices per 1M tokens are ordinary input 2, output 6, implicit-cache input 0.25, explicit-cache creation 2.5, explicit-cache read 0.17 USD. Input/output match the independent 2026-10-09 Alibaba comparison. Global is a separate official deployment scope and is not selected here.",
+      "observedAt": "2026-10-10T14:05:52Z",
+      "items": [
+        { "key": "inputTokens", "unit": "token", "per": "1000000", "price": "2", "currency": "USD" },
+        { "key": "outputTokens", "unit": "token", "per": "1000000", "price": "6", "currency": "USD" },
+        { "key": "implicitCacheReadTokens", "unit": "token", "per": "1000000", "price": "0.25", "currency": "USD" },
+        { "key": "explicitCacheWriteTokens", "unit": "token", "per": "1000000", "price": "2.5", "currency": "USD" },
+        { "key": "explicitCacheReadTokens", "unit": "token", "per": "1000000", "price": "0.17", "currency": "USD" }
+      ]
+    },
+    {
+      "logicalModelId": "qwen3.8-27b",
+      "manufacturer": "Alibaba Cloud",
+      "series": "Qwen Open-source",
+      "officialVersion": "qwen3.8-27b",
+      "sku": "qwen3.8-27b",
+      "tier": "paid",
+      "conditions": "Alibaba Cloud Model Studio original pay-as-you-go API list price; Singapore deployment, International scope, 0 < request input tokens <= 1000000. Ordinary input, output, implicit cache hit, explicit cache creation, and explicit cache read are separate token meters. Batch inference is unsupported. Promotional offers and free quota do not reduce the regular user-price baseline. Actual proxy region, cache mode, response meters and request bound require separate review.",
+      "sourceKind": "manual",
+      "sourceUrl": "https://www.alibabacloud.com/help/en/model-studio/qwen3-8-27b",
+      "evidence": "2026-10-10 exact model page: Singapore International original API prices per 1M tokens are ordinary input 0.5, output 3, implicit-cache input 0.1, explicit-cache creation 0.625, explicit-cache read 0.05 USD. Input/output match the independent 2026-10-09 Alibaba comparison. Beijing is a separate official region and is not selected here.",
+      "observedAt": "2026-10-10T14:05:52Z",
+      "items": [
+        { "key": "inputTokens", "unit": "token", "per": "1000000", "price": "0.5", "currency": "USD" },
+        { "key": "outputTokens", "unit": "token", "per": "1000000", "price": "3", "currency": "USD" },
+        { "key": "implicitCacheReadTokens", "unit": "token", "per": "1000000", "price": "0.1", "currency": "USD" },
+        { "key": "explicitCacheWriteTokens", "unit": "token", "per": "1000000", "price": "0.625", "currency": "USD" },
+        { "key": "explicitCacheReadTokens", "unit": "token", "per": "1000000", "price": "0.05", "currency": "USD" }
+      ]
+    }
+  ]
+}

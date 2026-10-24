@@ -119,6 +119,9 @@ export function normalizeDb(db: Partial<AuthDatabase>): AuthDatabase {
         sessions: Array.isArray(db.sessions) ? db.sessions : [],
         quotaUsage: Array.isArray(db.quotaUsage) ? db.quotaUsage.map(normalizeQuotaUsage).filter((usage) => usage.userId) : [],
         pointRecords: Array.isArray((db as Partial<AuthDatabase>).pointRecords) ? ((db as Partial<AuthDatabase>).pointRecords || []).map(normalizePointRecord).filter((item) => item.userId) : [],
+        pricingReservations: Array.isArray(db.pricingReservations) ? db.pricingReservations : [],
+        pricingAccruals: Array.isArray(db.pricingAccruals) ? db.pricingAccruals : [],
+        pricingRefunds: Array.isArray(db.pricingRefunds) ? db.pricingRefunds : [],
         dailyPlanPointWallets: Array.isArray(db.dailyPlanPointWallets) ? db.dailyPlanPointWallets.map(normalizeDailyPlanPointWallet).filter((item) => item.userId && item.date) : [],
         emailCodes: Array.isArray(db.emailCodes) ? db.emailCodes.map(normalizeEmailCode).filter((item) => item.email) : [],
         cdkCodes: Array.isArray(db.cdkCodes) ? db.cdkCodes.map(normalizeCdkCodeRecord).filter((item) => item.codeHash) : [],
@@ -128,7 +131,22 @@ export function normalizeDb(db: Partial<AuthDatabase>): AuthDatabase {
 }
 
 export function emptyDb(): AuthDatabase {
-    return { version: 1, nextUserAccountId: 1, users: [], sessions: [], quotaUsage: [], pointRecords: [], dailyPlanPointWallets: [], emailCodes: [], cdkCodes: [], announcements: [], settings: DEFAULT_SETTINGS };
+    return {
+        version: 1,
+        nextUserAccountId: 1,
+        users: [],
+        sessions: [],
+        quotaUsage: [],
+        pointRecords: [],
+        pricingReservations: [],
+        pricingAccruals: [],
+        pricingRefunds: [],
+        dailyPlanPointWallets: [],
+        emailCodes: [],
+        cdkCodes: [],
+        announcements: [],
+        settings: DEFAULT_SETTINGS,
+    };
 }
 
 export function encryptAuthDbSecretsForStorage(db: AuthDatabase): AuthDatabase {

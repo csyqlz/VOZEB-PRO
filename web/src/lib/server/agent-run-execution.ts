@@ -1,7 +1,9 @@
 import { getAuthSettings, refundUserPoints, type LogicalModelCapability } from "@/lib/auth/store";
+import { allocateDirectCreativeModels } from "@/lib/creative-direct-model-allocation";
 import { withCreativeFoundation, type CreativeReview } from "@/lib/creative-agent-contract";
 import { isCreativeAutoValue, type CreativeAsset, type CreativeGenerationPreferences, type CreativeSurface } from "@/lib/creative-runtime-contract";
 import { creativeAssetReferenceAliases } from "@/lib/creative-asset-references";
+import { isDataeyesSeedream5 } from "@/lib/dataeyes-seedream-protocol";
 import { fetchInternalApi } from "@/lib/server/internal-origin";
 import { resolveLogicalModel, resolveLogicalModelCandidates } from "@/lib/server/logical-model-router";
 import { assertCapabilityConstraints } from "@/lib/server/capability-constraints";
@@ -24,6 +26,7 @@ import type { AgentFunctionCallResult } from "./agent-function-call";
 import { agentSurfaceImageSize, canvasReferenceContext, canvasReferenceSupportsTask, canvasSnapshotNodes, isMediaReferenceType, resolveAgentTaskRatio, resolveCanvasTaskTargetNodeId, selectedCanvasReferenceNodes } from "./agent-run-task-input";
 import { hasSystemAiCharge, readSystemAiBilling, systemAiBillingHeaders } from "./system-ai-billing";
 import { acceptsMediaReference, mergeTaskReferences, taskImageUrls, taskReferences, textConstraintInstruction } from "./agent-run-execution-helpers";
+import { textConversationMessages } from "./agent-text-conversation";
 
 export { planToOps, taskResultOps } from "./agent-run-canvas-ops";
 export { acceptsMediaReference, mergeTaskReferences, requestedTextLimit, reviewCorrection, taskImageUrls, taskReferences, taskResultItems, textConstraintInstruction } from "./agent-run-execution-helpers";
@@ -278,7 +281,7 @@ type DirectAgentModelOption = {
 
 export function directAgentPlan(models: DirectAgentModelOption[], prompt: string, assetIds: string[], preferences?: CreativeGenerationPreferences): AgentPlan {
     if (!models.length || models.some((model) => model.capability === "text")) throw new Error("当前模型不支持直接生成媒体");
-    const allocations = directModelAllocations(models, preferences);
+    const allocations = allocateDirectCreativeModels(models, preferences);
     return {
         intent: "generation",
         objective: prompt,
@@ -311,35 +314,12 @@ export function directGenerationPreferences(preferences?: CreativeGenerationPref
     };
 }
 
-function directModelAllocations(models: DirectAgentModelOption[], preferences?: CreativeGenerationPreferences) {
-    const counts = new Map<string, number>();
-    for (const capability of ["image", "video", "audio"] as const) {
-        const peers = models.filter((model) => model.capability === capability);
-        if (!peers.length) continue;
-        const requested = capability === "image" ? preferences?.image?.count : capability === "video" ? preferences?.video?.count : undefined;
-        let remaining = Math.max(requested || peers.length, peers.length) - peers.length;
-        peers.forEach((model) => counts.set(model.id, 1));
-        while (remaining > 0) {
-            const available = peers.filter((model) => !model.capabilityProfile?.maxBatchSize || (counts.get(model.id) || 0) < model.capabilityProfile.maxBatchSize);
-            if (!available.length) throw new Error("所选模型无法承载当前生成总数，请减少数量或调整模型");
-            const share = Math.max(1, Math.floor(remaining / available.length));
-            for (const model of available) {
-                if (!remaining) break;
-                const current = counts.get(model.id) || 0;
-                const capacity = model.capabilityProfile?.maxBatchSize ? model.capabilityProfile.maxBatchSize - current : remaining;
-                const added = Math.min(share, capacity, remaining);
-                counts.set(model.id, current + added);
-                remaining -= added;
-            }
-        }
-    }
-    return models.map((model) => ({ model, count: counts.get(model.id) || 1 }));
-}
-
 function assertAgentTaskCapabilities(settings: Awaited<ReturnType<typeof getAuthSettings>>, task: AgentRunTask) {
     if (!task.model) return;
-    const candidates = resolveLogicalModelCandidates(settings, task.type, task.model);
-    const input = { capability: task.type, batchSize: task.count, durationSeconds: task.seconds, aspectRatio: task.ratio, resolution: task.quality } as const;
+    const candidates = resolveLogicalModelCandidates(settings, task.type, task.model).filter(
+        (candidate) => task.type !== "image" || task.ratio?.toLowerCase() !== "2k" || isDataeyesSeedream5(candidate.channel.advancedConfig?.protocol, candidate.upstreamModel),
+    );
+    const input = { capability: task.type, batchSize: task.count, durationSeconds: task.seconds, aspectRatio: task.ratio?.toLowerCase() === "2k" ? undefined : task.ratio, resolution: task.quality } as const;
     if (candidates.some((candidate) => allowsCapability(candidate.capabilityProfile, input))) return;
     assertCapabilityConstraints(candidates[0]?.capabilityProfile, input);
     throw new Error("当前模型没有支持所选生成参数的可用渠道");
@@ -539,6 +519,7 @@ async function reviewCompletedTasks(run: AgentRun, origin: string, cookie: strin
         cookie,
         userId: run.userId,
         billingId: run.id,
+        projectId: run.projectId,
         foundation,
         tasks: run.tasks.map((task) => ({ id: task.id, title: task.title, type: task.type, prompt: task.prompt, resultSummary: resultSummary(task.result), imageUrls: task.type === "image" ? taskImageUrls(task.result) : [] })),
     });
@@ -752,7 +733,7 @@ export async function dispatchTask(task: AgentRunTask, origin: string, cookie: s
               ? { config, prompt: task.prompt, references: references.map((item) => ({ type: item.type, url: item.url, ...(item.role ? { role: item.role } : {}) })), source, context }
               : task.type === "audio"
                 ? { config, prompt: task.prompt, source, context }
-                : { config, messages: [{ role: "user", content: task.prompt }] };
+                : { config, messages: run.generationPreferences?.mode === "text" ? await textConversationMessages(run, origin) : [{ role: "user", content: task.prompt }] };
     const copies = agentTaskCopies(task.type, task.count);
     const initialChildren = normalizeChildTasks(task);
     const outcomes = await mapWithConcurrency(copies, settings.generationConcurrency[task.type === "image" ? "image" : task.type === "video" ? "video" : task.type === "audio" ? "audio" : "text"], async (index) => {
@@ -764,7 +745,12 @@ export async function dispatchTask(task: AgentRunTask, origin: string, cookie: s
                 ...body,
                 context: { ...context, clientRequestId: `${run.clientRequestId}:${task.id}:${attempt}:${index + 1}` },
             };
-            const response = await fetchInternalApi(`${origin}${path}`, { method: "POST", headers: runtimeRequestHeaders(cookie, { "Content-Type": "application/json" }), body: JSON.stringify(bodyForCopy), cache: "no-store" });
+            const response = await fetchInternalApi(`${origin}${path}`, {
+                method: "POST",
+                headers: runtimeRequestHeaders(cookie, { "Content-Type": "application/json", "X-VOZEB-PRO-Client-Request-Id": bodyForCopy.context.clientRequestId }),
+                body: JSON.stringify(bodyForCopy),
+                cache: "no-store",
+            });
             if (!response.ok) throw new Error((await response.text()) || "生成任务创建失败");
             const payload = (await response.json()) as { task?: { id?: string } };
             const createdTaskId = payload.task?.id;

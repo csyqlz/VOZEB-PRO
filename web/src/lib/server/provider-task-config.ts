@@ -112,15 +112,19 @@ export function assertVideoReferenceRoles(config: SystemChannelAdvancedConfig | 
     const protocol = config?.protocol || "auto";
     const supported = new Set<VideoReferenceRole>(
         declaredRoles ||
-            (protocol === "seedance" || protocol === "volcengine-video" || protocol === "seedance-special"
+            (protocol === "seedance" || protocol === "dataeyes-seedance" || protocol === "volcengine-video" || protocol === "seedance-special"
                 ? ["reference", "first_frame", "last_frame"]
-                : protocol === "yumeng"
+                : protocol === "yumeng" || protocol === "sub2api-grok" || protocol === "alibaba-bailian" || protocol === "minimax" || protocol === "xai"
                   ? templateVideoReferenceRoles(config?.requestTemplate)
-                  : protocol === "openai" || protocol === "newapi" || protocol === "sub2api"
-                    ? ["reference", "first_frame"]
-                    : protocol === "custom" || protocol === "compatible" || protocol === "auto"
-                      ? templateVideoReferenceRoles(config?.requestTemplate)
-                      : ["reference"]),
+                  : protocol === "kling"
+                    ? ["reference", "first_frame", "last_frame"]
+                    : protocol === "vidu"
+                      ? ["reference", "first_frame"]
+                      : protocol === "openai" || protocol === "newapi" || protocol === "sub2api"
+                        ? ["reference", "first_frame"]
+                        : protocol === "custom" || protocol === "compatible" || protocol === "auto"
+                          ? templateVideoReferenceRoles(config?.requestTemplate)
+                          : ["reference"]),
     );
     const unsupported = requestedRoles.find((role) => !supported.has(role));
     if (unsupported) throw new Error(unsupported === "last_frame" ? "当前视频模型不支持尾帧输入" : "当前视频模型不支持显式首帧输入");

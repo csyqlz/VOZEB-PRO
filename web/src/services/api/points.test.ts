@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { listPointRecords, refreshUserPointsIfSystem } from "./points";
+import { getPricingWallet, listPointRecords, refreshUserPointsIfSystem } from "./points";
 import { useUserStore, type LocalUser } from "@/stores/use-user-store";
 
 const user = (pointsBalance: number): LocalUser => ({
@@ -22,6 +22,18 @@ const user = (pointsBalance: number): LocalUser => ({
 describe("用户积分同步", () => {
     afterEach(() => {
         vi.unstubAllGlobals();
+    });
+
+    it("loads private pricing pages with cancellation and rejects non-JSON proxy failures", async () => {
+        const fetchMock = vi
+            .fn()
+            .mockResolvedValueOnce(Response.json({ code: 0, data: { items: [], total: 0 } }))
+            .mockResolvedValueOnce(new Response("<html>upstream error</html>", { status: 502 }));
+        vi.stubGlobal("fetch", fetchMock);
+        const signal = new AbortController().signal;
+        expect(await getPricingWallet({ page: 2, pageSize: 8, status: "reserved" }, signal)).toMatchObject({ total: 0 });
+        expect(fetchMock).toHaveBeenCalledWith("/api/points/pricing?page=2&pageSize=8&status=reserved", { cache: "no-store", signal });
+        await expect(getPricingWallet()).rejects.toThrow("计费记录加载失败");
     });
 
     it("coalesces overlapping refreshes and keeps the latest server balance", async () => {

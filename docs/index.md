@@ -9,6 +9,7 @@ VOZEB PRO 是面向图片、视频、短剧与品牌物料生产的 AI 创作工
 - [页面功能图册](/docs/overview/page-gallery)
 - [快速开始](/docs/overview/quick-start)
 - [配置说明](/docs/overview/configuration)
+- [跨服务器备份与新节点](/docs/overview/node-bundles)
 - [生产上线基线](/docs/overview/production-readiness)
 - [Docker 部署](/docs/overview/docker)
 - [低内存部署](/docs/overview/low-memory)

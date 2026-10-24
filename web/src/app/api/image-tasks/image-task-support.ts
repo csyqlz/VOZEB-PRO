@@ -1,3 +1,4 @@
+import { observeImageTaskUsage } from "@/lib/server/model-pricing-image-usage";
 import { rawReferenceRequestUrlCandidates } from "./image-task-reference-urls";
 import { after, NextResponse } from "next/server";
 
@@ -9,11 +10,12 @@ import { configureServerProxyDispatcher } from "@/lib/server/proxy-dispatcher";
 import { fetchInternalApi, isInternalApiBaseUrl, resolveInternalOrigin } from "@/lib/server/internal-origin";
 import { resolveGeneratedMediaUrl } from "@/lib/media-url";
 import { resolveGlobalAiOpcPreset } from "@/lib/globalaiopc-catalog";
+import { dataeyesFluxFixedImageUnits } from "@/lib/dataeyes-flux-protocol";
 import { toSafeGenerationErrorMessage } from "@/lib/server/generation-errors";
 import { generationModelId, toSystemGenerationChannel } from "@/lib/server/generation-channel";
 import { finishGenerationAttempt, startGenerationAttempt } from "@/lib/server/generation-attempt";
 import { resolveLogicalModelCandidates } from "@/lib/server/logical-model-router";
-import { resolveChannelModelConfig } from "@/lib/channel-protocol-registry";
+import { protocolAuthHeaders, resolveChannelModelConfig } from "@/lib/channel-protocol-registry";
 import { assertReferenceCapabilities } from "@/lib/server/provider-task-config";
 import { countActiveImageTasksForUser, createImageTask, getImageTask, touchImageTask, transitionImageTask, type ImageTask, type ImageTaskConfig, type ImageTaskReference, updateImageTask } from "@/lib/server/image-task-store";
 import { isGenerationSource, recordGenerationLog } from "@/lib/server/generation-log-store";
@@ -24,7 +26,7 @@ import { registerGenerationTaskAssetsForUser } from "@/lib/server/creative-runti
 import { createSignedReferenceAssetUrl, signReferenceAssetInputUrl } from "@/lib/server/reference-asset-access";
 import { assertCapabilityConstraints } from "@/lib/server/capability-constraints";
 import { resolveModelPollingAttempts, resolveModelRequestTimeoutMs } from "@/lib/server/model-request-policy";
-import { systemAiBillingHeaders } from "@/lib/server/system-ai-billing";
+import { systemAiBillingHeaders, SYSTEM_AI_IMAGE_TASK_HEADER, SYSTEM_AI_PRICING_STATE_HEADER } from "@/lib/server/system-ai-billing";
 import { maintenanceWorkerContextHeaders } from "@/lib/server/maintenance-auth";
 import { fetchSafeOutbound } from "@/lib/server/safe-outbound-fetch";
 import { resolveMediaMimeType } from "@/lib/server/media-content-type";
@@ -113,6 +115,7 @@ export async function preferredImageResponseFormat(config: ImageTaskConfig): Pro
 }
 
 export async function openAiImageTaskPath(config: ImageTaskConfig, kind: ImageTask["kind"]) {
+    if (config.advancedConfig?.protocol === "bfl") return `/v1/${encodeURIComponent(config.model)}`;
     const configured = (config.advancedConfig?.createPath || "").trim();
     const configuredPath = configured ? normalizeImageTaskPath(configured) : "";
     if (kind !== "edit") return configuredPath || "/images/generations";
@@ -146,6 +149,15 @@ export function isStandardOpenAiImageGenerationPath(path: string) {
 }
 
 export async function shouldUseJsonImageEdit(config: ImageTaskConfig) {
+    if (
+        config.advancedConfig?.protocol === "sub2api-grok" ||
+        config.advancedConfig?.protocol === "xai" ||
+        config.advancedConfig?.protocol === "alibaba-bailian" ||
+        config.advancedConfig?.protocol === "bfl" ||
+        config.advancedConfig?.protocol === "volcengine-image" ||
+        config.advancedConfig?.protocol === "dataeyes-seedream"
+    )
+        return true;
     if (globalAiOpcImagePreset(config)) return true;
     const referenceMode = configuredImageEditReferenceMode(config);
     const apiBase = await resolveConfiguredApiBaseUrl(config.baseUrl).catch(() => config.baseUrl);
@@ -212,7 +224,18 @@ export function matchesApiHost(baseUrl: string, hostname: string) {
 
 export function taskUrl(config: ImageTaskConfig, path: string, origin: string) {
     const protocol = resolveChannelModelConfig(config.advancedConfig, config.model)?.protocol || config.advancedConfig?.protocol;
-    const apiBase = protocol === "custom" || protocol === "stable-diffusion" || protocol === "yumeng" ? absoluteApiBaseUrl(config.baseUrl, origin) : normalizeApiBaseUrl(config.baseUrl, config.apiFormat, origin);
+    const apiBase =
+        protocol === "custom" ||
+        protocol === "stable-diffusion" ||
+        protocol === "yumeng" ||
+        protocol === "alibaba-bailian" ||
+        protocol === "bfl" ||
+        protocol === "minimax" ||
+        protocol === "xai" ||
+        protocol === "volcengine-image" ||
+        protocol === "dataeyes-seedream"
+            ? absoluteApiBaseUrl(config.baseUrl, origin)
+            : normalizeApiBaseUrl(config.baseUrl, config.apiFormat, origin);
     return `${apiBase}${path}`;
 }
 
@@ -237,19 +260,21 @@ export function isInternalSystemProxyBase(value: string) {
     }
 }
 
-export function taskHeaders(config: ImageTaskConfig, cookie: string, pointsIdempotencyKey?: string) {
+export function taskHeaders(config: ImageTaskConfig, cookie: string, pointsIdempotencyKey?: string, task?: ImageTask) {
     const headers = new Headers();
     const internal = config.baseUrl.startsWith("/");
     const workerHeaders = maintenanceWorkerContextHeaders(cookie);
     if (internal && workerHeaders) Object.entries(workerHeaders).forEach(([key, value]) => headers.set(key, value));
     else if (internal && cookie) headers.set("cookie", cookie);
-    if (internal) Object.entries(systemAiBillingHeaders(generationModelId(config), pointsIdempotencyKey, config.model)).forEach(([key, value]) => headers.set(key, value));
+    if (internal)
+        Object.entries(systemAiBillingHeaders(generationModelId(config), pointsIdempotencyKey, config.model, undefined, task?.billingMode === "official-usage" ? { taskId: task.id, attemptNo: task.attemptNo || 1 } : undefined)).forEach(([key, value]) =>
+            headers.set(key, value),
+        );
     if (pointsIdempotencyKey?.trim()) {
         headers.set("Idempotency-Key", pointsIdempotencyKey.trim());
         headers.set("X-Client-Request-Id", pointsIdempotencyKey.trim());
     }
-    if (!internal && config.apiFormat === "gemini") headers.set("x-goog-api-key", config.apiKey);
-    else if (!internal) headers.set("authorization", `Bearer ${config.apiKey}`);
+    if (!internal) Object.entries(protocolAuthHeaders(config.apiKey, config.advancedConfig, config.apiFormat)).forEach(([key, value]) => headers.set(key, value));
     return headers;
 }
 
@@ -264,7 +289,12 @@ export function taskFetch(config: ImageTaskConfig, url: string, init: RequestIni
 
 export async function imageSubmissionFetch(config: ImageTaskConfig, url: string, init: RequestInit) {
     try {
-        return await taskFetch(config, url, init);
+        const response = await taskFetch(config, url, init);
+        if (new Headers(init.headers).has(SYSTEM_AI_IMAGE_TASK_HEADER) && !["settled", "not-submitted"].includes(response.headers.get(SYSTEM_AI_PRICING_STATE_HEADER) || "")) {
+            await response.body?.cancel();
+            throw new GenerationSubmissionUncertainError("原图片计费结果待核对，请检查原任务状态");
+        }
+        return response;
     } catch (error) {
         throw generationSubmissionUncertainError(error, "图片任务创建结果未知");
     }
@@ -274,13 +304,16 @@ export function imageSubmissionResponseError(status: number, message: string) {
     return generationSubmissionResponseError(status, message);
 }
 
-export async function parseImageSubmissionJson<T>(task: ImageTask, response: Response): Promise<T> {
+export async function parseImageSubmissionJson<T>(task: ImageTask, response: Response, requestUrl?: string): Promise<T> {
+    let payload: T;
     try {
-        return (await response.json()) as T;
+        payload = (await response.json()) as T;
     } catch {
         await persistChargedImageResponse(task, response.headers);
         throw new GenerationSubmissionUncertainError("图片接口返回了无效 JSON，创建结果待确认");
     }
+    await observeImageTaskUsage(task, response, payload, requestUrl);
+    return payload;
 }
 
 export function imageTaskRequestTimeoutMs(config: ImageTaskConfig) {
@@ -346,7 +379,10 @@ export async function pollOpenAiImageTask(config: ImageTaskConfig, taskId: strin
     let lastError = "";
     for (let attempt = 0; attempt < (singleStep ? 1 : imageTaskPollAttempts(config)); attempt += 1) {
         for (const pollUrl of pollUrls) {
-            const response = await taskFetch(config, pollUrl, { method: "GET", headers: taskHeaders(config, cookie), cache: "no-store", signal: AbortSignal.timeout(Math.min(imageTaskRequestTimeoutMs(config), 60_000)) });
+            const response =
+                config.advancedConfig?.protocol === "bfl"
+                    ? await fetchBflPollResult(config, pollUrl, taskId)
+                    : await taskFetch(config, pollUrl, { method: "GET", headers: taskHeaders(config, cookie), cache: "no-store", signal: AbortSignal.timeout(Math.min(imageTaskRequestTimeoutMs(config), 60_000)) });
             if (!response.ok) {
                 const message = await readFetchError(response, "图片任务查询失败");
                 lastError = message;
@@ -394,6 +430,16 @@ export function findImageResult(value: unknown, baseUrl: string, config: ImageTa
 }
 
 export function findImageResults(value: unknown, baseUrl: string, config: ImageTaskConfig, depth = 0): ImageTaskMediaResult[] {
+    if (depth > 6) return [];
+    if (Array.isArray(value)) return value.flatMap((item) => findImageResults(item, baseUrl, config, depth + 1));
+    if (value && typeof value === "object") {
+        const record = value as Record<string, unknown>;
+        for (const key of IMAGE_CONTAINER_KEYS) {
+            if (!Array.isArray(record[key])) continue;
+            const results = findImageResults(record[key], baseUrl, config, depth + 1);
+            if (results.length) return results;
+        }
+    }
     const images: ImageTaskMediaResult[] = [];
     collectImageResults(value, baseUrl, config, depth, images);
     return dedupeImageResults(images);
@@ -484,7 +530,7 @@ export function readImageTaskStatus(payload: ImageApiResponse) {
 
 export function readImagePollUrl(config: ImageTaskConfig, payload: ImageApiResponse, mediaBaseUrl: string, pollBaseUrl: string) {
     const value = findStringByKeys(payload, IMAGE_POLL_URL_KEYS);
-    if (!value || config.baseUrl.startsWith("/api/ai/system/")) return "";
+    if (!value || (config.baseUrl.startsWith("/api/ai/system/") && config.advancedConfig?.protocol !== "bfl")) return "";
     return resolveGeneratedMediaUrl(value, mediaBaseUrl || pollBaseUrl);
 }
 
@@ -516,6 +562,7 @@ export function isPendingImageStatus(status?: string) {
 }
 
 export function imageTaskPollUrls(config: ImageTaskConfig, requestUrl: string, taskId: string, explicitPollUrl = "") {
+    if (config.advancedConfig?.protocol === "bfl") return explicitPollUrl ? [explicitPollUrl] : [];
     const cleanUrl = requestUrl.split("?")[0].replace(/\/+$/, "");
     const encodedTaskId = encodeURIComponent(taskId);
     const declared = [configuredImageTaskPollUrl(config, taskId, requestUrl), explicitPollUrl].filter(Boolean);
@@ -524,6 +571,25 @@ export function imageTaskPollUrls(config: ImageTaskConfig, requestUrl: string, t
     const generationsUrl = cleanUrl.replace(/\/images\/(?:generations|edits)$/i, "/images/generations");
     if (generationsUrl !== cleanUrl) pollUrls.push(`${generationsUrl}/${encodedTaskId}`);
     return Array.from(new Set(pollUrls.filter(Boolean)));
+}
+
+async function fetchBflPollResult(config: ImageTaskConfig, pollUrl: string, taskId: string) {
+    let target: URL;
+    try {
+        target = new URL(pollUrl);
+    } catch {
+        throw new ImageQueryContractError("BFL 未返回有效的轮询地址");
+    }
+    const channelId = readSystemChannelId(config.baseUrl);
+    const directBaseOrigin = !channelId ? new URL(config.baseUrl).origin : "";
+    const officialHost = target.protocol === "https:" && /^api(?:\.[a-z0-9-]+)?\.bfl\.ai$/i.test(target.hostname);
+    if ((!officialHost && target.origin !== directBaseOrigin) || target.pathname !== "/v1/get_result" || target.searchParams.get("id") !== taskId) {
+        throw new ImageQueryContractError("BFL 轮询地址与已提交任务不匹配");
+    }
+    const channel = channelId ? (await getAuthSettings()).systemChannels.find((item) => item.id === channelId && item.enabled && item.advancedConfig?.protocol === "bfl") : undefined;
+    const apiKey = channelId ? channel?.apiKey : config.apiKey;
+    if (!apiKey || apiKey === "system") throw new ImageQueryContractError("BFL 渠道密钥不可用");
+    return fetchSafeOutbound(target.toString(), { headers: { "x-key": apiKey, accept: "application/json" }, redirect: "error", cache: "no-store", signal: AbortSignal.timeout(Math.min(imageTaskRequestTimeoutMs(config), 60_000)) });
 }
 
 export function configuredImageTaskPollUrl(config: ImageTaskConfig, taskId: string, requestUrl: string) {
@@ -809,23 +875,28 @@ export async function persistChargedImageResponse(task: ImageTask, headers: Head
 }
 
 export async function refundChargedImageResponse(task: ImageTask, headers: Headers) {
+    if (task.billingMode === "official-usage") {
+        await persistChargedImageResponse(task, headers);
+        return;
+    }
     const { pointsCost, pointsRecordId } = readBilling(headers);
     if (pointsCost === undefined || !pointsRecordId) return;
     const settings = await getAuthSettings();
-    await refundUserPoints(task.userId, generationModelId(task.config), pointsCost, "image", imageUnits(task.config.quality, settings.generationPointMultipliers.imageQuality), undefined, pointsRecordId);
+    await refundUserPoints(task.userId, generationModelId(task.config), pointsCost, "image", imageUnits(task.config.quality, settings.generationPointMultipliers.imageQuality, task.config.advancedConfig?.protocol), undefined, pointsRecordId);
 }
 
-export function imageUnits(quality: string | undefined, multipliers: Record<string, number>) {
+export function imageUnits(quality: string | undefined, multipliers: Record<string, number>, protocol?: string) {
     const key = QUALITY_ALIASES[String(quality || "").toLowerCase()] || String(quality || "auto").toLowerCase();
-    return multipliers[key] || 1;
+    return dataeyesFluxFixedImageUnits(protocol, multipliers[key] || 1);
 }
 
 export function isRemoteMediaUrl(value: string) {
     return /^https?:\/\//i.test(value);
 }
 
-export function normalizeQuality(quality: string) {
+export function normalizeQuality(quality: string, model?: string) {
     const value = quality.trim().toLowerCase();
     const normalized = QUALITY_ALIASES[value] || value;
+    if (["gpt-image-2.5-flare", "gpt-image-2.5-sunburst"].includes(model || "") && ["xhigh", "max"].includes(normalized)) return normalized;
     return QUALITY_BASE[normalized] ? normalized : undefined;
 }

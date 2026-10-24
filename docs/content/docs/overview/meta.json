@@ -5,6 +5,7 @@
   "pages": [
     "quick-start",
     "configuration",
+    "node-bundles",
     "production-readiness",
     "features",
     "project-structure",

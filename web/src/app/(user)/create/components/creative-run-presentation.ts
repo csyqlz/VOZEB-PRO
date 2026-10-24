@@ -49,7 +49,7 @@ export function creativeRunDuration(run: CreativeAgentRun | undefined) {
 
 export function creativeRunMode(run: CreativeAgentRun | undefined): CreativeGenerationMode | undefined {
     const taskMode = run?.tasks.find((task) => task.type === "image" || task.type === "video" || task.type === "audio")?.type;
-    return taskMode === "image" || taskMode === "video" || taskMode === "audio" ? taskMode : run?.generationPreferences?.mode;
+    return taskMode === "image" || taskMode === "video" || taskMode === "audio" ? taskMode : run?.generationPreferences?.mode === "text" ? undefined : run?.generationPreferences?.mode;
 }
 
 export function mediaModeLabel(mode: CreativeGenerationMode) {

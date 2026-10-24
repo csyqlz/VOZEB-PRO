@@ -1,5 +1,5 @@
 import { isPostgresDatabaseEnabled } from "@/lib/server/database";
-import { updatePostgresAuthSettings } from "./postgres-auth-settings-service";
+import { updatePostgresAuthSettings, updatePostgresAuthSettingsWith } from "./postgres-auth-settings-service";
 import { normalizeSettings } from "./store-normalizers";
 import { mutateAuthDb, readAuthDb, readPostgresAuthSettings } from "./store-repository";
 import type { AuthSettings } from "./store-types";
@@ -45,6 +45,17 @@ export async function setAuthSettings(patch: Partial<AuthSettings>) {
         ? await updatePostgresAuthSettings(patch)
         : await mutateAuthDb((db) => {
               db.settings = normalizeSettings({ ...db.settings, ...patch });
+              return db.settings;
+          });
+    updatePostgresCache(settings);
+    return settings;
+}
+
+export async function updateAuthSettingsWith(createPatch: (current: AuthSettings) => Partial<AuthSettings>) {
+    const settings = isPostgresDatabaseEnabled()
+        ? await updatePostgresAuthSettingsWith(createPatch)
+        : await mutateAuthDb((db) => {
+              db.settings = normalizeSettings({ ...db.settings, ...createPatch(db.settings) });
               return db.settings;
           });
     updatePostgresCache(settings);

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { DEFAULT_SETTINGS } from "./store-foundation";
+import { emptyAdvancedConfig } from "@/lib/channel-protocol-registry";
 import type { AuthSettings } from "./store-types";
 import { serializePublicSettings, setSessionCookie } from "./session";
 
@@ -11,6 +12,39 @@ afterEach(() => {
 });
 
 describe("serializePublicSettings", () => {
+    it("publishes Seedream ratios and the verified 2K tier without exposing its private channel protocol", () => {
+        const settings: AuthSettings = structuredClone(DEFAULT_SETTINGS);
+        settings.systemChannels = [
+            {
+                id: "seedream-channel",
+                name: "DataEyes",
+                baseUrl: "https://platform.dataeyes.ai",
+                apiKey: "private-key",
+                apiFormat: "openai",
+                models: ["ByteDance-Seedream-5.0-pro"],
+                enabled: true,
+                advancedConfig: { ...emptyAdvancedConfig(), protocol: "dataeyes-seedream" },
+            },
+        ];
+        settings.logicalModels = [
+            {
+                id: "seedream-image",
+                name: "Seedream 5.0 Pro",
+                capability: "image",
+                enabled: true,
+                bindings: [{ id: "seedream-binding", channelId: "seedream-channel", upstreamModel: "ByteDance-Seedream-5.0-pro", enabled: true, priority: 1 }],
+            },
+        ];
+
+        const publicSettings = serializePublicSettings(settings);
+        expect(publicSettings.logicalModels[0].bindings[0].capabilityProfile?.aspectRatios).toEqual(["1:1", "16:9", "4:3", "3:2", "2:3", "3:4", "9:16", "2K"]);
+        expect(JSON.stringify(publicSettings)).not.toContain("dataeyes-seedream");
+        expect(JSON.stringify(publicSettings)).not.toContain("private-key");
+
+        settings.logicalModels[0].bindings[0].capabilityProfile = { aspectRatios: ["16:9"] };
+        expect(serializePublicSettings(settings).logicalModels[0].bindings[0].capabilityProfile?.aspectRatios).toEqual(["16:9", "2K"]);
+    });
+
     it("only exposes the browser settings allowlist", () => {
         const settings: AuthSettings = structuredClone(DEFAULT_SETTINGS);
         settings.mail = { ...settings.mail, host: "smtp.internal", username: "mail-user", password: "mail-secret" };

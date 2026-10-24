@@ -18,6 +18,7 @@ import { canvasThemes } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { useUserStore, type LocalUser } from "@/stores/use-user-store";
 import { resetClientSessionState } from "@/lib/client-session-reset";
+import { getPricingWallet, type PricingWalletView } from "@/services/api/points";
 
 type UserStatusActionsProps = {
     variant?: "default" | "canvas";
@@ -226,6 +227,7 @@ export function UserStatusActions({ variant = "default", onOpenShortcuts, initia
                 <Popover
                     rootClassName="user-points-popover"
                     open={pointsOpen}
+                    destroyOnHidden
                     onOpenChange={(open) => {
                         setPointsOpen(open);
                         if (open) setAccountOpen(false);
@@ -319,6 +321,19 @@ function PointsSummaryPanel({ user, onClose, onUpgrade }: { user: LocalUser; onC
     const [code, setCode] = useState("");
     const [redeeming, setRedeeming] = useState(false);
     const [recordTotal, setRecordTotal] = useState<number>();
+    const [pricing, setPricing] = useState<{ userId: string; summary?: PricingWalletView["summary"]; error?: string }>();
+    const summary = pricing?.userId === user.id ? pricing.summary : undefined;
+    useEffect(() => {
+        const controller = new AbortController();
+        void getPricingWallet({ page: 1, pageSize: 1, status: "reserved" }, controller.signal)
+            .then((view) => {
+                if (!controller.signal.aborted) setPricing({ userId: user.id, summary: view.summary });
+            })
+            .catch(() => {
+                if (!controller.signal.aborted) setPricing({ userId: user.id, error: "预留信息加载失败，请到积分记录刷新" });
+            });
+        return () => controller.abort();
+    }, [user.id, user.pointsBalance]);
     useEffect(() => {
         let active = true;
         void fetch("/api/points?page=1&pageSize=1", { cache: "no-store" })
@@ -361,22 +376,38 @@ function PointsSummaryPanel({ user, onClose, onUpgrade }: { user: LocalUser; onC
                     <div className="mt-0.5 text-[11px] leading-4 text-stone-500 dark:text-stone-400">{recordTotal === undefined ? "余额与使用记录" : `共 ${recordTotal} 条记录，按时间倒序`}</div>
                 </div>
                 <span className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-stone-200 bg-stone-50 px-2.5 text-xs font-medium text-stone-600 dark:border-stone-800 dark:bg-stone-900/70 dark:text-stone-300">
-                    <CreditSymbol className="text-sm text-sky-600 dark:text-sky-300" /> 余额 <strong className="text-sm text-stone-950 dark:text-stone-100">{formatCreditAmount(user.pointsBalance)}</strong>
+                    <CreditSymbol className="text-sm text-sky-600 dark:text-sky-300" /> 可用 <strong className="text-sm text-stone-950 dark:text-stone-100">{formatCreditAmount(summary ? Number(summary.availablePoints) : user.pointsBalance)}</strong>
                 </span>
             </div>
             <div className="grid grid-cols-2 border-y border-stone-200 py-2 dark:border-stone-800">
                 <div className="border-r border-stone-200 pr-3 dark:border-stone-800">
                     <div className="flex items-baseline justify-between gap-2">
                         <span className="text-[11px] text-stone-500 dark:text-stone-400">今日可用</span>
-                        <strong className="shrink-0 text-sm font-semibold tabular-nums">{formatCreditAmount(user.dailyPointsBalance || 0)}</strong>
+                        <strong className="shrink-0 text-sm font-semibold tabular-nums">{formatCreditAmount(summary ? Number(summary.dailyPoints) : user.dailyPointsBalance || 0)}</strong>
                     </div>
                 </div>
                 <div className="pl-3">
                     <div className="flex items-baseline justify-between gap-2">
                         <span className="text-[11px] text-stone-500 dark:text-stone-400">永久积分</span>
-                        <strong className="shrink-0 text-sm font-semibold tabular-nums">{formatCreditAmount(user.permanentPointsBalance ?? Math.max(0, user.pointsBalance - (user.dailyPointsBalance || 0)))}</strong>
+                        <strong className="shrink-0 text-sm font-semibold tabular-nums">
+                            {formatCreditAmount(summary ? Number(summary.permanentPoints) : (user.permanentPointsBalance ?? Math.max(0, user.pointsBalance - (user.dailyPointsBalance || 0))))}
+                        </strong>
                     </div>
                 </div>
+            </div>
+            <div className="py-2 text-xs text-stone-600 dark:text-stone-300">
+                {summary ? (
+                    <>
+                        待结算预留 {formatCreditAmount(Number(summary.pendingPoints))} 积分 · {summary.pendingCount} 笔
+                    </>
+                ) : pricing?.userId === user.id && pricing.error ? (
+                    pricing.error
+                ) : (
+                    "正在读取预留积分…"
+                )}
+                <Link href="/profile?section=points" onClick={onClose} className="ml-2 underline underline-offset-2 hover:text-stone-950 dark:hover:text-white">
+                    查看计费记录
+                </Link>
             </div>
             <div className="py-2.5">
                 <div className="mb-2 flex items-center justify-between gap-3">

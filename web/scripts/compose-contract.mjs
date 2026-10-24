@@ -18,7 +18,7 @@ export const docsComposeProfiles = [
 
 const maintenanceToken = "${VOZEB_PRO_MAINTENANCE_TOKEN:?请在 .env 中配置至少 32 位维护令牌}";
 const workerToken = "${VOZEB_PRO_WORKER_TOKEN:?请在 .env 中配置独立的至少 32 位 Worker 令牌}";
-const installToken = "${VOZEB_PRO_INSTALL_TOKEN:?请在 .env 中配置至少 32 位一次性安装令牌}";
+const installToken = "${VOZEB_PRO_INSTALL_TOKEN-}";
 
 export function validateComposeContracts({ repoRoot }) {
     return composeProfiles.map((profile) => {
@@ -79,7 +79,7 @@ export function validateComposeContract(source, profile) {
     ensure(JSON.stringify(worker.command) === JSON.stringify(["node", "/app/web/scripts/generation-worker.mjs"]), "Worker 启动命令不正确");
     ensure(app.env_file?.includes(".env"), "app 必须读取 .env");
     ensure(!worker.env_file, "generation-worker 不得读取包含安装令牌和业务密钥的 .env");
-    ensure(appEnvironment.VOZEB_PRO_INSTALL_TOKEN === installToken, "app 未声明强制一次性安装令牌");
+    ensure(appEnvironment.VOZEB_PRO_INSTALL_TOKEN === installToken, "app 未声明可在安装后移除的一次性安装令牌");
     ensure(!("VOZEB_PRO_INSTALL_TOKEN" in workerEnvironment), "generation-worker 不得获得一次性安装令牌");
     ensure(appEnvironment.VOZEB_PRO_MAINTENANCE_TOKEN === maintenanceToken, "app 未声明强制维护令牌");
     ensure(appEnvironment.VOZEB_PRO_WORKER_TOKEN === workerToken, "app 未声明强制 Worker 令牌");
@@ -106,6 +106,12 @@ export function validateComposeContract(source, profile) {
         ensure(!services.postgres, "外部数据库拓扑不得内置 PostgreSQL 服务");
         ensure(String(appEnvironment.DATABASE_URL || "").startsWith("${DATABASE_URL:?"), "外部数据库拓扑必须显式要求 DATABASE_URL");
         ensure(!Object.hasOwn(compose?.volumes || {}, "vozeb-pro-postgres"), "外部数据库拓扑不得声明无用的 PostgreSQL 数据卷");
+    }
+
+    if (profile.file === "docker-compose.local.yml") {
+        ensure(app.build?.context === "${VOZEB_PRO_BUILD_CONTEXT:-.}" && app.build?.dockerfile === "Dockerfile", "本地拓扑必须从根目录 Dockerfile 构建");
+        ensure(app.build?.args?.NEXT_PUBLIC_SITE_URL === "${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}", "本地构建必须写入站点公开地址");
+        ensure(app.ports?.includes("${VOZEB_PRO_APP_BIND:-0.0.0.0}:3000:3000"), "本地拓扑必须允许安装脚本将应用端口绑定到回环地址");
     }
 
     if (profile.hostNetwork) {

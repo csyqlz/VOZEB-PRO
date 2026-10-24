@@ -151,7 +151,7 @@ export function sessionMaxAgeSeconds() {
     return SESSION_MAX_AGE_SECONDS;
 }
 
-export { getAuthSettings, getFreshAuthSettings, setAuthSettings } from "./store-settings-actions";
+export { getAuthSettings, getFreshAuthSettings, setAuthSettings, updateAuthSettingsWith } from "./store-settings-actions";
 
 export type PublicUserListResult = {
     users: PublicUser[];

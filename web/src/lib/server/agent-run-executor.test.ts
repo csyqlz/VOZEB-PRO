@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
     getCreativeConversationContext: vi.fn(async (): Promise<CreativeConversationContext> => ({ summary: "", summaryThroughSequence: 0, recentMessages: [] })),
     registerCreativeAssets: vi.fn(),
     reviewCreativeOutputs: vi.fn(),
+    recordAgentAuxiliaryCharge: vi.fn(async () => undefined),
     linkStoredGenerationTask: vi.fn(async () => undefined),
     events: [] as Array<{ type: string; data?: unknown }>,
     run: null as AgentRun | null,
@@ -35,6 +36,7 @@ vi.mock("@/lib/server/creative-runtime-store", () => ({
 vi.mock("@/lib/server/generation-task-store", () => ({ linkStoredGenerationTask: mocks.linkStoredGenerationTask }));
 vi.mock("@/lib/server/generation-task-scheduler", () => ({ scheduleGenerationTask: mocks.scheduleGenerationTask }));
 vi.mock("@/lib/server/creative-review-service", () => ({ reviewCreativeOutputs: mocks.reviewCreativeOutputs }));
+vi.mock("@/lib/server/generation-task-charge-attribution", () => ({ recordAgentAuxiliaryCharge: mocks.recordAgentAuxiliaryCharge }));
 vi.mock("@/lib/server/agent-run-store", async (importOriginal) => {
     const actual = await importOriginal<typeof import("@/lib/server/agent-run-store")>();
     return {
@@ -97,6 +99,25 @@ describe("executeAgentRun backend settings", () => {
             if (url.includes("/api/image-tasks/")) return Response.json({ task: { status: "success", result: { url: "https://cdn.example.com/output.png" } } });
             throw new Error(`unexpected request: ${url}`);
         });
+    });
+
+    it("routes text conversation directly to the default text task and returns its answer", async () => {
+        mocks.run = runFixture({ surface: "chat", projectId: undefined, prompt: "这张图表显示什么？", generationPreferences: { mode: "text" } });
+        mocks.getAuthSettings.mockResolvedValue(settings("image-model", "image-channel"));
+        mocks.fetchInternalApi.mockImplementation(async (url: string, init?: RequestInit) => {
+            if (init?.method === "POST" && String(url).endsWith("/api/text-tasks")) return Response.json({ task: { id: "text-child" } });
+            if (String(url).endsWith("/api/text-tasks/text-child")) return Response.json({ task: { status: "success", result: { content: "图表呈上升趋势。" } } });
+            throw new Error(`unexpected request: ${url}`);
+        });
+
+        await executeAgentRun(mocks.run, "http://localhost", "session=test");
+
+        const textCall = mocks.fetchInternalApi.mock.calls.find(([url, init]) => String(url).endsWith("/api/text-tasks") && init?.method === "POST");
+        expect(JSON.parse(String(textCall?.[1]?.body))).toMatchObject({ config: { model: "planner" }, messages: [{ role: "system" }, { role: "user", content: [{ type: "text", text: "这张图表显示什么？" }] }] });
+        expect(new Headers(textCall?.[1]?.headers).get("x-vozeb-pro-client-request-id")).toBe(JSON.parse(String(textCall?.[1]?.body)).context.clientRequestId);
+        expect(mocks.run).toMatchObject({ status: "completed", reviewed: true, tasks: [{ type: "text", status: "completed" }] });
+        expect(mocks.events.at(-1)?.data).toMatchObject({ reply: "图表呈上升趋势。" });
+        expect(mocks.fetchInternalApi.mock.calls.some(([url]) => String(url).endsWith("/chat/completions"))).toBe(false);
     });
 
     it("preserves generated media dimensions in canvas output ops", () => {
@@ -221,6 +242,41 @@ describe("executeAgentRun backend settings", () => {
         expect(mocks.run?.tasks[0]).toMatchObject({ optimizedPrompt: "生成商品主图" });
         expect(mocks.run?.tasks[0]?.prompt).toContain("同一商品使用红色包装");
         expect(mocks.run?.status).toBe("completed");
+    });
+
+    it("keeps two selected logical models on the same upstream SKU as separate child tasks", async () => {
+        mocks.run = runFixture({
+            surface: "chat",
+            projectId: undefined,
+            prompt: "生成商品主图",
+            requestedModelIds: ["image-standard", "image-premium"],
+            generationPreferences: { mode: "image", image: { count: 4 } },
+        });
+        const sharedSkuSettings = settings("image-standard", "image-channel") as unknown as {
+            logicalModels: Array<{ id: string; name: string; capability: string; enabled: boolean; bindings: Array<{ id: string; channelId: string; upstreamModel: string; enabled: boolean; priority: number }> }>;
+        };
+        sharedSkuSettings.logicalModels.push({
+            id: "image-premium",
+            name: "高级图片",
+            capability: "image",
+            enabled: true,
+            bindings: [{ id: "premium-binding", channelId: "image-channel", upstreamModel: "vendor/image-standard", enabled: true, priority: 1 }],
+        });
+        mocks.getAuthSettings.mockResolvedValue(sharedSkuSettings as never);
+
+        await executeAgentRun(mocks.run, "http://localhost", "session=test");
+
+        const posts = mocks.fetchInternalApi.mock.calls.filter(([url, init]) => init?.method === "POST" && String(url).endsWith("/api/image-tasks"));
+        const requests = posts.map(([, init]) => JSON.parse(String(init?.body)) as { config: { model: string; baseUrl: string }; context: { runId: string; parentTaskId: string; clientRequestId: string } });
+        expect(requests.map(({ config }) => config.model)).toEqual(["image-standard", "image-standard", "image-premium", "image-premium"]);
+        expect(requests.map(({ config }) => config.baseUrl)).toEqual(Array(4).fill("/api/ai/system/image-channel"));
+        expect(requests.map(({ context }) => context.parentTaskId)).toEqual(["direct-model-task-1", "direct-model-task-1", "direct-model-task-2", "direct-model-task-2"]);
+        expect(new Set(requests.map(({ context }) => context.clientRequestId)).size).toBe(4);
+        expect(requests.every(({ context }) => context.runId === "agent-run")).toBe(true);
+        expect(mocks.run?.tasks).toEqual([
+            expect.objectContaining({ model: "image-standard", count: 2, status: "completed", childTasks: expect.arrayContaining([expect.objectContaining({ status: "completed" }), expect.objectContaining({ status: "completed" })]) }),
+            expect.objectContaining({ model: "image-premium", count: 2, status: "completed", childTasks: expect.arrayContaining([expect.objectContaining({ status: "completed" }), expect.objectContaining({ status: "completed" })]) }),
+        ]);
     });
 
     it("creates Canvas plan nodes when a generation model is selected explicitly", async () => {
@@ -578,6 +634,7 @@ describe("executeAgentRun backend settings", () => {
                 },
             ],
         });
+        expect(mocks.recordAgentAuxiliaryCharge).toHaveBeenCalledWith(expect.objectContaining({ userId: "user", runId: mocks.run?.id, purpose: "planning", logicalModelId: "planner", pointsRecordId: "points-plan" }));
         const createCall = mocks.fetchInternalApi.mock.calls.find(([url, init]) => init?.method === "POST" && String(url).endsWith("/api/image-tasks"));
         const createBody = JSON.parse(String(createCall?.[1]?.body)) as { config: { model: string } };
         expect(createBody.config.model).toBe("image-creative");

@@ -256,6 +256,29 @@ test("a long-running media task uses warm elapsed-time feedback", async ({ page 
     }
 });
 
+test("a paused Agent image task resumes the same run from its waiting card", async ({ page }, testInfo) => {
+    await preparePage(page, testInfo);
+    const fixture = await mockPendingCreativeRound(page, "image", "paused");
+    let resumed = false;
+    await page.route(new RegExp(`/api/agent/runs/${fixture.runId}/resume$`), async (route) => {
+        resumed = true;
+        await route.fulfill({ json: { code: 0, data: { run: { ...fixture.run, status: "running" } }, msg: "OK" } });
+    });
+
+    try {
+        await page.goto(`/create?conversationId=${fixture.id}`, { waitUntil: "domcontentloaded" });
+        const waiting = page.getByTestId("creative-generation-waiting");
+        const resume = waiting.getByRole("button", { name: "继续原任务" });
+        await expect(resume).toBeVisible({ timeout: 45_000 });
+        await resume.click();
+        await expect.poll(() => resumed).toBe(true);
+        await expect(resume).toHaveCount(0);
+        await expectNoHorizontalOverflow(page);
+    } finally {
+        fixture.releaseEvents();
+    }
+});
+
 test("single video results keep real ratios and retain complete player controls", async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== "chromium", "桌面视频尺寸矩阵由 1672×941 基准项目验证");
     await preparePage(page, testInfo);
@@ -730,7 +753,7 @@ async function mockCreativeRound(page: Page, options: { type: MediaType; sizes: 
     };
 }
 
-async function mockPendingCreativeRound(page: Page, type: MediaType) {
+async function mockPendingCreativeRound(page: Page, type: MediaType, status: "running" | "paused" = "running") {
     const id = `e2e-pending-${randomUUID()}`;
     const runId = `e2e-pending-run-${randomUUID()}`;
     const timestamp = Date.now();
@@ -755,7 +778,7 @@ async function mockPendingCreativeRound(page: Page, type: MediaType) {
         conversationId: id,
         inputMessageId: userMessage.id,
         assistantMessageId: assistantMessage.id,
-        status: "running",
+        status,
         prompt,
         referencedAssetIds: [],
         requestedModelIds: [`${type}-gen`],
@@ -778,7 +801,7 @@ async function mockPendingCreativeRound(page: Page, type: MediaType) {
         await eventsReleased;
         await route.abort();
     });
-    return { id, releaseEvents };
+    return { id, runId, run, releaseEvents };
 }
 
 function imageDataUrl(size: MediaSize, index: number) {

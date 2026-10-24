@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ records: [] as Array<Record<string, unknown>> }));
+const mocks = vi.hoisted(() => ({ records: [] as Array<Record<string, unknown>>, activationStatus: vi.fn(), attribution: vi.fn(), netCharges: vi.fn() }));
 
 vi.mock("@/lib/server/database", () => ({
     ensurePostgresSchema: vi.fn(),
@@ -15,8 +15,14 @@ vi.mock("@/lib/server/data-adapter", () => ({
         mocks.records = structuredClone(value);
     }),
 }));
+vi.mock("@/lib/server/model-pricing-service", () => ({
+    capturePublishedPricingIdentity: vi.fn(async () => null),
+}));
+vi.mock("@/lib/server/model-pricing-activation-service", () => ({ getModelPricingActivationStatus: mocks.activationStatus }));
+vi.mock("./generation-task-charge-attribution", () => ({ recordGenerationTaskCharges: mocks.attribution, summarizeGenerationTaskNetCharges: mocks.netCharges }));
 
 import { getDatabaseProvider, postgresQuery, withPostgresTransaction } from "@/lib/server/database";
+import { capturePublishedPricingIdentity } from "@/lib/server/model-pricing-service";
 import {
     cleanupExpiredStoredGenerationTasks,
     createStoredGenerationTask,
@@ -25,12 +31,15 @@ import {
     getStoredGenerationTaskByUpstream,
     generationCapacityRetryAfterSeconds,
     generationTaskPointsCost,
+    linkStoredGenerationTask,
     listStoredGenerationTaskRecordsByRunIds,
+    listStoredGenerationTaskRecordsByProjectIds,
     listStoredGenerationTaskRecords,
     queryStoredGenerationTasks,
     mutateStoredGenerationTask,
     summarizeStoredAgentPerformance,
     summarizeStoredGenerationTaskCosts,
+    transitionStoredGenerationTask,
     withGenerationConcurrencyLimit,
 } from "./generation-task-store";
 
@@ -45,6 +54,10 @@ type TestTask = {
 
 describe("mutateStoredGenerationTask", () => {
     beforeEach(() => {
+        vi.mocked(capturePublishedPricingIdentity).mockResolvedValue(null);
+        mocks.activationStatus.mockReset();
+        mocks.attribution.mockReset();
+        mocks.netCharges.mockReset().mockResolvedValue([]);
         vi.mocked(getDatabaseProvider).mockReturnValue("file");
         vi.mocked(postgresQuery).mockReset();
         vi.mocked(withPostgresTransaction).mockReset();
@@ -61,6 +74,104 @@ describe("mutateStoredGenerationTask", () => {
                 expiresAt: now + 60_000,
             },
         ];
+    });
+
+    it("persists project charge attribution when a media task gains a charge receipt", async () => {
+        const now = Date.now();
+        mocks.records = [
+            {
+                id: "image-one",
+                userId: "user",
+                type: "image",
+                status: "running",
+                payload: { id: "image-one", userId: "user", status: "running", projectId: "project-one", createdAt: now, updatedAt: now },
+                createdAt: now,
+                updatedAt: now,
+                expiresAt: now + 60_000,
+            },
+        ];
+        await mutateStoredGenerationTask("image", "image-one", 60_000, (current) => ({ ...current, billing: { pointsRecordId: "charge-one" } }));
+        expect(mocks.attribution).toHaveBeenCalledWith("image", expect.objectContaining({ id: "image-one", projectId: "project-one", billing: { pointsRecordId: "charge-one" } }));
+    });
+
+    it("writes a PostgreSQL media transition and its charge attribution in one transaction", async () => {
+        vi.mocked(getDatabaseProvider).mockReturnValue("postgres");
+        const executor = { query: vi.fn().mockResolvedValue({ rows: [{ payload: { id: "image-one", userId: "user", status: "success", projectId: "project-one", billing: { pointsRecordId: "charge-one" } } }] }) };
+        vi.mocked(withPostgresTransaction).mockImplementation(async (handler) => handler(executor as never));
+        await transitionStoredGenerationTask<TestTask & { billing?: { pointsRecordId: string } }>("image", "image-one", "user", ["running"], { status: "success", billing: { pointsRecordId: "charge-one" } }, 60_000);
+        expect(executor.query).toHaveBeenCalledTimes(1);
+        expect(mocks.attribution).toHaveBeenCalledWith("image", expect.objectContaining({ id: "image-one", projectId: "project-one" }), executor);
+    });
+
+    it("links a PostgreSQL media task to its project and charge in one transaction", async () => {
+        vi.mocked(getDatabaseProvider).mockReturnValue("postgres");
+        const payload = { id: "image-one", userId: "user", projectId: "project-one", billing: { pointsRecordId: "charge-one" } };
+        const executor = { query: vi.fn().mockResolvedValue({ rows: [{ payload }] }) };
+        vi.mocked(withPostgresTransaction).mockImplementation(async (handler) => handler(executor as never));
+        await linkStoredGenerationTask("image", "image-one", { projectId: "project-one" });
+        expect(executor.query).toHaveBeenCalledTimes(1);
+        expect(executor.query.mock.calls[0][0]).toContain("RETURNING payload");
+        expect(mocks.attribution).toHaveBeenCalledWith("image", payload, executor);
+    });
+
+    it.each([
+        ["generation", "generations"],
+        ["edit", "edits"],
+    ] as const)("captures the %s image operation's published selection before storing", async (kind, operation) => {
+        await createStoredGenerationTask("image", { id: `image-${kind}`, userId: "user", status: "pending", kind, config: { logicalModel: "logical", channelId: "channel", model: "sku" }, createdAt: Date.now(), updatedAt: Date.now() }, 60_000);
+        expect(capturePublishedPricingIdentity).toHaveBeenCalledWith("user", "logical", { capability: "image", operation });
+    });
+
+    it("captures the selected video generation scope before storing", async () => {
+        await createStoredGenerationTask("video", { id: "selected-video", userId: "user", status: "pending", config: { logicalModel: "logical", channelId: "channel", model: "sku" }, createdAt: Date.now(), updatedAt: Date.now() }, 60_000);
+        expect(capturePublishedPricingIdentity).toHaveBeenCalledWith("user", "logical", { capability: "video", operation: "generation" });
+    });
+
+    it("stores approved metering only when the captured sale matches the activation", async () => {
+        mocks.records = [];
+        vi.mocked(capturePublishedPricingIdentity).mockResolvedValue({ modelId: "logical", salesVersionId: "new-sale", officialVersionId: "official" } as never);
+        mocks.activationStatus.mockResolvedValue({ active: true, admission: { fingerprint: "approved", salesVersionId: "new-sale", officialVersionId: "official" }, bindings: [{ key: "channel/sku", active: true }] });
+        const task = {
+            id: "metered-task",
+            userId: "user",
+            status: "pending",
+            config: { logicalModel: "logical", channelId: "channel", model: "sku" },
+            billingMode: "official-usage" as const,
+            billingApproval: { billingMode: "official-usage" as const, fingerprint: "approved", salesVersionId: "old-sale", officialVersionId: "official", bindingKeys: ["channel/sku"] },
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+        };
+        await expect(createStoredGenerationTask("text", task, 60_000)).rejects.toThrow("按量计费准入已变化");
+        expect(mocks.activationStatus).not.toHaveBeenCalled();
+        task.billingApproval.salesVersionId = "new-sale";
+        task.id = "metered-approved";
+        expect((await createStoredGenerationTask("text", task, 60_000)).billingMode).toBe("official-usage");
+        expect(mocks.activationStatus).toHaveBeenCalledOnce();
+        mocks.activationStatus.mockResolvedValue({ active: false, admission: { fingerprint: "changed", salesVersionId: "new-sale", officialVersionId: "official" } });
+        task.id = "metered-stale";
+        await expect(createStoredGenerationTask("text", task, 60_000)).rejects.toThrow("按量计费准入已变化");
+    });
+
+    it("requires the image approval scope to match the task operation", async () => {
+        mocks.records = [];
+        vi.mocked(capturePublishedPricingIdentity).mockResolvedValue({ modelId: "logical", salesVersionId: "sale", officialVersionId: "official-edit" } as never);
+        mocks.activationStatus.mockResolvedValue({ active: true, admission: { fingerprint: "edit-fingerprint", salesVersionId: "sale", officialVersionId: "official-edit" }, bindings: [{ key: "channel/sku", active: true }] });
+        const task = {
+            id: "image-edit",
+            userId: "user",
+            status: "pending",
+            kind: "edit" as const,
+            config: { logicalModel: "logical", channelId: "channel", model: "sku" },
+            billingMode: "official-usage" as const,
+            billingApproval: { billingMode: "official-usage" as const, fingerprint: "edit-fingerprint", salesVersionId: "sale", officialVersionId: "official-edit", scope: "image:generations:standard", bindingKeys: ["channel/sku"] },
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+        };
+        await expect(createStoredGenerationTask("image", task, 60_000)).rejects.toThrow("按量计费准入已变化");
+        expect(mocks.activationStatus).not.toHaveBeenCalled();
+        task.billingApproval.scope = "image:edits:standard";
+        expect((await createStoredGenerationTask("image", task, 60_000)).billingMode).toBe("official-usage");
+        expect(mocks.activationStatus).toHaveBeenCalledWith("logical", "edits", undefined);
     });
 
     it("serializes file mutations so concurrent events are not lost", async () => {
@@ -94,6 +205,9 @@ describe("mutateStoredGenerationTask", () => {
         expect(vi.mocked(postgresQuery).mock.calls[0][0]).toContain("ORDER BY expires_at ASC, id ASC");
         expect(vi.mocked(postgresQuery).mock.calls[0][0]).toContain("LIMIT $2");
         expect(vi.mocked(postgresQuery).mock.calls[0][1]).toEqual([now.toISOString(), 25]);
+        expect(vi.mocked(postgresQuery).mock.calls[1][0]).toContain("DELETE FROM generation_concurrency_reservations AS reservation");
+        expect(vi.mocked(postgresQuery).mock.calls[1][0]).toContain("LIMIT $2");
+        expect(vi.mocked(postgresQuery).mock.calls[1][1]).toEqual([now.toISOString(), 25]);
         vi.mocked(getDatabaseProvider).mockReturnValue("file");
     });
 
@@ -108,6 +222,32 @@ describe("mutateStoredGenerationTask", () => {
 
         await expect(Promise.all([create("video-one"), create("video-two")])).resolves.toEqual(["video-one", null]);
         expect(mocks.records).toHaveLength(1);
+    });
+
+    it("holds the file concurrency gate until an asynchronous creator finishes", async () => {
+        mocks.records = [];
+        let entered!: () => void;
+        let release!: () => void;
+        const firstEntered = new Promise<void>((resolve) => {
+            entered = resolve;
+        });
+        const hold = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const first = withGenerationConcurrencyLimit("user", "video", 60_000, 1, async () => {
+            entered();
+            await hold;
+            const now = Date.now();
+            mocks.records.unshift({ id: "video-one", userId: "user", type: "video", status: "pending", payload: {}, executionPhase: "created", createdAt: now, updatedAt: now, expiresAt: now + 60_000 });
+            return "video-one";
+        });
+        await firstEntered;
+        const secondHandler = vi.fn(async () => "video-two");
+        const second = withGenerationConcurrencyLimit("user", "video", 60_000, 1, secondHandler);
+        expect(secondHandler).not.toHaveBeenCalled();
+        release();
+        await expect(Promise.all([first, second])).resolves.toEqual(["video-one", null]);
+        expect(secondHandler).not.toHaveBeenCalled();
     });
 
     it("releases the PostgreSQL transaction before running a reserved generation handler", async () => {
@@ -179,6 +319,48 @@ describe("mutateStoredGenerationTask", () => {
         ).rejects.toThrow("upstream failed");
 
         expect(vi.mocked(postgresQuery)).toHaveBeenCalledWith(expect.stringContaining("DELETE FROM generation_concurrency_reservations"), ["user", "video", "request-two"]);
+    });
+
+    it("keeps a concurrent PostgreSQL request out of the creator while its reservation is active", async () => {
+        vi.mocked(getDatabaseProvider).mockReturnValue("postgres");
+        const reservations = new Set<string>();
+        const query = vi.fn(async (statement: string, values?: unknown[]) => {
+            if (statement.startsWith("DELETE FROM generation_concurrency_reservations")) {
+                expect(values).toEqual(["user", "video"]);
+                return { rows: [] };
+            }
+            if (statement.includes("SELECT 1 FROM generation_concurrency_reservations")) return { rows: reservations.has(String(values?.[2])) ? [{ exists: true }] : [] };
+            if (statement.includes("AS total")) return { rows: [{ total: String(reservations.size) }] };
+            if (statement.startsWith("INSERT INTO generation_concurrency_reservations")) reservations.add(String(values?.[2]));
+            return { rows: [] };
+        });
+        vi.mocked(withPostgresTransaction).mockImplementation(async (handler) => handler({ query } as never));
+        vi.mocked(postgresQuery).mockImplementation(async (_statement, values) => {
+            reservations.delete(String(values?.[2]));
+            return { rows: [] } as never;
+        });
+        let entered!: () => void;
+        let release!: () => void;
+        const firstEntered = new Promise<void>((resolve) => {
+            entered = resolve;
+        });
+        const hold = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const firstHandler = vi.fn(async () => {
+            entered();
+            await hold;
+            return "created";
+        });
+        const secondHandler = vi.fn(async () => "duplicate");
+        const first = withGenerationConcurrencyLimit("user", "video", 60_000, 1, firstHandler, undefined, "same-request");
+        await firstEntered;
+        await expect(withGenerationConcurrencyLimit("user", "video", 60_000, 1, secondHandler, undefined, "same-request")).resolves.toBeNull();
+        expect(secondHandler).not.toHaveBeenCalled();
+        release();
+        await expect(first).resolves.toBe("created");
+        expect(firstHandler).toHaveBeenCalledOnce();
+        expect(reservations.size).toBe(0);
     });
 
     it("does not let tasks awaiting manual review consume generation capacity", async () => {
@@ -392,6 +574,28 @@ describe("listStoredGenerationTaskRecords", () => {
         vi.mocked(postgresQuery).mockReset();
     });
 
+    it("retains only this user's project tasks while billing is pending", async () => {
+        vi.mocked(getDatabaseProvider).mockReturnValue("file");
+        const now = Date.now();
+        mocks.records = [
+            { id: "owned-pending", userId: "user", type: "image", projectId: "canvas-one", status: "running", payload: { billingMode: "official-usage", billingPending: true }, createdAt: now, updatedAt: now, expiresAt: now - 1 },
+            { id: "foreign", userId: "other", type: "image", projectId: "canvas-one", status: "running", payload: {}, createdAt: now, updatedAt: now, expiresAt: now + 60_000 },
+            { id: "other-project", userId: "user", type: "image", projectId: "canvas-two", status: "running", payload: {}, createdAt: now, updatedAt: now, expiresAt: now + 60_000 },
+            { id: "agent", userId: "user", type: "agent", projectId: "canvas-one", status: "running", payload: {}, createdAt: now, updatedAt: now, expiresAt: now + 60_000 },
+        ];
+        await expect(listStoredGenerationTaskRecordsByProjectIds(["canvas-one"], "user")).resolves.toEqual([expect.objectContaining({ id: "owned-pending" })]);
+    });
+
+    it("queries PostgreSQL project tasks by owner and project identity", async () => {
+        vi.mocked(getDatabaseProvider).mockReturnValue("postgres");
+        vi.mocked(postgresQuery).mockResolvedValueOnce({ rows: [] } as never);
+        await listStoredGenerationTaskRecordsByProjectIds(["canvas-one"], "user-one");
+        const [query, params] = vi.mocked(postgresQuery).mock.calls[0] || [];
+        expect(String(query)).toContain("project_id = ANY($1::text[]) AND user_id = $2");
+        expect(params).toEqual([["canvas-one"], "user-one"]);
+        vi.mocked(postgresQuery).mockReset();
+    });
+
     it("pushes PostgreSQL filters, pagination and aggregate summary into database queries", async () => {
         vi.mocked(getDatabaseProvider).mockReturnValue("postgres");
         vi.mocked(postgresQuery)
@@ -486,19 +690,20 @@ describe("summarizeStoredGenerationTaskCosts", () => {
         vi.mocked(postgresQuery).mockClear();
         vi.mocked(postgresQuery).mockResolvedValueOnce({
             rows: [
-                { task_type: "image", status: "success", task_count: "2", estimated_points: "4", actual_points: "3.5" },
-                { task_type: "video", status: "error", task_count: "1", estimated_points: "8", actual_points: "0" },
+                { task_type: "image", status: "success", task_count: "2", estimated_points: "4" },
+                { task_type: "video", status: "error", task_count: "1", estimated_points: "8" },
             ],
         } as never);
+        mocks.netCharges.mockResolvedValueOnce([{ type: "image", actualPoints: 3.5 }]);
 
         const result = await summarizeStoredGenerationTaskCosts({ userId: "user-one", projectId: "project-one", types: ["image", "video", "image"] });
         const [statement, params] = vi.mocked(postgresQuery).mock.calls[0] || [];
 
         expect(String(statement)).toContain("GROUP BY task_type, status");
         expect(String(statement)).not.toContain("LIMIT 5000");
-        expect(String(statement)).toContain("nullif(sum(");
-        expect(String(statement)).toContain("attempt->>'status' IN ('succeeded', 'success')");
+        expect(String(statement)).not.toContain("pointsCost");
         expect(params).toEqual(["user-one", "project-one", ["image", "video"]]);
+        expect(mocks.netCharges).toHaveBeenCalledWith("user-one", "project-one", ["image", "video"]);
         expect(result).toEqual([
             { type: "image", status: "success", taskCount: 2, estimatedPoints: 4, actualPoints: 3.5 },
             { type: "video", status: "error", taskCount: 1, estimatedPoints: 8, actualPoints: 0 },

@@ -46,6 +46,7 @@ describe("CreativeMessages", () => {
         const message: CreativeMessage = {
             id: "assistant-markdown",
             conversationId: "conversation-one",
+            runId: "run-markdown",
             sequence: 2,
             role: "assistant",
             status: "completed",
@@ -61,6 +62,7 @@ describe("CreativeMessages", () => {
         expect(markup).toContain("<hr");
         expect(markup).toContain("<h1");
         expect(markup).not.toContain("**通用专业简历报告模板**");
+        expect(markup).toContain('aria-label="查看本轮费用"');
     });
 
     it("renders a text-only Agent asset as the full article with emoji", () => {
@@ -391,6 +393,9 @@ describe("CreativeMessages", () => {
         expect(markup).toContain('data-testid="creative-user-avatar"');
         expect(markup).toContain('data-testid="creative-result-group"');
         expect(markup).toContain('data-testid="creative-video-result"');
+        expect(markup).toContain('data-testid="creative-task-id"');
+        expect(markup).toContain('aria-label="复制任务 ID run-video"');
+        expect(markup).toContain('aria-label="查看本轮费用"');
         expect(markup).toContain('data-testid="creative-video-player"');
         expect(markup).toContain('data-results-count="1"');
         expect(markup).toContain('data-rendered-width="520"');
@@ -491,6 +496,7 @@ describe("CreativeMessages", () => {
         );
 
         expect(markup).toContain('data-testid="creative-generation-waiting"');
+        expect(markup).toContain('aria-label="复制任务 ID waiting-run"');
         expect(markup).toContain("主人，画面正在一点点显现");
         expect(markup).toContain("已等待");
         expect(markup).not.toContain("已为你生成图片");
@@ -657,6 +663,7 @@ describe("CreativeMessages", () => {
         );
 
         expect(markup).toContain('data-testid="creative-generation-failure"');
+        expect(markup).toContain('aria-label="复制任务 ID failed-run"');
         expect((markup.match(/aria-label="创作助手"/g) || []).length).toBe(1);
         expect((markup.match(/data-testid="creative-assistant-avatar"/g) || []).length).toBe(1);
         expect(markup).toContain('aria-label="直接重试本次创作"');

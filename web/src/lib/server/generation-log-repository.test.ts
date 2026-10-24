@@ -1,3 +1,4 @@
+import sharp from "sharp";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -9,7 +10,7 @@ vi.mock("@/lib/server/safe-outbound-fetch", () => ({ fetchSafeOutbound: mocks.fe
 vi.mock("@/lib/server/security", () => ({ isSafeOutboundUrl: vi.fn(() => true) }));
 vi.mock("@/lib/server/object-storage-service", () => ({ deleteExternalMediaObject: vi.fn(), persistExternalMediaIfEnabled: mocks.persistExternalMediaIfEnabled }));
 
-import { normalizeStoredLog, readPostgresGenerationLogDb, writeRemoteAsset } from "./generation-log-repository";
+import { normalizeAssets, normalizeStoredLog, readPostgresGenerationLogDb, writeRemoteAsset } from "./generation-log-repository";
 
 const PNG_BYTES = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+4q2JAAAAAElFTkSuQmCC", "base64");
 
@@ -49,6 +50,17 @@ describe("generation log asset normalization", () => {
 
         expect(asset).toMatchObject({ mimeType: "image/png", type: "image" });
         expect(mocks.fetchSafeOutbound).toHaveBeenCalledWith("https://cdn.example.com/result", expect.objectContaining({ redirect: "follow" }));
+    });
+
+    it("keeps fetched source dimensions separate from the resized delivery image", async () => {
+        const bytes = await sharp({ create: { width: 1600, height: 900, channels: 3, background: "#506070" } })
+            .png()
+            .toBuffer();
+        mocks.fetchSafeOutbound.mockResolvedValue(new Response(bytes, { headers: { "content-type": "image/png" } }));
+
+        const assets = await normalizeAssets([{ type: "image", url: "https://cdn.example.com/result", targetSize: "800x800" }], { ownerUserId: "user-1", source: "image-workbench" });
+
+        expect(assets).toEqual([expect.objectContaining({ width: 800, height: 800, sourceWidth: 1600, sourceHeight: 900 })]);
     });
 
     it("does not persist non-image bytes hidden behind an image task URL", async () => {

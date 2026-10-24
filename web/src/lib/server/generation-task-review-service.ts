@@ -15,6 +15,10 @@ export type GenerationTaskReviewInput = { action: "resume_upstream"; upstreamTas
 export async function reviewGenerationTask(type: ReviewableGenerationTaskType, id: string, input: GenerationTaskReviewInput) {
     const record = await getStoredGenerationTaskRecord(type, id);
     if (!record) throw new GenerationTaskReviewError(404, "生成任务不存在或已过期");
+    if (type === "text" && record.payload?.billingMode === "official-usage") throw new GenerationTaskReviewError(409, "按量文本任务请使用账务核对，不能直接补结果或确认失败");
+    if (type === "image" && record.payload?.billingMode === "official-usage") throw new GenerationTaskReviewError(409, "按量图片任务必须核对原计费凭据，不能直接补结果或确认失败");
+    if (type === "video" && record.payload?.billingMode === "official-usage") throw new GenerationTaskReviewError(409, "按量视频任务必须核对原计费凭据，不能直接补结果或确认失败");
+    if (type === "audio" && record.payload?.billingMode === "official-usage") throw new GenerationTaskReviewError(409, "按量音频任务必须核对原计费凭据，不能直接补结果或确认失败");
     if (record.executionPhase !== "needs_review") throw new GenerationTaskReviewError(409, "当前任务不需要人工确认");
 
     if (input.action === "resume_upstream") {

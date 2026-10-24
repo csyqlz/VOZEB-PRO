@@ -35,6 +35,7 @@ const loadBackupSection = () => import("./admin-system-sections").then((module) 
 const loadUpdatesSection = () => import("./admin-system-sections").then((module) => module.AdminUpdatesSection);
 const loadWalletSection = () => import("./admin-wallet-section").then((module) => module.AdminWalletSection);
 const loadPointsSection = () => import("./admin-points-section").then((module) => module.AdminPointsSection);
+const loadPricingSection = () => import("./admin-pricing-section").then((module) => module.AdminPricingSection);
 const loadOrdersSection = () => import("./admin-billing-sections").then((module) => module.AdminOrdersSection);
 const loadProductsSection = () => import("./admin-billing-sections").then((module) => module.AdminProductsSection);
 const loadPromotionsSection = () => import("./admin-billing-sections").then((module) => module.AdminPromotionsSection);
@@ -62,6 +63,7 @@ const sectionLoaders: Partial<Record<AdminSectionKey, () => Promise<unknown>>> =
     updates: loadUpdatesSection,
     wallet: loadWalletSection,
     points: loadPointsSection,
+    pricing: loadPricingSection,
     orders: loadOrdersSection,
     products: loadProductsSection,
     payments: loadPaymentsSection,
@@ -89,6 +91,7 @@ const AdminMediaStorageSection = dynamic(loadMediaStorageSection, { loading: Adm
 const AdminUpdatesSection = dynamic(loadUpdatesSection, { loading: AdminSectionLoading });
 const AdminWalletSection = dynamic(loadWalletSection, { loading: AdminSectionLoading });
 const AdminPointsSection = dynamic(loadPointsSection, { loading: AdminSectionLoading });
+const AdminPricingSection = dynamic(loadPricingSection, { loading: AdminSectionLoading });
 const AdminOrdersSection = dynamic(loadOrdersSection, { loading: AdminSectionLoading });
 const AdminProductsSection = dynamic(loadProductsSection, { loading: AdminSectionLoading });
 const AdminPromotionsSection = dynamic(loadPromotionsSection, { loading: AdminSectionLoading });
@@ -241,6 +244,7 @@ export function AdminDashboard(props: AdminDashboardProps) {
                     {activeSection === "backup" ? <AdminBackupSection controller={controller} /> : null}
                     {activeSection === "wallet" ? <AdminWalletSection controller={controller} /> : null}
                     {activeSection === "points" ? <AdminPointsSection controller={controller} /> : null}
+                    {activeSection === "pricing" ? <AdminPricingSection currentUser={currentUser} /> : null}
                     {activeSection === "orders" ? <AdminOrdersSection controller={controller} /> : null}
                     {activeSection === "products" ? <AdminProductsSection controller={controller} /> : null}
                     {activeSection === "promotions" ? <AdminPromotionsSection controller={controller} /> : null}

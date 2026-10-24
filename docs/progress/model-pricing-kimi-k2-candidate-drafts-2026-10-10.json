@@ -1,0 +1,64 @@
+{
+  "observedAt": "2026-10-10T11:40:22Z",
+  "status": "draft-pending-administrator-review",
+  "productionChanged": false,
+  "sourceReviewRequired": "Kimi 官方首页列出 K2.6 与 K2.7 Code 普通输入、缓存命中和输出价；2026-10-09 的官方国际动态价页浏览器记录列出 K2.7 Code HighSpeed 独立三项价，当前文本抓取不能重现动态表格，正式审核须再次核对。官方型号目录确认各精确 API ID。缓存 FAQ 对 K2.7 只使用不含 code 后缀的简称，两个精确 Code 型号若报告正数 Cache Write 必须待核对，不能假定免费或并入普通输入。官方思考模型和参数文档明确 K2.6、K2.7 Code 及其高速版的 max_tokens 同时限制推理与回复，代码仅对这三个精确型号接受该参数并按默认 32768 Token 预留；真实渠道的输入硬上界、原响应计量和主备配置仍未审核。视觉输入及工具费用未纳入本草案，审核价目也不能单独满足按量准入。",
+  "cacheEvidence": { "url": "https://platform.kimi.ai/docs/guide/context-caching", "observedAt": "2026-10-10", "finding": "官方 FAQ 明确 kimi-k2.6 不支持 Cache Write；K2.7 用 kimi-k2.7 简称，尚不能映射到精确的 kimi-k2.7-code。官方 K2.7 Code 快速入门 https://platform.kimi.ai/docs/guide/kimi-k2-7-code-quickstart 证明该精确型号存在，但未澄清其写入回执；官方计价说明 https://platform.kimi.ai/docs/pricing/chat 只列 K2 系列三项计价。" },
+  "requestBoundEvidence": { "url": "https://platform.kimi.ai/docs/guide/use-thinking-models", "observedAt": "2026-10-10", "finding": "官方明确 kimi-k2.6 与 kimi-k2.7-code 的 reasoning_content 与 content Token 之和不超过 max_tokens，参数参考 https://platform.kimi.ai/docs/api/models-overview 明确高速版与标准 Code 版参数约束相同；两个型号快速入门列默认 max_tokens=32768。仅解决输出硬上界字段语义，不等于已审核真实渠道输入上界。" },
+  "candidateInputs": [
+    {
+      "logicalModelId": "kimi-k2.6",
+      "manufacturer": "Moonshot",
+      "series": "Kimi K2.6",
+      "officialVersion": "kimi-k2.6",
+      "sku": "kimi-k2.6",
+      "tier": "paid",
+      "conditions": "Kimi 国际标准 API；仅列出纯文本请求的普通未缓存输入、缓存命中输入和输出 Token 价，不含会员、订阅、Batch、视觉输入及工具。官方缓存 FAQ 明确 kimi-k2.6 不支持 Cache Write；若原响应报告正数写入量，须待核对而不能直接报价。本草案不能直接用于按量准入。",
+      "sourceKind": "manual",
+      "sourceUrl": "https://platform.kimi.ai/",
+      "evidence": "2026-10-10 Kimi 官方首页列 K2.6 普通输入 0.95、缓存命中 0.16、输出 4.00 USD/百万 Token；官方型号目录 https://platform.kimi.ai/docs/models 列精确 ID kimi-k2.6；官方缓存 FAQ https://platform.kimi.ai/docs/guide/context-caching 确认该型号不支持 Cache Write。",
+      "observedAt": "2026-10-10T11:40:22Z",
+      "items": [
+        { "key": "inputTokens", "unit": "token", "per": "1000000", "price": "0.95", "currency": "USD" },
+        { "key": "cachedInputTokens", "unit": "token", "per": "1000000", "price": "0.16", "currency": "USD" },
+        { "key": "outputTokens", "unit": "token", "per": "1000000", "price": "4", "currency": "USD" }
+      ]
+    },
+    {
+      "logicalModelId": "kimi-k2.7-code",
+      "manufacturer": "Moonshot",
+      "series": "Kimi K2.7 Code",
+      "officialVersion": "kimi-k2.7-code",
+      "sku": "kimi-k2.7-code",
+      "tier": "paid",
+      "conditions": "Kimi 国际标准 API；仅列出纯文本请求的普通未缓存输入、缓存命中输入和输出 Token 价，不含会员、订阅、Batch、工具或高速版。缓存写入若发生，须先确认厂商实际收费与原响应计量；本草案不能直接用于按量准入。",
+      "sourceKind": "manual",
+      "sourceUrl": "https://platform.kimi.ai/",
+      "evidence": "2026-10-10 Kimi 官方首页列 K2.7 Code 普通输入 0.95、缓存命中 0.19、输出 4.00 USD/百万 Token；官方型号目录 https://platform.kimi.ai/docs/models 列精确 ID kimi-k2.7-code，并把高速版列为独立 ID。",
+      "observedAt": "2026-10-10T11:40:22Z",
+      "items": [
+        { "key": "inputTokens", "unit": "token", "per": "1000000", "price": "0.95", "currency": "USD" },
+        { "key": "cachedInputTokens", "unit": "token", "per": "1000000", "price": "0.19", "currency": "USD" },
+        { "key": "outputTokens", "unit": "token", "per": "1000000", "price": "4", "currency": "USD" }
+      ]
+    },
+    {
+      "logicalModelId": "kimi-k2.7-code-highspeed",
+      "manufacturer": "Moonshot",
+      "series": "Kimi K2.7 Code HighSpeed",
+      "officialVersion": "kimi-k2.7-code-highspeed",
+      "sku": "kimi-k2.7-code-highspeed",
+      "tier": "paid",
+      "conditions": "Kimi 国际标准实时 API；仅列纯文本普通未缓存输入、缓存命中输入和输出 Token 价，高速版独立于标准 Code 版；不含会员、订阅、Batch、工具或视觉输入。精确型号若报告正数缓存写入，须先核实原厂实际收费与完整回执。本草案不能直接用于按量准入。",
+      "sourceKind": "manual",
+      "sourceUrl": "https://platform.kimi.ai/docs/pricing/chat",
+      "evidence": "2026-10-09 Kimi 官方国际动态价页的无登录浏览器记录见 model-pricing-moonshot-bfl-review-2026-10-09.md：K2.7 Code HighSpeed 缓存命中 0.38、普通输入 1.90、输出 8.00 USD/百万 Token；官方型号目录 https://platform.kimi.ai/docs/models 列精确 ID kimi-k2.7-code-highspeed。价格尚待管理员重新核对动态页及真实渠道。",
+      "observedAt": "2026-10-09T00:00:00Z",
+      "items": [
+        { "key": "inputTokens", "unit": "token", "per": "1000000", "price": "1.90", "currency": "USD" },
+        { "key": "cachedInputTokens", "unit": "token", "per": "1000000", "price": "0.38", "currency": "USD" },
+        { "key": "outputTokens", "unit": "token", "per": "1000000", "price": "8.00", "currency": "USD" }
+      ]
+    }
+  ]
+}

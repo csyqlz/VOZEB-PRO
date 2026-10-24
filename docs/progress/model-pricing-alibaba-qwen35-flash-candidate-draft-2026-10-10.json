@@ -1,0 +1,29 @@
+{
+  "observedAt": "2026-10-10T14:16:29Z",
+  "status": "draft-pending-administrator-review",
+  "productionChanged": false,
+  "sourceUrl": "https://www.alibabacloud.com/help/en/model-studio/qwen3-5-flash",
+  "additionalSourceUrl": "https://www.alibabacloud.com/help/en/model-studio/context-cache",
+  "candidateInputs": [
+    {
+      "logicalModelId": "qwen3.5-flash",
+      "manufacturer": "Alibaba Cloud",
+      "series": "Qwen 3.5",
+      "officialVersion": "qwen3.5-flash",
+      "sku": "qwen3.5-flash",
+      "tier": "paid",
+      "conditions": "Alibaba Cloud Model Studio original pay-as-you-go API list price; Singapore International scope, 0 < request input tokens <= 1000000, real-time calls. Alias qwen3.5-flash supports context caching; explicit and implicit modes are mutually exclusive. Do not apply to the separately documented snapshot, another region or batch calls. Promotional free quota does not reduce the regular user-price baseline. Batch eligibility conflicts between the overview and exact model page and requires administrator resolution. Real proxy region, cache mode, response usage, multimodal and tool usage, and reservation bounds remain unverified.",
+      "sourceKind": "manual",
+      "sourceUrl": "https://www.alibabacloud.com/help/en/model-studio/qwen3-5-flash",
+      "evidence": "2026-10-10 exact alias page, Singapore International: input 0.1, output 0.4, explicit cache creation 0.125 and read 0.01 USD per 1M tokens. Official context-cache billing says implicit cache hits for this model cost 20% of ordinary input, yielding 0.02 USD per 1M tokens. The exact alias page marks Singapore batch inference unsupported, while the aggregate pricing table advertises a batch discount; no batch row is included. The alias supports caching while its documented snapshot does not. Input/output independently match the 2026-10-09 Alibaba comparison.",
+      "observedAt": "2026-10-10T14:16:29Z",
+      "items": [
+        { "key": "inputTokens", "unit": "token", "per": "1000000", "price": "0.1", "currency": "USD" },
+        { "key": "outputTokens", "unit": "token", "per": "1000000", "price": "0.4", "currency": "USD" },
+        { "key": "implicitCacheHitTokens", "unit": "token", "per": "1000000", "price": "0.02", "currency": "USD" },
+        { "key": "explicitCacheCreationTokens", "unit": "token", "per": "1000000", "price": "0.125", "currency": "USD" },
+        { "key": "explicitCacheReadTokens", "unit": "token", "per": "1000000", "price": "0.01", "currency": "USD" }
+      ]
+    }
+  ]
+}

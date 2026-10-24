@@ -110,7 +110,15 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
             const response = await fetch("/api/drama/analyze", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ requestId: `drama-content:${project.id}:${episode.id}:${nanoid()}`, phase: "content", script: episode.script, summary: project.summary, style: project.style, videoModel: config.videoModel || config.model }),
+                body: JSON.stringify({
+                    requestId: `drama-content:${project.id}:${episode.id}:${nanoid()}`,
+                    projectId: project.id,
+                    phase: "content",
+                    script: episode.script,
+                    summary: project.summary,
+                    style: project.style,
+                    videoModel: config.videoModel || config.model,
+                }),
             });
             syncUserPointsFromHeaders(response.headers, "system");
             const payload = (await response.json().catch(() => ({}))) as { data?: DramaContentAnalysis; msg?: string };
@@ -135,6 +143,7 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     requestId: `drama-visual:${project.id}:${episode.id}:${nanoid()}`,
+                    projectId: project.id,
                     phase: "visual",
                     summary: project.summary,
                     style: project.style,

@@ -17,7 +17,8 @@ export function useCreativeAgentModels(capabilities: CreativeAgentModelOption["c
 export function creativeAgentModelsFromConfig(config: AiConfig, capabilities: CreativeAgentModelOption["capability"][] = ["image", "video", "audio"]) {
     return Array.from(new Set(capabilities)).flatMap((capability) =>
         selectableModelsByCapability(config, capability).map((id) => {
-            const capabilityProfile = creativeModelProfileForLogicalModel(config.logicalModels.find((model) => model.id.toLowerCase() === id.toLowerCase()));
+            const logical = config.logicalModels.find((model) => model.id.toLowerCase() === id.toLowerCase());
+            const capabilityProfile = creativeModelProfileForLogicalModel(logical);
             return { id, name: modelOptionLabel(config, id), capability, ...(capabilityProfile ? { capabilityProfile } : {}) };
         }),
     );

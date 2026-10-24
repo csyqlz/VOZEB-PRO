@@ -19,7 +19,9 @@ export async function buildOpenAiVideoFormData(input: OpenAiVideoFormInput) {
     formData.set("seconds", String(input.seconds));
     if (input.width && input.height) formData.set("size", `${input.width}x${input.height}`);
     if (input.imageUrls[0]) {
-        const file = await imageReferenceToFile({ dataUrl: input.imageUrls[0], url: input.imageUrls[0] }, "input-reference.png", input.origin, input.cookie);
+        const source = URL.canParse(input.imageUrls[0]) ? new URL(input.imageUrls[0]) : null;
+        const imageUrl = source && URL.canParse(input.origin) && source.origin === new URL(input.origin).origin && /^\/api\/(?:reference-assets|generation-log-assets)\//.test(source.pathname) ? `${source.pathname}${source.search}` : input.imageUrls[0];
+        const file = await imageReferenceToFile({ dataUrl: imageUrl, url: imageUrl }, "input-reference.png", input.origin, input.cookie);
         formData.set("input_reference", file);
     }
     return formData;

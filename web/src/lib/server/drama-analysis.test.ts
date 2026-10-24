@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
     describeDramaModelOutput,
     hasCompleteDramaDialogueAttribution,
+    hasOrderedDramaSourceAnchors,
     hasUsableDramaToolArguments,
     normalizeDramaContentAnalysis,
     normalizeDramaVisualAnalysis,
@@ -13,6 +14,13 @@ import {
 } from "./drama-analysis";
 
 describe("drama analysis contracts", () => {
+    it("only restores source gaps when every model excerpt occurs in script order", () => {
+        const script = "清晨，顾言推开城门。守城士兵听见号角，纷纷回头。顾言望向远处，\n发现黑云压近。";
+        expect(hasOrderedDramaSourceAnchors({ shots: [{ sourceText: "清晨，顾言推开城门。" }, { sourceText: "顾言望向远处，发现黑云压近。" }] }, script)).toBe(true);
+        expect(hasOrderedDramaSourceAnchors({ shots: [{ sourceText: "顾言望向远处，发现黑云压近。" }, { sourceText: "清晨，顾言推开城门。" }] }, script)).toBe(false);
+        expect(hasOrderedDramaSourceAnchors({ shots: [{ sourceText: "清晨，顾言推开城门。" }, { sourceText: "模型编造的原文" }] }, script)).toBe(false);
+    });
+
     it("keeps content facts separate from visual prompts", () => {
         const result = normalizeDramaContentAnalysis(
             {

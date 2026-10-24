@@ -10,7 +10,9 @@ docs/.source
 docs/node_modules
 docs/out
 web/.next
+web/.next-*
 web/.data
+web/.e2e-data
 web/.e2e-artifacts
 web/.tmp
 web/node_modules

@@ -10,6 +10,10 @@ export function agentTaskCompletionMessage(task: AgentRunTask, surface: AgentRun
 
 export function agentRunCompletionReply(run: AgentRun) {
     const completed = run.tasks.filter((task) => task.status === "completed");
+    if (run.generationPreferences?.mode === "text") {
+        const content = completed[0]?.result && typeof completed[0].result === "object" ? (completed[0].result as { content?: unknown }).content : undefined;
+        return typeof content === "string" && content.trim() ? content.trim() : "文本模型没有返回有效内容";
+    }
     if (!completed.length && run.projectHandoff) return "项目资料已整理完成。";
     if (wantsTextOnly(run.prompt) && completed.length === 1 && completed[0].type === "text") {
         return enforceRequestedLength(conciseTextResult(resultSummary(completed[0].result)), run.prompt) || `「${completed[0].title}」已完成。`;

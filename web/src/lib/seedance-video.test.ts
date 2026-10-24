@@ -18,6 +18,7 @@ describe("Seedance video configuration", () => {
 
     it("uses the selected model's protocol on a mixed channel", () => {
         expect(isSeedanceVideoConfig(mixedChannelConfig("video-logical", "seedance"))).toBe(true);
+        expect(isSeedanceVideoConfig(mixedChannelConfig("video-logical", "dataeyes-seedance"))).toBe(true);
         expect(isSeedanceVideoConfig(mixedChannelConfig("video-logical", "compatible"))).toBe(false);
     });
 
@@ -28,7 +29,7 @@ describe("Seedance video configuration", () => {
     });
 });
 
-function mixedChannelConfig(model: string, protocol: "seedance" | "compatible"): AiConfig {
+function mixedChannelConfig(model: string, protocol: "seedance" | "dataeyes-seedance" | "compatible"): AiConfig {
     return {
         ...defaultConfig,
         model,

@@ -3,7 +3,17 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth/session";
 import { readJsonBody } from "@/lib/auth/request";
 import { getAuthSettings, isAuthInputError, refundUserPoints } from "@/lib/auth/store";
-import { describeDramaAnalysisCandidate, dramaContentTool, dramaVisualTool, hasCompleteDramaContentAnalysis, hasUsableDramaToolArguments, normalizeDramaContentAnalysis, normalizeDramaToolArguments } from "@/lib/server/drama-analysis";
+import {
+    describeDramaAnalysisCandidate,
+    dramaContentTool,
+    dramaVisualTool,
+    hasCompleteDramaContentAnalysis,
+    hasCompleteDramaDialogueAttribution,
+    hasOrderedDramaSourceAnchors,
+    hasUsableDramaToolArguments,
+    normalizeDramaContentAnalysis,
+    normalizeDramaToolArguments,
+} from "@/lib/server/drama-analysis";
 import { mergeDramaContentAnalyses } from "@/lib/server/drama-analysis-merge";
 import { splitDramaScriptAtBoundary } from "@/lib/server/drama-analysis-segmentation";
 import { resolveInternalOrigin } from "@/lib/server/internal-origin";
@@ -14,6 +24,8 @@ import { isStructuredTextFailure, rankTextPlanningCandidates, requestStructuredT
 import { dramaAnalysisText, normalizeDramaVisualInput, type DramaAnalyzeBody, type NormalizedDramaVisualInput } from "@/lib/server/drama-analysis-input";
 import { dramaShotDurationInstruction, resolveDramaVideoDurationPolicy } from "@/lib/server/drama-shot-config";
 import { analyzeDramaVisualBatches } from "@/lib/server/drama-visual-analysis-runtime";
+import { DramaProjectServiceError, getDramaProjectForUser } from "@/lib/server/drama-project-service";
+import { recordDramaAnalysisCharge } from "@/lib/server/generation-task-charge-attribution";
 
 export const runtime = "nodejs";
 
@@ -30,6 +42,14 @@ export async function POST(request: Request) {
     }
     const requestId = dramaAnalysisText(body.requestId);
     if (!requestId || requestId.length > 200) return NextResponse.json({ code: 400, data: null, msg: "剧本分析请求标识无效" }, { status: 400 });
+    const projectId = dramaAnalysisText(body.projectId);
+    if (!projectId || projectId.length > 200) return NextResponse.json({ code: 400, data: null, msg: "短剧项目标识无效" }, { status: 400 });
+    try {
+        await getDramaProjectForUser(user.id, projectId);
+    } catch (error) {
+        if (error instanceof DramaProjectServiceError) return NextResponse.json({ code: error.status, data: null, msg: error.message }, { status: error.status });
+        throw error;
+    }
     const phase = body.phase === "visual" ? "visual" : "content";
     const script = dramaAnalysisText(body.script);
     if (phase === "content" && !script) return NextResponse.json({ code: 400, data: null, msg: "请先填写剧本" }, { status: 400 });
@@ -78,7 +98,8 @@ export async function POST(request: Request) {
                                 messagesFor(batch.payload),
                                 user.id,
                                 tool,
-                                visualBatchIdempotencyKey(user.id, requestId, candidate, batch),
+                                visualBatchIdempotencyKey(user.id, projectId, requestId, candidate, batch),
+                                { projectId },
                                 undefined,
                                 false,
                                 request.signal,
@@ -105,6 +126,7 @@ export async function POST(request: Request) {
                     candidate,
                     model,
                     tool,
+                    projectId,
                     requestId,
                     script,
                     summary: dramaAnalysisText(body.summary),
@@ -136,8 +158,8 @@ export async function POST(request: Request) {
     }
 }
 
-function visualBatchIdempotencyKey(userId: string, requestId: string, candidate: TextPlanningCandidate, batch: NormalizedDramaVisualInput) {
-    return systemAiIdempotencyKey("drama-analyze", userId, "visual", requestId, batch.shotIds.join("\0"), candidate.channel.id, candidate.upstreamModel);
+function visualBatchIdempotencyKey(userId: string, projectId: string, requestId: string, candidate: TextPlanningCandidate, batch: NormalizedDramaVisualInput) {
+    return systemAiIdempotencyKey("drama-analyze", userId, projectId, "visual", requestId, batch.shotIds.join("\0"), candidate.channel.id, candidate.upstreamModel);
 }
 
 function isAdaptiveVisualBatchError(error: unknown) {
@@ -161,6 +183,7 @@ async function requestFunctionCall(
     userId: string,
     tool: { name: string; description: string; parameters: Record<string, unknown> },
     idempotencyKey: string,
+    attribution: { projectId: string },
     validateArguments = (argumentsText: string) => hasUsableDramaToolArguments(argumentsText, tool.name),
     allowRepair = true,
     signal?: AbortSignal,
@@ -190,6 +213,15 @@ async function requestFunctionCall(
         await refund(userId, billingModel, call.headers);
         throw new Error("模型没有返回结构化剧本结果");
     }
+    const billing = readSystemAiBilling(call.headers);
+    if (hasSystemAiCharge(billing)) {
+        try {
+            await recordDramaAnalysisCharge({ userId, projectId: attribution.projectId, callId: idempotencyKey, logicalModelId: billingModel, pointsRecordId: billing.pointsRecordId });
+        } catch {
+            await refund(userId, billingModel, billing);
+            throw new Error("短剧分析费用归属保存失败");
+        }
+    }
     return readCallResult(normalizedArguments, call.headers);
 }
 
@@ -202,6 +234,7 @@ async function analyzeDramaContentCandidate(input: {
     candidate: TextPlanningCandidate;
     model: string;
     tool: DramaTool;
+    projectId: string;
     requestId: string;
     script: string;
     summary: string;
@@ -236,14 +269,17 @@ async function analyzeDramaScriptSegment(input: Parameters<typeof analyzeDramaCo
             input.messagesFor({ script, summary: input.summary }),
             input.userId,
             input.tool,
-            systemAiIdempotencyKey("drama-analyze", input.userId, "content", input.requestId, segmentKey, script, input.candidate.channel.id, input.candidate.upstreamModel),
+            systemAiIdempotencyKey("drama-analyze", input.userId, input.projectId, "content", input.requestId, segmentKey, script, input.candidate.channel.id, input.candidate.upstreamModel),
+            { projectId: input.projectId },
             (argumentsText) => hasUsableDramaToolArguments(argumentsText, input.tool.name),
             false,
             input.signal,
         );
         try {
             const parsed = JSON.parse(call.args);
-            if (!hasCompleteDramaSourceCoverage(parsed, script)) throw new Error("模型返回的剧本原文不完整");
+            if (!hasCompleteDramaSourceCoverage(parsed, script) && (!hasOrderedDramaSourceAnchors(parsed, script) || !hasCompleteDramaDialogueAttribution(call.args, script))) {
+                throw new Error("模型返回的剧本原文不完整");
+            }
             const data = normalizeDramaContentAnalysis(parsed, input.durationPolicy, script);
             if (!hasCompleteDramaContentAnalysis(data, script)) throw new Error("模型返回的剧本对白或原文不完整");
             calls.push(call);

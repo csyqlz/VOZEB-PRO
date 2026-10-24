@@ -41,7 +41,7 @@ export type AdminGenerationTask = {
         logicalModelId?: string;
         channelId?: string;
         upstreamModel?: string;
-        protocol?: "responses" | "chat" | "gemini" | "custom";
+        protocol?: "responses" | "chat" | "claude" | "gemini" | "custom";
         elapsedMs?: number;
         pointsCost?: number;
         skills: Array<{ id: string; name: string; sourceVersion?: string; sourceCommit?: string; sourceContentHash?: string }>;
@@ -63,6 +63,7 @@ export type AdminGenerationTask = {
     canCancel: boolean;
     retryTaskId?: string;
     canReview: boolean;
+    billingMode?: "official-usage";
 };
 
 export type AdminGenerationChannelCluster = {
@@ -95,7 +96,7 @@ export type AdminGenerationChannel = {
         lastError?: string;
     };
     planningRuntime?: {
-        protocol?: "responses" | "chat" | "gemini" | "custom";
+        protocol?: "responses" | "chat" | "claude" | "gemini" | "custom";
         successCount: number;
         failureCount: number;
         averageLatencyMs?: number;

@@ -14,7 +14,7 @@ vi.mock("@/services/api/session-expiration", () => {
     };
 });
 
-import { controlCreativeAgentRun, createCreativeAgentRun, listCreativeAgentRuns, listCreativeConversationPage, listCreativeMessages, retryCreativeAgentTask, watchCreativeAgentRun } from "./creative";
+import { controlCreativeAgentRun, createCreativeAgentRun, getCreativeAgentRunBilling, getCreativeCostPreview, listCreativeAgentRuns, listCreativeConversationPage, listCreativeMessages, retryCreativeAgentTask, watchCreativeAgentRun } from "./creative";
 import type { CreativeProjectHandoff } from "@/lib/creative-runtime-contract";
 
 class FakeEventSource extends EventTarget {
@@ -229,6 +229,25 @@ describe("统一创作 Agent 事件流", () => {
 
 describe("创作会话来源", () => {
     afterEach(() => vi.unstubAllGlobals());
+
+    it("reads the current run billing summary without caching it", async () => {
+        const summary = { chargedPoints: 5, refundedPoints: 1, actualPoints: 4, pendingHeldPoints: 2, charges: [], pending: [] };
+        const fetchMock = vi.fn(async () => Response.json({ code: 0, data: { summary }, msg: "OK" }));
+        vi.stubGlobal("fetch", fetchMock);
+
+        await expect(getCreativeAgentRunBilling("run/one")).resolves.toEqual(summary);
+        expect(fetchMock).toHaveBeenCalledWith("/api/agent/runs/run%2Fone/billing", expect.objectContaining({ cache: "no-store" }));
+    });
+
+    it("requests a read-only pre-submit preview for the selected model order", async () => {
+        const preview = { totalCount: 3, fixedEstimatedPoints: 21, lines: [] };
+        const fetchMock = vi.fn(async () => Response.json({ code: 0, data: { preview }, msg: "OK" }));
+        vi.stubGlobal("fetch", fetchMock);
+        const input = { modelIds: ["image-b", "image-a"], preferences: { image: { quality: "high", count: 3 } }, hasImageReferences: false };
+
+        await expect(getCreativeCostPreview(input)).resolves.toEqual(preview);
+        expect(fetchMock).toHaveBeenCalledWith("/api/agent/preview-costs", expect.objectContaining({ method: "POST", body: JSON.stringify(input), cache: "no-store" }));
+    });
 
     it("requests only the selected workbench source", async () => {
         const fetchMock = vi.fn(async (_input: string | URL | Request) => Response.json({ code: 0, data: { conversations: [], hasMore: false }, msg: "ok" }));

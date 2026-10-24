@@ -1,0 +1,312 @@
+{
+  "observedAt": "2026-10-10T13:23:16Z",
+  "status": "draft-pending-administrator-review",
+  "productionChanged": false,
+  "sourceReviewRequired": "八个启用精确型号的 24 个纯文本标准 Token 分项仅为本地待审资料。MiMo Cache Write 与 Z.AI Cached Input Storage 标为限时免费，不能作为永久零价或省略的付费分项；工具、多模态、真实主备渠道和完整上界仍待核实。MiMo V2.5 两个请求名自 2026-10-14 18:00 北京时间自动转向 V2.6，旧价草案在该时点结束；不能按旧响应身份继续准入。没有生产候选、已审核价或公开按量开关变更。",
+  "sources": [
+    {
+      "url": "https://mimo.mi.com/docs/en-US/price/pay-as-you-go",
+      "observedAt": "2026-10-10T13:23:16Z"
+    },
+    {
+      "url": "https://docs.z.ai/guides/overview/pricing",
+      "observedAt": "2026-10-10T13:23:16Z"
+    },
+    {
+      "url": "https://mimo.mi.com/docs/zh-CN/updates/deprecate",
+      "observedAt": "2026-10-10T13:23:16Z"
+    }
+  ],
+  "candidateInputs": [
+    {
+      "logicalModelId": "mimo-v2.6-pro",
+      "manufacturer": "Xiaomi",
+      "series": "MiMo V2.6",
+      "officialVersion": "mimo-v2.6-pro",
+      "sku": "mimo-v2.6-pro",
+      "tier": "paid",
+      "conditions": "MiMo 海外 Real-time API 纯文本标准 Token 价；限时免费的 Cache Write 无常规付费单价，工具与多模态另计。该三项草案不构成完整按量准入。",
+      "sourceKind": "manual",
+      "sourceUrl": "https://mimo.mi.com/docs/en-US/price/pay-as-you-go",
+      "evidence": "2026-10-10 MiMo 海外实时价目列该精确型号普通输入 0.435、缓存命中 0.0036、输出 0.87 USD/百万 Token；旧型号自动替换时间见 https://mimo.mi.com/docs/zh-CN/updates/deprecate。",
+      "observedAt": "2026-10-10T13:23:16Z",
+      "items": [
+        {
+          "key": "inputTokens",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.435",
+          "currency": "USD"
+        },
+        {
+          "key": "cachedInputTokens",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.0036",
+          "currency": "USD"
+        },
+        {
+          "key": "outputTokens",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.87",
+          "currency": "USD"
+        }
+      ]
+    },
+    {
+      "logicalModelId": "mimo-v2.6-flash",
+      "manufacturer": "Xiaomi",
+      "series": "MiMo V2.6",
+      "officialVersion": "mimo-v2.6-flash",
+      "sku": "mimo-v2.6-flash",
+      "tier": "paid",
+      "conditions": "MiMo 海外 Real-time API 纯文本标准 Token 价；限时免费的 Cache Write 无常规付费单价，工具与多模态另计。该三项草案不构成完整按量准入。",
+      "sourceKind": "manual",
+      "sourceUrl": "https://mimo.mi.com/docs/en-US/price/pay-as-you-go",
+      "evidence": "2026-10-10 MiMo 海外实时价目列该精确型号普通输入 0.14、缓存命中 0.0028、输出 0.28 USD/百万 Token；旧型号自动替换时间见 https://mimo.mi.com/docs/zh-CN/updates/deprecate。",
+      "observedAt": "2026-10-10T13:23:16Z",
+      "items": [
+        {
+          "key": "inputTokens",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.14",
+          "currency": "USD"
+        },
+        {
+          "key": "cachedInputTokens",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.0028",
+          "currency": "USD"
+        },
+        {
+          "key": "outputTokens",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.28",
+          "currency": "USD"
+        }
+      ]
+    },
+    {
+      "logicalModelId": "mimo-v2.5-pro",
+      "manufacturer": "Xiaomi",
+      "series": "MiMo V2.5",
+      "officialVersion": "mimo-v2.5-pro",
+      "sku": "mimo-v2.5-pro",
+      "tier": "paid",
+      "conditions": "MiMo 海外 Real-time API 纯文本标准 Token 价；限时免费的 Cache Write 无常规付费单价，工具与多模态另计。该三项草案不构成完整按量准入。旧请求名自 2026-10-14 18:00 北京时间起自动替换型号；此草案仅适用于替换前。",
+      "effectiveTo": "2026-10-14T10:00:00Z",
+      "sourceKind": "manual",
+      "sourceUrl": "https://mimo.mi.com/docs/en-US/price/pay-as-you-go",
+      "evidence": "2026-10-10 MiMo 海外实时价目列该精确型号普通输入 0.435、缓存命中 0.0036、输出 0.87 USD/百万 Token；旧型号自动替换时间见 https://mimo.mi.com/docs/zh-CN/updates/deprecate。",
+      "observedAt": "2026-10-10T13:23:16Z",
+      "items": [
+        {
+          "key": "inputTokens",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.435",
+          "currency": "USD"
+        },
+        {
+          "key": "cachedInputTokens",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.0036",
+          "currency": "USD"
+        },
+        {
+          "key": "outputTokens",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.87",
+          "currency": "USD"
+        }
+      ]
+    },
+    {
+      "logicalModelId": "mimo-v2.5",
+      "manufacturer": "Xiaomi",
+      "series": "MiMo V2.5",
+      "officialVersion": "mimo-v2.5",
+      "sku": "mimo-v2.5",
+      "tier": "paid",
+      "conditions": "MiMo 海外 Real-time API 纯文本标准 Token 价；限时免费的 Cache Write 无常规付费单价，工具与多模态另计。该三项草案不构成完整按量准入。旧请求名自 2026-10-14 18:00 北京时间起自动替换型号；此草案仅适用于替换前。",
+      "effectiveTo": "2026-10-14T10:00:00Z",
+      "sourceKind": "manual",
+      "sourceUrl": "https://mimo.mi.com/docs/en-US/price/pay-as-you-go",
+      "evidence": "2026-10-10 MiMo 海外实时价目列该精确型号普通输入 0.14、缓存命中 0.0028、输出 0.28 USD/百万 Token；旧型号自动替换时间见 https://mimo.mi.com/docs/zh-CN/updates/deprecate。",
+      "observedAt": "2026-10-10T13:23:16Z",
+      "items": [
+        {
+          "key": "inputTokens",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.14",
+          "currency": "USD"
+        },
+        {
+          "key": "cachedInputTokens",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.0028",
+          "currency": "USD"
+        },
+        {
+          "key": "outputTokens",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.28",
+          "currency": "USD"
+        }
+      ]
+    },
+    {
+      "logicalModelId": "glm-5.3",
+      "manufacturer": "Zhipu",
+      "series": "GLM 5.3",
+      "officialVersion": "glm-5.3",
+      "sku": "glm-5.3",
+      "tier": "paid",
+      "conditions": "Z.AI 国际标准 API 纯文本 Token 价；限时免费的缓存存储无常规付费单价，Web Search 与多模态另计。该三项草案不构成完整按量准入。",
+      "sourceKind": "manual",
+      "sourceUrl": "https://docs.z.ai/guides/overview/pricing",
+      "evidence": "2026-10-10 Z.AI 国际价目列 glm-5.3 普通输入 1.4、缓存命中 0.26、输出 4.4 USD/百万 Token；精确 ID 见官方 Chat API/Flash 指南。",
+      "observedAt": "2026-10-10T13:23:16Z",
+      "items": [
+        {
+          "key": "inputTokens",
+          "unit": "token",
+          "per": "1000000",
+          "price": "1.4",
+          "currency": "USD"
+        },
+        {
+          "key": "cachedInputTokens",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.26",
+          "currency": "USD"
+        },
+        {
+          "key": "outputTokens",
+          "unit": "token",
+          "per": "1000000",
+          "price": "4.4",
+          "currency": "USD"
+        }
+      ]
+    },
+    {
+      "logicalModelId": "glm-5.2",
+      "manufacturer": "Zhipu",
+      "series": "GLM 5.2",
+      "officialVersion": "glm-5.2",
+      "sku": "glm-5.2",
+      "tier": "paid",
+      "conditions": "Z.AI 国际标准 API 纯文本 Token 价；限时免费的缓存存储无常规付费单价，Web Search 与多模态另计。该三项草案不构成完整按量准入。",
+      "sourceKind": "manual",
+      "sourceUrl": "https://docs.z.ai/guides/overview/pricing",
+      "evidence": "2026-10-10 Z.AI 国际价目列 glm-5.2 普通输入 1.4、缓存命中 0.26、输出 4.4 USD/百万 Token；精确 ID 见官方 Chat API/Flash 指南。",
+      "observedAt": "2026-10-10T13:23:16Z",
+      "items": [
+        {
+          "key": "inputTokens",
+          "unit": "token",
+          "per": "1000000",
+          "price": "1.4",
+          "currency": "USD"
+        },
+        {
+          "key": "cachedInputTokens",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.26",
+          "currency": "USD"
+        },
+        {
+          "key": "outputTokens",
+          "unit": "token",
+          "per": "1000000",
+          "price": "4.4",
+          "currency": "USD"
+        }
+      ]
+    },
+    {
+      "logicalModelId": "glm-5.1",
+      "manufacturer": "Zhipu",
+      "series": "GLM 5.1",
+      "officialVersion": "glm-5.1",
+      "sku": "glm-5.1",
+      "tier": "paid",
+      "conditions": "Z.AI 国际标准 API 纯文本 Token 价；限时免费的缓存存储无常规付费单价，Web Search 与多模态另计。该三项草案不构成完整按量准入。",
+      "sourceKind": "manual",
+      "sourceUrl": "https://docs.z.ai/guides/overview/pricing",
+      "evidence": "2026-10-10 Z.AI 国际价目列 glm-5.1 普通输入 1.4、缓存命中 0.26、输出 4.4 USD/百万 Token；精确 ID 见官方 Chat API/Flash 指南。",
+      "observedAt": "2026-10-10T13:23:16Z",
+      "items": [
+        {
+          "key": "inputTokens",
+          "unit": "token",
+          "per": "1000000",
+          "price": "1.4",
+          "currency": "USD"
+        },
+        {
+          "key": "cachedInputTokens",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.26",
+          "currency": "USD"
+        },
+        {
+          "key": "outputTokens",
+          "unit": "token",
+          "per": "1000000",
+          "price": "4.4",
+          "currency": "USD"
+        }
+      ]
+    },
+    {
+      "logicalModelId": "glm-5.3-flash",
+      "manufacturer": "Zhipu",
+      "series": "GLM 5.3 Flash",
+      "officialVersion": "glm-5.3-flash",
+      "sku": "glm-5.3-flash",
+      "tier": "paid",
+      "conditions": "Z.AI 国际标准 API 纯文本 Token 价；限时免费的缓存存储无常规付费单价，Web Search 与多模态另计。该三项草案不构成完整按量准入。",
+      "sourceKind": "manual",
+      "sourceUrl": "https://docs.z.ai/guides/overview/pricing",
+      "evidence": "2026-10-10 Z.AI 国际价目列 glm-5.3-flash 普通输入 0.15、缓存命中 0.03、输出 0.50 USD/百万 Token；精确 ID 见官方 Chat API/Flash 指南。",
+      "observedAt": "2026-10-10T13:23:16Z",
+      "items": [
+        {
+          "key": "inputTokens",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.15",
+          "currency": "USD"
+        },
+        {
+          "key": "cachedInputTokens",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.03",
+          "currency": "USD"
+        },
+        {
+          "key": "outputTokens",
+          "unit": "token",
+          "per": "1000000",
+          "price": "0.50",
+          "currency": "USD"
+        }
+      ]
+    }
+  ]
+}
