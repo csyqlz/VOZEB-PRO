@@ -326,7 +326,10 @@ test("independent image Token contract records a reviewed channel alias across w
         await pricingLoaded;
         await expect(page.locator(".admin-dashboard-shell")).toHaveAttribute("data-hydrated", "true");
         await selectSalesModel(page, "e2e-image", "Fixture", "image");
-        await page.getByRole("button", { name: "核对图片用量契约" }).click();
+        await page
+            .getByRole("dialog", { name: /模型售价与渠道/ })
+            .getByRole("button", { name: "核对图片用量契约" })
+            .click();
         return page.getByRole("dialog", { name: "核对图片用量契约" });
     };
     let drawer = await open();
@@ -3555,7 +3558,10 @@ for (const perImage of [false, true])
                 await selectSalesModel(page, logicalModel, perImage ? "Black Forest Labs" : "未标厂商", "image");
                 await page.getByLabel("已审核官方价版本").click();
                 await page.locator(".ant-select-dropdown:visible .ant-select-item-option").filter({ hasText: sku }).click();
-                await page.getByRole("button", { name: "核对图片用量契约" }).click();
+                await page
+                    .getByRole("dialog", { name: /模型售价与渠道/ })
+                    .getByRole("button", { name: "核对图片用量契约" })
+                    .click();
                 const drawer = page.getByRole("dialog", { name: "核对图片用量契约" });
                 await drawer.getByLabel("图片契约渠道绑定").click();
                 await page
@@ -3707,6 +3713,18 @@ for (const perImage of [false, true])
                 receipts: Array<{ id: string; requestId: string; kind: string; changeExactPoints: string }>;
             };
             const readShadow = async (): Promise<ShadowAccount> => {
+                if (process.env.VOZEB_PRO_E2E_DATABASE_URL) {
+                    const { Pool } = await import("pg");
+                    const pool = new Pool({ connectionString: process.env.VOZEB_PRO_E2E_DATABASE_URL });
+                    try {
+                        const total = await pool.query<{ exact_points: string }>("SELECT exact_points FROM vozeb_pro_model_pricing_shadow_accounts WHERE user_id = $1", [session.user.id]);
+                        const calls = await pool.query<{ data: ShadowAccount["calls"][number] }>("SELECT data FROM vozeb_pro_model_pricing_shadow_calls WHERE user_id = $1", [session.user.id]);
+                        const receipts = await pool.query<{ data: ShadowAccount["receipts"][number] }>("SELECT data FROM vozeb_pro_model_pricing_shadow_receipts WHERE user_id = $1", [session.user.id]);
+                        return { exactPoints: total.rows[0]?.exact_points ?? "0", calls: calls.rows.map((row) => row.data), receipts: receipts.rows.map((row) => row.data) };
+                    } finally {
+                        await pool.end();
+                    }
+                }
                 try {
                     return JSON.parse(await readFile(dataFile, "utf8"));
                 } catch (error) {
