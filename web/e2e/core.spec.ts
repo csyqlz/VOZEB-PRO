@@ -467,6 +467,7 @@ test("BytePlus manual price entry offers verified video conditions while retaini
     await expect(form.getByLabel("项目 1 适用条件")).toHaveValue("官网另有条件");
     await page.keyboard.press("Escape");
     await expect(page.locator(".ant-select-dropdown:visible")).toHaveCount(0);
+    await expect(page.locator(".ant-select-dropdown:not(.ant-select-dropdown-hidden)")).toHaveCount(0);
     for (const width of [390, 430]) {
         await page.setViewportSize({ width, height: 844 });
         await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
