@@ -1,0 +1,136 @@
+---
+title: Docker 部署
+description: 使用 Docker Compose、PostgreSQL 和发布镜像部署 VOZEB PRO
+---
+
+# Docker 部署
+
+主 Compose 会启动 VOZEB PRO 和 PostgreSQL 16。正式部署前先复制并修改 `.env`。
+
+## 安装
+
+```bash
+git clone https://github.com/csyqlz/VOZEB-PRO.git
+cd VOZEB-PRO
+cp .env.example .env
+```
+
+必填：
+
+```dotenv
+NEXT_PUBLIC_SITE_URL=https://vozeb-pro.example.com
+POSTGRES_PASSWORD=replace-with-a-strong-database-password
+VOZEB_PRO_ENCRYPTION_KEY=填写 openssl rand -hex 32 的输出
+```
+
+启动：
+
+```bash
+docker compose pull
+docker compose up -d
+docker compose ps
+```
+
+访问 `/install`，先确认只读连接检查，再点击“初始化表结构”并创建管理员。
+
+## Compose 服务
+
+```text
+postgres -> PostgreSQL 16，数据卷 vozeb-pro-postgres
+app      -> VOZEB PRO standalone，数据卷 vozeb-pro-data
+```
+
+应用通过容器网络连接：
+
+```text
+postgres://用户:密码@postgres:5432/数据库
+```
+
+不要把 Docker 内数据库 Host 写成 localhost。
+
+## 外部数据库与宝塔
+
+外部 PostgreSQL 只启动应用，端口绑定在宿主机回环地址：
+
+```bash
+docker compose -f docker-compose.external-db.yml up -d
+```
+
+宝塔 PostgreSQL 通常监听宿主机 `127.0.0.1:5432`。此时使用：
+
+```dotenv
+DATABASE_URL=postgres://用户:密码@127.0.0.1:5432/数据库
+```
+
+```bash
+docker compose -f docker-compose.baota.yml up -d
+```
+
+宝塔 Compose 使用 host 网络，只启动 `app`，不创建项目 PostgreSQL 容器。默认 Compose 和外部数据库 Compose 的 3000 端口也只绑定 `127.0.0.1`，由 Nginx 或宝塔反向代理对外提供 HTTPS。
+
+宝塔单层 Nginx 反向代理默认使用 `VOZEB_PRO_TRUSTED_PROXY_HOPS=1`，用于登录、生成和媒体访问的真实 IP 限流。接入 CDN 或额外代理时按可信代理层数调整；只有客户端直接访问应用时才设置为 `0`。
+
+## 本地构建镜像
+
+```bash
+docker compose -f docker-compose.local.yml up -d --build
+```
+
+构建阶段需要安装依赖并执行 Next.js 生产构建，建议至少 2GB 内存。低内存服务器使用发布镜像。
+
+## 日志与检查
+
+```bash
+docker compose logs -f app
+docker compose logs -f postgres
+docker compose exec postgres pg_isready -U vozeb_pro -d vozeb_pro
+```
+
+安装页报数据库错误时，重点检查 `.env`、PostgreSQL 健康状态、数据库密码和 Host。浏览器只显示安全分类提示，完整连接错误保留在服务器日志。
+
+## GHCR 权限
+
+公开镜像可直接拉取。私有镜像需要登录：
+
+```bash
+echo "GitHub Token" | docker login ghcr.io -u GitHub用户名 --password-stdin
+docker compose pull
+```
+
+Token 不得写入仓库或公开日志。
+
+## HTTPS 反向代理
+
+反向代理应保留 `Host`、`X-Forwarded-Proto` 和 `X-Forwarded-For`。站点地址使用真实 HTTPS 域名：
+
+```dotenv
+NEXT_PUBLIC_SITE_URL=https://vozeb-pro.example.com
+```
+
+仓库提供 `deploy/nginx/vozeb-pro.conf.example` 作为宝塔/Nginx 生产模板。替换域名和证书路径后再启用；模板已为 HTTPS 开启 HTTP/2，为 JS、CSS、JSON 和 SVG 启用 gzip，并给 `/_next/static/` 哈希资源设置一年不可变缓存。默认不写 Brotli 指令，因为只有服务器已安装对应 Nginx 模块时才能启用。
+
+重载前先验证配置，并在正式域名检查实际传输：
+
+```bash
+nginx -t
+curl --http2 -I -H 'Accept-Encoding: gzip' https://vozeb-pro.example.com/_next/static/实际文件.js
+```
+
+响应应使用 HTTP/2，包含 `Content-Encoding: gzip` 和 `Cache-Control: public, max-age=31536000, immutable`。若经过 CDN，还要在 CDN 回源与客户端两侧分别检查，避免 CDN 解压后回传原始大文件。
+
+## 更新
+
+```bash
+git pull
+docker compose pull
+docker compose up -d
+```
+
+不要执行 `docker compose down -v`。更新前备份 PostgreSQL 和 `vozeb-pro-data`。
+
+## 数据卷
+
+- `vozeb-pro-postgres`：PostgreSQL 主库。
+- `vozeb-pro-data`：服务器媒体副本、文件模式数据和运行期文件。
+
+Canvas、“我的素材”、短剧和工作台记录保存在 PostgreSQL，媒体位于 `vozeb-pro-data` 数据卷。生产备份必须同时覆盖 PostgreSQL 与该数据卷。

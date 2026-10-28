@@ -1,0 +1,135 @@
+---
+title: 快速开始
+description: 使用 PostgreSQL、Docker Compose 或源码启动 VOZEB PRO
+---
+
+# 快速开始
+
+VOZEB PRO 默认使用 PostgreSQL。推荐通过 Docker Compose 启动主应用与 PostgreSQL，再使用安装向导创建第一个管理员。
+
+## 最低服务器配置
+
+项目通过外部 API 调用文本、图片、视频和音频模型，不需要 GPU。服务器仍需承担 Next.js、PostgreSQL、媒体传输和可选 FFmpeg 处理。
+
+| 场景                       | CPU      | 内存           | 磁盘       | 数据库与媒体建议                                                        |
+| -------------------------- | -------- | -------------- | ---------- | ----------------------------------------------------------------------- |
+| 最低可启动                 | 1 vCPU   | 1GB + 1GB swap | 10GB SSD   | 外部 PostgreSQL + S3/OSS，只拉取发布镜像，适合安装体验和低并发            |
+| 标准小型部署               | 2 vCPU   | 2GB + 1GB swap | 20GB SSD   | PostgreSQL 可同机，媒体量小时可使用本地数据卷                            |
+| 推荐日常使用               | 2–4 vCPU | 4GB            | 40GB+ SSD  | 支持主要工作台、后台和少量并发，建议使用对象存储承载长期视频              |
+| 短剧合成/频繁本地视频处理  | 4+ vCPU  | 8GB+           | 80GB+ SSD  | FFmpeg 转码、字幕、配音混合和长视频临时文件需要额外 CPU、内存与磁盘空间   |
+
+基础环境：64 位 Linux（amd64 或 arm64）、Docker Engine 与 Compose v2、PostgreSQL 16、80/443 端口、HTTPS 域名，以及能访问模型、对象存储、SMTP 和支付服务的出站网络。源码运行需要 Node.js 22 与 pnpm 10+。
+
+最低配置代表“能够启动和体验”，不代表可以稳定处理并发视频或短剧。使用本地媒体存储时，磁盘容量应按作品数量和保留周期单独估算。
+
+## Docker Compose
+
+### 1. 准备配置
+
+```bash
+git clone https://github.com/csyqlz/VOZEB-PRO.git
+cd VOZEB-PRO
+cp .env.example .env
+```
+
+Windows PowerShell：
+
+```powershell
+Copy-Item .env.example .env
+```
+
+编辑 `.env`，至少修改：
+
+```dotenv
+NEXT_PUBLIC_SITE_URL=https://vozeb-pro.example.com
+POSTGRES_PASSWORD=请替换为强数据库密码
+VOZEB_PRO_ENCRYPTION_KEY=请填写 openssl rand -hex 32 的输出
+```
+
+本机体验可暂时使用 `NEXT_PUBLIC_SITE_URL=http://localhost:3000`。生产环境使用真实 HTTPS 域名。
+
+### 2. 启动服务
+
+```bash
+docker compose pull
+docker compose up -d
+docker compose ps
+```
+
+默认启动：
+
+- `postgres:16-alpine`
+- `ghcr.io/csyqlz/vozeb-pro:latest`
+- `vozeb-pro-postgres` 数据库卷
+- `vozeb-pro-data` 媒体数据卷
+
+### 3. 初始化
+
+访问：
+
+```text
+http://服务器IP:3000/install
+```
+
+安装向导会先只读检查 PostgreSQL。连接与加密密钥就绪后，点击“初始化表结构”创建 `vozeb_pro_` 前缀表，再创建第一个管理员账号。
+
+已使用宝塔安装 PostgreSQL 时，在 `.env` 中把 `DATABASE_URL` Host 设为 `127.0.0.1`，并仅启动应用：
+
+```bash
+docker compose -f docker-compose.baota.yml up -d
+```
+
+该模式使用 host 网络，不会启动内置 PostgreSQL，也不会公开应用端口。
+
+### 4. 配置后台
+
+管理员首次登录后，按顺序完成：
+
+1. 系统模型渠道与渠道能力测试。
+2. 文本、图片、视频、音频逻辑模型绑定。
+3. 各能力默认模型。
+4. 注册、邮箱和初始套餐/积分。
+5. 本地媒体目录和临时文件清理策略。
+6. 需要商业化时再配置商品、支付渠道和回调。
+
+## 源码启动
+
+要求 Node.js 22、pnpm 10+ 和 PostgreSQL 16。
+
+```bash
+git clone https://github.com/csyqlz/VOZEB-PRO.git
+cd VOZEB-PRO
+cp .env.example web/.env.local
+```
+
+把 `web/.env.local` 的 `DATABASE_URL` 改为本机 PostgreSQL：
+
+```dotenv
+VOZEB_PRO_DATABASE_PROVIDER=postgres
+DATABASE_URL=postgres://vozeb_pro:password@localhost:5432/vozeb_pro
+VOZEB_PRO_DATABASE_SSL=0
+VOZEB_PRO_ENCRYPTION_KEY=64位十六进制或32字节Base64密钥
+VOZEB_PRO_INTERNAL_ORIGIN=http://127.0.0.1:3000
+NEXT_PUBLIC_SITE_URL=http://localhost:3000
+```
+
+启动：
+
+```bash
+cd web
+pnpm install --frozen-lockfile
+pnpm run dev
+```
+
+访问 `http://localhost:3000/install`。
+
+## 数据位置
+
+- PostgreSQL：用户、创作会话、工作台记录、Canvas、素材库、短剧项目、设置、任务和运营元数据。
+- `VOZEB_PRO_DATA_DIR/generation-assets`：生成日志关联的长期媒体。
+- `VOZEB_PRO_DATA_DIR/reference-assets`：临时参考素材与长期上传/创作资产。
+- 文件 Provider：业务实体使用 `.data/*.json`，媒体仍位于服务器数据目录。
+
+Docker 更新不要执行 `docker compose down -v`，否则会删除数据库和媒体数据卷。
+
+下一步阅读[配置说明](./configuration)和[Docker 部署](./docker)。

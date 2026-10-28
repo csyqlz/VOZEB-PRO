@@ -1,0 +1,207 @@
+---
+title: 接口响应与敏感配置
+description: 当前接口响应事实与管理员敏感配置契约
+---
+
+# 接口响应与敏感配置
+
+## 当前响应规则
+
+现有 Next.js Route Handler 按业务返回 JSON，错误通常使用 `{ error: string }` 并配合对应 HTTP 状态码。项目正在渐进统一为 `{ code, data, msg }`，不能一次性改写现有消费者。公共 helper `apiSuccess()`、`apiError()` 和 `apiCompatError()` 分别提供标准成功、标准失败和同时保留旧 `error` 字段的兼容失败响应；新增或修改接口应在契约测试保护下选择对应 helper，并在边界校验身份、权限和外部输入。
+
+`GET /api/auth/session` 使用显式公开 DTO：只返回当前用户公开会话字段、站点展示、注册开关、公开计价与生成默认值、启用逻辑模型，以及指向站内 `/api/ai/system/{channelId}` 的可用渠道摘要。响应禁止包含渠道高级协议、真实上游地址、SMTP、支付密钥、完整 `advancedConfig`、Skill 指令或内部运营策略。
+
+`POST /api/auth/register` 的公开注册请求必须显式提交 `policyAccepted: true`。服务端不接受客户端提供协议版本，而是在创建用户的同一事务中读取当前站点条款/隐私链接与版本并保存同意时间；未同意时返回 `400`，管理员代建账号不会生成用户同意记录。首次安装管理员仍由一次性安装令牌保护，不属于公开注册协议流程。
+
+## 管理员 MFA
+
+`POST /api/auth/login` 保留现有兼容响应。管理员密码正确且已启用 MFA、但请求未提交 `totpCode` 时返回 `401` 与 `{ error, mfaRequired: true }`，此时不得创建 Session；普通用户和未启用 MFA 的管理员不进入该挑战。动态码错误仍返回 `401`，只有密码和 TOTP 都通过后才返回用户并设置 Session Cookie。
+
+`/api/auth/mfa` 使用 `{ code, data, msg }` 并统一设置 `Cache-Control: private, no-store`：
+
+- `POST`：当前管理员提交 `currentPassword`，验证后生成 TOTP Secret 与 `otpauth://` URI；Secret 只在本次设置响应中返回，服务器只保存加密密文。
+- `PATCH`：提交 `token`，在当前 Session 内验证并启用 MFA；保留当前 Session，撤销同一管理员的其他 Session。
+- `DELETE`：提交 `currentPassword` 与 `token`，验证后清除 MFA；保留当前 Session，撤销其他 Session。
+
+登录、设置、启用、关闭和失败操作写入脱敏审计；响应、日志和审计不得包含密码、Secret 或动态码。MFA 管理复用认证限流配置，不增加独立的固定重试或等待常数。
+
+## 管理员职责权限与登录记录
+
+管理员完成普通登录或可选 TOTP 登录挑战后，后台业务接口统一使用当前 Session、显式职责权限与脱敏审计，不再为支付、用户、系统设置、模型渠道与密钥、对象存储或业务备份逐次要求 `{ currentPassword, totpCode }`。权限注册表包含 13 项职责和 8 个预设；页面入口、可见字段、请求 payload 与 Route Handler 使用同一职责边界。管理员只能授予自身已有的职责，也不能修改或删除职责范围高于自己的管理员。
+
+`GET/PATCH /api/admin/settings` 的返回也按当前职责收敛：没有 `system.manage` 时不下发 SMTP 与数据维护配置，没有 `upstream.manage` 时不下发渠道地址、高级协议、内部 Skill 或成本保护配置；财务计价界面只获得列出模型所需的脱敏渠道摘要。
+
+- `POST /api/admin/backup/export`：要求 `system.manage`，无请求体，返回 `private, no-store` 的脱敏业务备份。
+- `POST /api/admin/backup`：要求 `system.manage`，multipart 只提交 JSON 备份文件；校验后解析和恢复业务数据。
+- `GET /api/auth/login-events?page=<n>&pageSize=<n>`：只返回当前登录用户的成功登录事件分页 `{ items, total, page, pageSize }`，按新到旧排序并禁止缓存。事件字段为 `{ id, ip?, userAgent?, createdAt }`；IP 与 User-Agent 来自可信审计边界，缺失时保持缺失，不使用内部 UUID 或伪造设备名。
+
+登录成功响应可选返回 `loginSecurityNotice`，只在相对上次成功登录发生网络或设备标识变化时提示；提醒不阻止已通过密码/MFA 的登录，也不新增固定时间窗、等待或自动重试规则。
+
+促销与优惠券新增接口使用 `{ code, data, msg }`，其中成功时 `code = 0`，业务数据位于 `data`，失败时 `data = null` 且 HTTP 状态与 `code` 一致：
+
+- `GET /api/billing/coupons`、`POST /api/billing/coupons/claim`
+- `POST /api/billing/quotes`
+- `/api/admin/billing/promotions` 与 `/api/admin/billing/promotions/{id}`
+- `/api/admin/billing/coupon-templates` 与 `/api/admin/billing/coupon-templates/{id}`
+- `POST /api/admin/billing/coupons/grant`
+
+邀请奖励接口同样使用 `{ code, data, msg }`：
+
+- `GET /api/referrals`：返回当前用户的稳定邀请码、邀请链接、转化统计、脱敏邀请进度和奖励记录。
+- `GET/PATCH /api/admin/referrals`：读取或更新邀请计划规则；省略的 `PATCH` 字段保持原值。
+- `GET /api/admin/referrals/relationships`、`PATCH /api/admin/referrals/relationships/{id}`：分页读取邀请关系并执行恢复、冻结或拒绝。
+- `GET /api/admin/referrals/rewards`、`POST /api/admin/referrals/settle`：分页读取奖励记录并人工触发到期结算。
+- `POST /api/maintenance/referrals/settle`：使用维护令牌执行批量到期结算。
+
+`GET /invite/{code}` 是归因重定向而不是 JSON 接口：有效访问写入 30 天 HttpOnly、SameSite=Lax Cookie 后跳转注册页；`next` 只接受站内绝对路径。邀请业务仅在 PostgreSQL 下启用，文件 Provider 不创建关系或奖励账本。
+
+`POST /api/billing/orders` 保留既有兼容响应，同时接受可选 `userCouponId`；订单响应包含日常总价、活动优惠、券优惠、实付金额和只读价格快照。支付商下单、退款与对账不得重新计算价格，只能读取订单的 `amountCents`。
+
+`GET /api/admin/billing/summary` 的 `summary.commerce` 返回累计成交订单数、活动/用券订单数、对应成交数和已成交优惠金额。成交订单定义为 `paid` 或 `refunded`，退款不抹除已经成交的事实；活动和用券成交率分别以真实使用对应优惠的订单为分母。`GET /api/admin/referrals` 的 `stats` 返回点击、注册、首单触发、待结算、已发放和风险数量。两类摘要只返回聚合字段，不返回订单、邀请关系或奖励明细。
+
+服务端不得把异常堆栈、上游鉴权头、完整密钥或包含密钥的上游错误返回浏览器。外部渠道失败应保留可诊断的 HTTP 状态和脱敏消息。
+
+## 作品发布与分享
+
+作品发布、审核与公开详情 JSON 接口统一使用 `{ code, data, msg }`：成功时 `code = 0`，失败时 `data = null`，HTTP 状态与错误 `code` 一致。
+
+- `GET/POST /api/works`：分页读取本人作品或创建草稿。
+- `GET /api/works/sources`：读取本人素材、Canvas、短剧发布来源；指定 `sourceType + sourceId` 时返回媒体候选和仅基于项目内用户可见字段生成的 `suggestedPrompt`。保存草稿与提交审核都要求非空 `publicPrompt`。
+- `GET/PATCH /api/works/{id}`、`POST /api/works/{id}/submit`、`POST /api/works/{id}/revoke`：读取/保存本人草稿、提交审核和撤销分享。
+- `GET /api/works/sources`：按当前用户列出素材、Canvas、短剧来源及其可发布永久媒体。
+- `GET /api/admin/works`、`POST /api/admin/works/{id}/review`、`POST /api/admin/works/{id}/take-down`：管理员分页审核、驳回和下架。
+- `POST /api/admin/works/{id}/feature`：管理员设置或取消当前公开作品精选。
+- `GET /api/public/works/{slug}`、`POST /api/public/works/{slug}/view`：读取当前公开版本并限流记录访问量。
+- `GET /api/public/gallery`：按精选/最新/热门、分类、标签和关键词读取公开广场，使用 opaque cursor 稳定分页。
+- `POST /api/public/works/{slug}/report`：登录用户举报提交时的公开版本；作品所有者不能举报自己，同一版本的未结举报去重。
+- `GET/POST /api/works/{id}/appeal`：作品所有者读取治理记录或申诉本人被下架版本。
+- `GET /api/admin/work-cases`、`POST /api/admin/work-cases/{id}/resolve`：管理员筛选并处理举报/申诉；确认举报只处置同一线上版本，通过申诉只恢复没有其他线上版本的下架作品。
+
+所有私有接口校验登录身份、作品所有权、来源归属和媒体来源关系；管理员审核、精选和治理写操作同时记录安全审计。广场只返回 `public`，持链接可见作品仍可通过分享地址访问但不进入广场或站点地图；不可公开、待审、驳回、下架或撤销作品统一返回 404，不泄露作品是否存在。
+
+`GET/HEAD /api/public/works/{slug}/media/{assetId}` 是媒体响应而不是 JSON 成功包：本地文件返回支持单段 Range 的媒体流，对象存储 GET 返回 307 短期签名地址，HEAD 直接返回登记的类型、长度和 Range 元数据。请求会重新校验资产属于当前公开版本，不暴露对象 Key，也不提供公开原件下载；错误仍使用 `{ code, data, msg }`。
+
+## 媒体访问保护
+
+- `GET/HEAD /api/reference-assets/{path}` 要求当前用户拥有媒体、管理员身份，或携带绑定资源、`provider-read` 用途和过期时间的短期 HMAC。上游签名不能追加 `download=original` 变成匿名原件下载。
+- `GET/HEAD /api/generation-log-assets/{path}` 要求当前用户确实能从自己的生成记录访问该资源；跨用户和不存在资源统一隐藏为 404。
+- 本地媒体只接受单段 `bytes` Range；多段或非法 Range 返回 416，开放、后缀或显式超大 Range 每次最多返回 32 MiB，并通过 `Content-Range` 让播放器继续读取。媒体代理也会把 Range 规范到相同上限，上游忽略 Range 时仍受响应字节上限约束。
+- 本地原件返回弱 ETag、Last-Modified 和条件 304；图片 WebP 变体保留有限宽度与 ETag。HEAD 不创建本地文件流；对象存储 HEAD 不会把签名为 GET 的临时地址错误用于 HEAD。
+- 私有读取按用户或签名限流，公开作品按资源总量和可信客户端 IP 分层限流；本地文件、公开媒体和媒体代理另有进程内总并发/单身份并发许可，响应完成、错误、取消或租约到期时会释放并取消底层流。429 响应携带 `Retry-After`。
+- 客户端 IP 只在 `VOZEB_PRO_TRUSTED_PROXY_HOPS` 大于 `0` 时读取对应代理层；直连环境不得信任客户端自行提交的转发头。
+
+## 社区互动与榜单
+
+社区互动接口使用 `{ code, data, msg }`。匿名用户可以读取公开互动摘要、榜单和创作者资料；点赞、关注、本人互动记录和通知接口要求有效登录账号。当前产品不提供作品收藏、评论或评论举报。
+
+- `GET /api/public/works/{slug}/community`：返回作品互动计数、当前登录用户关系和作者是否可关注。
+- `POST /api/public/works/{slug}/community/like`、`POST /api/public/works/{slug}/community/follow`：以 `{ active: boolean }` 点赞/取消或关注/取消资料身份作者，并返回服务端权威状态；重复设置不会重复增加关系、计数或通知。
+- `GET /api/public/users/{username}`：返回活跃创作者的公开昵称、头像、简介、作品/获赞/关注统计和 `active + approved + public + profile` 作品 keyset 分页；不返回邮箱、内部用户 ID、隐藏/自定义作者身份或本人点赞历史。
+- `POST /api/public/users/{username}/follow`：直接关注或取消关注公开创作者；禁止自关注，公开主页失效后仍允许取消已有关系。
+- `POST /api/public/users/{username}/block`：以 `{ active: boolean }` 拉黑或取消拉黑用户；拉黑会原子解除双方关注并返回 `removedFollowCount`，任一方向存在拉黑关系时双方不得新增关注，关注/粉丝列表互相隐藏。
+- `GET /api/public/gallery/ranking?window=weekly|monthly`：读取 7 天或 30 天热榜和 opaque cursor；分数使用有效点赞 `3`、精选 `8` 与最多 `7` 分新鲜度，只统计活跃、非作者且互动时注册满 24 小时的账号。
+- `GET /api/community/activity?view=summary|following|followers|likes`：读取当前用户社区摘要，或分页读取关注、粉丝和本人点赞的仍有效公开作品；这些列表不出现在公开创作者主页。
+- `GET /api/notifications/interactions`、`POST /api/notifications/interactions/{id}/read`、`POST /api/notifications/interactions/read-all`：服务端分页读取互动通知、未读数并更新已读状态。
+
+作品作者的自点赞不会增加榜单权重，自关注会被拒绝。作品下架、撤销、公开版本变化或作者禁用后，公开读取、本人点赞列表和榜单都会立即排除对应记录。互动通知使用稳定去重键，取消后重新建立相同关系不会重复骚扰用户；作者关注通知进入本人 `/me` 社区主页，通知列表不会并入全局会话响应。
+
+## 系统渠道密钥
+
+管理员设置响应中的系统渠道使用以下字段表达密钥状态：
+
+```ts
+{
+  apiKey: "";
+  hasApiKey: boolean;
+}
+```
+
+- `apiKey` 在服务端响应和页面初始数据中始终为空，不能用于回显已保存密钥。
+- `hasApiKey` 只表示服务端是否保存了凭据，不包含凭据内容。
+- 更新渠道时，空 `apiKey` 表示保留已保存密钥；只有显式清除操作才删除凭据。
+- 模型拉取和渠道健康检查应提交渠道 ID，由服务端读取已保存凭据；临时输入的新密钥仅用于当前保存或测试请求。
+- 返回客户端或写入日志前必须过滤 Authorization、API Key 和上游可能回显的敏感字段。
+- `POST /api/admin/settings/channels/{id}/api-key` 只允许具备 `upstream.manage` 的当前管理员 Session 返回指定渠道 `{ apiKey }`；接口使用 `private, no-store`，成功与失败审计均不得包含密钥。GET 不承担密钥查看，关闭编辑器后前端必须清除临时明文。
+
+新增敏感配置时应沿用相同原则：浏览器只接收“是否已配置”状态，真实值只在服务端解密和使用。
+
+## 统一创作运行时
+
+创作会话与资产读取接口使用 `{ code, data, msg }`：
+
+- `GET/POST /api/creative/conversations`
+- `GET/PATCH /api/creative/conversations/{id}`
+- `GET /api/creative/conversations/{id}/messages`
+- `GET /api/creative/conversations/{id}/assets`
+- `POST /api/creative/assets`
+- `GET /api/creative/assets/{id}`
+
+`POST /api/agent/prompt-optimization` 接收稳定 `requestId`、不超过 4000 字符的 `prompt` 和 `agent/image/video/audio` 模式，调用后台默认文本逻辑模型并返回 `{ code: 0, data: { prompt }, msg: "OK" }`。接口要求登录，复用文本生成限流、候选渠道路由和后台模型/渠道能力配置；每个候选使用稳定计费幂等键，不额外写死输出 token 上限，无效但已计费的结构化响应必须退款。优化结果只作为可编辑公开草稿，不创建会话、消息或 Agent Run，也不得返回内部规划与模型选择理由。
+
+所有接口先校验登录用户与资源所有权；无权访问时返回 404 或 403，不回传其他用户的会话、消息和资产。会话创建后不能改变 Surface 或项目。
+
+`POST /api/creative/assets` 使用 `multipart/form-data` 提交 `conversationId` 和单个 `file`。只接受项目列出的图片、视频和音频 MIME，单文件最大 20MB；上传完成后返回稳定创作资产，媒体内容进入服务器日期目录，不写入数据库 base64。
+
+Canvas 使用 `GET/POST/DELETE /api/canvas/projects` 与 `PATCH /api/canvas/projects/{id}`；素材库使用 `GET/POST /api/library-assets` 与 `PATCH/DELETE /api/library-assets/{id}`。两组接口均按当前登录用户隔离，响应采用 `{ code, data, msg }`。
+
+Canvas 语义编辑通过 `PATCH /api/canvas/projects/{id}` 提交 compact mutation：请求携带稳定 `mutationId`、最后确认的 `baseUpdatedAt`，以及节点、连线、助手会话的 upsert/delete 和发生变化的项目字段。成功响应 `data.ack` 返回 `projectId`、新 `updatedAt` 与原 `mutationId`；同一 mutation 重放返回原确认且不重复应用，版本落后返回 409 并保留服务器快照。旧的完整项目 PATCH 只供现有非交互调用路径使用，仍要求 `expectedUpdatedAt`。
+
+`DELETE /api/canvas/projects/{id}/assistant-conversations` 接收 `{ conversationIds: string[] }`，只删除当前用户、当前 Canvas 项目 `chatSessions` 已关联的 Agent 会话。成功响应 `data` 为 `{ deleted, chatSessions, activeChatId }`，其中会话列表和活动 ID 是服务端权威状态；空数组和重复删除返回当前状态且不重复删除。Canvas 主生成会话、跨项目或未关联会话返回 409。删除会话、消息、Run/事件、任务、生成记录和项目会话引用在同一 PostgreSQL 事务或文件 Provider 多文件锁中完成；删除最后一条已持久化会话时，服务端创建一条无 `conversationId` 的空会话。候选媒体只在提交后按全站引用保护回收。
+
+`POST /api/agent/runs` 接收：
+
+```ts
+{
+  clientRequestId: string;
+  surface: "chat" | "canvas" | "drama";
+  conversationId?: string;
+  projectId?: string;
+  prompt: string;
+  snapshot?: unknown;
+  assetIds?: string[];
+}
+```
+
+`chat` 不接受项目或快照，`canvas/drama` 必须提供项目，项目快照最大 512KB。相同用户与 `clientRequestId` 的重复提交返回原 Run。`GET /api/agent/runs/{id}/events` 使用递增数字事件 ID，支持 `Last-Event-ID` 或 `lastEventId` 断线续传；多份结果会逐份发送 `task.child.completed` 或 `task.child.failed`，事件数据包含父任务、子任务、完成/失败/总数和当前资产，客户端不得等待父任务终态才刷新素材。
+
+`POST /api/agent/runs/{id}/{cancel|pause|resume|retry}` 可接收 `{ conversationId: string }` 作为调用方当前预期会话。`/create` 必须提交该字段；若字段为空返回 400，若 Run 不属于该会话返回 409，且不会修改 Run、子任务或上游任务。切换对话本身不调用控制接口，只关闭旧页面的 SSE 观察；切回运行中对话时继续使用原 Run 和上游任务身份。
+
+创建后续 Run 时，服务端读取同一会话的持久摘要和近期已完成消息，规划输入最多保留最近 6 条并在超出预算时继续裁剪；前端只需继续提交稳定 `conversationId`。同一 deliverable 可选择多个 `assetIds`，依赖 deliverable 完成后登记的资产会自动成为下游图片/视频任务的真实参考素材。显式选择逻辑媒体模型时跳过文本规划；否则普通、多结果和短剧/复杂 Canvas 分别使用有界的规划输入与输出提示预算。
+
+文本规划根据模型级或渠道级预设直接选择 Chat、Responses、Gemini 或自定义协议，同一候选不会因协议猜测产生第二次上游请求。所有文本候选统一允许 3 分钟，文本模型能力档案不覆盖该上限；失败、超时、429 或 5xx 后调用方自动尝试下一个逻辑模型绑定，当前进程根据近期成功率、延迟和短期冷却状态排序候选。结构化规划不额外写死协议输出 token 上限，继续遵循后台模型与渠道的真实能力配置。
+
+协议回归必须从完整注册表和供应商预置表生成能力矩阵，并通过本地 TCP 接口验证请求路径、鉴权、响应解析、异步查询和二进制媒体。后台当前不再展示但服务端仍能恢复的旧协议也必须保留回归；本地接口成功只证明应用适配契约，不能作为真实供应商账号、额度、质量、计费或 SLA 证据。
+
+用户明确要求“建立画布项目”或“建立短剧项目”时，Chat 规划可返回 `projectHandoff`。运行完成前 SSE 发送一次 `project.handoff`，数据包含稳定 `id/sourceRunId/conversationId`、目标 `surface`、标题、摘要、风格、比例、稳定 `assetIds` 和完整资产信息；`run.completed.data.projectHandoff` 与助手消息 metadata 保存同一份交接。客户端必须使用交接 ID 幂等落地 Canvas 本地项目或服务端短剧项目，SSE 重放不得重复创建。
+
+## 短剧项目与生成运营
+
+- `GET/POST /api/drama/projects`：列出或创建当前用户的短剧项目；`ratio` 支持 `9:16`、`16:9` 或经过边界校验的精确 `宽x高`，镜头图片/视频沿用项目尺寸优先级并可在无精确项目尺寸时继承参考图比例。
+- `GET/PATCH/DELETE /api/drama/projects/{id}`：读取、更新或删除当前用户拥有的短剧项目。
+- `GET /api/admin/generation-operations`：管理员按任务类型、状态、Surface、用户和关键词分页查询统一生成运营数据，并返回任务摘要与可探测渠道。
+
+短剧接口使用 `{ code, data, msg }`，服务端校验项目归属并保存完整项目聚合快照。生成运营接口只允许管理员访问；取消和重试继续调用现有任务控制接口，渠道运行状态只读取真实业务请求形成的运行时数据，不建立独立任务状态机。
+
+## 生成任务恢复、Worker 与回调
+
+文本、图片、视频和音频任务详情接口，以及 Agent Run SSE，只会唤醒当前用户正在读取的同一持久任务。业务状态与执行阶段分离：`pending/running` 任务可处于 `created/submitting/submitted/polling/result_ready/persisting`；普通 Agent 生成完成后可进入 `review_pending/reviewing/review_unavailable/completed`，持久 Worker 执行一次复盘，调用失败即记录为不可用，不会使用未配置的固定次数重复计费，也不改变用户已经收到的生成结果。`needs_review` 和普通终态不会被页面或 Worker 自动推进。已经保存上游任务 ID 后，恢复路径只能查询原任务；`result_ready` 只重试结果保存，不能再次创建上游任务。
+
+- `POST /api/maintenance/generation-tasks/run`：使用 `Authorization: Bearer <VOZEB_PRO_WORKER_TOKEN>` 领取一个有界恢复批次；可通过 `x-vozeb-pro-worker-id` 同步心跳。
+- `POST /api/maintenance/generation-tasks/heartbeat`：使用相同 Worker Bearer Token 和必填 `x-vozeb-pro-worker-id` 上报心跳。
+- `POST /api/maintenance/data-lifecycle/run`：使用 `Authorization: Bearer <VOZEB_PRO_MAINTENANCE_TOKEN>` 执行一个管理员配置的有界批次，只处理已过期 Session、已过期或已使用邮箱验证码、超过自身 `expires_at` 的生成任务，以及到期且全站引用数为零的临时媒体；返回各类删除数量、媒体字节数和被引用阻止的媒体摘要。
+- `POST /api/generation-webhooks/{channelId}`：接收不超过 1MB 的 JSON；要求稳定的 `x-vozeb-pro-event-id`、5 分钟误差内的 `x-vozeb-pro-timestamp` 和 `x-vozeb-pro-signature`。签名使用当前渠道独立密钥，对 `JSON.stringify([channelId, timestamp, eventId]) + "\n" + rawBody` 生成 HMAC-SHA256 十六进制摘要。
+- `POST /api/admin/generation-operations/{type}/{id}/review`：管理员处理 `needs_review` 的 `text/image/video/audio` 任务，动作仅允许 `resume_upstream`、`provide_result` 或 `confirm_failed`。
+
+维护与 Worker 接口未配置各自令牌时返回 503，认证失败返回 401；两类令牌必须至少 32 个字符且不能相同。当前渠道未配置安全回调密钥时返回 409 并继续使用任务轮询；签名错误或时间戳过期返回 401。可信回调只按 `(channelId, upstreamTaskId)` 精确匹配一条已有图片、视频或音频任务，并使用 PostgreSQL 中的 `(channelId, eventId)` 保证幂等；相同事件 ID 对应不同载荷时记录冲突并返回 409。回调已登记但尚未匹配任务时返回成功并保留对账状态，不会创建新任务或重复扣费。以上接口均返回 `{ code, data, msg }`，日志与响应不得包含维护令牌、Worker 令牌、Webhook 密钥、渠道 API Key 或完整鉴权头。
+
+PostgreSQL Provider 在 Run、事件和助手消息的同一事务中写入 `pg_notify('vozeb_pro_run_events', runId)`；SSE 进程使用独立连接 `LISTEN` 后立即读取持久事件。通知只用于唤醒，跨实例恢复仍以事件表为准，并保留 2.5 秒轮询和 15 秒心跳作为断线或通知丢失兜底。文件 Provider 继续使用进程内通知。
+
+## 模型路由设置快照
+
+管理员更新系统渠道、逻辑模型或默认模型时，设置接口把 `{ systemChannels, logicalModels, defaultModels }` 视为同一配置快照：
+
+- 逻辑模型 ID 在同一快照内唯一；同一逻辑模型不能重复绑定同一渠道和上游模型。
+- 绑定渠道必须存在，上游模型必须属于该渠道已拉取的模型列表。
+- 默认模型必须是启用、能力匹配且至少有一个可用绑定的逻辑模型。
+- 删除渠道时客户端应同时移除关联绑定；仍存在悬空引用的快照返回 400，不写入部分配置。
+- 服务端保存前统一归一化优先级、模型名称和失效默认值，保存结果继续按敏感配置规则脱敏返回。

@@ -1,0 +1,55 @@
+---
+title: 低内存服务器部署
+description: 使用发布镜像和外部 PostgreSQL 运行 VOZEB PRO
+---
+
+# 低内存服务器部署
+
+低内存机器不要现场执行 `next build` 或 `docker build`。`docker-compose.lowmem.yml` 只运行 VOZEB PRO 应用，PostgreSQL 使用外部托管服务或另一台服务器。
+
+## 最低资源边界
+
+建议整台服务器至少提供：
+
+- 1 vCPU。
+- 1GB 物理内存和至少 1GB swap。
+- 10GB SSD 可用空间。
+- 64 位 Linux、Docker Engine 与 Compose v2。
+- 外部 PostgreSQL 16 和外部 S3/OSS，避免数据库与长期媒体继续占用这台低内存服务器。
+- HTTPS 域名，以及能够访问模型、数据库、对象存储和 SMTP 的出站网络。
+
+应用容器本身限制为 512MB，但宿主机还需要给 Linux、Docker、Nginx/宝塔和文件缓存保留内存，因此不建议购买只有 512MB 物理内存的服务器。该模式适合安装体验、个人低频使用和少量并发，不适合在本机执行 Docker 构建、长视频转码或短剧整集合成。
+
+## 配置
+
+```bash
+cp .env.example .env
+```
+
+至少修改：
+
+```dotenv
+NEXT_PUBLIC_SITE_URL=https://vozeb-pro.example.com
+DATABASE_URL=postgres://user:password@database-host:5432/vozeb_pro
+VOZEB_PRO_DATABASE_SSL=1
+VOZEB_PRO_DATABASE_POOL_MAX=5
+VOZEB_PRO_ENCRYPTION_KEY=replace-with-a-long-random-secret
+```
+
+## 启动
+
+```bash
+docker compose -f docker-compose.lowmem.yml pull
+docker compose -f docker-compose.lowmem.yml up -d
+```
+
+该配置限制应用容器：
+
+- 512MB 内存。
+- 768MB 内存与 swap 总上限。
+- Node.js 堆内存 384MB。
+- 线程池大小 2。
+
+建议保留 512MB 到 1GB swap。PostgreSQL 和模型服务可以放在外部，但应用服务器仍需挂载 `VOZEB_PRO_DATA_DIR` 以保存图片、视频和音频。
+
+如果已启用 S3/OSS，新媒体不会保留本地持久副本，但 FFmpeg、视频下载和格式规范化仍可能使用临时磁盘。需要稳定使用 `/create` 的图片、视频多结果生成时建议升级到 2 vCPU / 2GB；需要短剧合成时建议至少 4 vCPU / 8GB。

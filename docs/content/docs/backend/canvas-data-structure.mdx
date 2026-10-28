@@ -1,0 +1,79 @@
+---
+title: 画布数据结构
+description: Canvas 服务端项目、节点、会话与媒体引用结构
+---
+
+# 画布数据结构
+
+Canvas 项目按登录用户保存在服务端。PostgreSQL 使用 `canvas_projects`，文件 Provider 使用 `canvas-projects.json`；浏览器只保留当前页面的瞬时交互状态，不承担项目、对话或媒体的业务持久化。
+
+## 项目接口
+
+- `GET /api/canvas/projects`：按更新时间列出当前用户项目。
+- `POST /api/canvas/projects`：创建空项目或导入项目快照，同时创建 `surface=canvas` 的创作会话。
+- `PATCH /api/canvas/projects/{id}`：保存节点、连线、视口、项目助手会话和外观设置。
+- `DELETE /api/canvas/projects`：批量删除当前用户拥有的项目。
+
+客户端 Store 登录后调用 `hydrate()` 从接口加载，编辑时先更新内存状态，再以 250ms 防抖写回服务端。服务端限制单个项目快照不超过 5MB，并剔除 `data:` 与 `blob:`，防止把浏览器临时媒体写入数据库。
+
+## 项目结构
+
+```ts
+type CanvasProject = {
+  id: string;
+  sourceHandoffId?: string;
+  creativeConversationId?: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  nodes: CanvasNodeData[];
+  connections: CanvasConnection[];
+  chatSessions: CanvasAssistantSession[];
+  activeChatId: string | null;
+  backgroundMode: "lines" | "dots" | "blank";
+  showImageInfo: boolean;
+  viewport: { x: number; y: number; k: number };
+};
+```
+
+- `sourceHandoffId`：创作 Agent 项目交接的稳定 ID，用于 SSE 重放和并发交接幂等。
+- `creativeConversationId`：服务端创作会话，Canvas Agent 重复进入项目时继续复用。
+- `chatSessions` / `activeChatId`：画布右侧助手历史，随项目快照写入服务器。
+- `viewport`：项目最后一次平移和缩放。
+
+## 节点与连线
+
+`CanvasNodeData` 保存节点 ID、类型、标题、世界坐标、尺寸和 metadata。节点支持文本、图片、视频、音频、生成配置、简报、任务和状态展示。媒体节点使用以下稳定字段：
+
+```ts
+type CanvasNodeMetadata = {
+  content?: string;
+  storageKey?: string;
+  serverUrl?: string;
+  remoteUrl?: string;
+  mimeType?: string;
+  bytes?: number;
+  naturalWidth?: number;
+  naturalHeight?: number;
+  durationMs?: number;
+  status?: "idle" | "loading" | "success" | "error";
+};
+```
+
+项目持久化以 `storageKey/serverUrl` 为准。用户上传的图片、视频和音频先写入服务器 `reference-assets/permanent/YYYY/MM/DD/{images|videos|audio}`，再进入节点；生成结果也保存服务器副本。`content` 只保存可重新访问的 URL，不保存 base64 或对象 URL。
+
+`CanvasConnection` 只保存 `id/fromNodeId/toNodeId`。删除节点时同步删除相关连线；批量图片根节点与子节点关系记录在节点 metadata。
+
+## 媒体与导入导出
+
+导出画布时，客户端通过稳定 `storageKey` 从服务器读取媒体并写入 ZIP。导入时先把 ZIP 内媒体逐个上传到新的服务器日期目录，再替换项目中的旧 `storageKey/content/serverUrl`，最后创建服务端 Canvas 项目。因此导入包不会成为新的浏览器媒体缓存。
+
+后台“本地媒体”页面可查看生成媒体与参考媒体的实际目录、类型、大小和预览，并执行单个、批量或过期临时文件删除。临时素材默认 24 小时过期；项目节点、上传资产与生成结果使用长期文件，不自动清理。
+
+## 安全边界
+
+- 所有项目查询、更新和删除必须同时匹配 `user_id`。
+- 项目 ID、交接 ID和标题在服务端限制长度。
+- PostgreSQL SQL 使用参数绑定；文件 Provider 使用串行 mutation queue。
+- 服务器路径经过根目录校验，客户端不能提交任意文件系统路径。
+- 项目与媒体删除是两个独立动作：删除项目不会静默删除可能仍被素材库、对话或其他项目引用的长期媒体，媒体清理由管理员明确执行。

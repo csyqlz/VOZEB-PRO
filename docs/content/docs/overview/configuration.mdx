@@ -1,0 +1,208 @@
+---
+title: 配置说明
+description: VOZEB PRO 环境变量、模型渠道、服务器媒体与支付配置
+---
+
+# 配置说明
+
+配置分为两类：服务器环境变量和管理员后台配置。数据库连接、加密密钥、数据目录和代理等部署级配置使用环境变量；模型渠道、逻辑模型、SMTP、积分、套餐、支付和技术数据维护在后台维护。
+
+管理员后台使用当前登录 Session、显式职责权限和脱敏审计。可选 TOTP 只在管理员登录和本人 MFA 管理时使用，支付、用户、设置、渠道密钥、对象存储和业务备份不再逐次要求当前密码或动态码。内置职责预设包括全权限、财务、客服与用户运营、内容审核、商品与营销运营、上游运维、系统运维和只读审计；管理员只能授予自己已有的职责。
+
+## 核心环境变量
+
+| 变量                                         | 必填             | 说明                                                                                  |
+| -------------------------------------------- | ---------------- | ------------------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_SITE_URL`                       | 生产必填         | 外部可访问的站点地址，生产使用 HTTPS，不带尾部 `/`                                    |
+| `VOZEB_PRO_DATABASE_PROVIDER`                | 是               | 生产使用 `postgres`；`file` 仅用于单机文件模式体验                                    |
+| `DATABASE_URL`                               | PostgreSQL 必填  | PostgreSQL 连接串；Docker 内数据库 Host 使用 `postgres`                               |
+| `VOZEB_PRO_DATABASE_POOL_MAX`                | 否               | 连接池上限，默认 10，低内存或托管数据库可设置 5                                       |
+| `VOZEB_PRO_DATABASE_SSL`                     | 否               | 本机/Docker 通常为 0，云 PostgreSQL 按要求使用 1                                      |
+| `VOZEB_PRO_DATABASE_SSL_REJECT_UNAUTHORIZED` | 否               | SSL 开启时默认校验证书；仅供应商明确无法提供可信证书时才设为 0                        |
+| `VOZEB_PRO_DATABASE_SSL_CA`                  | 私有 CA 可选     | PEM CA 证书，可使用真实换行或 `\\n`；用于托管数据库的私有证书链                       |
+| `VOZEB_PRO_ENCRYPTION_KEY`                   | 生产必填         | 64 位十六进制或精确 32 字节 Base64 密钥，部署后必须保持稳定                           |
+| `VOZEB_PRO_INSTALL_TOKEN`                    | 首次安装必填     | 至少 32 个字符；只用于初始化数据库和创建首个管理员，安装完成后可移除                  |
+| `VOZEB_PRO_INTERNAL_ORIGIN`                  | 推荐             | 服务端回调自身 API，Docker 默认 `http://127.0.0.1:3000`                               |
+| `VOZEB_PRO_DATA_DIR`                         | 否               | 服务器媒体和文件模式数据目录                                                          |
+| `VOZEB_PRO_COOKIE_SECURE`                    | 否               | 留空自动判断；特殊代理可强制 `true/false`                                             |
+| `VOZEB_PRO_TRUSTED_PROXY_HOPS`               | 否               | 速率限制读取代理 IP 时信任的代理层数；直连保持 `0`，单层 Nginx/Caddy 使用 `1`         |
+| `VOZEB_PRO_ALLOW_PRIVATE_UPSTREAMS`          | 否               | 默认 `0`；只有接入管理员控制的 Ollama/局域网模型时才设置为 `1`                        |
+| `VOZEB_PRO_PRIVATE_UPSTREAM_HOSTS`           | 私网上游必填     | 允许访问的精确 Host/IP，逗号分隔；链路本地、云元数据和组播地址始终拒绝                |
+| `VOZEB_PRO_MAINTENANCE_TOKEN`                | 生产推荐         | 只供外部计划任务调用订单、邀请等维护接口，至少 32 个字符                              |
+| `VOZEB_PRO_WORKER_TOKEN`                     | 生产必填         | 只供 App 与生成 Worker 内部调用，至少 32 个字符且必须与维护令牌不同                   |
+| `VOZEB_PRO_WORKER_API_ORIGIN`                | 独立 Worker 可选 | Worker 调用主应用的站内地址；Compose 使用 `http://app:3000`，Render 注入私网 hostport |
+| `VOZEB_PRO_GENERATION_WORKER_ID`             | 否               | 生成 Worker 稳定标识；留空时由主机名和进程号生成                                      |
+| `VOZEB_PRO_GENERATION_WORKER_INTERVAL_MS`    | 否               | 空闲恢复批次初始间隔，默认 2000ms；连续空批次退避到 10000ms                           |
+| `VOZEB_PRO_GENERATION_WORKER_LANES`          | 否               | 单个 Worker 并行恢复通道数，默认 2                                                    |
+| `VOZEB_PRO_GENERATION_WORKER_HEARTBEAT_MS`   | 否               | Worker 心跳间隔，默认 15000ms                                                         |
+| `VOZEB_PRO_GENERATION_WORKER_STALE_MS`       | 否               | 就绪检查判定 Worker 失联的窗口，默认 90000ms                                          |
+| `VOZEB_PRO_APP_URL`                          | 文档站可选       | 独立文档站使用的主应用地址，使文档 favicon 跟随后台站点图标                           |
+| `FFMPEG_PATH`                                | 否               | 本机 FFmpeg 不在 PATH 时填写；Docker 已内置 FFmpeg                                    |
+| `FFPROBE_PATH`                               | 否               | 可选的 FFprobe 路径；默认使用 `FFMPEG_PATH` 同目录二进制或系统 PATH                   |
+| `VOZEB_PRO_CONTENT_MODERATION_PROVIDER`      | 否               | 作品审核信号 Provider：`manual`、`keywords` 或 `http`，默认人工审核                   |
+| `VOZEB_PRO_CONTENT_MODERATION_KEYWORDS`      | keywords 可选    | 逗号或换行分隔的风险关键词，只生成后台复核信号                                        |
+| `VOZEB_PRO_CONTENT_MODERATION_URL`           | http 必填        | 外部内容审核 HTTP 地址；服务端以 3 秒超时发送公开草稿字段                             |
+| `VOZEB_PRO_CONTENT_MODERATION_API_KEY`       | http 可选        | 外部审核 Bearer Token，仅保存在服务器环境变量                                         |
+
+## PostgreSQL
+
+源码运行示例：
+
+```dotenv
+VOZEB_PRO_DATABASE_PROVIDER=postgres
+DATABASE_URL=postgres://vozeb_pro:password@localhost:5432/vozeb_pro
+VOZEB_PRO_DATABASE_POOL_MAX=10
+VOZEB_PRO_DATABASE_SSL=0
+```
+
+云 PostgreSQL 开启 SSL 后默认验证服务端证书。供应商使用私有 CA 时设置 `VOZEB_PRO_DATABASE_SSL_CA`；不要为了绕过证书错误关闭校验。只有供应商明确无法提供可信证书链且已接受中间人攻击风险时，才将 `VOZEB_PRO_DATABASE_SSL_REJECT_UNAUTHORIZED=0` 作为临时措施。
+
+主 Compose 会根据这些变量创建数据库：
+
+```dotenv
+POSTGRES_DB=vozeb_pro
+POSTGRES_USER=vozeb_pro
+POSTGRES_PASSWORD=replace-with-a-strong-database-password
+```
+
+安装页不会保存数据库密码或一次性安装令牌。GET 状态检查只执行连接与表存在性查询；只有提交与服务器 `VOZEB_PRO_INSTALL_TOKEN` 一致的令牌并点击“初始化表结构”才会创建 `vozeb_pro_` 前缀表。创建首个管理员必须再次提交同一令牌，普通公开注册永远只创建普通用户。安装完成后可从 App 环境变量移除该令牌，不影响站点继续运行。
+
+使用宝塔宿主机 PostgreSQL 时，应用通过 `docker-compose.baota.yml` 的 host 网络连接 `127.0.0.1:5432`；不要同时启动默认 Compose 中的 PostgreSQL 服务。
+
+## 0.0.7 发布部署要求
+
+安装过 0.0.2 的用户必须停止旧服务并删除旧数据库或数据库卷，然后重新拉取 0.0.7 代码或镜像并重新安装项目。0.0.7 不支持沿用 0.0.2 数据库或原地升级；删除旧数据库会清除其中的数据。
+
+启动 0.0.7 后访问 `/install`，执行“初始化表结构”并创建首个管理员，再检查 `/api/health/ready` 返回 200 和 Worker 心跳。分别生成至少 32 个字符且互不相同的 `VOZEB_PRO_MAINTENANCE_TOKEN` 与 `VOZEB_PRO_WORKER_TOKEN`：App 持有两者，`generation-worker` 只持有 Worker 令牌；生产环境重新设置 `VOZEB_PRO_ENCRYPTION_KEY` 并妥善保存。
+
+0.0.7 只按当前 Schema 初始化固定 `vozeb_pro_` 前缀表，不包含 0.0.2 数据迁移或旧任务修复逻辑。Render Blueprint 使用付费 Web/Worker 与持久数据库/磁盘，安装前请确认平台费用。
+
+## 作品内容审核信号
+
+作品提交审核后仍必须由管理员在“内容运营 -> 作品管理”中作出通过或驳回决定。默认 `manual` 只记录“等待人工审核”；`keywords` 根据部署方自定义词表生成风险标签；`http` 将标题、说明、分类和标签发送到部署方配置的中立 HTTP Provider。三种模式都不会自动公开作品，外部 Provider 失败时回退为人工复核信号。
+
+```dotenv
+VOZEB_PRO_CONTENT_MODERATION_PROVIDER=keywords
+VOZEB_PRO_CONTENT_MODERATION_KEYWORDS=风险词一,风险词二
+```
+
+使用 `http` 时必须根据运营地区、隐私政策和供应商协议确认数据处理范围；API Key 不得放入普通用户设置或浏览器请求。
+
+## 站点地址与代理
+
+需要支付回调、上游读取站内参考素材或 HTTPS Cookie 时，配置真实域名：
+
+```dotenv
+NEXT_PUBLIC_SITE_URL=https://vozeb-pro.example.com
+```
+
+独立部署文档站时，可在文档容器设置主应用地址：
+
+```dotenv
+VOZEB_PRO_APP_URL=https://vozeb-pro.example.com
+```
+
+文档站的 `/favicon.ico` 会通过主应用同名入口读取后台配置的站点图标；未配置时继续使用文档镜像内置 Logo，不会连接主应用数据库。
+
+管理员后台的“使用文档”是主应用 `3000` 内的管理员操作说明，普通用户 `/help` 是独立的创作教程；开发、部署和数据库等技术文档继续由独立文档站 `3001` 提供，三者互不混用。
+
+上游模型需要网络代理时：
+
+```dotenv
+HTTPS_PROXY=http://proxy-host:7890
+HTTP_PROXY=http://proxy-host:7890
+ALL_PROXY=http://proxy-host:7890
+```
+
+代理变量只作用于服务端请求，不会下发给浏览器。
+
+公网模型渠道无需额外配置。只有部署者主动接入本机 Ollama 或受控局域网模型时，才同时开启 `VOZEB_PRO_ALLOW_PRIVATE_UPSTREAMS=1` 并把精确 Host/IP 写入 `VOZEB_PRO_PRIVATE_UPSTREAM_HOSTS`；系统仍会固定实际 DNS 解析地址、逐跳复验重定向，并始终拒绝云元数据、链路本地和组播地址。
+
+## 模型渠道与逻辑模型
+
+进入 `管理员后台 -> 上游配置 -> 模型渠道`：
+
+页面分为“渠道管理、协议中心、逻辑模型”三个工作区。新渠道使用固定五步向导：
+
+1. 选择内置协议或自定义协议。Seedance 2.0（SD2）、火山方舟视频和 Stable Diffusion（SD）是独立协议，不能混用。
+2. 填写渠道名称、Base URL 和协议需要的凭据。Stable Diffusion A1111/Forge 默认无需 API Key；自定义协议可选择无需鉴权、Bearer、X-API-Key 或自定义 Header。
+3. 拉取并合并模型目录；上游没有目录接口时手工填写模型 ID，后续同步不会删除手工模型。
+4. 按上游模型名自动同步逻辑模型：跨渠道同名模型自动合并，不同名模型自动独立，并可为尚未配置的能力设置默认模型。
+5. 复核协议、模型和逻辑绑定；确认连接信息与绑定完整后启用渠道，也可以先保存为停用草稿。
+
+未知上游选择“自定义协议”，粘贴官方文档 URL、完整 cURL、请求 JSON 和成功响应 JSON。系统先做确定性解析，在默认文本模型可用时生成受固定 Schema 约束的补充草稿；草稿应用到具体模型后仍需管理员复核。渠道启用后，管理员在用户端文本、图片、视频或音频工作台发起真实业务请求验证返回与扣费。当前草稿保存在具体渠道中，不提供跨渠道的全局版本发布或回滚。
+
+默认文本模型同时用于工作台 Agent、Canvas 规划和创作复盘。渠道 API Key 通过服务端保存，普通用户只看到逻辑模型名称。
+
+## 生成任务 Worker 与回调
+
+页面读取只会低成本唤醒当前任务。生产环境还需要常驻 `generation-worker`，使用户关闭页面后仍能使用已保存的上游任务 ID 继续查询并登记结果。默认、宝塔、低内存、外部数据库和本地 Compose 均声明了独立 Worker 服务；源码开发和 `npm start` 由应用启动脚本监督 Worker，也可以单独运行：
+
+```bash
+cd web
+npm run worker:generation
+```
+
+App 与 Worker 必须共享同一个至少 32 字符的 `VOZEB_PRO_WORKER_TOKEN`，并与只保存在 App/外部调度器中的 `VOZEB_PRO_MAINTENANCE_TOKEN` 保持不同。独立部署 Worker 时再设置 `VOZEB_PRO_WORKER_API_ORIGIN`；Worker 不应读取 App 的完整 `.env`，也不得获得外部维护令牌、`VOZEB_PRO_INSTALL_TOKEN`、数据库、支付、模型或存储密钥。同一实例的 Worker ID 应保持稳定，便于就绪检查和故障诊断。`/api/health/ready` 会把缺少 Worker 令牌、令牌未隔离、从未收到心跳或心跳过期报告为生成 Worker 未就绪。
+
+图片、视频和音频结果统一由 Worker 查询并写入本地任务；渠道接入不要求配置额外回调密钥。
+
+## 媒体存储
+
+外部存储关闭时，图片、视频和音频写入 `VOZEB_PRO_DATA_DIR`。用户上传和长期产物位于 `reference-assets/permanent/YYYY/MM/DD/{images|videos|audio}`，生成日志媒体位于 `generation-assets/permanent/YYYY/MM/DD/...`；临时参考素材位于 `reference-assets/temporary/...`，默认 24 小时过期。容器部署必须持久化整个数据目录。
+
+管理员在 `系统管理 -> 本地媒体` 查看本机文件、大小、来源、引用和临时期限，并可单删、批量删除或清理过期文件。在 `系统管理 -> 外部存储` 可配置通用 S3 兼容 Endpoint、Region、Bucket、Access Key、Secret Key、对象前缀和 path-style 模式，适配 AWS S3、阿里云 OSS、腾讯云 COS、MinIO 等兼容服务；`系统管理 -> 数据备份` 提供脱敏业务备份导入导出。
+
+开启外部存储后，新上传和新生成媒体只写对象存储，本地不保留持久副本；关闭后新媒体恢复本地写入。历史媒体始终按登记的 Provider 读取，不会因当前开关改变位置。后台可分批迁移已有本地媒体，只有对象上传和登记成功后才删除本地源文件。
+
+## 技术数据维护
+
+管理员在 `系统管理 -> 系统设置 -> 数据维护` 配置过期 Session、过期或已使用邮箱验证码、到期生成任务和过期临时媒体四类清理开关，以及每类单批处理数量。四类默认启用，批次默认 `100`、可配置范围 `1-500`；这些值只控制一次维护请求的数据库工作量，不是重试次数、等待时间或生成性能限制。
+
+生产环境由部署方的 Cron、宝塔计划任务或云平台 Scheduler 调用维护接口；调度频率应根据实际到期量、数据库负载和运营要求确定，应用不在普通读取、写入或媒体访问路径中偷偷触发清理：
+
+```bash
+curl -fsS -X POST \
+  -H "Authorization: Bearer $VOZEB_PRO_MAINTENANCE_TOKEN" \
+  https://vozeb-pro.example.com/api/maintenance/data-lifecycle/run
+```
+
+接口每次只执行一个配置批次。临时媒体删除前会重新统计创作会话、素材库、Canvas、短剧、生成记录和发布作品等全站引用；仍有引用的对象保留并在结果中报告。该维护能力不会自动删除创作对话、长期媒体、审计、积分、订单或支付记录，也不能替代部署地区适用的法定保留、用户删除请求和诉讼保全制度。
+
+## SMTP 与注册
+
+SMTP 在后台 `账号与邮箱` 配置。建议先测试邮箱，再开启邮箱注册。注册验证码、找回密码和邮箱换绑会共用该 SMTP 配置。
+
+## 支付
+
+后台支持 Stripe、支付宝、微信支付、PayPly 和人工确认。支付宝始终是一个用户支付渠道，管理员在“支付渠道”中使用“接入方式”二选一配置“官方支付”或“当面付”：官方支付跳转电脑网站收银台，当面付返回扫码二维码，两种方式共用 App ID、RSA2 回调验签和退款配置，不能同时启用。支付宝大陆支付商品使用人民币 `CNY`，非 CNY 订单会在请求上游前拒绝。密钥可以保存在后台加密配置中，也可以由环境变量提供兜底；环境变量 `VOZEB_PRO_ALIPAY_MODE` 可填写 `official`（默认）或 `face_to_face`。后台的回调、支付成功返回和取消返回地址均可留空，系统会自动使用当前网站地址；只有需要改用其他域名或自定义页面时才覆盖。当面付不使用同步返回地址。回调入口：
+
+```text
+/api/billing/webhooks/stripe
+/api/billing/webhooks/alipay
+/api/billing/webhooks/wechat
+/api/billing/webhooks/payply
+/api/billing/webhooks/custom
+```
+
+完整支付变量见仓库根目录 `.env.example`。生产启用前必须验证下单、回调验签、订单开通、退款和账单对账。
+
+待支付订单会在用户或管理员读取订单时自动检查并关闭。生产环境还应配置外部调度，每 5 分钟调用一次维护接口，使无人访问时也能及时清理：
+
+```bash
+curl -fsS -X POST \
+  -H "Authorization: Bearer $VOZEB_PRO_MAINTENANCE_TOKEN" \
+  https://vozeb-pro.example.com/api/maintenance/billing-orders/expire
+```
+
+宝塔使用“计划任务 -> Shell 脚本”，Docker 可使用宿主机 Cron，云部署使用平台 Scheduler。接口采用同一令牌和幂等批处理，不依赖单机进程定时器；未配置令牌时维护接口保持关闭。系统超时关闭的订单在支付商确认真实付款后仍可安全完成开通，管理员手动关闭的订单不会被重新打开。
+
+## 配置检查顺序
+
+1. `/install` 显示 PostgreSQL 与 schema 正常。
+2. 管理员账号可登录。
+3. 文本默认模型通过能力检查。
+4. 图片/视频/音频按启用能力逐项检查。
+5. 需要参考素材时检查站点域名可被上游渠道读取。
+6. 检查 `VOZEB_PRO_DATA_DIR` 可写且已挂载持久数据卷。
+7. SMTP 和支付分别通过后台测试入口。

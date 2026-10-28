@@ -1,0 +1,234 @@
+---
+title: 数据库结构
+description: VOZEB PRO PostgreSQL 主库表结构与 Repository 边界
+---
+
+# 数据库结构
+
+VOZEB PRO 商业版默认使用 PostgreSQL 作为主库。数据库初始化 SQL 由 `web/src/lib/server/database/schema.ts` 维护，服务端统一通过 `web/src/lib/server/database/` 下的 Repository 访问主库。
+
+## 环境变量
+
+```bash
+VOZEB_PRO_DATABASE_PROVIDER=postgres
+DATABASE_URL=postgres://vozeb_pro:change-me@localhost:5432/vozeb_pro
+VOZEB_PRO_DATABASE_POOL_MAX=10
+VOZEB_PRO_DATABASE_SSL=0
+VOZEB_PRO_ENCRYPTION_KEY=64位十六进制或32字节Base64密钥
+```
+
+首次部署后访问 `/install`。状态 GET 只读检查 `DATABASE_URL`、PostgreSQL 连接、表结构和管理员数量，不执行 DDL；表结构由安装页 POST 初始化操作显式创建。有效的 32 字节加密密钥是初始化和创建首个管理员的前置条件。
+
+如果只需要本地文件存储体验，可显式配置：
+
+```bash
+VOZEB_PRO_DATABASE_PROVIDER=file
+```
+
+## 表名前缀
+
+VOZEB PRO 的 PostgreSQL 真实表名统一使用项目名前缀 `vozeb_pro_`。业务代码里仍然使用逻辑表名，例如 `users`、`billing_orders`、`generation_logs`；数据库执行层会统一映射为真实表名：
+
+- `users` -> `vozeb_pro_users`
+- `billing_orders` -> `vozeb_pro_billing_orders`
+- `generation_logs` -> `vozeb_pro_generation_logs`
+
+这样同一个 PostgreSQL 数据库里即使存在其他业务表，也能清楚区分 VOZEB PRO 的数据。Schema 中的显式索引和会生成索引的命名唯一约束也必须使用 `vozeb_pro_` 前缀，避免与同一 `public` Schema 的其他应用对象重名。无前缀表不会被自动删除；当前部署和后续读写只使用 `vozeb_pro_` 前缀表。
+
+## 核心表
+
+- `vozeb_pro_schema_migrations`：已应用的数据库结构版本。
+- `vozeb_pro_app_settings`：站点、注册、邮箱、积分、生成、支付配置、逻辑模型目录、渠道绑定和默认模型等全局设置；`logical_models` JSONB 保存用户可见模型及其能力、上游模型、渠道、启用状态和优先级，`generation_cost_control` JSONB 保存管理员配置的单任务、单用户每日和全站每日积分成本上限，三个值为 `0` 时均表示不限制；`data_lifecycle` JSONB 保存四类技术到期清理开关和单类批次大小，不承载对话、支付、审计等长期业务数据的法律保留期限。
+- `vozeb_pro_object_storage_settings`：S3 兼容外部存储单例配置，保存启用状态、Endpoint、Region、Bucket、对象前缀、path-style 模式及加密后的 Access Key/Secret Key；管理接口只返回密钥是否已配置，不回传明文。
+- `vozeb_pro_system_model_channels`：系统模型渠道、分别加密保存的 API Key 与渠道生成回调密钥、模型列表和高级配置；后台不保存渠道验证记录。
+- `vozeb_pro_entitlement_plans`：商业套餐权益、每日额度、调用限制和功能标记；新用户不再通过套餐获得注册初始积分。
+- `vozeb_pro_users`：用户账号、角色、状态、头像存储键、最多 160 字的个人简介、当前套餐、积分余额和密码哈希；`admin_permissions` JSONB 保存管理员的显式职责列表，并由 CHECK 约束保证为数组，普通用户保持空数组。管理员 TOTP MFA 使用 `mfa_secret_ciphertext` 保存 AES-GCM 密文，`mfa_enabled_at` 表示已完成验证并启用，CHECK 约束禁止启用时间存在但密文缺失。公开注册还原子保存当时的服务条款版本/链接、隐私政策版本/链接和同意时间，五个留痕字段必须同时为空或同时存在。管理员代建账号不伪造用户同意记录。公开创作者接口只按用户名返回允许公开的资料字段，不暴露邮箱、内部用户 ID、职责、MFA 密文或协议留痕。
+- `vozeb_pro_sessions`：登录会话 token 哈希和过期时间。
+- `vozeb_pro_account_deletion_requests`：账号注销申请、用户资料快照、申请状态、管理员处理备注与处理人快照；同一用户同一时间只能存在一条待处理申请，受理不会自动停用账号或删除业务数据。
+- `vozeb_pro_rate_limits`：PostgreSQL 多实例共享的接口限流窗口，保存哈希后的业务键、原子请求计数和重置时间；数据库不可用时服务端临时退回进程内保护。
+- `vozeb_pro_email_codes`：注册、换绑邮箱、找回密码验证码及失败尝试次数。
+- `vozeb_pro_quota_usage`：按用户、日期和生成能力保存每日积分与次数占用；套餐关闭但生成成本保护启用时仍会写入，以便按用户和全站聚合实际积分成本，退款会原子回退对应日期的占用。
+- `vozeb_pro_point_records`：积分流水；非空幂等键全局唯一，AI 消费同时保存服务端请求指纹，用于拒绝同一业务身份对应不同模型、渠道、调用类型或请求参数的重放。
+- `vozeb_pro_billing_products`：可售卖套餐商品，分别记录一次性永久积分、套餐有效期内每日赠送积分、价格、生效周期和上下架状态。
+- `vozeb_pro_promotion_campaigns` / `vozeb_pro_promotion_products`：限时促销活动及商品活动价；有效区间使用 `[starts_at, ends_at)`，活动价必须低于商品日常价，同一商品的启用活动不得时间重叠。
+- `vozeb_pro_coupon_templates` / `vozeb_pro_coupon_template_products`：固定金额或比例优惠券模板及适用商品，保存门槛、封顶、是否叠加活动、领取开关、发行总量、每用户限领、有效期和发行/核销计数。
+- `vozeb_pro_user_coupons`：用户持有的优惠券，状态为 `available/locked/redeemed/expired/revoked`；下单时按订单锁定，取消或超时时原子释放，支付成功后核销。
+- `vozeb_pro_coupon_redemptions`：订单优惠券核销凭证，每个订单最多一条；整单退款将核销标记为 `refunded`，不自动返券，避免退款套利。
+- `vozeb_pro_referral_programs`：单例邀请计划设置，保存功能开关、首单实付门槛、冷静期、邀请人积分、新用户积分或优惠券、月度/活动上限和自动冻结策略。
+- `vozeb_pro_referral_codes`：每个用户唯一的稳定邀请码；新邀请码由数据库唯一的公开账号 ID 生成，不再依赖随机碰撞重试。表内只保存聚合点击数和最后访问时间，不保存原始 IP、完整 User-Agent 或设备指纹。
+- `vozeb_pro_referral_relationships`：单层邀请关系和归因摘要，受邀用户唯一；保存 HMAC 网络/支付身份风险信号、人工风险状态和处置证据，禁止自邀、重复绑定和两层循环邀请。
+- `vozeb_pro_referral_rewards`：首笔有效实付订单生成的邀请人/新用户奖励记录，保存待结算、已发放、已撤销、已拒绝和撤销待复核状态，并关联积分流水、优惠券和触发订单。
+- `vozeb_pro_billing_orders`：商业订单主表，记录订单号、商品快照、套餐、支付商单号、支付状态和生效信息；日常总价、活动优惠、券优惠、实付金额、活动/用户券关联及 `pricing_snapshot` 均作为权威价格快照保存，支付、退款和对账只读取实付快照。状态包括 `pending/paid/closed/canceled/refunding/refunded`，退款外部调用期间使用 `refunding` 认领状态。过期待支付订单由原子批处理更新为 `closed` 并记录 `close.source=expiration-job`，多实例使用 `FOR UPDATE SKIP LOCKED` 并发执行不会重复关闭或遗留券锁。独立 `created_at` 索引用于后台财务日期窗口聚合；支付商订单号与支付号分别使用 `(provider, provider_order_id)`、`(provider, provider_payment_id)` 定向索引，对账不再模糊搜索订单列表；财务摘要的对账子查询复用同一日期窗口内的支付流水，不重新扫描窗口外流水。
+- `vozeb_pro_payment_transactions`：支付流水，记录支付商交易号、支付渠道、金额、状态和原始回调摘要；独立 `created_at` 索引用于支付金额和状态的日期窗口聚合。
+- `vozeb_pro_billing_refund_jobs`：整单退款外部调用与本地补偿任务，保存支付商退款身份、真实尝试次数、租约、待处理时间、错误摘要和补偿载荷。每次维护调度只认领并执行一次尝试，后续节奏由外部维护调度决定；表内不设置固定最大尝试次数或指数退避。
+- `vozeb_pro_billing_reconciliation_runs`：支付商账单导入对账批次，保存渠道、来源、导入人、文件名、行数、匹配数、异常数和金额差额摘要。
+- `vozeb_pro_billing_reconciliation_rows`：支付商账单对账明细，保存规范化后的订单号、支付商流水号、金额、币种、状态、本地匹配订单和差异代码；不保存整份原始 CSV。
+- `vozeb_pro_user_plan_assignments`：用户套餐生效记录，用于保存由订单、CDK、管理员或系统发放产生的套餐权益周期。
+- `vozeb_pro_payment_provider_events`：支付回调事件，用于保存支付商事件 ID、签名校验结果、原始 payload、`processing_at` 认领时间和处理状态，支持重复回调、超时接管和失败释放。
+- `vozeb_pro_cdk_codes` / `vozeb_pro_cdk_redemptions`：CDK 和兑换记录。新 CDK 使用同一条记录的完整 UUID 生成稳定密钥，不再预查并执行固定次数的随机碰撞重试；PostgreSQL 后台列表使用数据库侧的关键词、状态筛选、聚合统计和分页，只读取当前页兑换明细，文件 Provider 保持相同业务结果。
+- `vozeb_pro_announcements`：站内公告。
+- `vozeb_pro_prompts` / `vozeb_pro_prompt_seed_sources`：公共提示词、用户提示词和种子来源。
+- `vozeb_pro_generation_logs` / `vozeb_pro_generation_log_assets`：图片/视频生成日志和结果资源地址；工作台日志通过 `conversation_id` 关联可恢复的 Agent 对话，`created_at` 独立索引用于后台近 7 日运营聚合，避免读取日志正文和媒体资产。
+- `vozeb_pro_generation_tasks`：文本、图片、视频、音频、Agent 和短剧整集合成（`render`）异步任务状态，用于跨请求、重启和多实例查询；数据库状态统一为 `pending/running/success/error/paused/cancelled`，各上游或 Agent 的 `planning/completed/failed` 等状态会在写入索引列时归一化，原始状态仍保留在 JSON payload 中。`execution_phase` 独立保存 `created/submitting/submitted/polling/result_ready/persisting/needs_review/review_pending/reviewing/review_unavailable/completed`，并通过 `upstream_task_id/channel_id/provider/query_path`、提交/轮询时间、上游状态、结果载荷、Worker 和租约字段恢复原任务。Agent 普通生成完成后以成功任务进入持久复盘阶段；复盘调用失败会直接记录为不可用，不使用未配置的固定次数重复计费，也不回滚已成功生成结果。表内同时保存 `conversation_id/run_id/surface/project_id/parent_task_id/attempt_no/client_request_id`，用于后台任务中心追踪会话、运行、项目、父任务、尝试次数和幂等请求；到期恢复索引只覆盖非终态且可自动推进的执行阶段。非空 `(channel_id, upstream_task_id)` 唯一，保证可信回调只能精确匹配一条本地任务。
+- `vozeb_pro_generation_concurrency_reservations`：PostgreSQL 多实例生成并发预约。事务只负责按用户和任务类型加 advisory lock、清理过期预约、计算活动任务与尚未物化的预约并写入稳定请求 ID；上游提交和任务创建在事务结束后执行，完成或异常时删除预约。已落库且 `client_request_id` 相同的活动任务不会和预约重复计数。
+- `vozeb_pro_generation_worker_heartbeats`：生成 Worker 的稳定 ID 与最近心跳时间；就绪检查按最近心跳和部署配置的失联窗口判断后台恢复是否可用。
+- `vozeb_pro_generation_webhook_events`：渠道级生成回调幂等与对账记录，以 `(channel_id, event_id)` 为主键，保存上游任务 ID、请求体哈希、签名时间、匹配到的站内任务、处理状态和收取/处理时间；相同事件 ID 的不同载荷会累计冲突次数并保存最近冲突哈希和时间，不保存回调密钥、渠道 API Key 或完整请求头。
+- `vozeb_pro_creative_conversations`：统一创作会话，保存用户、`chat/canvas/drama` Surface、`agent/image-workbench/video-workbench/canvas/drama` 来源、可选项目、标题、状态、最近消息时间、持久滚动摘要和摘要覆盖到的消息序号；Surface、来源与项目创建后不可变。`image-workbench` 与 `video-workbench` 仅保留为历史数据和媒体来源分类，新建图片、视频与音频创作统一写入 `/create` 的 `agent` 会话。列表按来源定向过滤并在数据库分页，禁止读取完整会话表后在 Node.js 中筛选。
+- `vozeb_pro_creative_messages`：会话消息，按会话内连续 `sequence` 排序，保存角色、运行状态、正文、Run 关联和结构化 metadata。工作台打开历史时默认读取最新 50 条，并以 `beforeSequence` 向前分页，禁止固定读取最早消息导致新消息被截断；Agent 上下文已保存滚动摘要后只读取 `contextSummaryThroughSequence` 之后的消息，避免长会话重复加载已压缩历史。
+- `vozeb_pro_creative_assets`：稳定创作资产，保存 `assetId`、来源 Run/任务/消息、父资产、顺序、文本内容或持久媒体位置及媒体信息；不保存 base64。
+- `vozeb_pro_creative_run_events`：Agent Run 持久事件，使用递增 `bigserial` ID 为 SSE 断线续传提供精确游标；PostgreSQL 事务写入事件后发送 `vozeb_pro_run_events` 通知唤醒其他实例，通知不承载业务数据，丢失时仍从本表恢复。
+- `vozeb_pro_canvas_projects`：Canvas 项目聚合快照，保存用户、标题、创作会话 ID、节点、连线、视口和项目助手会话；列表查询只投影标题、时间和节点/连线计数，进入单项目后才读取完整快照。交互保存按用户、项目、`updatedAt` 和 mutation ID 执行单次条件更新，PostgreSQL 在 JSONB 内按稳定实体 ID 原位合并并保持数组顺序，文件 Provider 在项目锁内应用同一 mutation；幂等标识仅为服务端内部字段，不进入公开项目响应。
+- `vozeb_pro_library_assets`：用户素材库聚合记录，保存文本或服务器媒体引用、标签、来源和备注；不保存媒体 base64，素材页按用户、类型、关键词和页码在服务端裁剪。
+- `vozeb_pro_local_media_assets`：图片、视频和音频的统一媒体登记表，保存稳定站内 `storage_key`、本地/对象存储 Provider、对象存储配置与对象 Key、同步时间、临时/长期分类、用户归属、原文件名、来源、会话/Run/任务/项目关联、MIME、大小和过期时间；媒体读取与删除以该登记和业务引用检查为权限边界。
+- `vozeb_pro_drama_projects`：短剧项目聚合快照，保存用户、标题、状态和完整 `project_json`；项目内包含创作会话 ID、多集、角色/场景/道具/线索、内容审核状态、分镜及图片、视频、音频、整集合成任务状态，并按用户与更新时间建立列表索引。
+- `vozeb_pro_drama_project_versions`：短剧项目独立版本快照，按项目保存递增版本号、保存原因、完整快照和创建时间；项目或用户删除时级联删除，`(project_id, version)` 保持唯一。
+- `vozeb_pro_published_works`：作品稳定身份，保存所有者、公开 slug、素材/Canvas/短剧来源、当前编辑版本、当前公开版本、生命周期、访问量、精选状态和用户下架时间；slug 忽略大小写唯一，下架或公开版本变化会清除精选状态。
+- `vozeb_pro_published_work_versions`：不可变发布版本，保存标题、说明、用户确认公开的必填提示词 `public_prompt`、分类、标签、可见性、作者展示快照、内容审核 Provider/风险信号及 `draft/pending/approved/rejected/taken_down` 审核状态；同一作品的版本号唯一，审核通过时在事务内原子切换公开版本。自动信号不能直接批准公开，内部 Agent 规划与模型理由不得写入 `public_prompt`。
+- `vozeb_pro_published_work_assets`：版本媒体引用，只保存 `local_media_assets.storage_key`、媒体类型、封面/内容角色、顺序和公开展示元数据，不保存对象 Key、签名 URL、提示词或内部规划；外键与全局媒体引用计数共同阻止仍被作品版本使用的媒体被物理删除。用户或管理员先下架再永久删除作品时，会在事务中清空这些关联和全部发布快照，但不会删除源素材、源项目或媒体文件。
+- `vozeb_pro_published_work_cases`：统一保存作品举报与下架申诉，记录目标作品/版本、提交人、分类、说明、状态、处理结果、处理人和时间；部分唯一索引阻止同一提交人对同一版本产生重复未结案件。
+- `vozeb_pro_published_work_likes`：用户与公开作品的点赞关系，复合主键保证重复请求幂等；关系变化与作品计数在同一事务内更新，计数不得小于零。
+- `vozeb_pro_user_follows`：用户关注关系，复合主键防止重复关注，数据库约束禁止自关注；只有使用资料身份公开且账号有效的作品作者可以被新增关注。
+- `vozeb_pro_user_blocks`：用户拉黑关系，复合主键保证重复拉黑/取消幂等，数据库约束禁止自拉黑；创建关系时在同一事务内解除双方已有关注，任一方向拉黑后双方不得继续关注，关注与粉丝列表排除对应用户。
+- `vozeb_pro_user_notifications`：点赞和关注产生的用户级互动通知，保存稳定去重键、目标站内路径和已读时间；用户时间索引与未读部分索引支持服务端分页和未读数查询。
+
+当前作品社区不提供收藏、评论或评论举报，新建 Schema 不创建对应关系表、内容表、举报表或作品计数字段。
+
+文本、图片、视频、音频和漫剧整集合成终态更新使用带 `user_id + task_type + allowed status` 条件的原子 `UPDATE`；任务尝试元数据通过存储层原子 mutate 合并，避免取消状态被旧快照覆盖。用户取消、后台成功、后台失败和过期检查同时发生时只有一个状态转换能成功，退款由成功抢占终态或检测到已取消结果的一方执行。
+
+生成恢复通过 `worker_id + lease_until` 原子领取到期任务；页面唤醒和常驻 Worker 复用同一恢复服务。上游创建成功后先保存任务 ID，再进入查询阶段；查询到结果先写 `result_ready`，下一批只完成媒体保存。`submitting` 结果不确定且无法对账时进入 `needs_review`，只有管理员明确提供上游任务 ID、结果或确认失败后才能继续。Webhook 事件先按渠道与事件 ID 幂等登记，再匹配已有媒体任务并清除租约；未匹配事件保留为 `unmatched`，不得创建新任务。
+
+Agent Run 的状态与任务数组继续保存在 `generation_tasks.payload`，每个多副本子任务同时保存子任务 ID、完成状态、尝试次数和结果，恢复时复用已完成结果并继续轮询未完成任务；事件独立写入 `creative_run_events`。状态更新、助手消息终态和事件追加在同一 PostgreSQL 事务内完成；暂停、恢复、取消、完成和失败竞争时，旧 Run 快照不能覆盖更新后的状态。文件 Provider 使用串行 mutation queue 保持相同的进程内语义。短剧成本概览按 `user_id + project_id + task_type + status` 在数据库聚合，并使用 `generation_tasks_user_project_idx`，不读取数千条完整任务 JSON 后再汇总。
+
+- `vozeb_pro_audit_logs`：登录、后台操作、CDK 兑换等安全审计记录。
+
+## Repository 边界
+
+`createPostgresRepositories()` 暴露表级 Repository：
+
+- `settings`
+- `users`
+- `sessions`
+- `points`
+- `cdk`
+- `announcements`
+- `prompts`
+- `generationLogs`
+- `billing`
+- `promotions`
+- `coupons`
+- `referrals`
+- `auditLogs`
+- `workPublications`
+- `workGovernance`
+- `workCommunity`
+
+业务层后续应通过 Repository 读写数据库，不再直接依赖 `.data/*.json` 路径。图片、视频和音频二进制不混入业务主库表：外部存储关闭时写入服务器数据目录，开启时新媒体只写 S3 兼容对象存储。
+
+用户、Session、邮箱验证码、积分、CDK、公告和设置属于在线实体：PostgreSQL 使用定向 Repository、参数化 SQL 和必要的事务行锁更新，积分消费、失败退款与管理员调整在同一事务内完成用户锁定、每日钱包结算和幂等流水写入。在线功能必须按用户、实体、状态、时间窗、分页或聚合结果查询，不能先加载整张业务表再在应用层筛选；Canvas 交接幂等检查也直接按稳定项目主键读取，不加载用户全部画布 JSON。用户数据导出通过用户范围分页依次收集 Canvas、素材库、媒体登记和其他业务记录；PostgreSQL 下旧的完整 Canvas、素材和用户媒体读取入口会拒绝执行。认证、提示词、生成记录和注销申请的完整快照只保留给管理员备份事务，普通运行时代码不能直接调用。
+
+## 当前接入状态
+
+`web/src/lib/auth/` 通过用户、Session、设置、积分、CDK、邮箱验证码和公告 Repository 读写对应关系表；文件 Provider 保留相同业务接口和进程内串行 mutation。PostgreSQL 在线路径不再把完整 `AuthDatabase` 删除重写。管理员后台业务操作按 `admin_permissions` 与当前 Session 授权，不进行逐次密码/TOTP 复核；系统渠道 API Key 与管理员 MFA Secret 在数据库中只保存密文。MFA 启用或关闭会保留当前 Session 并撤销该管理员的其他 Session，服务器恢复命令会清除 MFA 并撤销全部 Session。常规业务备份不导出 MFA Secret，导入也不能覆盖服务器当前 MFA 状态。
+
+`web/src/lib/prompts/store.ts` 以及 `web/src/lib/server/` 下的生成日志、统一创作运行时、Canvas 项目、素材库、短剧项目和审计日志 Store 已接入 PostgreSQL。对应 JSON Provider 保留为单机文件部署方式。媒体业务记录始终保存稳定站内路径；读取时按每条媒体登记的 `storage_provider` 选择本地文件或短期对象签名地址，不受当前外部存储开关影响。
+
+按用户删除生成日志时，PostgreSQL 使用后台 `data_lifecycle.maintenanceBatchSize` 读取稳定排序批次，在事务内锁定并删除日志，每批提交后再按真实 `storageKey` 重新统计全站引用并清理媒体。管理员永久删除用户前会在同一用户行锁事务内分页锁定并快照该用户媒体登记，避免用户外键级联先删除对象存储定位信息；提交后才使用快照清理本地文件或 S3 对象。订单、邀请奖励、作品发布与治理等受保护商业记录仍遵循各自外键和运营留存规则，不能由媒体快照流程绕过。
+
+作品发布、广场治理和社区互动只在 PostgreSQL Provider 下启用。用户保存草稿、提交审核、编辑驳回稿、下架、重新上架以及管理员通过、驳回、下架都由 `workPublications` Repository 执行所有权校验和事务更新；用户主动下架后只能恢复最近一次已通过且公开可见的版本，管理员下架不能由用户直接恢复。用户或管理员只能在作品下架后永久删除发布主记录、全部版本快照、发布媒体关联、治理案件、通知和点赞，源素材、Canvas/短剧项目及媒体文件保持不变。`workGovernance` 使用稳定游标读取当前 `active + approved + public` 版本，并负责精选、举报、申诉和版本恢复。`workCommunity` 维护点赞、关注、拉黑、互动通知和 7/30 天榜单；只有有效账号、非作者且互动时已注册满 24 小时的点赞进入榜单分数。举报锁定提交时的版本，旧举报不会下架后来上线的新版本。公开媒体每次请求都会重新校验作品、版本和生命周期后再读取本地文件或生成短期对象签名地址。
+
+外部存储开关只决定新媒体写入位置。开启后新上传和新生成媒体只写对象存储，不保留本地持久副本；关闭后新媒体恢复写入 `VOZEB_PRO_DATA_DIR`。后台可把已有本地登记分批迁移到对象存储，迁移候选和过期清理均通过带条件和上限的批次查询读取；只有对象上传和登记更新成功后才删除本地源文件，失败文件保留用于重试。
+
+`billing`、`promotions`、`coupons` 和 `referrals` Repository 已提供套餐商品、限时活动、优惠券模板、用户券、邀请计划/关系/奖励、订单、支付流水、支付回调事件、用户套餐生效记录、核销凭证、支付商账单对账批次和对账明细的基础读写能力。下单事务按稳定顺序锁定商品与用户券，保存日常价、活动优惠、券优惠和实付快照；关闭、超时、支付成功与整单退款沿用同一订单事务更新券状态。受邀用户首笔可信实付订单在支付事务内生成唯一奖励，冷静期到期后由维护接口或后台人工结算；退款和管理员拒绝会撤销未结算奖励、反向积分流水或安全撤销未使用优惠券，已锁定/核销优惠券进入人工复核。后台财务摘要通过一次 PostgreSQL CTE 查询聚合订单、支付、渠道和对账异常；缺少成功支付的已支付订单按订单计数，正常已退款订单不会因保留原成功支付流水而误报。当前已接入套餐商品/促销/优惠券/邀请奖励配置 API、用户领券/报价/创建订单 API、订单列表 API、支付成功后开通套餐/发放积分服务、真实支付下单参数生成、后台账单导入对账，以及 `/api/billing/webhooks/{provider}` 支付回调入口。
+
+后台支付配置已通过 `vozeb_pro_app_settings.payment_config` 保存；Stripe、支付宝、微信支付、PayPly 和人工确认的密钥会按字段加密存储。支付宝在同一个 Provider 配置内保存 `mode=official|face_to_face`，因此官方支付和当面付天然互斥，不会向用户暴露两个支付宝渠道。支付下单、回调验签和后台配置状态读取时优先使用后台保存值，环境变量仍作为服务器部署兜底。
+
+全新 PostgreSQL 初始化后会写入 `free`、`creator`、`pro` 三档权益，并预置 `creator-monthly`、`pro-monthly` 两个可售套餐商品。重复执行 schema 初始化不会重复插入或覆盖运营后台后续修改。
+
+## 支付配置
+
+用户创建商业订单后，可调用 `POST /api/billing/orders/{id}/checkout` 生成真实支付下单参数。接口会校验订单归属和状态，然后按订单支付渠道返回 Stripe Checkout 跳转链接、支付宝官方支付 `alipay.trade.page.pay` 结构化表单/链接、支付宝当面付 `alipay.trade.precreate` 二维码、微信支付 v3 Native `code_url` 二维码内容，或 PayPly 自定义接口返回的支付链接、二维码内容、结构化表单。支付宝两种模式在用户端都显示为“支付宝”。
+
+管理员也可以在后台支付配置页直接填写渠道开关、下单密钥、回调验签密钥、PayPly 返回字段映射和返回地址。页面只返回配置状态与非密钥字段；已保存的密钥不会回显到浏览器，留空保存会保留原密钥。
+
+```bash
+VOZEB_PRO_STRIPE_SECRET_KEY=sk_live_replace-with-stripe-secret-key
+VOZEB_PRO_STRIPE_SUCCESS_URL=
+VOZEB_PRO_STRIPE_CANCEL_URL=
+VOZEB_PRO_STRIPE_PAYMENT_METHOD_TYPES=
+
+VOZEB_PRO_ALIPAY_APP_ID=replace-with-alipay-app-id
+VOZEB_PRO_ALIPAY_MODE=official
+VOZEB_PRO_ALIPAY_PRIVATE_KEY=
+VOZEB_PRO_ALIPAY_PRIVATE_KEY_PATH=
+VOZEB_PRO_ALIPAY_PUBLIC_KEY=
+VOZEB_PRO_ALIPAY_PUBLIC_KEY_PATH=
+VOZEB_PRO_ALIPAY_GATEWAY_URL=https://openapi.alipay.com/gateway.do
+VOZEB_PRO_ALIPAY_NOTIFY_URL=
+VOZEB_PRO_ALIPAY_RETURN_URL=
+
+VOZEB_PRO_WECHAT_PAY_APP_ID=replace-with-wechat-app-id
+VOZEB_PRO_WECHAT_PAY_MCH_ID=replace-with-wechat-merchant-id
+VOZEB_PRO_WECHAT_PAY_CERT_SERIAL_NO=replace-with-merchant-api-cert-serial-no
+VOZEB_PRO_WECHAT_PAY_PRIVATE_KEY=
+VOZEB_PRO_WECHAT_PAY_PRIVATE_KEY_PATH=
+VOZEB_PRO_WECHAT_PAY_API_V3_KEY=replace-with-32-byte-api-v3-key
+VOZEB_PRO_WECHAT_PAY_PLATFORM_CERT_SERIAL_NO=replace-with-platform-certificate-serial-no
+VOZEB_PRO_WECHAT_PAY_PLATFORM_PUBLIC_KEY=
+VOZEB_PRO_WECHAT_PAY_PLATFORM_PUBLIC_KEY_PATH=
+VOZEB_PRO_WECHAT_PAY_PLATFORM_CERTIFICATE=
+VOZEB_PRO_WECHAT_PAY_PLATFORM_CERTIFICATE_PATH=
+VOZEB_PRO_WECHAT_PAY_NOTIFY_URL=
+VOZEB_PRO_WECHAT_PAY_WEBHOOK_TOLERANCE_SECONDS=300
+
+VOZEB_PRO_PAYPLY_CHECKOUT_URL=
+VOZEB_PRO_PAYPLY_API_KEY=
+VOZEB_PRO_PAYPLY_API_KEY_HEADER=
+VOZEB_PRO_PAYPLY_MERCHANT_ID=
+VOZEB_PRO_PAYPLY_REQUEST_METHOD=POST
+VOZEB_PRO_PAYPLY_CONTENT_TYPE=application/json
+VOZEB_PRO_PAYPLY_EXTRA_HEADERS=
+VOZEB_PRO_PAYPLY_REQUEST_TEMPLATE=
+VOZEB_PRO_PAYPLY_NOTIFY_URL=
+VOZEB_PRO_PAYPLY_RETURN_URL=
+VOZEB_PRO_PAYPLY_CANCEL_URL=
+VOZEB_PRO_PAYPLY_RESULT_KIND=
+VOZEB_PRO_PAYPLY_URL_FIELD=data.payUrl
+VOZEB_PRO_PAYPLY_QR_FIELD=data.qrContent
+VOZEB_PRO_PAYPLY_FORM_FIELD=data.formHtml
+VOZEB_PRO_PAYPLY_PROVIDER_ORDER_ID_FIELD=data.tradeId
+VOZEB_PRO_PAYPLY_PROVIDER_PAYMENT_ID_FIELD=data.paymentId
+VOZEB_PRO_PAYPLY_WEBHOOK_SECRET=
+VOZEB_PRO_PAYPLY_WEBHOOK_SIGNATURE_HEADER=x-signature
+VOZEB_PRO_PAYPLY_WEBHOOK_ORDER_ID_FIELD=data.orderId
+VOZEB_PRO_PAYPLY_WEBHOOK_ORDER_NO_FIELD=data.orderNo
+VOZEB_PRO_PAYPLY_WEBHOOK_STATUS_FIELD=data.status
+VOZEB_PRO_PAYPLY_WEBHOOK_SUCCESS_STATUSES=paid,success,succeeded,completed
+VOZEB_PRO_PAYPLY_WEBHOOK_AMOUNT_CENTS_FIELD=data.amountCents
+VOZEB_PRO_PAYPLY_WEBHOOK_AMOUNT_YUAN_FIELD=data.amount
+VOZEB_PRO_PAYPLY_WEBHOOK_CURRENCY_FIELD=data.currency
+VOZEB_PRO_PAYPLY_WEBHOOK_PAID_AT_FIELD=data.paidAt
+```
+
+PayPly 下单由服务端向 `VOZEB_PRO_PAYPLY_CHECKOUT_URL` 发起请求，密钥只读取服务器环境变量或后台加密配置，不会返回给浏览器。默认使用 `POST + application/json`，也可通过 `VOZEB_PRO_PAYPLY_REQUEST_METHOD`、`VOZEB_PRO_PAYPLY_CONTENT_TYPE`、`VOZEB_PRO_PAYPLY_EXTRA_HEADERS` 和 `VOZEB_PRO_PAYPLY_REQUEST_TEMPLATE` 适配 GET、表单提交、额外请求头和自定义请求体模板。返回字段可通过 `VOZEB_PRO_PAYPLY_URL_FIELD`、`VOZEB_PRO_PAYPLY_QR_FIELD`、`VOZEB_PRO_PAYPLY_FORM_FIELD` 等点路径配置；表单 HTML 只在服务端解析为有限的 `action/method/fields`，脚本、事件处理器和其它节点不会进入浏览器。浏览器仅向校验后的 HTTP(S) 目标提交结构化隐藏字段，不执行上游 HTML。
+
+支付回调入口为 `/api/billing/webhooks/{provider}`。`stripe` 校验 `Stripe-Signature`，支付宝校验异步通知 RSA2 签名，微信支付校验 `Wechatpay-*` 回调头后使用 API v3 key 解密资源；PayPly 使用 `VOZEB_PRO_PAYPLY_WEBHOOK_SECRET` 或通用 `VOZEB_PRO_PAYMENT_WEBHOOK_SECRET` 做 HMAC-SHA256 验签，并可通过 `VOZEB_PRO_PAYPLY_WEBHOOK_*_FIELD` 配置回调字段路径。通过校验且状态为支付成功的回调会进入订单开通服务。
+
+支付宝 `official` 与 `face_to_face` 共用 `/api/billing/webhooks/alipay`、支付宝公钥验签和 `alipay.trade.refund` 整单退款。切换模式只影响后续新建 Checkout；已经创建且尚未过期的订单继续使用订单元数据中的原支付表单或二维码。生产启用当面付前仍需使用真实支付宝沙箱/商户能力验证预下单、扫码、异步通知、迟到通知、退款和账单对账。
+
+# Agent 任务
+
+创作 Agent Run 复用 `generation_tasks` 持久化，`task_type = agent`，JSON payload 保存会话 ID、Surface、可选项目、用户需求、运行状态和任务计划；事件写入 `creative_run_events`，生成结果登记到 `creative_assets`。图片、视频、音频和文本子任务继续使用现有任务类型，并写入父 Run、会话、项目和尝试次数关联。真实执行状态以后端记录为准，画布节点 metadata 仅承担展示和关联。
+
+规划上下文读取当前会话的持久摘要和最近 12 条已完成消息，更早消息按序写入 `creative_conversations.context_summary`，并用 `context_summary_through_sequence` 防止重复摘要。服务端按 Surface 和实际能力筛选模型、只加入用户显式选择的 Skill，并完整保留这份已验证上下文，不再叠加平台固定字符预算或输出 token 上限。当前 Run 的用户消息和助手占位消息不会重复进入自身规划上下文；真实供应商上下文能力仍需在启用渠道时验收。
+
+任务可保存多份媒体引用。依赖任务完成后，执行器从其稳定 `assetId` 重新读取持久媒体位置并注入下游图片或视频请求；`parent_asset_id` 保存首个父资产，其余父资产 ID 记录在资产 metadata 中。
+
+同一用户的 `client_request_id` 保持唯一。重复提交 Agent Run 时返回原运行，不重复创建用户消息、助手占位消息、子任务或计费。每份并发结果以独立子任务身份合并写回父任务，并追加 `task.child.completed/failed`；已经成功的子任务与资产不会因兄弟失败而丢失。SSE 使用 `creative_run_events.id` 作为 `Last-Event-ID`，只重放游标之后的事件。
+
+Chat 规划可以返回 Canvas 或短剧 `projectHandoff`。服务端使用 `handoff-{runId}` 作为稳定交接 ID，在所有生成任务完成后合并规划引用资产与本轮新资产，写入一次 `project.handoff` 持久事件，并将完整交接信息保存到助手消息 metadata 和 `run.completed`。Canvas 与短剧均通过服务端项目 API 按稳定交接 ID 幂等创建，不把媒体 base64 写入项目或交接记录。
+
+`app_settings.generation_concurrency` JSONB 同时保存 `agent/image/video/audio/text/render` 六类单用户并发上限；Agent 新建、暂停恢复和失败子任务重试读取后台 `agent` 值，漫剧整集合成读取 `render` 值，不使用代码内固定常量。
+
+后台 Agent Skill 保存在 `app_settings.agent_skills` JSONB 字段中，包含名称、用途、执行规则、启用状态和触发关键词。系统默认内置并启用“电商生图”Skill，管理员可在模型渠道设置页修改、停用、删除或新增 Skill。
+
+Skill 还可记录 `sourceUrl`、`sourceVersion` 和 `license`。默认电商生图 Skill 来源为 `buluslan/gpt-image2-ecommerce` v0.1.0（MIT），项目仅适配其工作流与模板匹配规则，不使用其 Codex CLI/Shell 执行链。

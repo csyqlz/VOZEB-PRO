@@ -1,0 +1,81 @@
+---
+title: 本地开发
+description: 使用 Node.js、pnpm 和 PostgreSQL 开发 VOZEB PRO
+---
+
+# 本地开发
+
+## 环境要求
+
+- Node.js 22
+- pnpm 11
+- PostgreSQL 16
+- FFmpeg，可选，仅媒体合成流程需要
+
+## 数据库
+
+```sql
+CREATE USER vozeb_pro WITH PASSWORD 'password';
+CREATE DATABASE vozeb_pro OWNER vozeb_pro;
+```
+
+## 环境变量
+
+```bash
+cp .env.example web/.env.local
+```
+
+修改：
+
+```dotenv
+NEXT_PUBLIC_SITE_URL=http://localhost:3000
+VOZEB_PRO_DATABASE_PROVIDER=postgres
+DATABASE_URL=postgres://vozeb_pro:password@localhost:5432/vozeb_pro
+VOZEB_PRO_DATABASE_POOL_MAX=10
+VOZEB_PRO_DATABASE_SSL=0
+VOZEB_PRO_ENCRYPTION_KEY=填写 openssl rand -hex 32 的输出
+VOZEB_PRO_INTERNAL_ORIGIN=http://127.0.0.1:3000
+```
+
+## 启动 Web
+
+```bash
+cd web
+pnpm install --frozen-lockfile
+pnpm run dev
+```
+
+访问 `http://localhost:3000/install`，确认连接后点击初始化 schema，再创建管理员。
+
+## 启动文档站
+
+```bash
+cd docs
+pnpm install --frozen-lockfile
+pnpm run dev
+```
+
+独立文档站固定访问 `http://localhost:3001`。`http://localhost:3000` 只属于 `web/` 主应用；如果该地址显示“VOZEB PRO 文档中心”，说明启动了 `docs/` 子项目或旧版文档脚本，而不是主应用。
+
+## 常用检查
+
+```bash
+cd web
+npm test
+npm run typecheck
+npm run build
+
+cd ../docs
+npm run types:check
+npm run build
+```
+
+## 目录
+
+- `web/src/app/`：页面与 Route Handler。
+- `web/src/lib/server/`：服务端任务、鉴权、模型路由、计费和存储逻辑。
+- `web/src/services/api/`：浏览器 API 客户端。
+- `web/src/stores/`：Zustand 状态。
+- `docs/content/docs/`：文档内容。
+
+模型渠道、逻辑模型和 SMTP 在管理员后台配置。真实密钥不要写进源码或提交到 Git。
